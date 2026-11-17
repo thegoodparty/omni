@@ -54,10 +54,8 @@ Each option has:
 3. One clickable wireframe of the full flow, in a 390px phone frame with the fold
    marked. The first screen is the entry point: the screen the user is on before
    they start, with the thing they tap. Then every step to the landing state.
-   Use a desktop frame instead only when the feature is desktop-only, and say why
-   on the frame (`data-desktop-reason`). When the ask is a desktop-only layout
-   (a side panel next to a preview), keep the phone flow and add one static
-   desktop frame of that screen under it, with `data-desktop-reason`.
+   When a desktop frame replaces it or joins it: "Phone first" in
+   `reference/wireframe-build.md`.
 4. A collapsed Other states appendix under the frame: the screens off the happy
    path the user will really hit (an error, processing, failed, empty, undo), and
    how they find out later when work happens in the background. The frame stays
@@ -104,10 +102,9 @@ from its source, never drawn as a gray block.
 
 ## People and data
 
-Use `docs/design-memory/fixtures.md`: Sarah Chen is the default Serve user (Sarah
-in copy), Dana Ortiz is the default Win user (Dana in copy), Jared is candidate success, Maplewood is the place. Follow every rule in
-`docs/design-memory/learned.md`, `docs/product-copy.md` and
-`docs/product-vocabulary.md`. Sample emails use example.com and phone numbers use 555. Never put real constituent, voter or CRM data on the page.
+Every person, place and sample value comes from
+`docs/design-memory/fixtures.md`, including the sample recipient a merge tag
+preview fills in. Never put real constituent, voter or CRM data on the page.
 
 ## Process
 
@@ -119,7 +116,9 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    routes, modals, emails, the data it stores. With the code, list `docs/adr/`
    and read every active record whose scope the feature touches, and every
    superseded one whose subject it touches (an approach rejected before goes
-   in `#questions`). Today's behavior is the starting
+   in `#questions`). For a design with no code change, listing them is
+   enough; code that implements it follows "Check before you change" in the
+   root `AGENTS.md`. Today's behavior is the starting
    point for the close-to-today option, and code facts often kill or reshape an
    option. Find the entry point: the route and the button or link that starts the
    flow today. Note which products the ticket names (Win, Serve or both).
@@ -156,16 +155,18 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    conflict between the rulebook and the code, every ticket claim the code
    doesn't match, every ADR from step 1 an option would reverse or weaken (its
    title and `decided_by`), and every decision for a person goes in
-   `#questions` on the page and in the post-back: decisions under "Decisions
-   needed", and each place the design copies code that breaks the rulebook
-   under "Rulebook vs code (copied, no action)". For the baseline, try the
+   `#questions` on the page and in the post-back, under "Decisions needed".
+   Which list a rulebook vs code conflict goes in: "Existing screens" item 2
+   in `reference/wireframe-build.md`. For the baseline, try the
    `query-analytics-data` skill (`amp` CLI), then the Amplitude MCP; if
    neither is reachable, write "Unknown" and put it in `#questions`. When the
    feature has no traffic yet, use the nearest sibling flow's numbers as a
    proxy, labelled as a proxy, and put "Unknown" for the feature itself in
    `#questions`. Before
    you list a decision, answer it yourself if the rulebook, `learned.md` or
-   the designer's direction already does, and name the rule. Rank "Decisions
+   the designer's direction already does, and name the rule. When the
+   designer's direction and a rule disagree, neither answers it: list it with
+   both sources. Rank "Decisions
    needed" with the ones that block the build first, and keep only what a
    person must decide. If this turns out to be a
    product or marketing problem rather than a design one, say so in the post-back.
@@ -180,7 +181,9 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    gap: build it from the closest fit and list it. A new component is only
    ever a proposal for the team, per §7. The list goes on the page in
    `#a-sources`. Then list what each option changes from today for
-   `#a-drops`.
+   `#a-drops`. When a designer gave a direction, map each clause of it to the
+   screen that delivers it; a clause not delivered as written goes in
+   `#<x>-drops` or "Decisions needed".
 6. **Build the page.** Copy `assets/page-template.html` to
    `<work>/page/src.html`, fill in the three options, then run
    `python3 scripts/build.py <work>/page/src.html <work>/page`. It inlines the
@@ -188,8 +191,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
 7. **Check.** `python3 scripts/check.py --skip-build-shape <work>/page/index.html`
    catches banned words, dead links, external requests and a missing brief,
    open questions list, entry point, Sends line, fold, appendix, Built from
-   list or What changes from today list, and flags
-   unearned muted text, banners, blank icons and off-scale spacing. Then render
+   list or What changes from today list, template sample text left on the
+   page, and flags unearned muted text, banners, blank icons and off-scale spacing. Then render
    it with `agent-browser` (headless Chromium), or Playwright (channel
    `chromium`) when `agent-browser` isn't installed. Playwright lives in the
    repo root `node_modules`, or the main checkout's when a worktree has none.
@@ -201,10 +204,15 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    overlapping, dead or off-system. A static desktop frame's controls, and
    controls listed as not part of this change, are exempt from clicking.
 8. **Review.** One round with a subagent that reads only the page, the ticket,
-   `reference/review-lens.md`, `reference/wireframe-build.md` and
-   `docs/product-design.md`. It clicks every path, answers every question in the
-   review lens against the page, checks the options are distinct and the copy
-   rules hold, and fixes what it finds. It may fix layout, structure and rule
+   `reference/review-lens.md`, `reference/wireframe-build.md`,
+   `docs/product-design.md`, `docs/product-copy.md`,
+   `docs/product-vocabulary.md`, `docs/design-memory/learned.md`,
+   `docs/design-memory/fixtures.md`, `packages/styleguide/COMPONENTS.md` and,
+   for one design, `gp-design` §3. It clicks every path, answers every
+   question in the review lens against the page, checks the options are
+   distinct, that every element has a source, that copy passes the copy docs,
+   that people and data come from `fixtures.md` and that every `learned.md`
+   rule holds, and fixes what it finds. It may fix layout, structure and rule
    breaks. Any copy it changes goes in `#<x>-drops` when it differs from
    shipped, and it never changes copy the ticket specifies without listing it
    there. It flags any option that changes an
@@ -219,8 +227,10 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    skill (`.claude/skills/build-shape/SKILL.md`) in UX mode on
    `<work>/page/src.html`. It writes one fragment per option to `<work>/build/`,
    which is reserved for those fragments: backups and tools go elsewhere.
-   Its notes go to `<work>/build-shape-notes.md`. Any risk it reports about
-   feature loss or an ADR goes into `#questions`.
+   Its notes go to `<work>/build-shape-notes.md`. A risk it reports about an
+   ADR goes under "Decisions needed"; one about feature loss goes in
+   `#<x>-drops`. Editing `#<x>-drops` changes the option's hash, so rerun this
+   step after it.
    Rerun `build.py`, which inlines each fragment at the end of its option. This
    step is required. Skip it only when no option touches the system (copy or
    layout only): then write one line on why to `<work>/no-build-shape.txt`.
@@ -237,8 +247,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
     in the Slack thread, if one asked) with the artifact link, the same link with `?build` for engineers,
     one line per option, the feedback we want, the new
     components each option needs (or "None"), the skip line from
-    `no-build-shape.txt` if there is one, and every line in `#questions` as a
-    question for a person. Add any cheap
+    `no-build-shape.txt` if there is one, every line under "Decisions needed"
+    as a question for a person, and the "Rulebook vs code" lines as FYI. Add any cheap
     variants worth testing later. Say that viewing needs a Good Party Vercel
     sign-in.
 

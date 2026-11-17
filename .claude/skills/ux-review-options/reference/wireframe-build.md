@@ -49,6 +49,7 @@ blocks in `gp-ui.css`. Never hard-code a hex value that a token already covers.
 | `gp-collapsible__trigger`, `gp-collapsible__content` | `CollapsibleTrigger`, `CollapsibleContent` | `aria-expanded`; `hidden` on closed content |
 | `gp-drawer-overlay`, `gp-drawer` (`__handle`, `__head`, `__title`, `__desc`, `__close`, `__body`, `__foot`) | `Drawer` (`DrawerOverlay`, `DrawerHandle`, `DrawerHeader`, `DrawerBody`, `DrawerFooter`), from the bottom on the phone | `hidden` on both when closed; sits inside its frame |
 | `gp-toggle-group`, `gp-toggle-group__item` | `ToggleGroup`, `ToggleGroupItem`, `variant="outline"` | `aria-pressed="true"` for on |
+| `gp-toggle-group gp-toggle-group--pills` | `ToggleGroup` `variant="pills"` | `aria-pressed="true"` for on |
 | `gp-stepper` (`__head`, `__bars`) | `Stepper` `variant="bar"`, as `OutreachFlowShell.tsx` mounts it | `is-done` on each filled segment |
 | `gp-channel-card` (`__tag`, `__icon`, `__text`, `__label`, `__sub`) | `ChannelCard` | `gp-channel-card__tag--info` for an offer tag |
 | `gp-alert` (`__title`, `__desc`, `__action`) | `Alert`, `AlertTitle`, `AlertDescription`, `AlertAction` | `gp-alert--info`, `--success`, `--destructive`; `--no-icon`; `data-earned="why"` or `check.py` flags it |
@@ -80,17 +81,18 @@ Cards are 12px radius with a 1px border. Don't change those.
   case everywhere.
 - **Phone first.** Every wireframe sits in a 390px phone frame with a 28px radius,
   unless the feature is desktop-only. Then it sits in a 1280px desktop frame with
-  `data-desktop-reason="..."` saying why. When the ask is a desktop-only layout
-  (a side panel next to a preview) in a flow that also runs on the phone, keep
-  the phone flow and add one static desktop frame of that screen under it, with
-  `data-desktop-reason` saying which layout it shows. Its controls don't need
-  to work.
+  `data-desktop-reason="..."` saying why. In a flow that also runs on the
+  phone, keep the phone flow and add static desktop frames under it when the
+  ask is a side-by-side layout (a side panel next to a preview) or the brief's
+  data shows desktop as a large share. Draw every step the desktop ask covers,
+  one frame each, with `data-desktop-reason` saying which layout it shows.
+  Their controls don't need to work.
 - **Desktop frames.** A desktop frame sits in `<div class="frame-scroll">` at a
   fixed 1280px, so on a phone it scrolls sideways instead of clipping. 1280 is
   the narrowest width where layouts that start at 1280 (a side panel) show. It keeps
   the phone's flow chrome (the header, and the footer with its actions) and
   the same content and actions as the phone, per `docs/product-design.md`
-  §10. Show every step the desktop ask covers, not only one.
+  §10.
 - **Flow steps vs dashboard screens.** A full-screen flow step has no dashboard
   top bar: it has the flow's own header, and its footer with the actions is
   pinned to the bottom of the screen. Draw it in `frame--phone frame--flow`,
@@ -118,12 +120,17 @@ that in a wireframe:
    pattern, same labels word for word. Copy the visual order, not the DOM order:
    the `OutreachFlowShell.tsx` footer is `flex-row-reverse` with the main action
    first in the DOM, so it shows Back on the left. When the sibling you copy
-   breaks a rulebook rule (a disabled button for missing input), follow the
-   rule and list it in `#questions` as rulebook vs code: where a reference
-   breaks a rule, the rule wins (`docs/product-design.md` §7). That holds only
-   for the parts the design changes: shared shell and chrome the ticket
-   doesn't change (the flow footer) is copied as shipped and listed under
-   "Rulebook vs code".
+   breaks a rulebook rule (a disabled button for missing input), this is the
+   one rule for where the conflict goes:
+   - In a part the design changes, follow the rule, not the sibling
+     (`docs/product-design.md` §7). That is a change from today: list it in
+     `#<x>-drops`.
+   - Shared shell and chrome the ticket doesn't change (the flow footer, the
+     header) are copied as shipped, even on a changed step, and listed under
+     "Rulebook vs code (copied, no action)".
+   - When the rule conflicts with the designer's direction, or the rulebook
+     ties fixing the gap to this change (`docs/product-design.md` §3, "move it
+     to a page"), list it under "Decisions needed" with both sources.
 3. **Compare.** After building, render today's screen and the page's version side
    by side and fix what differs. After each navigation, assert the URL is still
    the route you asked for and wait for a label copied from the source before
@@ -138,12 +145,11 @@ that in a wireframe:
    opened from an upload step) copies how the sibling flow does it. Count it
    as a segment in the progress bar only when it sits in the forward sequence
    the way the sibling's does; a sub-step that returns to the step that opened
-   it adds no segment. When the sibling breaks a rulebook rule, follow the rule
-   as in item 2. That includes the container: when the sibling makes the
-   sub-step a full step (a crop as its own step) and the container table in
-   `docs/product-design.md` §3 makes it a Drawer (a short, focused input), a
-   changed step follows the table and lists the sibling's pattern under
-   "Rulebook vs code". List any difference in `#a-drops`.
+   it adds no segment. When the sibling breaks a rulebook rule, item 2 says
+   what to do and where to list it. That includes the container: when the
+   sibling makes the sub-step a full step (a crop as its own step) and the
+   container table in `docs/product-design.md` §3 makes it a Drawer (a short,
+   focused input), a changed step follows the table.
 
 ## Spacing parity
 
@@ -154,6 +160,8 @@ A frame that mirrors an existing screen must measure the same as the real one.
    (spacing is 4px per step: `gap-2` is 8px, `gap-6` is 24px, `h-9` is 36px,
    `px-4` is 16px; `text-sm` is 14px on a 20px line, `text-xs` is 12px on a 16px
    line). Put the source file and the classes in a comment above your CSS rule.
+   For an arbitrary value (`p-[3px]`), put `/* tw: p-[3px] */` in the rule so
+   `check.py`'s spacing check skips it.
 2. **Check every constraint on size.** A fixed height (`h-9`) beats the padding
    and line height around it. Read the base variant too (`toggleVariants`,
    `ToggleGroup`) before you decide a size.
@@ -199,8 +207,8 @@ icon is blank.
   strings with the old and new text. "None" when nothing changes. When shipped
   copy you copy fails a `docs/product-copy.md` rule, the design rewrites it and
   lists the old and new text here. When the sibling whose copy you follow
-  breaks a rulebook rule, follow the rule and list it in `#questions` as
-  rulebook vs code (the rule wins, `docs/product-design.md` §7). `check.py` doesn't scan `#a-drops`,
+  breaks a rulebook rule, "Existing screens" item 2 says where it goes.
+  `check.py` doesn't scan `#a-drops`,
   `#questions` or `<code>` for banned words, so old strings can be quoted there
   and real prop names (`<code>variant="seamless"</code>`) can be quoted in
   Built from.
@@ -249,11 +257,9 @@ For a Win-only ticket, mark `<main class="page" data-product="win">`, so
 
 ## Words
 
-Follow `docs/product-copy.md`, `docs/product-vocabulary.md` and
-`docs/design-memory/learned.md`. US English, plain and short. No em dashes, no
-exclamation points, no emoji. `check.py` reads the banned list from "Words we
-do not use" in `docs/product-copy.md` each run. On Serve screens, never voters,
-elections or ballots.
+Words follow `docs/product-copy.md`, and Win vs Serve words
+`docs/product-vocabulary.md`. `check.py` reads the banned list from "Words we
+do not use" in `docs/product-copy.md` each run.
 
 ## Page rules
 

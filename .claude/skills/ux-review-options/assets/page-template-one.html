@@ -52,7 +52,9 @@ body { margin: 0; background: var(--brand-surface-secondary); }
 .frame--flow { height: 844px; min-height: 0; }
 .frame--flow .screen:not([hidden]) { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0; }
 .frame--flow .screen-body { flex: 1; overflow-y: auto; padding: 32px 24px; }
-.flow-foot { display: flex; justify-content: space-between; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--brand-border-secondary); background: #fff; }
+.flow-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--brand-border-secondary); background: #fff; }
+/* OutreachFlowShell.tsx footer: the main action is min-w-0 flex-1 below lg. */
+.flow-foot > .gp-btn:last-child { flex: 1 1 0; min-width: 0; }
 /* The fold: where the first screen ends. 660px on a 390 by 844 phone, 720px on desktop. */
 .fold { position: absolute; left: 0; right: 0; top: 660px; border-top: 2px dashed var(--brand-text-secondary); pointer-events: none; }
 .frame--desktop .fold { top: 720px; }
@@ -105,8 +107,8 @@ body { margin: 0; background: var(--brand-surface-secondary); }
   </ul>
   <!-- Decisions needed: every Unknown, ticket claim the code doesn't match, ADR the
        design would reverse or weaken (title and decided_by), and decision for a person.
-       Rulebook vs code: each place the design copies shipped code that breaks the
-       rulebook. The post-back repeats both. "None" when a list is empty. -->
+       Which list a rulebook vs code conflict goes in: reference/wireframe-build.md,
+       "Existing screens" item 2. The post-back repeats both. "None" when a list is empty. -->
   <h2>Open questions</h2>
   <div id="questions">
     <h3>Decisions needed</h3>
@@ -166,9 +168,23 @@ body { margin: 0; background: var(--brand-surface-secondary); }
       </div>
     </div>
   </div>
+  <!-- Optional: today's screen before the change (reference/review-lens.md, Presentation). Use it
+       when the design changes an existing screen and a reviewer needs the before to judge it:
+       one figure per changed screen in this one strip, copied from the source as shipped. check.py
+       doesn't require it and skips its frames when it counts folds.
+  <details class="appendix" id="a-today">
+    <summary>Today</summary>
+    <div class="appendix-grid">
+      <figure id="a-today-1">
+        <figcaption>Screen name, today</figcaption>
+        <div class="frame frame--phone"><div class="screen">The shipped screen, copied from its source</div></div>
+      </figure>
+    </div>
+  </details>
+  -->
   <!-- A desktop frame, when the ask needs one, goes inside a div with class frame-scroll,
        so it keeps 1280px and scrolls sideways on a phone. It carries data-desktop-reason and a fold. -->
-  <!-- Up to six states off the happy path, each one small static screen. -->
+  <!-- Every state the build will need (SKILL.md, One design), each one small static screen. -->
   <details class="appendix" id="a-appendix">
     <summary>Other states</summary>
     <div class="appendix-grid">

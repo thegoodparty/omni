@@ -28,37 +28,35 @@ doc, so a change there reaches the next design with no edit to this skill.
 The user gives a ClickUp ticket, a plain description, or both, plus any notes,
 transcripts or screenshots. A ticket is never required.
 
+Make one design unless the ask says options, explore or compare, or the
+trigger is a ticket moved to Committed; then make three options. Ask only when
+that is unclear.
+
 Ask only what you can't find in the ticket, the code or the docs, in one message:
 
-- **One design or options?** One design when the direction is settled. Three
-  options when the team still has to pick a direction.
 - **Win, Serve or both?** When the answer is one product but the code is
   shared with the other (a component both mount), the brief states what the
   change does to the other product.
 - **Where does the user start?** The screen and the thing they tap.
 
-Never ask the user for the measurement baseline. Try the `query-analytics-data`
-skill (`amp` CLI), then the Amplitude MCP; if neither is reachable, write
-"Unknown" and put it in `#questions` and the hand-back. When the feature has
-no traffic yet, use a sibling flow's numbers as a proxy, per
-`ux-review-options` step 4.
+Never ask the user for the measurement baseline: `ux-review-options` step 4
+says where it comes from.
 
 ## 2. Make it
 
-**Options.** Run the `ux-review-options` skill
+Run the `ux-review-options` skill
 (`.claude/skills/ux-review-options/SKILL.md`) with the ticket or the
-description. It builds three different approaches as one clickable page and
-publishes it.
+description, through step 9, then publish and post back per §4 here.
 
-**One design.** Run the `ux-review-options` pipeline as its "One design"
-section says, which lists the three-option rules that don't apply:
+- **Options.** Steps 1 to 9 as written: three different approaches on one
+  clickable page.
+- **One design.** As its "One design" section says, which lists the
+  three-option rules that don't apply. Steps 1 to 4 as written; step 5 for
+  the one design; steps 6 to 9 with
+  `.claude/skills/ux-review-options/assets/page-template-one.html`.
 
-- Steps 1 to 4 as written: read everything, find the prior art, pass the source
-  gate, write the brief.
-- Step 5 for the one design, as that "One design" section says.
-- Steps 6 to 9: build the page from `assets/page-template-one.html`, check,
-  review, then `build-shape` and the final check.
-- Publish (step 10) and post back (step 11) as §4 here says.
+When to add a desktop frame: "Phone first" in
+`.claude/skills/ux-review-options/reference/wireframe-build.md`.
 
 When the user wants it in the product instead (a working prototype in
 gp-webapp), build it there and follow `packages/gp-webapp/AGENTS.md`. The same
@@ -67,56 +65,26 @@ props.
 
 ## 3. Check before showing
 
-Before the user sees anything, check the result against the rulebook, not your
-memory of it:
+These checks run inside steps 1 to 8 of `ux-review-options`, against the docs
+above, not your memory of them:
 
-- Every element has a source, per "Every design shows what it's built from" in
-  `docs/product-design.md` §7. A part with no source is a gap: list it as a
-  proposal, never hand-roll it.
-- Copy passes `docs/product-copy.md` and `docs/product-vocabulary.md`.
-- People and data come from `fixtures.md`. No real voter, constituent or CRM data.
-- Every rule in `learned.md` holds.
-- Every claim the ticket makes about today's product matches the code. List
-  each mismatch as an open question.
-- Map each clause of the designer's direction to the screen that delivers it.
-  Any clause not delivered as written goes in What changes from today or
-  Decisions needed.
-- When the brief's data shows desktop as a large share, or the direction asks
-  for a side-by-side layout, include a static desktop frame, per "Phone first"
-  in `.claude/skills/ux-review-options/reference/wireframe-build.md`.
-- Where the rulebook and the shipped code disagree, copy the code on a screen
-  the design leaves unchanged, and list the conflict. In a new or changed step,
-  a sibling that breaks a rule is not copied: the rule wins
-  (`docs/product-design.md` §7), and the difference is listed too. The rule
-  wins only for the parts the design changes. Shared shell and chrome the
-  ticket doesn't change (the flow footer, the header) are copied as shipped,
-  even on a changed step, and listed under "Rulebook vs code", unless the
-  rulebook ties fixing that gap to changing the flow (`docs/product-design.md`
-  §3, "move it to a page"); then it goes under Decisions needed.
-- List `docs/adr/`. For each active record whose scope the design touches and
-  would reverse or weaken, put its title and `decided_by` in `#questions`.
-  Also read superseded records whose subject the design touches, and list
-  relevant history (an approach rejected before) in `#questions`. For a
-  design with no code change, that is enough. Any code change that
-  implements it follows "Check before you change" in the root `AGENTS.md`:
-  when a human decided the record, stop and confirm with them first.
+- Step 1: list `docs/adr/`, active and superseded records.
+- Steps 4 and 5: every ticket claim checked against the code, and each clause
+  of the designer's direction mapped to the screen that delivers it.
+- Step 8, the reviewer: every element has a source, copy, people and data
+  from `fixtures.md`, and every rule in `learned.md`.
+- Where a rulebook vs code conflict goes: "Existing screens" item 2 in
+  `.claude/skills/ux-review-options/reference/wireframe-build.md`.
 
 ## 4. Hand it back
 
-Publish the page per `ux-review-options` step 10 and give the link. If the
-person asked not to publish, give the local path to `index.html` instead (for a
-prototype in gp-webapp, the branch and route). Add one line on what it is, the
-gaps and proposed components (or "None"), and every open question for a person.
-`#questions` on the page and in the post-back holds two lists: "Decisions
-needed" (every Unknown, ticket claim the code doesn't match, ADR reversal and
-decision for a person) and "Rulebook vs code (copied, no action)". Before you
-list a decision, answer it yourself if the rulebook, `learned.md` or the
-designer's direction already does, and name the rule. When the designer's
-direction and a rule disagree, neither answers it: list it under Decisions
-needed with both sources. Rank "Decisions needed"
-with the ones that block the build first, and keep only what a person must
-decide. When there is
-a ticket, post the same on it, unless the person asked not to post.
+After step 9, publish the page per `ux-review-options` step 10 and give the
+link. If the person asked not to publish, give the local path to `index.html`
+instead (for a prototype in gp-webapp, the branch and route). Add one line on
+what it is, the gaps and proposed components (or "None"), and every open
+question for a person. What goes in `#questions` and how it is ranked:
+`ux-review-options` step 4. When there is a ticket, post back per step 11,
+unless the person asked not to post.
 
 ## When someone corrects the design
 

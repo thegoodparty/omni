@@ -49,7 +49,9 @@ the page and put the question in the comment you post back. Never invent a numbe
 ## Presentation
 
 - Phone first, with the fold marked.
-- Show today's screen before the change, where it helps.
+- Show today's screen before the change when the design changes an existing
+  screen and the before is needed to judge it: the optional Today strip in
+  `assets/page-template-one.html`.
 - Copy the page around the feature from source, so the change sits in its real
   context.
 - Say what feedback we want today, and the context someone needs to give it.
@@ -61,12 +63,12 @@ the page and put the question in the comment you post back. Never invent a numbe
 Check every option against `docs/product-design.md` and
 `docs/design-memory/learned.md`, especially:
 
-- Can every heading and step indicator be read in a second? (rule 33)
-- Are lists of six or more grouped and named? (rule 34)
-- Does it show the top one to three things and let people go deeper? (rule 35)
+- Can every heading and step indicator be read in a second? (`learned.md` rule 33)
+- Are lists of six or more grouped and named? (`learned.md` rule 34)
+- Does it show the top one to three things and let people go deeper? (`learned.md` rule 35)
 - Is the value said in dollars or outcomes where the user decides to pay or
-  commit? (rule 32)
-- Are buttons on the right, and does the stepper fit the flow? (rules 37 and 38)
+  commit? (`learned.md` rule 32)
+- Are buttons on the right, and does the stepper fit the flow? (`learned.md` rules 37 and 38)
 - When a control changes something shown elsewhere (a preview), is the change
   visible without scrolling at 375, at a readable size (preview text 12px or
   larger)? If it can't fit, say so in `#questions` instead of shrinking it.

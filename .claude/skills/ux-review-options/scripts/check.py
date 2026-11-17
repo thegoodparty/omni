@@ -21,6 +21,13 @@ the doc or the list is missing. Banned words, the Serve vocabulary and bare
 Every var(--x) with no fallback that a property uses, directly or through the
 tokens it points at, must be defined in the built page.
 
+The markup scans (muted text, banners, blank icons, duplicate ids, dead links)
+skip HTML comments, <style> and <script>. aria-label, placeholder, title and alt
+values are scanned for banned words, em dashes and "!" like visible text. Sample
+strings left from the templates (assets/page-template*.html) and any {{...}}
+fail. A CSS rule carrying a /* tw: p-[3px] */ marker copies a Tailwind arbitrary
+value and is exempt from the spacing check.
+
 --skip-build-shape is for the check before review, while build-shape has not run
 yet. The check before publishing runs without it.
 
@@ -73,6 +80,55 @@ def copy_doc_words():
     if not words:
         sys.exit(f'check.py: the "Words we do not use" list in {doc} is empty')
     return words
+
+
+def strip_markup(html):
+    """The page without comments, <style> and <script>, for scans that read markup."""
+    html = re.sub(r'<!--.*?-->', '', html, flags=re.S)
+    return re.sub(r'<(style|script)\b[^>]*>.*?</\1\s*>', '', html, flags=re.S | re.I)
+
+
+def strip_sections(html, cls):
+    """html without every <section class="cls"> through its matching </section>."""
+    while True:
+        m = re.search(rf'<section\b[^>]*\bclass="{cls}"[^>]*>', html)
+        if not m:
+            return html
+        depth, end = 0, len(html)
+        for t in re.finditer(r'<section\b|</section\s*>', html[m.start():]):
+            depth += -1 if t.group().startswith('</') else 1
+            if depth == 0:
+                end = m.start() + t.end()
+                break
+        html = html[:m.start()] + html[end:]
+
+
+ALLOWED_TEMPLATE_TEXT = {'Restart', 'Back', 'Office', 'Other states', 'Built from', 'What changes from today'}
+
+
+def template_samples():
+    """Sample text in #option-a of the templates that a filled page must replace."""
+    samples = set()
+    for t in (Path(__file__).resolve().parent.parent / 'assets').glob('page-template*.html'):
+        html = strip_markup(t.read_text())
+        span = section_span(html, 'option-a')
+        if not span:
+            continue
+        sec = html[span[0]:span[2]]
+        for part in visible_parts(sec):
+            line = ' '.join(part.split())
+            if line and '{{' not in line and line not in ALLOWED_TEMPLATE_TEXT:
+                samples.add(line)
+    return samples
+
+
+def resolve(val, defs, depth=0):
+    """val with each var(--x) replaced by its first definition, recursively."""
+    if depth > 20:
+        return val
+    return re.sub(r'var\(\s*(--[\w-]+)\s*(?:,[^()]*)?\)',
+                  lambda m: resolve(defs[m.group(1)][0], defs, depth + 1).strip() if m.group(1) in defs else m.group(0),
+                  val)
 
 
 def quoted(a):
@@ -148,7 +204,15 @@ def main():
         sys.exit(2)
     index = Path(args[0])
     html = index.read_text()
+    markup = strip_markup(html)
     text = visible_text(html, skip_quoted=True)
+    attr_html = strip_markup(html)
+    for eid in ['questions'] + [f'{x}-drops' for x in 'abc']:
+        block = element_html(attr_html, eid)
+        if block:
+            attr_html = attr_html.replace(block, '')
+    attrs = re.findall(r'\b(?:aria-label|placeholder|title|alt)="([^"]*)"', attr_html)
+    text += ' ' + ' '.join(attrs)
     problems = []
     one_design = re.search(r'<main\b[^>]*\bdata-design="one"', html) is not None
 
@@ -215,7 +279,13 @@ def main():
         if not any(visible_text(i).strip() for i in items):
             problems.append('the page mentions open questions but id="questions" is missing or has no list item')
 
-    picked = re.search(r'data-picked="([abc])"', html)
+    for line in sorted(template_samples()):
+        if any(' '.join(p.split()) == line for p in visible_parts(markup)):
+            problems.append(f'template sample text left on the page: "{line}"')
+    for left in sorted(set(re.findall(r'\{\{[^{}]*\}\}', markup))):
+        problems.append(f'unfilled placeholder {left}')
+
+    picked = re.search(r'<main\b[^>]*\bdata-picked="([abc])"', html)
     if one_design:
         oids = ['option-a']
         for extra in ('option-b', 'option-c'):
@@ -242,7 +312,10 @@ def main():
             problems.append(f'{oid}: no Built from list id="{x}-sources" (docs/product-design.md section 7)')
         if f'id="{x}-drops"' not in section:
             problems.append(f'{oid}: no What changes from today list id="{x}-drops" (docs/product-design.md section 7)')
-        main_flow = section.split(f'id="{x}-appendix"', 1)[0]
+        main_flow = strip_markup(section).split(f'id="{x}-appendix"', 1)[0]
+        today = element_html(main_flow, f'{x}-today')
+        if today:
+            main_flow = main_flow.replace(today, '')
         frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', main_flow)
         if not frames:
             problems.append(f'{oid}: no wireframe frame')
@@ -258,8 +331,7 @@ def main():
     for oid in oids:
         span = section_span(html, oid)
         if span:
-            sec = re.sub(r'<section class="build-shape".*?</section>', '', html[span[0]:span[2]], flags=re.S)
-            in_frames += sec
+            in_frames += strip_sections(strip_markup(html[span[0]:span[2]]), 'build-shape')
     used = set()
     for tag in re.findall(r'<\w+\b[^>]*>', in_frames):
         if 'data-earned=' in tag:
@@ -280,13 +352,23 @@ def main():
         v = shrink(m.group(1))
         if v is not None and 'data-earned=' not in m.group(0):
             problems.append(f'inline style shrinks to {v:g} inside a frame: {m.group(0)[:60]} (mark data-earned to keep it)')
-    # Classes whose own rule (a plain ".name" selector) sets the muted text color.
+    # Follow var() from real properties through the tokens they point at. Unused tokens may point at
+    # variables only the app defines at run time (next/font), so they don't count.
+    css = re.sub(r'/\*.*?\*/', '', styles + ';' + ';'.join(re.findall(r'\bstyle="([^"]*)"', html)), flags=re.S)
+    defs = {}
+    for name, val in re.findall(r'(--[\w-]+)\s*:\s*([^;{}]*)', css):
+        defs.setdefault(name, []).append(val)
+    # Classes whose own rule (a plain ".name" selector) sets the muted text color, directly or through
+    # any var() that resolves to it. gp-ui.css component classes (a step caption) are the component's own.
+    muted = resolve('var(--brand-text-secondary)', defs).lower()
+    gp_ui = (Path(__file__).resolve().parent.parent / 'assets/gp-ui.css').read_text()
+    gp_ui_classes = set(re.findall(r'\.(gp-[\w-]+)', gp_ui))
     muted_classes = {'muted'}
-    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', styles):
-        if re.search(r'(?<![-\w])color\s*:\s*var\(--brand-text-secondary\)', body):
-            sel = re.sub(r'/\*.*?\*/', '', sel, flags=re.S).strip()
-            muted_classes.update(re.findall(r'(?:^|,)\s*\.([\w-]+)\s*(?=,|$)', sel))
-    for m in re.finditer(r'<(\w+)\b[^>]*\bclass="([^"]*)"[^>]*>', html):
+    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', styles, flags=re.S)):
+        for val in re.findall(r'(?<![-\w])color\s*:\s*([^;}]+)', body):
+            if resolve(val.replace('!important', '').strip(), defs).lower() == muted:
+                muted_classes.update(set(re.findall(r'(?:^|,)\s*\.([\w-]+)\s*(?=,|$)', sel.strip())) - gp_ui_classes)
+    for m in re.finditer(r'<(\w+)\b[^>]*\bclass="([^"]*)"[^>]*>', markup):
         tag, cls = m.group(1), m.group(2).split()
         whole = m.group(0)
         if 'data-earned=' in whole:
@@ -295,18 +377,21 @@ def main():
             problems.append(f'unearned muted paragraph <p class="{m.group(2)}"> (add data-earned="why" or remove)')
         if any(c in ('banner', 'alert', 'gp-alert', 'callout') for c in cls):
             problems.append(f'unearned banner <{tag} class="{m.group(2)}"> (add data-earned="why" or remove)')
-    for m in re.finditer(r'<svg\b[^>]*>(.*?)</svg>', html, flags=re.S | re.I):
+    for m in re.finditer(r'<svg\b[^>]*>(.*?)</svg>', markup, flags=re.S | re.I):
         if not re.search(r'<(path|circle|rect|line|polyline|polygon|ellipse)\b', m.group(1)):
             problems.append('blank icon: <svg> with no shapes')
     # Spacing parity: Tailwind spacing moves in 2px steps at its finest (0.5), so an odd px value is
     # never a real class. A pill, chip or toggle rule at 40px or taller is not the product's 36px.
-    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', styles, flags=re.S)):
+    tw_styles = re.sub(r'/\*\s*tw:[^*]*\*/', ' TW_ARBITRARY ', styles)
+    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', tw_styles, flags=re.S)):
         sel = sel.strip()
         if sel.startswith('@') or ':root' in sel:
             continue
+        exempt = 'TW_ARBITRARY' in sel + body
+        sel = sel.replace('TW_ARBITRARY', '').strip()
         for prop, val in re.findall(r'\b(gap|row-gap|column-gap|padding(?:-[a-z]+)?|margin(?:-[a-z]+)?)\s*:\s*([^;]+)', body):
             for n in re.findall(r'(?<![\d.#-])(\d+(?:\.\d+)?)px', val):
-                if float(n) % 2:
+                if float(n) % 2 and not exempt:
                     problems.append(f'off-scale spacing {prop}: {val.strip()} in "{sel[:50]}" (use real Tailwind steps, see wireframe-build.md "Spacing parity")')
         if re.search(r'pill|chip|toggle', sel, flags=re.I):
             for prop, n in re.findall(r'\b((?:min-)?height)\s*:\s*(\d+)px', body):
@@ -316,7 +401,7 @@ def main():
         problems.append('more than three options')
     if '<iframe' in html.lower():
         problems.append('iframe (the Vercel comment toolbar cannot see inside)')
-    if re.search(r'href=["\']#["\']', html):
+    if re.search(r'href=["\']#["\']', markup):
         problems.append('href="#" dead link')
     if re.search(r'href=["\']mailto:', html):
         problems.append('mailto link (use an in-page panel)')
@@ -327,12 +412,6 @@ def main():
     if re.search(r'\b(fetch|XMLHttpRequest)\s*\(', html):
         problems.append('network call in script')
 
-    # Follow var() from real properties through the tokens they point at. Unused tokens may point at
-    # variables only the app defines at run time (next/font), so they don't count.
-    css = re.sub(r'/\*.*?\*/', '', styles + ';' + ';'.join(re.findall(r'\bstyle="([^"]*)"', html)), flags=re.S)
-    defs = {}
-    for name, val in re.findall(r'(--[\w-]+)\s*:\s*([^;{}]*)', css):
-        defs.setdefault(name, []).append(val)
     todo = [n for prop, val in re.findall(r'(?<![\w-])([a-z][\w-]*)\s*:\s*([^;{}]*)', css)
             for n in re.findall(r'var\(\s*(--[\w-]+)\s*\)', val)]
     seen = set()
@@ -347,10 +426,10 @@ def main():
         for val in defs[name]:
             todo += re.findall(r'var\(\s*(--[\w-]+)\s*\)', val)
 
-    ids = re.findall(r'\bid="([^"]+)"', html)
+    ids = re.findall(r'\bid="([^"]+)"', markup)
     for dup in sorted({i for i in ids if ids.count(i) > 1}):
         problems.append(f'duplicate id: {dup}')
-    for target in re.findall(r'href="#([^"]+)"', html):
+    for target in re.findall(r'href="#([^"]+)"', markup):
         if target not in ids:
             problems.append(f'link to missing id: #{target}')
     if len(html) > 5 * 1024 * 1024:

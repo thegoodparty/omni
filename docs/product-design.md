@@ -1,8 +1,8 @@
 # Product design
 
 > **Draft, under review.** The root `AGENTS.md` points agents here when they
-> design a screen or flow, and the `ux-review-options` prototyping skill follows
-> this file directly instead of keeping its own rules, so a change here reaches
+> design a screen or flow, and the `gp-design` skill (the way in for design
+> work; `ux-review-options` for options) follows this file directly instead of keeping its own rules, so a change here reaches
 > the next prototype. The whole file is under review. Send feedback to
 > Eugene. When this file, `product-copy.md`,
 > `design-memory/learned.md` and a component's `@summary` disagree, this file
@@ -36,7 +36,8 @@ activity feed, the assistants, and the analytics event that records it.
 `design-feature-reach.md` walks through a full trace, civic panels in Serve.
 
 **Write the trace down.** One line per surface: what changes, or why nothing
-does. It goes in the `ux-review-options` brief and in the PR body, so a
+does. It goes in the brief `gp-design` writes (`ux-review-options` for
+options) and in the PR body, so a
 reviewer can see a surface was skipped on purpose rather than by omission.
 Some surfaces won't need a change; that's expected.
 
