@@ -9,6 +9,12 @@ One command for any design task. This skill keeps no design rules of its own: it
 decides what to make, sends the work to the right place, and checks the result
 against the docs that own the rules.
 
+Every run goes in this order: prototype (read the task, rules, code and prior
+art, write the brief), design (build the clickable phone and desktop flows
+from the design system and pass the checks), review (the senior design
+review), fix (apply its findings), present (hand it back per §4). Pattern
+research across other products is a separate skill, not part of this one.
+
 ## The rules come from the repo
 
 Read these before designing, every time. Never restate a rule here; point to the
