@@ -33,7 +33,7 @@ if [ "$update" = false ] && [ "$target" != production ]; then
 fi
 
 # Deploy a branded copy so the source folder is never modified: GoodParty
-# favicon, plus a thin bar with the logo and an internal-only label.
+# favicon, plus a thin bar with the logo, the publish date and an internal-only label.
 assets="$(cd "$(dirname "$0")/../assets" && pwd)"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
@@ -42,7 +42,10 @@ mkdir -p "$stage/_gp"
 cp "$assets"/* "$stage/_gp/"
 [ -e "$stage/favicon.ico" ] || cp "$assets/favicon.ico" "$stage/favicon.ico"
 python3 - "$stage" <<'PY'
-import pathlib, re, sys
+import datetime, pathlib, re, sys
+
+today = datetime.date.today()
+date = f'{today:%b} {today.day}, {today.year}'
 
 icons = (
     '<link rel="icon" href="/_gp/favicon-32x32.png" sizes="32x32" type="image/png">'
@@ -54,7 +57,9 @@ bar = (
     'padding:0 16px;background:#fff;border-bottom:1px solid #e5e7eb;'
     'font:500 11px/1 system-ui,-apple-system,sans-serif;color:#6b7280">'
     '<img src="/_gp/logo.svg" alt="GoodParty.org" style="all:initial;display:block;height:16px">'
-    '<span style="all:initial;font:inherit;color:inherit">Internal use only</span></div>'
+    '<span style="all:initial;display:flex;gap:12px;font:inherit;color:inherit">'
+    f'<span style="all:initial;font:inherit;color:inherit">{date}</span>'
+    '<span style="all:initial;font:inherit;color:inherit">Internal use only</span></span></div>'
 )
 for page in pathlib.Path(sys.argv[1]).rglob('*.html'):
     html = page.read_text(encoding='utf-8', errors='surrogateescape')

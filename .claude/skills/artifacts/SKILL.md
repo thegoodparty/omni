@@ -65,7 +65,8 @@ prints the link to share.
 
 It also brands every `.html` page in the deployed copy (your folder is left
 alone): the GoodParty favicon, and a 32px bar at the top of the body with the
-logo on the left and "Internal use only" on the right. So don't add your own
+logo on the left and the publish date and "Internal use only" on the right.
+The date is the day of this publish, so `--update` moves it forward. So don't add your own
 logo, header or favicon, keep the `/_gp/` path free, and size full-height
 layouts to `calc(100vh - 32px)`. A page that declares its own icon keeps it.
 
