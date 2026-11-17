@@ -14,11 +14,13 @@
 //   data-mutation="product <path>:<line>" or "no-component <closest>; proposes <what>";
 // - a plain element with a visual class sits under data-source="<path>:<line>"
 //   (copied from the product as shipped) or carries data-gap="<what>; proposes <what>";
-// - no hex colors in classes, no style={}, no shrinking (scale under 0.75, zoom),
-//   no odd px spacing; the one exception is rendered content a look-and-feel
-//   ticket is about: inside data-content="<what>", an element with
-//   data-content-source="<path>:<line>" may use style={} and literal values that
-//   line contains;
+// - no hex colors in classes, no raw palette colors, no literal type sizes or
+//   radii, no sm:/md:/max-*: breakpoints in new markup, no style={}, no shrinking
+//   (scale under 0.75, zoom), no odd px spacing; icons from icons.tsx may take
+//   color and size classes. The one exception is rendered content a
+//   look-and-feel ticket is about: inside data-content="<what>", a plain element
+//   with data-content-source="<path>:<line>" may use style={} and bracketed
+//   values that line contains;
 // - a muted paragraph (<p> with text-muted-foreground) and an Alert are earned:
 //   data-earned="<why>" on it, or copied from the product under data-source;
 // - every literal data-go names a screen, and there is an entry screen.
@@ -71,7 +73,11 @@ const SIZED = new Set([
 ])
 const SIZE_RE = /^(?:h-|min-h-|size-|px-|py-|p-|pl-|pr-|pt-|pb-)/
 const PALETTE_RE =
-  /^(?:bg|text|border|ring|fill|stroke|outline|divide|from|to|via|placeholder|decoration)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d/
+  /^(?:bg|text|border|ring|fill|stroke|outline|divide|from|to|via|placeholder|decoration)-(?:(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d|white$|black$)/
+// New code switches layout at lg: only (docs/product-design.md section 10).
+const BREAKPOINT_RE = /(?:^|:)(?:sm|md|xl|2xl|max-[a-z0-9]+|min-\[[^\]]*\]):/
+// A literal type size or radius is off the type scale or the radius tokens.
+const LITERAL_RE = /^(?:text-\[\d|leading-\[\d|rounded(?:-[a-z]+)?-\[)/
 const HEX_RE = /\[#[0-9a-fA-F]{3,8}\]|\[(?:rgb|rgba|hsl|hsla)\(/
 const RAW = new Set([
   'button',
@@ -180,6 +186,7 @@ const walk = (node, ctx) => {
       source: ctx.source || source,
       content: ctx.content || 'data-content' in a,
       contentSource: contentSource ?? ctx.contentSource,
+      gap: ctx.gap || 'data-gap' in a,
       parentAsChild: 'asChild' in a,
     }
     for (const [key, kind] of [
@@ -293,7 +300,34 @@ const walk = (node, ctx) => {
       const cls = a.className.value
       const list = tokens(typeof cls === 'string' ? cls : strings(cls.expr))
       const raw = typeof cls === 'string' ? cls : strings(cls.expr)
-      if (HEX_RE.test(raw) && !next.contentSource)
+      const copied = next.source || (plain && next.contentSource)
+      if (!copied) {
+        const bp = raw.split(/\s+/).filter((t) => BREAKPOINT_RE.test(t))
+        if (bp.length)
+          fail(
+            open,
+            `${bp.join(' ')}: new code switches layout at lg: only (docs/product-design.md section 10)`,
+          )
+        const lit = list.filter((t) => LITERAL_RE.test(t))
+        if (lit.length)
+          fail(
+            open,
+            `${lit.join(' ')}: a literal type size or radius; use the type scale (section 8) and radius tokens`,
+          )
+      }
+      // Inside rendered content, every bracketed value is on the line data-content-source cites.
+      if (plain && next.contentSource) {
+        const line = (sourceLine(next.contentSource) ?? '').toLowerCase()
+        // Values only: list has the variants (lg:, [&:focus-visible]:) stripped.
+        for (const v of list.flatMap((t) =>
+          [...t.matchAll(/-\[([^\]]+)\]/g)].map((m) => m[1]),
+        )) {
+          const bare = v.toLowerCase().replace(/px$/, '')
+          if (!line.includes(v.toLowerCase()) && !line.includes(bare))
+            fail(open, `[${v}] is not on ${next.contentSource}`)
+        }
+      }
+      if (HEX_RE.test(raw) && !(plain && next.contentSource))
         fail(
           open,
           `hardcoded color in className on <${name}>: use a token class`,
@@ -312,9 +346,11 @@ const walk = (node, ctx) => {
         if (s && (s[1] ? Number(s[1]) : Number(s[2]) / 100) < 0.75)
           fail(open, `${t} shrinks the preview: keep text 12px or larger`)
       }
-      if (!plain && styleguideNames.has(name.split('.')[0])) {
+      // Icons from icons.tsx take their color and size from className, as the product does.
+      const icon = /Icon$/.test(name) && styleguideNames.has(name)
+      if (!plain && !icon && styleguideNames.has(name.split('.')[0])) {
         const r = restyles(name, list)
-        if (r.length && mutation === null && !next.contentSource)
+        if (r.length && mutation === null)
           fail(
             open,
             `<${name}> restyled through className (${r.join(' ')}): use a variant or prop, or mark data-mutation="product <path>:<line>" / "no-component <closest>; proposes <what>"`,
@@ -324,7 +360,8 @@ const walk = (node, ctx) => {
         if (
           visual.length &&
           !next.source &&
-          gap === null &&
+          !next.gap &&
+          !('data-earned' in a) &&
           mutation === null &&
           !next.content
         )
@@ -347,6 +384,7 @@ const walk = (node, ctx) => {
   ts.forEachChild(node, (c) => walk(c, ctx))
 }
 walk(sf, {
+  gap: false,
   source: null,
   content: false,
   contentSource: null,

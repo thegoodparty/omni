@@ -140,7 +140,9 @@ is public: ticket text, notes and the page never get committed here.
     when a worktree has none. Render at the widths in `docs/product-design.md`
     §10: 375px and 1280px, once at 1023px and 1024px for layouts that change at
     the breakpoint, and 320px. Screenshot each option. Fix any label that crosses a box edge or is
-    clipped, by making the box bigger, and screenshot again.
+    clipped, by making the box bigger, and screenshot again. In UX mode there is
+    no page of your own: rerun `ux-review-options`'s `build.py`, which inlines the
+    fragments, then render that `index.html` with `?build` so they show.
 13. **Publish** with the `artifacts` skill (`.claude/skills/artifacts/SKILL.md`):
     `.claude/skills/artifacts/scripts/publish.sh <work>/page <feature>-build-shape`,
     for example `email-outreach-build-shape`. Pass `--update` when you republish.

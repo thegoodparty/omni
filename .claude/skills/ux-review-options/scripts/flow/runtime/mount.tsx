@@ -23,6 +23,12 @@ import {
 
 const controllers: Record<string, (step: string) => void> = {}
 
+// With no products export, the flow is the page's one product: <main data-product>.
+const pageProduct = (): Product =>
+  document.querySelector('main')?.getAttribute('data-product') === 'win'
+    ? 'win'
+    : 'serve'
+
 const Missing = ({ what }: { what: string }) => (
   <p className="p-6 text-destructive">No screen "{what}" in this flow.</p>
 )
@@ -36,10 +42,11 @@ const Navigator = ({
   flow: FlowModule
   initial: string
 }) => {
-  const [step, setStep] = useState(initial)
+  // visit changes on every go(), so going to the screen already showing starts it over.
+  const [{ step, visit }, setNav] = useState({ step: initial, visit: 0 })
   const ref = useRef<HTMLDivElement>(null)
   const go = (next: string) => {
-    setStep(next)
+    setNav((n) => ({ step: next, visit: n.visit + 1 }))
     ref.current?.closest('[data-gp-frame-scroll]')?.scrollTo(0, 0)
   }
   useEffect(() => {
@@ -57,7 +64,7 @@ const Navigator = ({
           if (target) go(target.getAttribute('data-go') ?? 'entry')
         }}
       >
-        {Screen ? <Screen /> : <Missing what={step} />}
+        {Screen ? <Screen key={visit} /> : <Missing what={step} />}
       </div>
     </GoContext.Provider>
   )
@@ -78,7 +85,9 @@ const Option = ({
   flow: FlowModule
   nodes: Record<string, Element | null>
 }) => {
-  const [product, setProduct] = useState<Product>(flow.products?.[0] ?? 'serve')
+  const [product, setProduct] = useState<Product>(
+    flow.products?.[0] ?? pageProduct(),
+  )
   const label = (p: Product) => (p === 'win' ? 'Win' : 'Serve')
   const x = oid.slice(-1)
   const one = document.querySelector('main[data-design="one"]') !== null

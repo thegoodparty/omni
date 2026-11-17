@@ -58,7 +58,11 @@ So one flow draws both widths, as the product does:
 - `useIsMobile` (`@styleguide/hooks/use-mobile`) reads the frame's width, so a
   Dialog that becomes a Drawer below 1024px does so in the frame.
 - Overlays (Dialog, Drawer, Sheet, Select, Popover, Tooltip) open inside the
-  frame, and a modal doesn't lock the review page.
+  frame, and a modal neither locks the review page nor hides it from screen
+  readers.
+- A component's own breakpoints switch at the frame's width too: Textarea's
+  `md:text-sm` sets 14px from 768px, so at 1280 it overrides a size you give it.
+  Inside rendered content, override it with `!` under `data-content-source`.
 
 The runtime that does this is `scripts/flow/runtime/`. If a component reads the
 window some other way, fix the runtime, not the flow.
@@ -175,14 +179,21 @@ The rules are gp-webapp's `check:design-system` (`packages/gp-webapp/AGENTS.md`,
   `data-gap="<what>; proposes <component or C-xx>"`: nothing in the product or
   the styleguide draws it.
 - **Never hardcoded.** No hex or `rgb()` in a class, no raw palette color
-  outside copied markup, no `style={}`, nothing shrunk below 0.75 (`scale-`,
-  `zoom`), no odd px spacing (`p-[13px]`). The one exception is the rendered
-  content of a look-and-feel ticket, inside `data-content`: an element with
-  `data-content-source="<path>:<line>"` may use `style={}`, and every literal
-  value in it must be on that line.
-- **Earned elements.** A muted paragraph (`<p>` with `text-muted-foreground`)
-  and an `Alert` carry `data-earned="<why>"` unless they're copied under
-  `data-source`.
+  (`bg-blue-600`, `bg-white`) and no literal type size or radius
+  (`text-[13px]`, `rounded-[10px]`) outside copied markup, no `style={}`,
+  nothing shrunk below 0.75 (`scale-`, `zoom`), no odd px spacing
+  (`p-[13px]`). New markup switches layout at `lg:` only, never `sm:`, `md:`
+  or `max-*:` (`docs/product-design.md` §10); copied markup keeps its own. An
+  icon from `icons.tsx` takes its color and size classes as the product does.
+- **Rendered content.** The one exception is the rendered content of a
+  look-and-feel ticket, inside `data-content`: a plain element with
+  `data-content-source="<path>:<line>"` may use `style={}` and bracketed
+  classes, and every literal value in them must be on that line. Styleguide
+  components inside it (the editor's controls) follow every rule above.
+- **Earned elements.** A muted paragraph (`<p>` with `text-muted-foreground`),
+  an `Alert`, and a new plain element that needs its own look (a helper line)
+  carry `data-earned="<why>"` unless they're copied under `data-source`. A
+  `data-gap` covers the element's subtree, like `data-source`.
 
 Each `data-mutation` and `data-gap` marker gets a row in the option's Mutations
 list (`<details class="mutations" id="a-mutations">`): the element, the kind
@@ -205,7 +216,9 @@ A flow that mirrors an existing screen must measure the same as the real one.
 
 - Working interactions: every button does something (`data-go`, or state the
   screen keeps with `useState`), no dead ends. Restart, drawn by `build.py`,
-  returns to `entry`.
+  returns to `entry`. `data-go` to the screen already showing starts it over.
+  A component used on several screens takes its `data-go` targets as props,
+  so each screen sends it to the right place.
 - A way back on every step. A person to reach only where the product already
   has one on that screen, copied from its source (an in-page panel, never a
   `mailto:` link). Never add one: "Invent nothing" in `docs/product-design.md`
@@ -266,7 +279,9 @@ frame, each in its own phone frame with its label above it.
 
 ## Win and Serve
 
-When the ticket names both products, export `products = ['serve', 'win']`. The
+A flow for one product exports no `products`: `useProduct()` returns the
+page's `data-product`. When the ticket names both products, export
+`products = ['serve', 'win']`. The
 page shows a Serve / Win switch above the frame, and `useProduct()` from
 `gp-flow` says which one is showing. Keep one copy object per product, the way
 the product does (`importContactsCopy.ts`), and pick from it with

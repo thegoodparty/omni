@@ -158,10 +158,11 @@ def quoted(a):
 
 
 class TextParser(HTMLParser):
-    def __init__(self, skip_win, skip_quoted):
+    def __init__(self, skip_win, skip_quoted, skip_copied=False):
         super().__init__()
         self.skip_win = skip_win
         self.skip_quoted = skip_quoted
+        self.skip_copied = skip_copied
         self.stack = []
         self.parts = []
 
@@ -171,7 +172,9 @@ class TextParser(HTMLParser):
         a = dict(attrs)
         hidden = tag in ('script', 'style') or (
             self.skip_win and (a.get('data-product') == 'win' or 'build-shape' in (a.get('class') or '').split())
-        ) or (self.skip_quoted and (tag == 'code' or quoted(a)))
+        ) or (self.skip_quoted and (tag == 'code' or quoted(a))) or (
+            self.skip_copied and ('data-source' in a or 'data-earned' in a)
+        )
         self.stack.append(hidden or (bool(self.stack) and self.stack[-1]))
 
     def handle_endtag(self, tag):
@@ -183,8 +186,8 @@ class TextParser(HTMLParser):
             self.parts.append(data)
 
 
-def visible_parts(html, skip_win=False, skip_quoted=False):
-    p = TextParser(skip_win, skip_quoted)
+def visible_parts(html, skip_win=False, skip_quoted=False, skip_copied=False):
+    p = TextParser(skip_win, skip_quoted, skip_copied)
     p.feed(html)
     return p.parts
 
@@ -323,7 +326,8 @@ def main():
     if '!' in text:
         problems.append('exclamation point in copy')
     # A text node that is only "Drafting your email..." is the bare loading line product-design.md section 6 bans.
-    for part in visible_parts(html, skip_quoted=True):
+    # Text copied from the product (data-source) or earned is the product's own label, not a new line.
+    for part in visible_parts(html, skip_quoted=True, skip_copied=True):
         line = part.strip()
         if re.fullmatch(r"[A-Z][a-z]+ing\b[^.!?\n]{0,40}(?:…|\.\.\.)", line):
             problems.append(f'bare loading line "{line}" (docs/product-design.md sections 6 and 11)')
@@ -476,4 +480,5 @@ def main():
     print('ok')
 
 
-main()
+if __name__ == '__main__':
+    main()

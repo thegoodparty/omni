@@ -227,10 +227,12 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    Render at the widths in `docs/product-design.md` §10: 375px and 1280px,
    once at 1023px and 1024px for layouts that change at the breakpoint, and
    320px. On the page, click through the phone frame; open Desktop preview and
-   click through it at 1280, 1024 and 1023. For screenshots, `?view=phone` or
-   `?view=desktop` with `&step=<screen key>` or `&state=<state key>` (and
-   `&option=b` on the options page) opens one screen alone at the window's
-   size. Click every path in every option. Move the mouse off the page
+   click through it at 1280, 1024 and 1023.
+   `node scripts/flow/shoot.mjs <work>/page/index.html <work>/screens`
+   screenshots the page and every screen and state alone (phone and desktop)
+   and reports page errors, blank icons and sideways scroll. To open one
+   screen yourself, `?view=phone` or `?view=desktop` with `&step=<screen key>`
+   or `&state=<state key>` (and `&option=b` on the options page). Click every path in every option. Move the mouse off the page
    before each screenshot, so no hover state shows; then hover, focus and
    disable each control you changed and screenshot those too. Screenshot
    every screen and confirm no icon is blank. Fix anything clipped,

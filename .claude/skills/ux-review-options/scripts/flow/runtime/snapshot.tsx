@@ -32,7 +32,10 @@ const both = (Screen: ComponentType, products: Product[]) =>
     )
     .join('')
 
-export const snapshot = (flows: Record<string, FlowModule>) => {
+export const snapshot = (
+  flows: Record<string, FlowModule>,
+  pageProduct: Product,
+) => {
   const out: Record<
     string,
     {

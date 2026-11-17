@@ -66,18 +66,33 @@ writeFileSync(
   path.join(gen, 'page.tsx'),
   `${imports}\nimport { mount } from ${JSON.stringify(path.join(runtime, 'mount.tsx'))}\nmount(${table} as never)\n`,
 )
+// A flow with no products export is the page's one product (<main data-product>).
+const src = path.join(work, 'page/src.html')
+const pageProduct =
+  existsSync(src) &&
+  /<main\b[^>]*\bdata-product="win"/.test(readFileSync(src, 'utf8'))
+    ? 'win'
+    : 'serve'
 writeFileSync(
   path.join(gen, 'snapshot.tsx'),
-  `${imports}\nimport { snapshot } from ${JSON.stringify(path.join(runtime, 'snapshot.tsx'))}\nexport default snapshot(${table} as never)\n`,
+  `${imports}\nimport { snapshot } from ${JSON.stringify(path.join(runtime, 'snapshot.tsx'))}\nexport default snapshot(${table} as never, '${pageProduct}')\n`,
 )
 
 // The frame stands in for the window: these imports resolve to runtime/ shims.
 const realPortal = req
   .resolve('@radix-ui/react-portal')
   .replace(/index\.js$/, 'index.mjs')
-const shims = {
+const shims = (server) => ({
   name: 'gp-flow',
   setup(b) {
+    b.onResolve({ filter: /^aria-hidden$/ }, () => ({
+      path: path.join(runtime, 'aria-hidden.ts'),
+    }))
+    // vaul reads document while it renders; the snapshot draws a drawer's parts in place.
+    if (server)
+      b.onResolve({ filter: /^vaul$/ }, () => ({
+        path: path.join(runtime, 'vaul-static.tsx'),
+      }))
     b.onResolve({ filter: /^gp-flow$/ }, () => ({
       path: path.join(runtime, 'index.tsx'),
     }))
@@ -96,7 +111,7 @@ const shims = {
       () => ({ path: path.join(styleguide, 'index.ts') }),
     )
   },
-}
+})
 const common = {
   bundle: true,
   write: false,
@@ -106,13 +121,13 @@ const common = {
     path.join(repo, 'node_modules'),
     path.join(webapp, 'node_modules'),
   ],
-  plugins: [shims],
   logLevel: 'error',
   define: { 'process.env.NODE_ENV': '"production"' },
 }
 const page = await esbuild.build({
   ...common,
   entryPoints: [path.join(gen, 'page.tsx')],
+  plugins: [shims(false)],
   format: 'iife',
   minify: true,
   platform: 'browser',
@@ -120,6 +135,7 @@ const page = await esbuild.build({
 const ssr = await esbuild.build({
   ...common,
   entryPoints: [path.join(gen, 'snapshot.tsx')],
+  plugins: [shims(true)],
   format: 'cjs',
   platform: 'node',
 })
@@ -157,15 +173,24 @@ const onlyWidth = (q) =>
 const font = readFileSync(
   path.join(appDir, 'fonts/open-sans-latin-wght-normal.woff2'),
 ).toString('base64')
+// Rewrite only at-rule params and declaration values: a class name like
+// max-h-[80vh] has to stay as Tailwind wrote it, or it no longer matches.
+const root = postcss.parse(compiled)
+root.walkAtRules('media', (rule) => {
+  if (onlyWidth(rule.params)) {
+    rule.name = 'container'
+    rule.params = `gp-frame ${rule.params}`
+  }
+})
+root.walkDecls((decl) => {
+  decl.value = decl.value
+    .replace(/(\d*\.?\d+)(?:d|s|l)?vh\b/g, '$1cqh')
+    .replace(/(\d*\.?\d+)(?:d|s|l)?vw\b/g, '$1cqw')
+})
 const frameCss =
   `@font-face{font-family:'Open Sans';src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:300 800;font-style:normal;font-display:swap}\n` +
   `html{--open-sans-font:'Open Sans'}\n` +
-  compiled
-    .replace(/@media\s+([^{]+?)\s*\{/g, (m, q) =>
-      onlyWidth(q) ? `@container gp-frame ${q} {` : m,
-    )
-    .replace(/(\d*\.?\d+)(?:d|s|l)?vh\b/g, '$1cqh')
-    .replace(/(\d*\.?\d+)(?:d|s|l)?vw\b/g, '$1cqw') +
+  root.toString() +
   `\n[data-gp-frame]{container:gp-frame/size;transform:translateZ(0);overflow:hidden;position:relative;background:var(--color-background);color:var(--color-foreground);font-family:var(--open-sans-font)}\n` +
   `[data-gp-frame-scroll]{height:100%;overflow-y:auto;overflow-x:hidden}\n` +
   // Radix sets pointer-events:none on <body> under a modal; the review page stays usable.
