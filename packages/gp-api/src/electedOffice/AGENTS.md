@@ -76,14 +76,18 @@ Everything after that stays gated on the pledge: the schedule completion
 handler chains no briefing for an office without `onboardingCompletedAt`, and
 no scheduled Serve job selects one.
 
-An office is prepared only when it is invisible: `isPreparedOffice`
-(`winSource: pending` and `onboardingCompletedAt` null — the pledge ends it)
-keeps it out of the org list, off `DashboardLayout`'s Serve onboarding
-redirect, and out of the HubSpot Office Holder sync. `GET
-/v1/elected-office/mine` reports it as `prepared` for exactly that. The sweep
-does not prepare for a user who already holds a term-less lead office:
-`create` would adopt and campaign-link that one, which the dashboard would
-then redirect.
+An office is prepared only when it is invisible to the customer surfaces:
+`isPreparedOffice` (`winSource: pending` and `onboardingCompletedAt` null — the
+pledge ends it) keeps it out of the org list, off `DashboardLayout`'s Serve
+onboarding redirect, and out of the HubSpot Office Holder sync. `GET
+/v1/elected-office/mine` reports it as `prepared` so Serve onboarding can send
+its holder to `/dashboard/election-result` to report a result instead of
+adopting it, and `PUT /v1/elected-office/:id` refuses the pledge on a prepared
+office, so the win has to be recorded first. "I won" on that page claims this
+same office (`ensureForWin` → `adoptPrepared`), and onboarding then opens it.
+The sweep does not prepare for a user who already holds a term-less lead
+office: `create` would adopt and campaign-link that one, which the dashboard
+would then redirect.
 
 A result resolves the prepared office, from any source. A win replaces
 `pending` with the real source (`ensureForWin` on the existing office, for

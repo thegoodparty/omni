@@ -362,6 +362,17 @@ export class ElectedOfficeController {
       }
     }
 
+    // Completing serve onboarding is the pledge: it makes the office live and
+    // fires its paid dispatches. A prepared office's campaign has no result
+    // yet, so onboarding into it would hand a candidate who may have lost a
+    // live office. Serve onboarding sends its holder to report the result
+    // instead; this refuses the write if the pledge reaches one anyway.
+    if (body.onboardingCompletedAt != null && isPreparedOffice(existing)) {
+      throw new ConflictException(
+        'This office is awaiting an election result and cannot be onboarded yet',
+      )
+    }
+
     // Completing serve onboarding is only meaningful once the office has a real,
     // fully-dated term. A completed office is treated as done by post-auth
     // routing AND is no longer prompted for dates, so allowing completion on a

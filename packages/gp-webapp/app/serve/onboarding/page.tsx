@@ -28,6 +28,9 @@ const switchToOrg = (slug?: string): never => {
  *    on the seat still to set up (the dashboard sends them here until then).
  *  - If onboarding is already complete, send them to the Chief of Staff home
  *    (the default Serve landing) instead of re-running onboarding.
+ *  - If their only unfinished office sits in a campaign awaiting its result
+ *    (a prepared office), send them to the election result page to report it.
+ *    "I won" there claims that same office, so onboarding then opens it.
  */
 export default async function ServeOnboardingPage(): Promise<React.JSX.Element> {
   await requireAuth()
@@ -46,14 +49,22 @@ export default async function ServeOnboardingPage(): Promise<React.JSX.Element> 
   ])
   const mine = mineRes.ok ? (mineRes.data as MyElectedOffice[]) : []
   // Only a win's office overrides the selected one: a finished official with
-  // a stray unfinished lead office still belongs on the chief of staff, and an
-  // office prepared ahead of a result is not a win yet.
+  // a stray unfinished lead office still belongs on the chief of staff, and a
+  // prepared office is not a win yet.
   const unfinishedWin = mine.find(
     (office) =>
       office.campaignId != null &&
       !office.prepared &&
       !office.onboardingCompletedAt,
   )
+  // When the only unfinished office is one prepared ahead of a result, there
+  // is nothing to onboard: the pledge refuses it until its campaign has a
+  // result. Send the holder to report one — "I won" there claims this same
+  // office, and onboarding then opens it.
+  const unfinished = mine.filter((office) => !office.onboardingCompletedAt)
+  if (unfinished.length > 0 && unfinished.every((office) => office.prepared)) {
+    redirect('/dashboard/election-result')
+  }
 
   if (currentRes.ok) {
     const eo = currentRes.data as ElectedOffice

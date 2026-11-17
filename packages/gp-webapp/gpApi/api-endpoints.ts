@@ -3303,7 +3303,7 @@ export type ElectedOffice = {
 // gave it issues they ran on, which the Serve onboarding priorities step shows,
 // whether that campaign was ever Pro, which DashboardLayout needs to send an
 // unfinished winner back to Serve onboarding, and whether the office is only
-// prepared ahead of a result, which must not move anyone.
+// prepared ahead of a result, which Serve onboarding sends to report instead.
 export type MyElectedOffice = ElectedOffice & {
   hasWinIssues: boolean
   campaignWasEverPro: boolean

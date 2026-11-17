@@ -36,8 +36,8 @@ export const MyElectedOfficeSchema = ElectedOfficeSchema.extend({
   hasWinIssues: z.boolean(),
   campaignWasEverPro: z.boolean(),
   // An office prepared ahead of an ever-Pro campaign's result: dormant, and
-  // hidden from every customer surface until a win turns it into one, so the
-  // Win dashboard must not redirect its holder to Serve onboarding.
+  // not a win, so Serve onboarding must send its holder to report the result
+  // rather than adopt it. PUT /v1/elected-office/:id refuses the pledge.
   prepared: z.boolean(),
 })
 

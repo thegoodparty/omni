@@ -608,7 +608,10 @@ describe('a win creates a dormant elected office', () => {
       expect(offices[0]?.winSource).toBe('pending')
     })
 
-    it('hides the prepared office from the office list and the org list', async () => {
+    // The org picker drives the active org and the `eo-` cookie, so a prepared
+    // office must not be in it. /mine still reports the office (flagged) so
+    // Serve onboarding can send its holder to report the result.
+    it('reports the prepared office as prepared, and leaves it out of the org list', async () => {
       const everPro = await createEverProCampaign()
       await service.jobs.runSchedule('winOfficeSweep')
       const [prepared] = await officesFor(everPro.id)
@@ -625,6 +628,66 @@ describe('a win creates a dormant elected office', () => {
       )
       expect(slugs).toContain(orgSlug)
       expect(slugs).not.toContain(prepared!.organizationSlug)
+    })
+
+    // The Bugbot finding's path: onboarding opens the prepared office, records
+    // the win on it, and onboarding then resumes the same office.
+    it('opens the same office for onboarding once the win is recorded, with no second one', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+      const mineBefore = await service.client.get('/v1/elected-office/mine')
+      expect(mineBefore.data).toEqual([
+        expect.objectContaining({ id: prepared!.id, prepared: true }),
+      ])
+
+      await saveMine({ wonGeneral: true }, everPro.organizationSlug)
+
+      const mineAfter = await service.client.get('/v1/elected-office/mine')
+      expect(mineAfter.data).toEqual([
+        expect.objectContaining({
+          id: prepared!.id,
+          prepared: false,
+          onboardingCompletedAt: null,
+        }),
+      ])
+      expect(await officesFor(everPro.id)).toHaveLength(1)
+    })
+
+    it('refuses the pledge on a prepared office', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+
+      const res = await service.client.put(
+        `/v1/elected-office/${prepared!.id}`,
+        {
+          termStartDate: '2026-01-01',
+          termEndDate: '2029-01-01',
+          onboardingCompletedAt: new Date().toISOString(),
+        },
+      )
+
+      expect(res.status).toBe(409)
+      const [office] = await officesFor(everPro.id)
+      expect(office?.onboardingCompletedAt).toBeNull()
+      expect(office?.winSource).toBe('pending')
+    })
+
+    it('lets the holder supply term dates on a prepared office without pledging it', async () => {
+      const everPro = await createEverProCampaign()
+      await service.jobs.runSchedule('winOfficeSweep')
+      const [prepared] = await officesFor(everPro.id)
+
+      const res = await service.client.put(
+        `/v1/elected-office/${prepared!.id}`,
+        { termStartDate: '2026-01-01', termEndDate: '2029-01-01' },
+      )
+
+      expect(res.status).toBe(200)
+      const [office] = await officesFor(everPro.id)
+      expect(office?.winSource).toBe('pending')
+      expect(office?.onboardingCompletedAt).toBeNull()
     })
   })
 })
