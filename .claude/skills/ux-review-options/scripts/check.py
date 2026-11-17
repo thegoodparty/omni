@@ -34,6 +34,32 @@ the page always needs its Phone and Desktop links (?view=phone, ?view=desktop):
 in the page bar for one design, above the option's frame (&option=x) for
 options. None of these checks depend on where the brief sits on the page.
 
+Mutations and hardcode (reference/wireframe-build.md, "Mutations"; the
+plain-HTML side of check:design-system in packages/gp-webapp). The page's own
+CSS is every <style> rule outside the blocks build.py inlines and outside the
+template's scaffold, which must match a template's byte for byte (whitespace
+aside). A page rule or style="" that sets a visual property (color,
+background, border, radius, shadow, type, opacity; height and padding on a
+sized control) on a gp-* element, or overrides a gp-* selector, needs a
+/* mutation: product <path>:<line> */ or /* mutation: no-component
+<closest>; proposes <what> */ marker (data-mutation="..." on a style=""
+element), and each marker needs a row in its option's #<x>-mutations block
+quoting the marker after its kind. A gp-* class gp-ui.css doesn't have is a
+port: its visual rules carry /* port: <styleguide .tsx path> */. In the page's
+own CSS and in any style="", hex, rgb(), hsl() and named colors, a font size
+off the "One type scale" line in docs/product-design.md section 8, and a radius
+that isn't a radius token, 0, 9999px or 50% always fail, mutation marker or not.
+The one exception is rendered content a look-and-feel ticket is about (an email
+canvas): inside an element marked data-content="<what>", with no gp-* element
+from that region down, a rule carrying /* content: <repo path>:<line> */ (or a
+style="" whose element carries data-content-source="<path>:<line>") may use a
+literal color, font size or radius when that line's text contains the value
+(case-insensitive; sizes and radii match as whole numbers). Product chrome and
+gp-* components never qualify. Inside an option, every <svg> carries data-icon="<Name>" from the styleguide's icons.tsx
+(the heart logo carries data-logo="heart"), and every <button>, <input>,
+<select> and <textarea> carries a gp-* class (a radio or checkbox inside
+gp-choice is exempt).
+
 --skip-build-shape is for the check before review, while build-shape has not run
 yet. The check before publishing runs without it.
 
@@ -109,7 +135,7 @@ def strip_sections(html, cls):
         html = html[:m.start()] + html[end:]
 
 
-ALLOWED_TEMPLATE_TEXT = {'Restart', 'Phone', 'Desktop', 'Back', 'Office', 'Other states', 'Built from', 'What changes from today'}
+ALLOWED_TEMPLATE_TEXT = {'Restart', 'Phone', 'Desktop', 'Back', 'Office', 'Other states', 'Built from', 'What changes from today', 'Mutations'}
 
 
 def template_samples():
@@ -202,6 +228,362 @@ def shrink(css):
         vals += [float(n) for n in re.findall(r'\bscale\(\s*(\d*\.?\d+)', t)]
     vals = [v for v in vals if 0 < v < 0.75]
     return min(vals) if vals else None
+
+
+INLINED = re.compile(r'/\*GP_(TOKENS|UI|BUILD_SHAPE)\*/.*?/\*GP_\1 end\*/', re.S)
+SCAFFOLD = re.compile(r'/\*\s*scaffold:start\b.*?\*/(.*?)/\*\s*scaffold:end\s*\*/', re.S)
+MUTATION = re.compile(r'/\*\s*mutation:(.*?)\*/', re.S)
+CONTENT = re.compile(r'/\*\s*content:\s*(\S+?):(\d+)\s*\*/')
+PORT = re.compile(r'/\*\s*port:\s*(\S+?)\s*\*/')
+VISUAL_PROP = re.compile(r'(?:color|background(?:-[a-z]+)?|border(?:-[a-z-]+)?|outline(?:-[a-z]+)?|box-shadow|text-shadow'
+                         r'|font(?:-[a-z]+)?|line-height|letter-spacing|text-transform|text-decoration(?:-[a-z]+)?|opacity|fill|stroke)')
+SIZE_PROP = re.compile(r'(?:height|min-height|padding(?:-[a-z]+)?)')
+# The gp-ui.css twins of check:design-system's SIZED_COMPONENTS, plus the pill and tab controls with a fixed height.
+SIZED = {'gp-btn', 'gp-input', 'gp-textarea', 'gp-select', 'gp-badge', 'gp-pill', 'gp-filter-pill',
+         'gp-toggle-group__item', 'gp-tabs__trigger'}
+COLOR_PROP = re.compile(r'color|background|border|outline|shadow|fill|stroke|decoration|column-rule')
+NAMED_COLORS = ('white|black|red|green|blue|gray|grey|silver|yellow|orange|purple|pink|navy|teal|maroon|olive|lime|aqua'
+                '|fuchsia|brown|gold|beige|ivory|indigo|violet|cyan|magenta|coral|salmon|tomato|crimson|khaki|lavender'
+                '|plum|orchid|tan|turquoise|wheat|snow|linen|whitesmoke|gainsboro|lightgray|lightgrey|darkgray|darkgrey'
+                '|dimgray|dimgrey|slategray|slategrey|skyblue|steelblue|royalblue|dodgerblue|tomato|firebrick|seagreen')
+RADIUS_OK = {'0', '0px', '9999px', '50%', 'inherit', 'initial', 'unset'}
+
+
+def repo_root():
+    for d in Path(__file__).resolve().parents:
+        if (d / 'docs/product-design.md').exists():
+            return d
+    sys.exit('check.py: docs/product-design.md not found above ' + str(Path(__file__).resolve()))
+
+
+def type_scale(root):
+    """The px sizes on the "One type scale" line of docs/product-design.md section 8."""
+    m = re.search(r'One type scale: ([\d, and]+)px', (root / 'docs/product-design.md').read_text())
+    if not m:
+        sys.exit('check.py: no "One type scale: ...px" line in docs/product-design.md section 8')
+    return {float(n) for n in re.findall(r'\d+', m.group(1))}
+
+
+def approved_icons(root):
+    """Every name icons.tsx exports, both the lucide name and its Icon alias, plus AiIcon."""
+    ui = root / 'packages/styleguide/src/components/ui'
+    names = {n for pair in re.findall(r'\b(\w+)\s+as\s+(\w+Icon)\b', (ui / 'icons.tsx').read_text()) for n in pair}
+    if (ui / 'ai-icon.tsx').exists():
+        names.add('AiIcon')
+    return names
+
+
+def decls(body):
+    body = re.sub(r'/\*.*?\*/', '', body, flags=re.S)
+    return [(p.lower(), v.replace('!important', '').strip()) for p, v in re.findall(r'([a-zA-Z-]+)\s*:\s*([^;]+)', body)]
+
+
+def hardcoded(prop, val, scale):
+    """(why this declaration hardcodes a value a token or the type scale owns, the literal values a
+    content marker's line must contain to excuse it), or None."""
+    colors = re.findall(r'#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\([^)]*\)', val)
+    if colors:
+        return 'hardcoded color (use a var(--token))', colors
+    named = re.findall(rf'(?<![-\w])(?:{NAMED_COLORS})(?![-\w])', val, flags=re.I) if COLOR_PROP.search(prop) else []
+    if named:
+        return 'named color (use a var(--token))', named
+    if prop in ('font-size', 'font') and 'var(' not in val:
+        size = val if prop == 'font-size' else val.split('/')[0]
+        for n, unit in re.findall(r'(\d*\.?\d+)(px|rem|em|%)', size):
+            px = float(n) * (16 if unit == 'rem' else 1)
+            if (unit in ('px', 'rem') and px not in scale) or (unit in ('em', '%') and float(n) not in (1, 100)):
+                return f'font size {n}{unit} is off the type scale (docs/product-design.md section 8)', [n]
+    if re.fullmatch(r'border(?:-[a-z]+)*-radius', prop):
+        for part in re.findall(r'var\([^)]*\)|[^\s/]+', val):
+            if not ((part.startswith('var(') and 'radius' in part) or part in RADIUS_OK):
+                return f'radius {part} (use a radius token, 0, 9999px or 50%)', [re.sub(r'px$', '', part)]
+    return None
+
+
+def source_line(root, path, line):
+    """The text of path:line in the repo (paths may be relative to gp-webapp or its app/), or None."""
+    for base in (root, root / 'packages/gp-webapp', root / 'packages/gp-webapp/app'):
+        f = base / path
+        if f.is_file():
+            lines = f.read_text(errors='ignore').splitlines()
+            return lines[line - 1] if 1 <= line <= len(lines) else None
+    return None
+
+
+def content_excuses(root, refs, needles):
+    """Why the content markers refs [(path, line)] fail to cover needles, or None when every literal
+    value sits on one of their lines (case-insensitive; numbers match as whole numbers)."""
+    texts = [source_line(root, p, int(n)) for p, n in refs]
+    for (p, n), t in zip(refs, texts):
+        if t is None:
+            return f'content marker points at {p}:{n}, which is not a line in the repo'
+    for needle in needles:
+        pat = rf'(?<![\d.]){re.escape(needle)}(?![\d.])' if re.fullmatch(r'[\d.]+', needle) else re.escape(needle)
+        if not any(re.search(pat, t, flags=re.I) for t in texts):
+            return f'{needle} is not on {", ".join(f"{p}:{n}" for p, n in refs)}'
+    return None
+
+
+def in_content(path):
+    """True when the element sits inside a data-content region with no gp-* element from the region down."""
+    start = next((i for i, n in enumerate(path) if 'data-content' in n[3]), None)
+    return start is not None and not any(c.startswith('gp-') for n in path[start:] for c in n[1])
+
+
+def parse_mutation(text):
+    """(kind, what the Mutations row must quote, product path or None), or None when malformed."""
+    text = ' '.join(text.split())
+    m = re.fullmatch(r'product (\S+):(\d+)', text)
+    if m:
+        return 'product', f'{m.group(1)}:{m.group(2)}', (m.group(1), int(m.group(2)))
+    m = re.fullmatch(r'no-component (\S.*?); proposes (\S.*)', text)
+    if m:
+        return 'no-component', text[len('no-component '):], None
+    return None
+
+
+def product_file(root, path, line):
+    """True when path:line is a real line in the repo (paths may be relative to gp-webapp or its app/)."""
+    for base in (root, root / 'packages/gp-webapp', root / 'packages/gp-webapp/app'):
+        f = base / path
+        if f.is_file():
+            return line <= len(f.read_text(errors='ignore').splitlines())
+    return False
+
+
+class Tree(HTMLParser):
+    """Every element as its path from the root: a list of (tag, classes, id, attrs)."""
+    def __init__(self):
+        super().__init__()
+        self.stack = []
+        self.paths = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        node = (tag, set((a.get('class') or '').split()), a.get('id'), a)
+        self.paths.append(self.stack + [node])
+        if tag not in VOID:
+            self.stack.append(node)
+
+    def handle_endtag(self, tag):
+        if any(n[0] == tag for n in self.stack):
+            while self.stack and self.stack.pop()[0] != tag:
+                pass
+
+
+def element_paths(markup):
+    t = Tree()
+    t.feed(markup)
+    return t.paths
+
+
+def compound(token):
+    tag = re.match(r'[a-zA-Z][\w-]*', token)
+    eid = re.findall(r'#([\w-]+)', token)
+    return (tag.group(0).lower() if tag else None, set(re.findall(r'\.([\w-]+)', token)), eid[0] if eid else None)
+
+
+def selector_chains(sel):
+    """Each comma part of a selector as [(combinator, compound)], the styled element last. Context
+    before a sibling combinator is dropped; attribute and pseudo parts match anything."""
+    sel = re.sub(r'\[[^\]]*\]', '*', sel)
+    while re.search(r'\([^()]*\)', sel):
+        sel = re.sub(r'\([^()]*\)', '', sel)
+    for part in sel.split(','):
+        part = re.sub(r'\s*([>+~])\s*', r' \1 ', re.sub(r'::?[\w-]+', '', part).strip())
+        chain, comb = [], ' '
+        for tok in part.split():
+            if tok in ('>', '+', '~'):
+                comb = tok
+                continue
+            if comb in ('+', '~'):
+                chain = []
+            chain.append((comb if chain else None, compound(tok)))
+            comb = ' '
+        if chain:
+            yield chain
+
+
+def matches(node, comp):
+    tag, classes, eid = comp
+    return (not tag or tag == node[0]) and classes <= node[1] and (not eid or eid == node[2])
+
+
+def chain_matches(path, chain):
+    def at(ci, pi):
+        comb, comp = chain[ci]
+        if not matches(path[pi], comp):
+            return False
+        if ci == 0:
+            return True
+        if comb == '>':
+            return pi > 0 and at(ci - 1, pi - 1)
+        return any(at(ci - 1, k) for k in range(pi - 1, -1, -1))
+    tag, classes, eid = chain[-1][1]
+    return bool(tag or classes or eid) and at(len(chain) - 1, len(path) - 1)
+
+
+class RawControls(HTMLParser):
+    """<button>, <input>, <select> and <textarea> with no gp-* class, outside a gp-choice row's own input."""
+    def __init__(self):
+        super().__init__()
+        self.stack = []
+        self.found = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        cls = (a.get('class') or '').split()
+        if tag in ('button', 'input', 'select', 'textarea') and not any(c.startswith('gp-') for c in cls):
+            in_choice = any('gp-choice' in s for s in self.stack)
+            if not (a.get('type') == 'hidden' or (in_choice and a.get('type') in ('radio', 'checkbox'))):
+                self.found.append(self.get_starttag_text())
+        if tag not in VOID:
+            self.stack.append(cls)
+
+    def handle_endtag(self, tag):
+        if tag not in VOID and self.stack:
+            self.stack.pop()
+
+
+def mutation_problems(html, markup, styles, oids):
+    root = repo_root()
+    scale = type_scale(root)
+    icons = approved_icons(root)
+    problems = []
+    # Every gp-* name gp-ui.css styles or shows in its markup notes is a shipped component class.
+    known = set(re.findall(r'(?<![\w-])(gp-[\w-]+)', (Path(__file__).resolve().parent.parent / 'assets/gp-ui.css').read_text()))
+    page_css = INLINED.sub('', styles)
+    scaffold = SCAFFOLD.search(page_css)
+    if scaffold:
+        norm = lambda t: ' '.join(t.split())
+        templates = (Path(__file__).resolve().parent.parent / 'assets').glob('page-template*.html')
+        if norm(scaffold.group(1)) not in {norm(m.group(1)) for t in templates for m in SCAFFOLD.finditer(t.read_text())}:
+            problems.append('the page scaffold (/* scaffold:start */ to /* scaffold:end */) differs from the template: '
+                            'copy it unchanged and put page rules after it')
+        page_css = page_css[:scaffold.start()] + page_css[scaffold.end():]
+    else:
+        problems.append('no /* scaffold:start */ block: start the page from assets/page-template*.html')
+    sections = {}
+    for oid in oids:
+        span = section_span(html, oid)
+        if span:
+            sections[oid[-1]] = strip_sections(strip_markup(html[span[0]:span[2]]), 'build-shape')
+    paths = element_paths(strip_sections(markup, 'build-shape'))
+    option_of = lambda path: next((n[2][-1] for n in path if n[2] in [f'option-{x}' for x in sections]), None)
+    needed = {}  # option letter -> [(what the row quotes, where)]
+
+    def check_marker(text, where, xs):
+        parsed = parse_mutation(text)
+        if not parsed:
+            problems.append(f'malformed mutation marker in {where}: use "product <path>:<line>" or '
+                            '"no-component <closest component>; proposes <variant, new component or C-xx>"')
+            return
+        kind, quote, product = parsed
+        if product and not product_file(root, *product):
+            problems.append(f'mutation marker in {where} points at {quote}, which is not a line in the repo')
+        for x in xs or list(sections)[:1]:
+            needed.setdefault(x, []).append((quote, where))
+
+    for sel, body in re.findall(r'([^{}]*)\{([^{}]*)\}', page_css):
+        clean = re.sub(r'/\*.*?\*/', '', sel, flags=re.S).strip()
+        if not clean or clean.startswith('@') or ':root' in clean:
+            continue
+        ds = decls(body)
+        chains = list(selector_chains(clean))
+        hit = [path for path in paths if any(chain_matches(path, c) for c in chains)]
+        direct = {c for chain in chains for c in chain[-1][1][1] if c.startswith('gp-')}
+        refs = CONTENT.findall(sel + body)
+        content = bool(refs and hit and not direct and all(in_content(path) for path in hit))
+        for prop, val in ds:
+            found = hardcoded(prop, val, scale)
+            if not found:
+                continue
+            why, needles = found
+            if not refs:
+                problems.append(f'{why}: "{clean[:50]}" {prop}: {val}')
+            elif not content:
+                problems.append(f'{why}: "{clean[:50]}" {prop}: {val}; a content marker covers only elements inside a '
+                                'data-content region with no gp-* element (reference/wireframe-build.md, "Mutations")')
+            else:
+                bad = content_excuses(root, refs, needles)
+                if bad:
+                    problems.append(f'{why}: "{clean[:50]}" {prop}: {val}; {bad}')
+        gp = direct | {c for path in hit for c in path[-1][1] if c.startswith('gp-')}
+        visual = [p for p, _ in ds if VISUAL_PROP.fullmatch(p) or (SIZE_PROP.fullmatch(p) and gp & SIZED)]
+        if not (gp and visual):
+            continue
+        xs = sorted({option_of(path) for path in hit} - {None})
+        where = f'"{clean[:50]}"'
+        marker = MUTATION.search(sel + body)
+        if gp & known:
+            if not marker:
+                named = (direct & known) or (gp & known)
+                problems.append(f'unmarked mutation: {where} sets {", ".join(visual)} on {", ".join(sorted(named))}; '
+                                'mark it (reference/wireframe-build.md, "Mutations") or drop it')
+                continue
+            check_marker(marker.group(1), where, xs)
+        elif marker:
+            check_marker(marker.group(1), where, xs)
+        else:
+            port = PORT.search(sel + body)
+            src = port and root / port.group(1)
+            if not (src and src.is_file() and 'packages/styleguide/src/components' in port.group(1)):
+                problems.append(f'{where} styles {", ".join(sorted(gp))}, which gp-ui.css does not have: name the component it '
+                                'ports with /* port: packages/styleguide/src/components/ui/<name>.tsx */')
+
+    for path in paths:
+        attrs = path[-1][3]
+        style = attrs.get('style')
+        if not style:
+            continue
+        src = re.fullmatch(r'\s*(\S+?):(\d+)\s*', attrs.get('data-content-source') or '')
+        for prop, val in decls(style):
+            found = hardcoded(prop, val, scale)
+            if not found:
+                continue
+            why, needles = found
+            if not src:
+                problems.append(f'{why}: style="{style[:60]}"')
+            elif not in_content(path):
+                problems.append(f'{why}: style="{style[:60]}"; data-content-source covers only elements inside a '
+                                'data-content region with no gp-* element (reference/wireframe-build.md, "Mutations")')
+            else:
+                bad = content_excuses(root, [src.groups()], needles)
+                if bad:
+                    problems.append(f'{why}: style="{style[:60]}"; {bad}')
+    for x, sec in sections.items():
+        for m in re.finditer(r'<\w+\b[^>]*\bstyle="([^"]*)"[^>]*>', sec):
+            tag = m.group(0)
+            cls = re.search(r'\bclass="([^"]*)"', tag)
+            gp = [c for c in (cls.group(1).split() if cls else []) if c.startswith('gp-')]
+            visual = [p for p, _ in decls(m.group(1)) if VISUAL_PROP.fullmatch(p) or (SIZE_PROP.fullmatch(p) and set(gp) & SIZED)]
+            if not (gp and visual):
+                continue
+            dm = re.search(r'\bdata-mutation="([^"]*)"', tag)
+            if not dm:
+                problems.append(f'unmarked mutation: style="{m.group(1)[:50]}" sets {", ".join(visual)} on {", ".join(gp)}; '
+                                'add data-mutation (reference/wireframe-build.md, "Mutations") or drop it')
+            else:
+                check_marker(dm.group(1), f'style="{m.group(1)[:40]}"', [x])
+        for m in re.finditer(r'<svg\b[^>]*>', sec, flags=re.I):
+            if 'data-logo="heart"' in m.group(0):
+                continue
+            name = re.search(r'\bdata-icon="([^"]*)"', m.group(0))
+            if not name or name.group(1) not in icons:
+                problems.append(f'option-{x}: <svg> needs data-icon="<Name>" from packages/styleguide/src/components/ui/icons.tsx'
+                                f' (got {name.group(1) if name else "none"}): {m.group(0)[:60]}')
+        raw = RawControls()
+        raw.feed(sec)
+        for tag in raw.found:
+            problems.append(f'option-{x}: raw {tag[:60]} without a gp-* class (use the gp-ui.css component)')
+
+    for x, rows in needed.items():
+        block = element_html(html, f'{x}-mutations')
+        text = ' '.join(visible_text(block).split()) if block else ''
+        for quote, where in rows:
+            if ' '.join(quote.split()) not in text:
+                problems.append(f'option-{x}: the mutation in {where} has no row in #{x}-mutations quoting "{quote}"')
+    return problems
 
 
 def main():
@@ -321,6 +703,8 @@ def main():
             problems.append(f'{oid}: no Built from list id="{x}-sources" (docs/product-design.md section 7)')
         if f'id="{x}-drops"' not in section:
             problems.append(f'{oid}: no What changes from today list id="{x}-drops" (docs/product-design.md section 7)')
+        if f'id="{x}-mutations"' not in section:
+            problems.append(f'{oid}: no Mutations list id="{x}-mutations" (reference/wireframe-build.md, "Mutations")')
         main_flow = strip_markup(section).split(f'id="{x}-appendix"', 1)[0]
         frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', main_flow)
         if not frames:
@@ -422,6 +806,7 @@ def main():
             for prop, n in re.findall(r'\b((?:min-)?height)\s*:\s*(\d+)px', body):
                 if int(n) >= 40:
                     problems.append(f'"{sel[:50]}" {prop}: {n}px; the product filter pill is 36px (h-9). Use gp-pill or the real height')
+    problems += mutation_problems(html, markup, styles, oids)
     if re.search(r'id="option-d"', html):
         problems.append('more than three options')
     if '<iframe' in html.lower():

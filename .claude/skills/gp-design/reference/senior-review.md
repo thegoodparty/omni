@@ -20,13 +20,18 @@ Give the subagent this brief, with the paths filled in:
 > task: `<ticket text, the designer's direction, and any notes>`. Read the
 > output: `<work>/page/index.html` and the screenshots in `<work>/screens/`;
 > render it at 375 and 1280, and open `?view=phone` and `?view=desktop`. Read
-> today's code for every screen the design copies or changes.
+> today's code for every screen the design copies or changes. Compare it
+> against the reference screens in `docs/product-design.md` §13 for the same
+> kind of screen.
 >
 > Review it the way a senior designer would. Does it solve the task and follow
 > every clause of the designer's direction? Does it follow the rulebook and the
 > design system, built only from existing components through their documented
-> props, with no restyled components and no hardcoded colors, sizes or
-> spacing? Is every copied screen faithful to today's product? Does it hold up
+> props, with no undeclared restyles and no hardcoded colors, sizes or
+> spacing? Check every declared mutation (the Mutations list): is there an
+> existing product solution it duplicates, and is there really no component?
+> Any undeclared visual override or hardcoded value is a Do. Is every copied
+> screen faithful to today's product? Does it hold up
 > on a phone and on desktop? Are the hierarchy, copy and every state (empty,
 > loading, AI working, error, filled) right? Is nothing invented? Are the open
 > questions and the list of what changes honest, complete and ranked?

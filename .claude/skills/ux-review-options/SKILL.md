@@ -70,7 +70,10 @@ Each option has:
 6. A collapsed What changes from today list next to it (`#a-drops`), per "Say
    what a change drops" in `docs/product-design.md` §7: dropped behavior,
    removed controls, and changed strings with the old and new text, or "None".
-7. A "How it's built" panel under the list: one build shape for this option,
+7. A collapsed Mutations list next to it (`#a-mutations`): every declared
+   restyle of a component and its source or proposal, or "None"
+   ("Mutations" in `reference/wireframe-build.md`).
+8. A "How it's built" panel under the list: one build shape for this option,
    from the `build-shape` skill in UX mode. The page opens on the prototypes:
    build shapes stay hidden until someone turns on "Show how it's built" at
    the right of the page bar. `build.py` adds that switch. Add `?build` to the
@@ -122,7 +125,13 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    enough; code that implements it follows "Check before you change" in the
    root `AGENTS.md`. Today's behavior is the starting
    point for the close-to-today option, and code facts often kill or reshape an
-   option. Find the entry point: the route and the button or link that starts the
+   option. Then read Part 4 (Components) of `docs/product-design-gaps.md` and
+   the rows in `docs/product-design-gaps-locations.md` for the files and zones
+   the design touches. They are a list of known hardcode and mutations not to
+   copy, not a source of rules: `docs/product-design.md` wins. A copied screen
+   with a listed problem is copied with it fixed (the component as it ships),
+   and the difference goes in `#<x>-drops`. A component the design uses that
+   the audit proposes is named by its C-xx id. Find the entry point: the route and the button or link that starts the
    flow today. Note which products the ticket names (Win, Serve or both).
 2. **Find the prior art.** For each job a screen does (a multi-step task, a list
    of records, one record's details, counts, a confirmation), find the most
@@ -182,7 +191,11 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    file of the screen whose solution it copies). A part with no source is a
    gap: build it from the closest fit and list it. A new component is only
    ever a proposal for the team, per §7. The list goes on the page in
-   `#a-sources`. Then list what each option changes from today for
+   `#a-sources`. Every restyled component is a declared mutation
+   ("Mutations" in `reference/wireframe-build.md`) with a row in
+   `#a-mutations`. Before you mark one "no-component", search the product
+   for the same job as step 2 does; if it already solves it, copy that and
+   mark it "product". Then list what each option changes from today for
    `#a-drops`. When a designer gave a direction, map each clause of it to the
    screen that delivers it; a clause not delivered as written goes in
    `#<x>-drops` or "Decisions needed".
@@ -192,9 +205,11 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    design tokens and component CSS and writes `index.html`.
 7. **Check.** `python3 scripts/check.py --skip-build-shape <work>/page/index.html`
    catches banned words, dead links, external requests and a missing brief,
-   open questions list, entry point, Sends line, appendix, Built from
-   list or What changes from today list, template sample text left on the
-   page, and flags unearned muted text, banners, blank icons and off-scale spacing. Then render
+   open questions list, entry point, Sends line, appendix, Built from,
+   What changes from today or Mutations list, template sample text left on
+   the page, undeclared mutations, hardcoded values, unapproved icons and raw
+   controls, and flags unearned muted text, banners, blank icons and
+   off-scale spacing. Then render
    it with `agent-browser` (headless Chromium), or Playwright (channel
    `chromium`) when `agent-browser` isn't installed. Playwright lives in the
    repo root `node_modules`, or the main checkout's when a worktree has none.
@@ -261,8 +276,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
 `assets/page-template-one.html` instead of `assets/page-template.html` in step
 6: it has no B and C, and its `<main data-design="one">` tells `check.py` to
 check `#option-a` only and to fail on any other option. Steps 1 to 4 and 6 to
-11 run as written; step 5 writes the description, Sends line, Built from list
-and What changes from today list for the one design. The design is the picked
+11 run as written; step 5 writes the description, Sends line, Built from list,
+What changes from today list and Mutations list for the one design. The design is the picked
 direction: the appendix covers every state the build will need (Revision
 rounds step 4), with no six-state cap. These parts of this skill do not apply:
 

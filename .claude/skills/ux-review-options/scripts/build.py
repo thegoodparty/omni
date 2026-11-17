@@ -6,7 +6,9 @@ Usage: build.py <src.html> <out-dir>
 Reads <src.html>, replaces /*GP_TOKENS*/, /*GP_UI*/ and {{HEART_LOGO_SVG}}, and
 writes <out-dir>/index.html. /*GP_TOKENS*/ gets the @theme block of the
 styleguide's tailwind-theme.css as :root (some theme tokens point at variables
-defined only there), then design-tokens.css. Fails if any {{placeholder}} is left.
+defined only there), then design-tokens.css. Each inlined block ends with a
+/*GP_<NAME> end*/ marker, so check.py reads only the page's own CSS. Fails if any
+{{placeholder}} is left.
 Works the same for both templates: page-template.html (three options) and
 page-template-one.html (one design, #option-a only).
 
@@ -81,14 +83,15 @@ def main():
                 html = html[:span[1]] + fragment.read_text().strip() + '\n' + html[span[1]:]
                 inlined += 1
         if inlined:
-            html = html.replace('</head>', f'<style>\n{panel_css.read_text()}{toggle_css}</style>\n</head>', 1)
+            html = html.replace('</head>', f'<style>\n/*GP_BUILD_SHAPE*/\n{panel_css.read_text()}{toggle_css}/*GP_BUILD_SHAPE end*/\n</style>\n</head>', 1)
             html = add_to_page_bar(html, toggle_button)
             html = html.replace('</body>', toggle_script + '</body>', 1)
         print(f'inlined {inlined} build shape(s) from {build}')
     # The theme goes first so design-tokens.css wins where both define a name.
     theme_root = re.sub(r'^@theme', ':root', theme_block.group(0))
-    html = html.replace('/*GP_TOKENS*/', theme_root + '\n' + tokens.read_text())
-    html = html.replace('/*GP_UI*/', (skill / 'assets/gp-ui.css').read_text())
+    # The end markers let check.py tell inlined CSS from the page's own rules.
+    html = html.replace('/*GP_TOKENS*/', '/*GP_TOKENS*/\n' + theme_root + '\n' + tokens.read_text() + '\n/*GP_TOKENS end*/')
+    html = html.replace('/*GP_UI*/', '/*GP_UI*/\n' + (skill / 'assets/gp-ui.css').read_text() + '\n/*GP_UI end*/')
     html = html.replace('{{HEART_LOGO_SVG}}', (skill / 'assets/heart-logo.svg').read_text().strip())
     left = sorted(set(re.findall(r'\{\{[A-Z0-9_]+\}\}', html)))
     if left:

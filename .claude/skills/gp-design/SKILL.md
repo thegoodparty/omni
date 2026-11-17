@@ -31,8 +31,20 @@ doc, so a change there reaches the next design with no edit to this skill.
 
 ## 1. Take the task
 
-The user gives a ClickUp ticket, a plain description, or both, plus any notes,
-transcripts or screenshots. A ticket is never required.
+The user gives a ClickUp ticket, a plain description, or both, plus anything
+that helps. A ticket is never required. Use each kind of input for what it is:
+
+- **Notes and transcripts:** decisions and context. A decision stated there is
+  binding, like the designer's direction.
+- **Screenshots, diagrams and flow sketches:** the structure and the flow to
+  follow. The look still comes only from our components.
+- **Existing prototypes** (a teammate's, a Claude Design canvas): the
+  direction. Rebuild it from the design system; every difference goes in
+  What changes from today, and every part with no component is a gap.
+- **Examples from other products:** a pattern to borrow, never a look to copy.
+  The brief says what was taken from each and why.
+- **Findings from another skill** (pattern research, a product brief, an
+  earlier audit): read them before the brief and cite them in it.
 
 Make one design unless the ask says options, explore or compare, or the
 trigger is a ticket moved to Committed; then make three options. Ask only when
@@ -104,3 +116,8 @@ A correction that settles how something should work or look goes to the doc
 that owns it, not to this skill: `docs/product-design.md`, `learned.md`,
 `product-copy.md`, or the component's `@summary` (which regenerates
 `COMPONENTS.md`). Open that PR, or say which doc needs it.
+
+## When you change this skill
+
+After any change to this skill or to `ux-review-options`, rerun the fixed
+tasks in `reference/eval-tasks.md` and compare with the last run, as it says.

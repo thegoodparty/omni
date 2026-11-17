@@ -25,7 +25,9 @@ versions of the common components. Use the classes below. When you need a compon
 then add a small rule to the page's own `<style>` block built only from token
 variables. A page-local class for a styleguide component always uses the `gp-`
 prefix (`.gp-<name>`) and copies its classes from the component source, like the
-blocks in `gp-ui.css`. Never hard-code a hex value that a token already covers.
+blocks in `gp-ui.css`, and each of its rules names that source:
+`/* port: packages/styleguide/src/components/ui/<name>.tsx */`. Never a
+hardcoded value: "Mutations" below.
 
 ## Components in `gp-ui.css`
 
@@ -67,9 +69,13 @@ Cards are 12px radius with a 1px border. Don't change those.
 - **Except the content a look-and-feel ticket is about.** When the ticket is
   about how content looks (themes, colors, a header, a template), the content
   under review shows its real colors, taken from the product's own theme
-  constants (the component's theme or constants file). The product chrome
-  around it stays neutral. Never put labels or theme names inside the rendered
-  content.
+  constants (for email, `EMAIL_THEMES` in
+  `packages/contracts/src/outreach/EmailTemplate.const.ts`; type and radii from
+  `packages/gp-api/src/emailOutreach/templates/components.tsx`). Mark the
+  rendered content `data-content="<what>"` and give each rule with a literal
+  value a `/* content: <path>:<line> */` marker (see "Mutations"). The product
+  chrome around it stays neutral. Never put labels or theme names inside the
+  rendered content.
 - **No imagery.** A photo, map or chart is a `gp-box` with a plain label ("Map of
   Maplewood"). No stock art or emoji.
 - **No decoration.** No gradients, drop shadows, blur or brand flourishes beyond
@@ -154,6 +160,46 @@ that in a wireframe:
    container table in `docs/product-design.md` §3 makes it a Drawer (a short,
    focused input), a changed step follows the table.
 
+## Mutations
+
+A mutation is a page rule or `style=""` that changes how a `gp-*` component
+looks: color, background, border, radius, shadow, type, opacity, or the height
+and padding of a sized control (`gp-btn`, `gp-input`, `gp-select`,
+`gp-textarea`, `gp-badge`, pills, toggles, tabs). Layout (margin, gap, flex,
+grid, width, position, padding on a container) is free. The page's own rules
+go after the template's scaffold (`/* scaffold:end */`); the scaffold itself
+stays as the template has it.
+
+A mutation is allowed only when declared, in the order of
+`docs/product-design.md` §7, "Pick in this order":
+
+1. `/* mutation: product <path>:<line> */`: the product already does this job
+   with this modification. Copy it exactly; no new look-alike.
+2. `/* mutation: no-component <closest>; proposes <what> */`: no component
+   does the job. `<closest>` is the closest component; `<what>` is a variant,
+   a new component, or an audit C-xx id. Only after the step 2
+   prior art search (`SKILL.md`) finds no product solution for the same job;
+   when it finds one, that is item 1.
+
+On a `style=""`, put the marker in `data-mutation="product <path>:<line>"` or
+`data-mutation="no-component ..."`. Each marker gets a row in the option's
+Mutations list (`<details class="mutations" id="a-mutations">`): the element,
+the kind, and the marker's text after its kind. "None" when there are none.
+
+A marker never covers a hardcoded value. Colors are `var(--token)` only, font
+sizes are on the type scale in `docs/product-design.md` §8, and a radius is a
+radius token, `0`, `9999px` or `50%`. In an option, every `<button>`,
+`<input>`, `<select>` and `<textarea>` carries its `gp-*` class. `check.py`
+fails on all of these.
+
+The one exception is the rendered content of a look-and-feel ticket (an email
+canvas), marked `data-content="<what>"`. Inside it, a rule may use a literal
+color, font size or radius when it carries `/* content: <repo path>:<line> */`
+(on a `style=""`, `data-content-source="<path>:<line>"`) and that line contains
+the value. The rule must reach only elements inside the region, with no `gp-*`
+element from the region down. Product chrome and `gp-*` components never
+qualify; `check.py` checks the line.
+
 ## Spacing parity
 
 A frame that mirrors an existing screen must measure the same as the real one.
@@ -179,8 +225,11 @@ A frame that mirrors an existing screen must measure the same as the real one.
 ## Icons
 
 Use only inline SVGs of icons in the styleguide's approved set (`Icons` in
-`COMPONENTS.md`, lucide), with `stroke="currentColor"` and a viewBox. Never an
-emoji, an icon font or a hand-drawn path. Screenshot every screen and confirm no
+`COMPONENTS.md`, lucide), with `stroke="currentColor"` and a viewBox. Each
+carries `data-icon` with its name as `packages/styleguide/src/components/ui/icons.tsx`
+exports it (`data-icon="CheckIcon"`); `check.py` fails on any other `<svg>` in
+an option except the heart logo. Never an emoji, an icon font or a hand-drawn
+path. Screenshot every screen and confirm no
 icon is blank.
 
 ## Every option must have
@@ -215,6 +264,8 @@ icon is blank.
   `#questions` or `<code>` for banned words, so old strings can be quoted there
   and real prop names (`<code>variant="seamless"</code>`) can be quoted in
   Built from.
+- A Mutations list next to it (`<details class="mutations" id="a-mutations">`):
+  one row per mutation marker, per "Mutations" above.
 - A static desktop frame is exempt from working interactions and Restart. A
   desktop flow is not.
 - Controls a copied screen brings that the change doesn't touch, and controls
