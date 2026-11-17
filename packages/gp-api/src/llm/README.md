@@ -32,5 +32,20 @@ input price.
 Message and tool types (`LlmMessage`, `LlmFunctionTool`, `LlmToolChoice`) are local
 DTOs defined in `src/llm/types/llmMessages.types.ts`.
 
+## Agent Observability
+
+`streamChatCompletion` passes `experimental_telemetry` so the AI SDK emits its
+generation spans, and a chat turn passes `agentTrace` so Grafana Agent
+Observability picks them up (`agentTrace.ts`). That tracer stamps every span the
+SDK starts — the generation, each tool call — with the attributes the app
+requires (`agento11y.record`, `gen_ai.conversation.id`, `gen_ai.agent.name`) and
+the `gen_ai.operation.name`/`gen_ai.provider.name` pair it keys generations on.
+Export is unchanged: it delegates to the tracer the SDK would have used, so
+`src/otel.ts` still sends everything to Grafana.
+
+A call with no `agentTrace` stays a plain Tempo trace — the non-streaming calls
+and anything that is not a chat turn. `recordInputs`/`recordOutputs` stay off
+either way, because prompts here carry voter data.
+
 Use this module when you need an LLM call. Don't add new direct `ai` SDK or
 `@ai-sdk/anthropic` imports outside `src/llm/services/`.

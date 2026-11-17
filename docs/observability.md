@@ -178,6 +178,34 @@ Slack notifications, Faro payloads, SQS payloads, HTTP responses — is not
 redacted, so don't hand a serialized Axios error (its `config.headers` carries
 the credential) to those paths.
 
+## Chat and agent runs (Grafana Agent Observability)
+
+https://goodparty.grafana.net/a/grafana-agento11y-app
+
+Every chat turn's model calls and tool calls appear as generations in Agent
+Observability, grouped by conversation and labelled with the chat scope the
+caller declares (`chief_of_staff`, `campaign_assistant`, `ordinance_flow`,
+`priority_flow`), or `chat` when it declares none — briefing chat's own
+annotation route passes no scope. Its **Conversations** view answers what a
+single turn did — which tools ran, in what order, what each model call cost —
+without a Tempo query.
+
+Spans reach it through the same OTel exporter as everything else. What gets
+them in is `agentTrace.ts`, which stamps `agento11y.record`,
+`gen_ai.conversation.id` and `gen_ai.agent.name` on the AI SDK's spans and names
+each one's operation. It is set only on a chat turn; a background model call or
+a non-chat LLM call is a plain Tempo trace.
+
+Prompt and reply text are **not** recorded (`recordInputs` and `recordOutputs`
+are off in `llm.service.ts`), because prompts here carry voter and campaign
+data. A span shows the model, the token counts, the finish reason and the tool
+names — never a message body, tool arguments or a tool result. Don't turn those
+on to debug a prompt; use the Braintrust trace or the stored `ChatMessage` rows.
+
+Grafana Cloud must have Agent Observability enabled on the stack before
+data appears. If the Conversations view is empty but Tempo has the spans, check
+that before the instrumentation.
+
 ## Front-end errors (Grafana Frontend Observability)
 
 gp-webapp's browser errors go to Grafana Cloud Frontend Observability through

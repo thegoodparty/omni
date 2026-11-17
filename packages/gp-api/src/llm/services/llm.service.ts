@@ -24,9 +24,11 @@ import {
   type LlmMessage,
   type LlmToolChoice,
 } from '../types/llmMessages.types'
+import { agentTraceTracer, type AgentTraceIdentity } from './agentTrace'
 import { toModelMessages } from './messageConversion'
 
 export { toModelMessages } from './messageConversion'
+export type { AgentTraceIdentity } from './agentTrace'
 
 export interface LlmChatCompletionOptions {
   messages: LlmMessage[]
@@ -266,6 +268,10 @@ export interface LlmStreamOptions {
     filename?: string
     providerMetadata?: Record<string, Record<string, unknown>>
   }) => void
+  // Groups this turn's spans into one Grafana Agent Observability
+  // conversation. Set by the chat turn; a call with none stays a plain Tempo
+  // trace.
+  agentTrace?: AgentTraceIdentity
 }
 
 export interface LlmStreamUsage {
@@ -328,12 +334,13 @@ export const defaultAnthropicProviderFactory: AnthropicProviderFactory = ({
 // Inputs and outputs are deliberately off. They default to ON, and prompts here
 // carry voter and campaign data while responses are unbounded — neither belongs
 // in a span attribute.
-const llmTelemetry = (functionId: string) =>
+const llmTelemetry = (functionId: string, agentTrace?: AgentTraceIdentity) =>
   ({
     isEnabled: true,
     functionId,
     recordInputs: false,
     recordOutputs: false,
+    ...(agentTrace && { tracer: agentTraceTracer(agentTrace) }),
   }) as const
 
 @Injectable()
@@ -562,6 +569,7 @@ export class LlmService {
       onToolInputStart,
       onStreamError,
       onSource,
+      agentTrace,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -617,7 +625,10 @@ export class LlmService {
             providerOptions: {
               anthropic: { cacheControl: { type: 'ephemeral' } },
             },
-            experimental_telemetry: llmTelemetry('llm.stream-chat-completion'),
+            experimental_telemetry: llmTelemetry(
+              'llm.stream-chat-completion',
+              agentTrace,
+            ),
             ...(toolSet && { tools: toolSet, prepareStep }),
             // streamText swallows errors by default (they surface only on the
             // stream) — log them so a mid-generation provider failure is not
