@@ -29,10 +29,12 @@
 #
 # Env: CI_TF_INIT_ATTEMPTS (default 3), CI_TF_INIT_BACKOFF_SECONDS (base, default 5).
 
-# Every line here is a network failure against the registry or the package CDN.
-# Deliberately absent: "does not have a provider named", "doesn't match any of
-# the checksums", "Unsupported state file format", "AccessDenied" — those are
-# ours to fix and a retry only delays the report.
+# A transport failure against the registry or the package CDN. A reset while
+# reading the S3 backend matches too, and is retried for the same reason: init
+# takes no state lock, so nothing can be half-applied. Deliberately absent:
+# "does not have a provider named", "doesn't match any of the checksums",
+# "Unsupported state file format", "AccessDenied" — those are ours to fix and a
+# retry only delays the report.
 tf_init_transient_re='connection reset by peer|connection refused|i/o timeout|TLS handshake timeout|no such host|Temporary failure in name resolution|giving up after [0-9]+ attempt|(502|503|504) (Bad Gateway|Service Unavailable|Gateway Timeout)'
 
 tf_init_with_retry() {

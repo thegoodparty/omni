@@ -222,10 +222,13 @@ retries init up to 3 times with backoff, and only on a network signature:
 `connection reset by peer`, `connection refused`, `i/o timeout`, `TLS handshake
 timeout`, a DNS failure, a registry/CDN `502`/`503`/`504`, or terraform's own
 `giving up after N attempt(s)`. Everything else — a provider source that does not
-exist, a version that does not exist, a checksum mismatch, a bad backend, a
-missing variable — fails on the first attempt exactly as before, so a real failure
-still short-circuits `wait-all`. Bounded at three attempts and ~15s of backoff: a
-registry that is down for longer still fails the train rather than stalling it.
+exist, a version that does not exist, a checksum mismatch, a backend that answers
+with an error (`AccessDenied`, a missing bucket, an unparseable state), a missing
+variable — fails on the first attempt exactly as before, so a real failure still
+short-circuits `wait-all`. A *transport* failure while reading the S3 backend is
+retried like any other network error; init holds no lock, so there is nothing to
+half-apply. Bounded at three attempts and ~15s of backoff: a registry that is down
+for longer still fails the train rather than stalling it.
 
 Run `bash packages/gp-ai/infrastructure/scripts/ci-tf-init.sh --self-test` for the
 classification and attempt-count checks; the `terraform-plan` job runs it before
