@@ -169,6 +169,18 @@ import {
   type ServeSmsCreateFn,
 } from './useServeSmsSend'
 
+// The managed civic panel's earliest start day: tomorrow, or the Monday
+// after when tomorrow is a weekend day.
+const earliestKickoff = (): Date => {
+  const tomorrow = addDays(startOfDay(new Date()), 1)
+  return serveSmsScheduledAt(
+    isWeekend(tomorrow) ? nextMonday(tomorrow) : tomorrow,
+  )
+}
+
+const kickoffStillOpen = (day: Date): boolean =>
+  startOfDay(day) > startOfDay(new Date())
+
 type StepId =
   | 'purpose'
   | 'details'
@@ -956,12 +968,7 @@ export const SmsFlow = ({
     if (managed) {
       draftRequestRef.current += 1
       setStepId('compose')
-      const tomorrow = addDays(startOfDay(new Date()), 1)
-      setKickoffDate(
-        serveSmsScheduledAt(
-          isWeekend(tomorrow) ? nextMonday(tomorrow) : tomorrow,
-        ),
-      )
+      setKickoffDate(undefined)
       setPurpose(BUILD_CITIZENS_PANEL_PURPOSE)
       setTone('warm')
       setMessage(initialScript ?? '')
@@ -1547,11 +1554,20 @@ export const SmsFlow = ({
       setComposeContinueAttempts((n) => n + 1)
       return
     }
+    if (!kickoffDate || !kickoffStillOpen(kickoffDate)) {
+      setKickoffDate(earliestKickoff())
+    }
     setStepId('schedule')
   }
 
   const handleManagedSetUp = () => {
     if (!kickoffDate) return
+    // A flow left open past midnight can hold a day that is now today, which
+    // gp-api refuses: move it to the earliest day rather than send it.
+    if (!kickoffStillOpen(kickoffDate)) {
+      setKickoffDate(earliestKickoff())
+      return
+    }
     setManagedError(false)
     trackEvent(EVENTS.Contacts.CivicPanelInviteSubmitted, {
       edited: message !== (initialScript ?? ''),

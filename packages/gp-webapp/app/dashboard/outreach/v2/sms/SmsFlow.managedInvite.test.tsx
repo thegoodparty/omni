@@ -231,6 +231,31 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     )
   })
 
+  it('moves a start day that became today to the earliest day instead of sending it', async () => {
+    // Wednesday night: the step opens on Thursday.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 10, 18, 23, 0) })
+    try {
+      const user = userEvent.setup()
+      const { onSetUp } = open()
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await toSchedule(user)
+
+      // Left open past midnight, so Thursday is now today.
+      vi.setSystemTime(new Date(2026, 10, 19, 9, 0))
+      await user.click(submit())
+
+      expect(approvals).toHaveLength(0)
+      expect(onSetUp).not.toHaveBeenCalled()
+
+      await user.click(submit())
+
+      await waitFor(() => expect(onSetUp).toHaveBeenCalledTimes(1))
+      expect(approvals[0]?.firstSendDate).toBe('2026-11-20')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('polishes the body and keeps the locked lines out of it', async () => {
     const user = userEvent.setup()
     const drafts: ServeSmsDraftRequest[] = []
