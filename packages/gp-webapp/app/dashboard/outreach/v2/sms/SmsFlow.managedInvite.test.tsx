@@ -64,6 +64,16 @@ const open = () => {
 const submit = () =>
   screen.getByRole('button', { name: 'Set up my civic panel' })
 
+const pickStartDate = () =>
+  screen.getByRole('button', { name: 'Pick a start date' })
+
+const toSchedule = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(pickStartDate())
+  await screen.findAllByRole('heading', {
+    name: 'When should your invites start going out?',
+  })
+}
+
 describe('SmsFlow in its managed civic panel invite mode', () => {
   let requests: string[]
   let approvals: ApproveManagedCivicPanelInput[]
@@ -86,7 +96,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     vi.clearAllMocks()
   })
 
-  it('opens on the invite alone, with no audience, date or checkout step', async () => {
+  it('opens on the invite, with no audience or checkout step', async () => {
     open()
 
     expect(
@@ -112,6 +122,42 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
       }),
     ).toBeNull()
     expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
+    expect(pickStartDate()).toBeEnabled()
+    expect(
+      screen.queryByRole('button', { name: 'Set up my civic panel' }),
+    ).toBeNull()
+    expect(screen.queryByText(/^By continuing/)).toBeNull()
+  })
+
+  it('asks when the invites start, opening on the earliest day', async () => {
+    const user = userEvent.setup()
+    open()
+    await screen.findByRole('textbox', { name: 'Message body' })
+
+    await toSchedule(user)
+
+    expect(
+      screen.getByText(
+        "Taking office later? Pick a day after you're sworn in.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/^Ready around the week of /)).toBeInTheDocument()
+    expect(screen.queryByText(/Sends at 11:00 AM/)).toBeNull()
+    expect(submit()).toBeEnabled()
+  })
+
+  it('goes back to the invite from the start date, keeping it open', async () => {
+    const user = userEvent.setup()
+    const { onClose } = open()
+    await screen.findByRole('textbox', { name: 'Message body' })
+    await toSchedule(user)
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(
+      await screen.findByRole('textbox', { name: 'Message body' }),
+    ).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('keeps the JOIN line and opt-out locked under the editable body', async () => {
@@ -133,10 +179,11 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     ).toBeInTheDocument()
   })
 
-  it('approves the invite as written with one press of the button', async () => {
+  it('approves the invite as written once a start date is picked', async () => {
     const user = userEvent.setup()
     const { onSetUp, onScheduled } = open()
     await screen.findByRole('textbox', { name: 'Message body' })
+    await toSchedule(user)
 
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(
@@ -198,6 +245,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     expect(messageText()).not.toContain('Reply JOIN')
     expect(messageText()).not.toContain('Reply STOP')
 
+    await toSchedule(user)
     await user.click(submit())
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Contacts.CivicPanelInviteSubmitted,
@@ -213,6 +261,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     })
     const { onSetUp } = open()
     await screen.findByRole('textbox', { name: 'Message body' })
+    await toSchedule(user)
 
     await user.click(submit())
 

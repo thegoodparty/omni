@@ -88,8 +88,18 @@ export const MANAGED_PANEL_COPY = {
     // button says what they are agreeing to.
     agreement: (place: string | null) =>
       `By continuing, you agree to GoodParty texting this invite to ${residentsOf(place)} in your name.`,
+    next: 'Pick a start date',
     submit: 'Set up my civic panel',
     error: "We couldn't set up your civic panel. Try again.",
+    // The second step: when the first invites go out. An official elected
+    // but not yet sworn in starts it after they take office.
+    schedule: {
+      title: 'When should your invites start going out?',
+      body: "Taking office later? Pick a day after you're sworn in.",
+      dateLabel: 'Start date',
+      maxDaysOut: 120,
+      readyHint: (day: string) => `Ready around the week of ${day}.`,
+    },
   },
 } as const
 

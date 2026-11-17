@@ -148,17 +148,23 @@ list.
 
 `SmsFlow` also has a `managedInvite` mode (Serve only, `{ place, onSetUp }`)
 for the invite GoodParty texts in the official's name to build their civic
-panel. It is the message step alone, its own header (Civic panel invite),
-title and caption, with Back leaving the flow: no purpose, audience, date,
-image, checkout or payment, and it never creates an Outreach row. The
+panel. It is two steps under its own header (Civic panel invite): the
+message, with its own title and caption, Back leaving the flow and Pick a
+start date moving on; then the start date ("When should your invites start
+going out?"), `ServeSmsScheduleStep` with its `variant` (its own words, a
+120-day window, and a ready-week line in place of the send-time lines),
+opening on the earliest day so starting now is one tap, for an official not
+yet sworn in to start after they take office. No purpose, audience, image,
+checkout or payment, and it never creates an Outreach row. The
 editable body is `initialScript` (the first name merge tag a chip at its
 start; `managedInviteDraft` writes it from the official's full name, office
 and place, and never names the civic panel). The JOIN line and the opt-out sit
 locked under it as one block, the opt-out directly under the JOIN line
 (`composeManagedInvite`, `MANAGED_INVITE_LOCKED_LINES`), and Improve sends the
 whole invite and keeps only the body of the reply (`managedInviteBody`).
-There is no checkbox: pressing Set up my civic panel is the approval, and a
-"By continuing, you agree..." line right above the button (the shell footer's
+There is no checkbox: pressing Set up my civic panel (on the start date
+step) is the approval, and a "By continuing, you agree..." line right above
+the button (the shell footer's
 `banner` slot) says what they agree to. The counter shows characters only, no
 SMS segments, since the invite goes out as MMS. It posts
 `/v1/contacts/civic-panel/managed` with contracts'
