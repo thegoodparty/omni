@@ -47,6 +47,28 @@ const waitFor = async (check: () => boolean) => {
   }
 }
 
+// agentRun allows 5 attempts, so the fifth claim is the last one
+// (retryCount 4 === retryLimit 4).
+const LAST_ATTEMPT = 5
+
+const submitCall = (output: unknown): LanguageModelV3StreamPart[] => [
+  { type: 'stream-start', warnings: [] },
+  {
+    type: 'tool-call',
+    toolCallId: `call-${Math.random().toString(36).slice(2)}`,
+    toolName: 'submitOutput',
+    input: JSON.stringify({ output }),
+  },
+  {
+    type: 'finish',
+    finishReason: { unified: 'tool-calls', raw: 'tool_use' },
+    usage: {
+      inputTokens: { total: 1000, noCache: 1000, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 100, text: 100, reasoning: undefined },
+    },
+  },
+]
+
 const lookUpCall = (): LanguageModelV3StreamPart[] => [
   { type: 'stream-start', warnings: [] },
   {
@@ -136,5 +158,92 @@ describe('an agent run at shutdown', () => {
       AgentMessageRole.assistant,
       AgentMessageRole.tool,
     ])
+  })
+
+  it('leaves the run open when a deploy kills its last attempt', async () => {
+    // A deploy never spends an attempt, so the same attempt is requeued. On the
+    // last one that means a run marked `failed` here would be stranded: the
+    // requeued attempt returns at the terminal check and nothing finishes it.
+    // The first attempts fail for real so the one stopped here is the last; the
+    // model call in flight then throws as itself, not as RunStoppedError.
+    let calls = 0
+    let release: () => void = () => undefined
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+      model: new MockLanguageModelV3({
+        doStream: async () => {
+          calls++
+          if (calls < LAST_ATTEMPT) throw new Error('the provider was down')
+          if (calls === LAST_ATTEMPT) {
+            await released
+            throw new Error('killed mid-step')
+          }
+          return {
+            stream: simulateReadableStream({
+              chunks: submitCall({ summary: 'all about it' }),
+            }),
+          }
+        },
+      }),
+      modelId: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    })
+    await service.prisma.organization.create({
+      data: { slug: 'agents-shutdown-last', ownerId: service.user.id },
+    })
+
+    const { runId } = await service.app
+      .get(AgentsService)
+      .run('testAgent', { organizationSlug: 'agents-shutdown-last' })
+    const task = await startTask()
+    await waitFor(() => calls === LAST_ATTEMPT)
+    const stopping = task.onModuleDestroy()
+    release()
+    await stopping
+
+    expect(
+      await service.prisma.agentRun.findUniqueOrThrow({ where: { id: runId } }),
+    ).toMatchObject({
+      status: AgentRunStatus.running,
+      error: null,
+      finishedAt: null,
+    })
+
+    // Stands in for waiting out the requeued job's delay
+    // (REQUEUE_DELAY_SECONDS in jobs.service.ts).
+    expect(
+      await service.prisma.$executeRaw`
+        UPDATE pgboss.job SET start_after = now()
+        WHERE name = 'agentRun' AND state = 'retry'`,
+    ).toBe(1)
+
+    const second = await startTask()
+    try {
+      const deadline = performance.now() + 15_000
+      let status: AgentRunStatus = AgentRunStatus.running
+      while (status !== AgentRunStatus.completed) {
+        if (performance.now() > deadline) {
+          throw new Error(`run stayed ${status}`)
+        }
+        await sleep(100)
+        status = (
+          await service.prisma.agentRun.findUniqueOrThrow({
+            where: { id: runId },
+            select: { status: true },
+          })
+        ).status
+      }
+    } finally {
+      await second.onModuleDestroy()
+    }
+    expect(
+      await service.prisma.agentRun.findUniqueOrThrow({ where: { id: runId } }),
+    ).toMatchObject({
+      status: AgentRunStatus.completed,
+      artifact: { summary: 'all about it' },
+      error: null,
+    })
   })
 })
