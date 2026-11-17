@@ -3,8 +3,9 @@
 #
 # Sourced by ci-apply-root.sh and ci-plan-root.sh, which both ran init exactly
 # once. Init is cold on every run: no root commits its `.terraform` directory, and
-# there is no provider cache in this repo, so each of the 24 roots downloads its
-# own copies — 24 of them need hashicorp/aws, whose 6.71.0 zip is 167 MiB.
+# there is no provider cache in this repo, so each of the 23 environment roots
+# downloads its own copies — all of them need hashicorp/aws, whose 6.71.0 zip is
+# 167 MiB.
 #
 # Terraform retries the registry DISCOVERY call itself (my repro of a reset
 # against it reports "giving up after 4 attempt(s)"), but a provider PACKAGE
