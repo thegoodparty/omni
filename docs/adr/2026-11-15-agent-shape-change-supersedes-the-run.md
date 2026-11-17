@@ -14,22 +14,22 @@ superseded_by:
 
 ## Decision
 
-Background agents only. When a run starts, it is stamped with a hash of its
-agent's shape: today the output schema; once subagents exist, also their
-names and output schemas. Prompts, tools and models are not in the hash. They
-change freely, and a run in flight carries on under the new ones.
+Background agents only. When a run starts, its `manifest` is stamped: the
+agent's input and output schemas as JSON, and `shapeHash` hashes that.
+Prompts, tools and models are not in the hash. They change freely, and a run
+in flight carries on under the new ones.
 
-The hash is `ExperimentRun.shapeHash`. On every attempt: the same hash
-continues from the saved steps. A different hash marks the run
-`SUPERSEDED`, keeping its steps and cost, and creates and queues a fresh
-run with the same input. There are no agent versions (v1, v2).
+On every attempt: the same hash resumes from the saved `AgentMessage` rows. A
+different hash marks the run `superseded`, keeping its messages, and creates
+and queues a fresh run with the same input. There are no agent versions
+(v1, v2).
 
 ## Context
 
 Every push to main deploys gp-api, and for a few minutes old and new tasks
 both run. A run can start on one release and resume on the next. Saved
-steps written toward an old output schema may not produce output that
-passes the new one. Pinning a run to the code that started it is not
+messages written toward an old shape may not produce output that passes the
+new one. Pinning a run to the code that started it is not
 possible: once ECS replaces the tasks, the old code is gone. #3828's kill
 test changed the briefing schema mid-run and the run started over as
 described.
@@ -43,6 +43,8 @@ described.
   schema, failing at the end or writing a wrong artifact.
 - **Hash prompts, tools and models too.** Every prompt tweak would restart
   every run in flight.
+- **Hash the output schema only.** Widening an input changes what the saved
+  rows mean, so an input change restarts too — the manifest covers both.
 - **An older task hands back a run stamped by newer code (#3828).** It
   needs a column for when the stamping task booted. Without it, during the
   few minutes of a rollout that changed a shape, an old task can supersede

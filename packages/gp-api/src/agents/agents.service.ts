@@ -12,12 +12,15 @@ import { JobShutdownError, JobsService } from '@/jobs/jobs.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { runInputRow, toModelMessages } from './agentMessages'
 import { type AgentModel, AgentModels } from './agentModels'
-import { recordOutputFailure } from './agentMetrics'
 import { withAgentRunSpan } from './agentRunSpans'
 import { AGENTS } from './agents.registry'
 import { FINISH_INSTRUCTIONS, runAgentLoop, RunStoppedError } from './aiSdkLoop'
 import type { AgentDefinition } from './defineAgent'
-import { type AgentManifest, agentManifest, manifestShapeHash } from './manifest'
+import {
+  type AgentManifest,
+  agentManifest,
+  manifestShapeHash,
+} from './manifest'
 
 export type AgentRunJobData = { runId: string }
 
@@ -108,28 +111,42 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
         },
       })
       const agentModel = this.models.resolve(definition.model)
-      const output = await withAgentRunSpan(
-        {
-          runId: run.id,
-          agent: run.agentName,
-          shapeHash,
-          model: agentModel.modelId,
-          provider: agentModel.provider,
-        },
-        () =>
-          this.runLoop(run, definition, agentModel, context, {
-            stopRequested: () =>
-              job.signal.aborted &&
-              job.signal.reason instanceof JobShutdownError,
-            abortSignal: timedOut.signal,
-          }),
-      )
-      // Before onArtifact: a task that dies after it finds the accepted output
-      // on the run and calls onArtifact again rather than redoing the loop.
-      await this.model.update({
-        where: { id: run.id },
-        data: { artifact: toJson(output) },
-      })
+      // An artifact on the run means an earlier attempt finished the loop and
+      // died before onArtifact: the output is settled, so this attempt writes
+      // it where the product reads it and never calls the model again.
+      const output =
+        run.artifact !== null
+          ? run.artifact
+          : await withAgentRunSpan(
+              {
+                runId: run.id,
+                agent: run.agentName,
+                shapeHash,
+                model: agentModel.modelId,
+                provider: agentModel.provider,
+              },
+              async () => {
+                const loopOutput = await this.runLoop(
+                  run,
+                  definition,
+                  agentModel,
+                  context,
+                  {
+                    stopRequested: () =>
+                      job.signal.aborted &&
+                      job.signal.reason instanceof JobShutdownError,
+                    abortSignal: timedOut.signal,
+                  },
+                )
+                // Inside the span and before onArtifact, so a task that dies
+                // in between finds it here and does not redo the loop.
+                await this.model.update({
+                  where: { id: run.id },
+                  data: { artifact: toJson(loopOutput) },
+                })
+                return loopOutput
+              },
+            )
       await definition.onArtifact(
         output,
         { runId: run.id, input: definition.input.parse(run.input) },
@@ -177,7 +194,10 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
   // The saved rows were written under another manifest, so they stay on this
   // run (readable, and counted toward its tokens) and a fresh run starts in
   // their place from the same input.
-  private async supersede(run: AgentRun, manifest: AgentManifest): Promise<void> {
+  private async supersede(
+    run: AgentRun,
+    manifest: AgentManifest,
+  ): Promise<void> {
     const shapeHash = manifestShapeHash(manifest)
     const freshId = await this.client.$transaction(async (tx) => {
       await tx.agentRun.update({
@@ -202,12 +222,6 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
     status: AgentRunStatus,
     error?: string,
   ): Promise<void> {
-    // A run that ends failed never produced an accepted output, which is the
-    // failure nothing else would notice: it stops, and the product's table
-    // simply does not change.
-    if (status === AgentRunStatus.failed) {
-      recordOutputFailure(run.agentName, 'noOutput', error ?? 'failed')
-    }
     await this.model.update({
       where: { id: run.id },
       data: {

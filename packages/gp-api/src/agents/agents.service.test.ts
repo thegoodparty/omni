@@ -15,10 +15,7 @@ import {
   vi,
 } from 'vitest'
 import { z } from 'zod'
-import {
-  AgentMessageRole,
-  AgentRunStatus,
-} from '@/generated/prisma'
+import { AgentMessageRole, AgentRunStatus } from '@/generated/prisma'
 import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
 import { AgentModels } from './agentModels'
@@ -30,20 +27,21 @@ import { agentManifest, manifestShapeHash } from './manifest'
 const service = useTestService({ jobs: true })
 
 const OutputSchema = z.object({ summary: z.string() })
-const MANIFEST = agentManifest({ input: z.object({}), output: OutputSchema })
-const SHAPE = manifestShapeHash(MANIFEST)
+const InputSchema = z.object({
+  organizationSlug: z.string(),
+  topic: z.string(),
+})
 
 let lookUps: string[] = []
 let artifacts: { runId: string; topic: string; artifact: unknown }[] = []
 
 const testAgent = defineAgent({
-  input: z.object({ organizationSlug: z.string(), topic: z.string() }),
+  input: InputSchema,
   output: OutputSchema,
   model: 'claude-sonnet-4-6',
   prompt: 'Look the topic up twice, then summarize it.',
-  tools: [
-    {
-      name: 'lookUp',
+  tools: {
+    lookUp: {
       description: 'Look the topic up.',
       input: z.object({}),
       execute: async (_input, ctx) => {
@@ -51,11 +49,14 @@ const testAgent = defineAgent({
         return { found: 'https://example.gov/topic' }
       },
     },
-  ],
+  },
   onArtifact: async (artifact, run) => {
     artifacts.push({ runId: run.runId, topic: run.input.topic, artifact })
   },
 })
+
+const MANIFEST = agentManifest(testAgent)
+const SHAPE = manifestShapeHash(MANIFEST)
 
 const toolCall = (
   toolName: string,
@@ -164,7 +165,9 @@ describe('AgentsService', () => {
     const calls = scriptedModel()
     const input = await seedOrg('agents-run')
 
-    const { runId } = await service.app.get(AgentsService).run('testAgent', input)
+    const { runId } = await service.app
+      .get(AgentsService)
+      .run('testAgent', input)
     await service.jobs.settle()
 
     const run = await service.prisma.agentRun.findUniqueOrThrow({
@@ -324,7 +327,10 @@ describe('AgentsService', () => {
     expect(old.artifact).toBeNull()
 
     const fresh = await service.prisma.agentRun.findFirstOrThrow({
-      where: { organizationSlug: input.organizationSlug, id: { not: stale.id } },
+      where: {
+        organizationSlug: input.organizationSlug,
+        id: { not: stale.id },
+      },
     })
     expect(fresh).toMatchObject({
       agentName: 'testAgent',
@@ -349,16 +355,102 @@ describe('AgentsService', () => {
       output: OutputSchema,
       model: 'claude-sonnet-4-6',
       prompt: 'Look the topic up twice, then summarize it.',
-      tools: [],
+      tools: {},
       onArtifact: async () => undefined,
     })
     expect(manifestShapeHash(agentManifest(widened))).not.toBe(SHAPE)
   })
 
+  it('runs onArtifact from the stored artifact when an attempt died after saving it', async () => {
+    const input = await seedOrg('agents-artifact-crash')
+    // The exact state a task leaves behind when it saves the accepted output
+    // and dies before onArtifact: the artifact is on the run, its messages end
+    // in the accepted submitOutput call, and the run is still running.
+    const crashed = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'testAgent',
+        organizationSlug: input.organizationSlug,
+        status: AgentRunStatus.running,
+        manifest: MANIFEST,
+        shapeHash: SHAPE,
+        input,
+        artifact: { summary: 'all about it' },
+        messages: {
+          create: [
+            {
+              index: 0,
+              role: AgentMessageRole.user,
+              parts: [{ type: 'text', text: JSON.stringify(input) }],
+            },
+            {
+              index: 1,
+              role: AgentMessageRole.assistant,
+              parts: [
+                {
+                  type: 'tool-call',
+                  toolCallId: 'call-1',
+                  toolName: 'submitOutput',
+                  input: { output: { summary: 'all about it' } },
+                },
+              ],
+              model: 'claude-sonnet-4-6',
+              inputTokens: 1000,
+              outputTokens: 100,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+            },
+            {
+              index: 2,
+              role: AgentMessageRole.tool,
+              parts: [
+                {
+                  type: 'tool-result',
+                  toolCallId: 'call-1',
+                  toolName: 'submitOutput',
+                  output: { type: 'text', value: 'accepted' },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+      model: new MockLanguageModelV3({
+        doStream: async () => {
+          throw new Error('no model call expected')
+        },
+      }),
+      modelId: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    })
+
+    await service.app.get(JobsService).send('agentRun', { runId: crashed.id })
+    await service.jobs.settle()
+
+    expect(artifacts).toEqual([
+      {
+        runId: crashed.id,
+        topic: 'zoning',
+        artifact: { summary: 'all about it' },
+      },
+    ])
+    expect(
+      await service.prisma.agentRun.findUniqueOrThrow({
+        where: { id: crashed.id },
+      }),
+    ).toMatchObject({
+      status: AgentRunStatus.completed,
+      artifact: { summary: 'all about it' },
+    })
+  })
+
   it('calls onArtifact again and makes no model call when the output was already accepted', async () => {
     const calls = scriptedModel()
     const input = await seedOrg('agents-idempotent')
-    const { runId } = await service.app.get(AgentsService).run('testAgent', input)
+    const { runId } = await service.app
+      .get(AgentsService)
+      .run('testAgent', input)
     await service.jobs.settle()
     expect(artifacts).toHaveLength(1)
 
@@ -442,7 +534,9 @@ describe('AgentsService', () => {
           agentRunId: run.id,
         },
       }),
-    ).rejects.toThrow(/agent_message_agent_run_id_index_key/)
+    ).rejects.toThrow(
+      /Unique constraint failed on the fields: \(`agent_run_id`,`index`\)/,
+    )
   })
 
   it('fails the run on its last attempt with the error', async () => {

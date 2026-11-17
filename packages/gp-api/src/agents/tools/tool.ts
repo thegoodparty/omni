@@ -11,9 +11,17 @@ export type ToolContext = {
   get: WorkerContext['get']
 }
 
+// One tool of an agent, keyed by its name in the agent's `tools` map. The name
+// is the key, so a tool cannot be renamed in one place and not the other.
 export type AgentTool<I extends z.ZodType = z.ZodType> = {
-  name: string
   description: string
   input: I
   execute: (input: z.infer<I>, ctx: ToolContext) => Promise<unknown>
 }
+
+// Identity at runtime. It is here so a tool gets the contextual typing an agent
+// gets from defineAgent: execute's input is inferred from `input`, and ctx is a
+// ToolContext.
+export const defineTool = <I extends z.ZodType>(
+  tool: AgentTool<I>,
+): AgentTool<I> => tool

@@ -129,14 +129,14 @@ export const withAgentRunSpan = <T>(
     ),
   )
 
-export const instrumentTool = (tool: AgentTool): AgentTool => ({
+export const instrumentTool = (name: string, tool: AgentTool): AgentTool => ({
   ...tool,
   execute: (input, ctx) =>
     inSpan(
-      `execute_tool ${tool.name}`,
+      `execute_tool ${name}`,
       {
         'gen_ai.operation.name': 'execute_tool',
-        'gen_ai.tool.name': tool.name,
+        'gen_ai.tool.name': name,
         'gen_ai.tool.call.id': `${ctx.runId}:${ctx.stepKey}`,
       },
       () => tool.execute(input, ctx),

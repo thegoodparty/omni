@@ -82,8 +82,14 @@ export const toModelMessages = (
           content: row.parts,
         })
       case AgentMessageRole.tool:
-        return toolModelMessageSchema.parse({ role: 'tool', content: row.parts })
+        return toolModelMessageSchema.parse({
+          role: 'tool',
+          content: row.parts,
+        })
       default:
-        return userModelMessageSchema.parse({ role: 'user', content: row.parts })
+        return userModelMessageSchema.parse({
+          role: 'user',
+          content: row.parts,
+        })
     }
   })

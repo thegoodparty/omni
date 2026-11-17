@@ -72,14 +72,13 @@ describe('an agent run at shutdown', () => {
       output: z.object({ summary: z.string() }),
       model: 'claude-sonnet-4-6',
       prompt: 'Keep looking it up.',
-      tools: [
-        {
-          name: 'lookUp',
+      tools: {
+        lookUp: {
           description: 'Look it up.',
           input: z.object({}),
           execute: async () => 'nothing yet',
         },
-      ],
+      },
       onArtifact: async () => undefined,
     })
   })

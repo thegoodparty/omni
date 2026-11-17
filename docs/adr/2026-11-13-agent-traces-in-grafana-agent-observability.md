@@ -21,8 +21,11 @@ gp-api to Grafana Cloud, read in Grafana Agent Observability (enabled for
 our stack). Spans carry token counts, never prompt or reply text, the same
 default chat has today (`recordInputs: false`, `recordOutputs: false` in
 `llm.service.ts`), because prompts carry voter data. We build no counters
-or panels of our own for agents. Braintrust tracing goes away with the
-broker.
+or panels of our own for agents, and no metric or alert of our own for a
+failed one: a run that dies is surfaced by the `agentRun` queue's dead-letter
+and backed-up alerts (`jobs/jobs.registry.ts`), and a run whose output the
+schema refused is a run that ended failed. Braintrust tracing goes away with
+the broker.
 
 ## Context
 

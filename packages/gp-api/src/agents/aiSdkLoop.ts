@@ -17,7 +17,6 @@ import {
   stepRows,
 } from './agentMessages'
 import { instrumentTool } from './agentRunSpans'
-import { recordOutputFailure } from './agentMetrics'
 import type { AgentTool, ToolContext } from './tools/tool'
 
 export const SUBMIT_TOOL = 'submitOutput'
@@ -138,7 +137,7 @@ export type AgentLoopArgs = {
   system: string
   // Every saved message of the run, in index order.
   messages: ModelMessage[]
-  tools: AgentTool[]
+  tools: Record<string, AgentTool>
   output: z.ZodType
   toolContext: Omit<ToolContext, 'stepKey'>
   savedSteps: number
@@ -187,11 +186,6 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
         const parsed = args.output.safeParse(output)
         if (!parsed.success) {
           const problems = describeIssues(parsed.error.issues, ['output'])
-          recordOutputFailure(
-            args.agentName,
-            'submitOutput',
-            problems.slice(0, 5).join('; '),
-          )
           throw new Error(
             `The output does not match the schema. Fix these and call ${SUBMIT_TOOL} again:\n${problems.join('\n')}`,
           )
@@ -200,16 +194,16 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
       },
     }),
   }
-  // The one place an agent tool becomes an AI SDK tool, for every agent.
-  for (const agentTool of args.tools) {
-    const instrumented = instrumentTool(agentTool)
-    tools[agentTool.name] = dynamicTool({
+  // The one place an agent's tools become AI SDK tools, for every agent.
+  for (const [name, agentTool] of Object.entries(args.tools)) {
+    const instrumented = instrumentTool(name, agentTool)
+    tools[name] = dynamicTool({
       description: agentTool.description,
       inputSchema: agentTool.input,
       execute: (input) =>
         instrumented.execute(input, {
           ...args.toolContext,
-          stepKey: stepKey(agentTool.name),
+          stepKey: stepKey(name),
         }),
     })
   }
@@ -258,9 +252,7 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
         const fresh = step.response.messages.slice(seen)
         seen = step.response.messages.length
         try {
-          await args.saveRows(
-            stepRows(fresh, stepUsage(step), args.modelId),
-          )
+          await args.saveRows(stepRows(fresh, stepUsage(step), args.modelId))
           currentStep++
         } catch (err) {
           saveError = err

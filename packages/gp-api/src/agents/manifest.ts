@@ -20,4 +20,7 @@ export const agentManifest = (definition: {
 // Hash of the manifest, so a run started under one shape is never resumed
 // under another.
 export const manifestShapeHash = (manifest: AgentManifest): string =>
-  createHash('sha256').update(JSON.stringify(manifest)).digest('hex').slice(0, 12)
+  createHash('sha256')
+    .update(JSON.stringify(manifest))
+    .digest('hex')
+    .slice(0, 12)

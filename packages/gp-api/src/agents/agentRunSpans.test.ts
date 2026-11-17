@@ -95,13 +95,11 @@ describe('instrumentTool', () => {
 
   it('keeps the tool and passes its result through', async () => {
     const tool: AgentTool<typeof input> = {
-      name: 'echo',
       description: 'echo',
       input,
       execute: async ({ q }) => ({ said: q }),
     }
-    const wrapped = instrumentTool(tool)
-    expect(wrapped.name).toBe('echo')
+    const wrapped = instrumentTool('echo', tool)
     await expect(wrapped.execute({ q: 'hi' }, ctx)).resolves.toEqual({
       said: 'hi',
     })
@@ -109,7 +107,6 @@ describe('instrumentTool', () => {
 
   it('rethrows the tool error', async () => {
     const tool: AgentTool<typeof input> = {
-      name: 'broken',
       description: 'broken',
       input,
       execute: async () => {
@@ -117,7 +114,7 @@ describe('instrumentTool', () => {
       },
     }
     await expect(
-      instrumentTool(tool).execute({ q: 'hi' }, ctx),
+      instrumentTool('broken', tool).execute({ q: 'hi' }, ctx),
     ).rejects.toThrow('down')
   })
 })

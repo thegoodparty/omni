@@ -48,14 +48,13 @@ const loopArgs = (
   modelId: 'claude-sonnet-4-6',
   system: 'Do the work.',
   messages: [{ role: 'user', content: '{}' }],
-  tools: [
-    {
-      name: 'lookUp',
+  tools: {
+    lookUp: {
       description: 'Look it up.',
       input: z.object({}),
       execute: async () => 'nothing yet',
     },
-  ],
+  },
   output: OutputSchema,
   toolContext: {
     runId: 'run-1',
@@ -96,7 +95,10 @@ describe('runAgentLoop', () => {
 
     expect(output).toEqual({ status: 'found', minutes: 8 })
     expect(saved).toHaveLength(4)
-    expect(saved[1]).toMatchObject({
+    // Each step is the assistant message and the tool result it produced. Only
+    // the assistant message is a model call, so only it carries a model and
+    // tokens.
+    expect(saved[0]).toMatchObject({
       role: 'assistant',
       model: 'claude-sonnet-4-6',
       inputTokens: 10,
@@ -104,7 +106,8 @@ describe('runAgentLoop', () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
     })
-    expect(saved[2]).toMatchObject({ role: 'tool', model: undefined })
+    expect(saved[1]?.role).toBe('tool')
+    expect(saved[1]).not.toHaveProperty('model')
     const error = /"error-text","value":"([^"]*)"/.exec(prompts[1] ?? '')?.[1]
     expect(error).toContain('output.minutes')
     expect(error).not.toContain('eight')
@@ -191,54 +194,43 @@ describe('runAgentLoop', () => {
   })
 
   it('saves a nudge as a user row and calls the model again', async () => {
-    let calls = 0
+    // A fresh stream per call: the loop calls the model again after the nudge.
     const model = new MockLanguageModelV3({
-      doStream: async () => {
-        calls++
-        return calls === 1
-          ? callTool('lookUp', {})
-          : {
-              stream: simulateReadableStream({
-                chunks: [
-                  { type: 'stream-start' as const, warnings: [] },
-                  {
-                    type: 'text-start' as const,
-                    id: 't1',
-                  },
-                  { type: 'text-delta' as const, id: 't1', delta: 'nothing to add' },
-                  { type: 'text-end' as const, id: 't1' },
-                  {
-                    type: 'finish' as const,
-                    finishReason: { unified: 'stop' as const, raw: 'end_turn' },
-                    usage: {
-                      inputTokens: {
-                        total: 10,
-                        noCache: 10,
-                        cacheRead: 0,
-                        cacheWrite: 0,
-                      },
-                      outputTokens: { total: 10, text: 10, reasoning: undefined },
-                    },
-                  },
-                ],
-              }),
-            }
-      },
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: 'stream-start' as const, warnings: [] },
+            { type: 'text-start' as const, id: 't1' },
+            { type: 'text-delta' as const, id: 't1', delta: 'nothing to add' },
+            { type: 'text-end' as const, id: 't1' },
+            {
+              type: 'finish' as const,
+              finishReason: { unified: 'stop' as const, raw: 'end_turn' },
+              usage: {
+                inputTokens: {
+                  total: 10,
+                  noCache: 10,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                },
+                outputTokens: { total: 10, text: 10, reasoning: undefined },
+              },
+            },
+          ],
+        }),
+      }),
     })
     const saved: AgentMessageRow[] = []
 
-    const run = runAgentLoop(
-      loopArgs(model, saved, {
-        // The nudge is what ends up saving a user row; the run then exceeds its
-        // one nudge and gives up.
-        tools: [],
-      }),
-    )
-
-    await expect(run).rejects.toThrow('ended without submitting its output')
+    // The run never submits, so it is nudged once and then gives up: the nudge
+    // is a user row in the run like any other user message.
+    await expect(
+      runAgentLoop(loopArgs(model, saved, { tools: {} })),
+    ).rejects.toThrow('ended without submitting its output')
     expect(saved.map((row) => row.role)).toEqual([
       'assistant',
       'user',
+      'assistant',
     ])
     expect(JSON.stringify(saved[1]?.parts)).toContain(SUBMIT_TOOL)
   })

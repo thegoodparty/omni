@@ -8,15 +8,16 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 
 | Path                 | What                                                                   |
 | -------------------- | ---------------------------------------------------------------------- |
-| `agents.registry.ts` | `AGENTS`: every agent by name. The name is the run's `experimentType`  |
+| `agents.registry.ts` | `AGENTS`: every agent by name. The name is the run's `agentName`       |
 | `defineAgent.ts`     | `AgentDefinition` and `defineAgent`                                    |
 | `agents.service.ts`  | `AgentsService.run(name, input)` and the `agentRun` worker             |
 | `aiSdkLoop.ts`       | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget |
-| `shapeHash.ts`       | The run's shape: a hash of the output schema                           |
+| `manifest.ts`        | The run's manifest (input and output schema) and its `shapeHash`       |
+| `agentMessages.ts`   | `AgentMessage` rows ↔ the AI SDK's messages, both ways                 |
 | `agentRunSpans.ts`   | Grafana Agent Observability attributes and spans (`otel.ts` loads it)  |
-| `modelPricing.ts`    | Per-model token prices for `costUsd` (kept equal to the judge's table) |
 | `agentModels.ts`     | Model id to provider model; tests swap in a mock model here            |
-| `tools/tool.ts`      | `AgentTool` and `ToolContext`                                          |
+| `tools/tool.ts`      | `AgentTool`, `defineTool` and `ToolContext`                            |
+| `tools/webSearch.ts` | Brave web search, the one web tool every agent shares                  |
 
 ## Adding an agent
 
@@ -28,7 +29,7 @@ export const AGENTS: Record<string, AgentDefinition> = {
     output: MyOutputSchema,
     model: 'claude-sonnet-4-6',
     prompt: MY_PROMPT,
-    tools: [myTool],
+    tools: { webSearch, fetchPage },
     onArtifact: (artifact, run, { get }) =>
       get(MyService).save(artifact, run.runId),
   }),
@@ -39,6 +40,9 @@ await agentsService.run('myAgent', { organizationSlug, topic })
 
 - `input` must carry `organizationSlug`: it owns the run. It is stored as
   JSON, so use JSON types (no `z.date()`).
+- `tools` is a map keyed by tool name, as the AI SDK takes them. Build each
+  one with `defineTool({ description, input, execute })`: `execute`'s input
+  is inferred from `input`, and its second argument is the `ToolContext`.
 - `output` is enforced when the model calls `submitOutput`. A miss returns
   Zod's list of what is wrong, not the whole input, and the model retries.
 - `onArtifact` saves the validated output where the product reads it. It
@@ -51,28 +55,30 @@ await agentsService.run('myAgent', { organizationSlug, topic })
 ## How a run works
 
 - `run()` validates the input and, in one transaction, creates the
-  `ExperimentRun` (`experimentType` = agent name, `params` = input, status
-  `QUEUED`, `shapeHash`), its `ChatConversation` (scope `background_agent`,
-  no owner, the input as the first user message) and the `agentRun` job.
+  `AgentRun` (`agentName`, `organizationSlug`, status `queued`, `manifest`
+  and its `shapeHash`, `input`) with the input as its first `AgentMessage`
+  row, then sends the `agentRun` job.
 - The `agentRun` job (one queue for every agent, `maxConcurrent: 10`
-  fleet-wide, 120-minute attempts, 5 attempts) loads the conversation and
-  calls the loop. Every completed step is a `ChatMessage` row:
-  `inputTokens`/`outputTokens` columns, and `step` holding the step's AI SDK
-  messages (tool results included) and cache token counts.
-- A retry rebuilds the messages from those rows and calls the loop again.
-  Only completed steps are saved; a step in flight is redone.
+  fleet-wide, 120-minute attempts, 5 attempts) loads the run's messages and
+  calls the loop. Every message the loop writes is one `AgentMessage` row, in
+  order: the assistant message (its text and tool calls) and, when tools ran,
+  the tool message holding their results. Only assistant rows carry the model
+  and its four token counts, because only they are a model call.
+- A retry loads those rows and calls the loop again. Only completed steps are
+  saved; a step in flight is redone.
 - A deploy aborts the job's signal with `JobShutdownError`: the loop stops
   after its current step and the job is requeued without spending an
   attempt. pg-boss's timeout aborts model and tool calls at once.
-- Shape: `shapeHash` is the output schema's hash at run start. If a retry
-  finds a different hash, the run is marked `SUPERSEDED` and a fresh run
-  with the same input starts. Prompts, tools and models change freely.
+- Shape: `manifest` is the agent's input and output schemas at run start, and
+  `shapeHash` hashes it. If a retry finds a different hash, the run is marked
+  `superseded` and a fresh run with the same input starts. Prompts, tools and
+  models change freely.
 - The step budget is 120 steps per run across all attempts.
-- Ending: `COMPLETED` after `onArtifact`, or `FAILED` with `error` on the
-  last attempt. Both set `costUsd` (step tokens priced by
-  `modelPricing.ts`; null if a model has no price) and
-  `durationSeconds` (since the run was created). gp-admin's agent runs list
-  shows these runs with the PMF Engine's.
+- Ending: `completed` after `onArtifact`, or `failed` with `error` on the last
+  attempt. A failure is surfaced by the `agentRun` queue's dead-letter and
+  backed-up alerts; there is no separate output-failure metric.
+- No cost is stored. Tokens live on the assistant rows and Grafana Agent
+  Observability prices the calls; later analysis prices the stored tokens.
 
 ## Observability
 
@@ -87,8 +93,8 @@ recorded.
 ## Tests
 
 `agents.service.test.ts` is the pattern: register a test agent in `AGENTS`
-for the file (and delete it after), `vi.spyOn(AgentModels, 'languageModel')`
-to return a `MockLanguageModelV3`, call `AgentsService.run`, then
+for the file (and delete it after), `vi.spyOn(AgentModels, 'resolve')` to
+return a `MockLanguageModelV3`, call `AgentsService.run`, then
 `service.jobs.settle()` and assert on the rows.
 `agents.service.shutdown.test.ts` stops a stand-in gp-api task mid-run to
 prove a deploy stops the run after its current step.

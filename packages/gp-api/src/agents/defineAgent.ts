@@ -17,7 +17,9 @@ export type AgentDefinition<
   model: string
   // The system prompt.
   prompt: string
-  tools: AgentTool[]
+  // Every tool the agent has, by name. The name is the agent's, not the tool's:
+  // the loop turns each entry into an AI SDK tool under its key.
+  tools: Record<string, AgentTool>
   // Saves the validated output where the product reads it. It can run twice
   // for one run, so make it an upsert.
   onArtifact: (
@@ -44,10 +46,3 @@ export const defineAgent = <
       context,
     ),
 })
-
-// Identity at runtime. It is here so a tool gets the contextual typing an agent
-// gets from defineAgent: execute's input is inferred from `input`, and ctx is a
-// ToolContext.
-export const defineTool = <I extends z.ZodType>(
-  tool: AgentTool<I>,
-): AgentTool<I> => tool
