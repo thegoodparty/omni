@@ -11,6 +11,7 @@ import {
   CAMPAIGN_MANAGER_BALLOT_KICKOFF,
   CAMPAIGN_MANAGER_HISTORY_KEY,
 } from './campaignManagerChat'
+import { chatHistoryKey } from '../chief-of-staff/data/use-chat-history'
 
 interface SurfaceProps {
   open?: boolean
@@ -87,12 +88,16 @@ function Controls(): React.JSX.Element {
   )
 }
 
-// Seeds both the mock and the query cache: the provider resumes from the
-// cached list synchronously at click time, so tests never race the fetch.
+// Seeds both the mock and the query cache under the org the picker mock
+// reports: the provider resumes from the cached list synchronously at click
+// time, so tests never race the fetch.
 const setup = (conversations: Array<{ conversationId: string }> = []) => {
   surfaceProps.length = 0
   listConversations.mockResolvedValue(conversations)
-  testQueryClient.setQueryData(CAMPAIGN_MANAGER_HISTORY_KEY, conversations)
+  testQueryClient.setQueryData(
+    chatHistoryKey(CAMPAIGN_MANAGER_HISTORY_KEY, 'campaign-1'),
+    conversations,
+  )
   render(
     <CampaignManagerChatProvider>
       <Controls />
