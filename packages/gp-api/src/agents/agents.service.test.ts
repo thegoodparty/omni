@@ -16,9 +16,8 @@ import {
 } from 'vitest'
 import { z } from 'zod'
 import {
-  ChatMessageRole,
-  ChatScope,
-  ExperimentRunStatus,
+  AgentMessageRole,
+  AgentRunStatus,
 } from '@/generated/prisma'
 import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
@@ -26,15 +25,16 @@ import { AgentModels } from './agentModels'
 import { AGENTS } from './agents.registry'
 import { AgentsService } from './agents.service'
 import { defineAgent } from './defineAgent'
-import { agentShapeHash } from './shapeHash'
+import { agentManifest, manifestShapeHash } from './manifest'
 
 const service = useTestService({ jobs: true })
 
 const OutputSchema = z.object({ summary: z.string() })
-const SHAPE = agentShapeHash(OutputSchema)
+const MANIFEST = agentManifest({ input: z.object({}), output: OutputSchema })
+const SHAPE = manifestShapeHash(MANIFEST)
 
 let lookUps: string[] = []
-let artifacts: unknown[] = []
+let artifacts: { runId: string; topic: string; artifact: unknown }[] = []
 
 const testAgent = defineAgent({
   input: z.object({ organizationSlug: z.string(), topic: z.string() }),
@@ -52,13 +52,8 @@ const testAgent = defineAgent({
       },
     },
   ],
-  onArtifact: async (artifact, run, { get }) => {
-    artifacts.push({
-      artifact,
-      runId: run.runId,
-      topic: run.input.topic,
-      models: get(AgentModels) instanceof AgentModels,
-    })
+  onArtifact: async (artifact, run) => {
+    artifacts.push({ runId: run.runId, topic: run.input.topic, artifact })
   },
 })
 
@@ -76,13 +71,13 @@ const toolCall = (
   ],
   finishReason: { unified: 'tool-calls', raw: 'tool_use' },
   usage: {
-    inputTokens: { total: 1000, noCache: 1000, cacheRead: 0, cacheWrite: 0 },
+    inputTokens: { total: 1000, noCache: 900, cacheRead: 100, cacheWrite: 0 },
     outputTokens: { total: 100, text: 100, reasoning: undefined },
   },
   warnings: [],
 })
 
-// Which step the model is on comes from the assistant turns already in the
+// Which step the model is on comes from the assistant messages already in the
 // prompt: two lookUp calls, then the output.
 const scriptedModel = (script: { failStepOnce?: number } = {}) => {
   const calls: number[] = []
@@ -120,7 +115,11 @@ const scriptedModel = (script: { failStepOnce?: number } = {}) => {
       }
     },
   })
-  vi.spyOn(service.app.get(AgentModels), 'languageModel').mockReturnValue(model)
+  vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+    model,
+    modelId: 'claude-sonnet-4-6',
+    provider: 'anthropic',
+  })
   return calls
 }
 
@@ -131,11 +130,19 @@ const seedOrg = async (slug: string) => {
   return { organizationSlug: slug, topic: 'zoning' }
 }
 
-const stepRows = (runId: string) =>
-  service.prisma.chatMessage.findMany({
-    where: { conversation: { experimentRunId: runId } },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    select: { role: true, inputTokens: true, outputTokens: true },
+const rows = (runId: string) =>
+  service.prisma.agentMessage.findMany({
+    where: { agentRunId: runId },
+    orderBy: { index: 'asc' },
+    select: {
+      index: true,
+      role: true,
+      model: true,
+      inputTokens: true,
+      outputTokens: true,
+      cacheReadTokens: true,
+      cacheWriteTokens: true,
+    },
   })
 
 describe('AgentsService', () => {
@@ -153,54 +160,104 @@ describe('AgentsService', () => {
     artifacts = []
   })
 
-  it('runs the agent as a job, one step per row, and saves the artifact', async () => {
+  it('runs the agent as a job, one AgentMessage row per message, and saves the artifact', async () => {
     const calls = scriptedModel()
     const input = await seedOrg('agents-run')
 
-    const { runId } = await service.app
-      .get(AgentsService)
-      .run('testAgent', input)
+    const { runId } = await service.app.get(AgentsService).run('testAgent', input)
     await service.jobs.settle()
 
-    const run = await service.prisma.experimentRun.findUniqueOrThrow({
-      where: { runId },
-      include: { conversation: true },
+    const run = await service.prisma.agentRun.findUniqueOrThrow({
+      where: { id: runId },
     })
     expect(run).toMatchObject({
-      experimentType: 'testAgent',
+      agentName: 'testAgent',
       organizationSlug: 'agents-run',
-      status: ExperimentRunStatus.COMPLETED,
-      params: input,
+      status: AgentRunStatus.completed,
+      input,
+      manifest: MANIFEST,
       shapeHash: SHAPE,
-      artifactKey: null,
+      artifact: { summary: 'all about it' },
       error: null,
-      conversation: {
-        scope: ChatScope.background_agent,
-        ownerUserId: null,
-        organizationSlug: 'agents-run',
-      },
     })
-    expect(run.costUsd).toBeCloseTo(3 * 0.0045)
-    expect(run.durationSeconds).toBeGreaterThanOrEqual(0)
+    expect(run.startedAt).not.toBeNull()
+    expect(run.finishedAt).not.toBeNull()
     expect(calls).toEqual([0, 1, 2])
     expect(lookUps).toEqual(['0:lookUp:0', '1:lookUp:0'])
-    expect(await stepRows(runId)).toEqual([
-      { role: ChatMessageRole.user, inputTokens: null, outputTokens: null },
-      { role: ChatMessageRole.assistant, inputTokens: 1000, outputTokens: 100 },
-      { role: ChatMessageRole.assistant, inputTokens: 1000, outputTokens: 100 },
-      { role: ChatMessageRole.assistant, inputTokens: 1000, outputTokens: 100 },
+
+    // The input row, then for each step the assistant message and the tool
+    // result it produced. Only the assistant rows carry a model and tokens.
+    expect(await rows(runId)).toEqual([
+      {
+        index: 0,
+        role: AgentMessageRole.user,
+        model: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+      },
+      {
+        index: 1,
+        role: AgentMessageRole.assistant,
+        model: 'claude-sonnet-4-6',
+        inputTokens: 1000,
+        outputTokens: 100,
+        cacheReadTokens: 100,
+        cacheWriteTokens: 0,
+      },
+      {
+        index: 2,
+        role: AgentMessageRole.tool,
+        model: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+      },
+      {
+        index: 3,
+        role: AgentMessageRole.assistant,
+        model: 'claude-sonnet-4-6',
+        inputTokens: 1000,
+        outputTokens: 100,
+        cacheReadTokens: 100,
+        cacheWriteTokens: 0,
+      },
+      {
+        index: 4,
+        role: AgentMessageRole.tool,
+        model: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+      },
+      {
+        index: 5,
+        role: AgentMessageRole.assistant,
+        model: 'claude-sonnet-4-6',
+        inputTokens: 1000,
+        outputTokens: 100,
+        cacheReadTokens: 100,
+        cacheWriteTokens: 0,
+      },
+      {
+        index: 6,
+        role: AgentMessageRole.tool,
+        model: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+      },
     ])
     expect(artifacts).toEqual([
-      {
-        artifact: { summary: 'all about it' },
-        runId,
-        topic: 'zoning',
-        models: true,
-      },
+      { runId, topic: 'zoning', artifact: { summary: 'all about it' } },
     ])
   })
 
-  it('resumes from the last saved step after an attempt dies', async () => {
+  it('resumes from the saved messages after an attempt dies', async () => {
     const calls = scriptedModel({ failStepOnce: 2 })
 
     const { runId } = await service.app
@@ -209,98 +266,195 @@ describe('AgentsService', () => {
     await service.jobs.settle()
 
     expect(
-      await service.prisma.experimentRun.findUniqueOrThrow({
-        where: { runId },
-      }),
-    ).toMatchObject({ status: ExperimentRunStatus.COMPLETED })
+      await service.prisma.agentRun.findUniqueOrThrow({ where: { id: runId } }),
+    ).toMatchObject({ status: AgentRunStatus.completed })
+    // The killed attempt redid its last step on the retry, and only the
+    // completed messages are rows.
     expect(calls).toEqual([0, 1, 2, 2])
     expect(lookUps).toEqual(['0:lookUp:0', '1:lookUp:0'])
-    expect(await stepRows(runId)).toHaveLength(4)
+    expect(await rows(runId)).toHaveLength(7)
     expect(artifacts).toHaveLength(1)
   })
 
-  it('supersedes a run whose shape changed and finishes a fresh one', async () => {
+  it('supersedes a run whose manifest changed and finishes a fresh one from the same input', async () => {
     const calls = scriptedModel()
     const input = await seedOrg('agents-shape')
-    const stale = await service.prisma.experimentRun.create({
+    const stale = await service.prisma.agentRun.create({
       data: {
-        experimentType: 'testAgent',
+        agentName: 'testAgent',
         organizationSlug: input.organizationSlug,
-        status: ExperimentRunStatus.RUNNING,
-        params: input,
+        status: AgentRunStatus.running,
+        manifest: MANIFEST,
         shapeHash: 'an-old-shape',
-        conversation: {
-          create: {
-            scope: ChatScope.background_agent,
-            organizationSlug: input.organizationSlug,
-            messages: {
-              create: [
-                { role: ChatMessageRole.user, content: JSON.stringify(input) },
-                {
-                  role: ChatMessageRole.assistant,
-                  content: 'an old step',
-                  model: 'claude-sonnet-4-6',
-                  inputTokens: 1000,
-                  outputTokens: 100,
-                  step: {
-                    messages: [
-                      {
-                        role: 'assistant',
-                        content: [{ type: 'text', text: 'an old step' }],
-                      },
-                    ],
-                    usage: {
-                      inputTokens: 1000,
-                      outputTokens: 100,
-                      cacheReadTokens: 0,
-                      cacheWriteTokens: 0,
-                    },
-                  },
-                },
-              ],
+        input,
+        messages: {
+          create: [
+            {
+              index: 0,
+              role: AgentMessageRole.user,
+              parts: [{ type: 'text', text: JSON.stringify(input) }],
             },
-          },
+            {
+              index: 1,
+              role: AgentMessageRole.assistant,
+              parts: [{ type: 'text', text: 'an old step' }],
+              model: 'claude-sonnet-4-6',
+              inputTokens: 1000,
+              outputTokens: 100,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+            },
+          ],
         },
       },
     })
-    await service.app.get(JobsService).send('agentRun', { runId: stale.runId })
+    await service.app.get(JobsService).send('agentRun', { runId: stale.id })
     await service.jobs.settle()
 
-    const old = await service.prisma.experimentRun.findUniqueOrThrow({
-      where: { runId: stale.runId },
+    const old = await service.prisma.agentRun.findUniqueOrThrow({
+      where: { id: stale.id },
     })
     expect(old).toMatchObject({
-      status: ExperimentRunStatus.SUPERSEDED,
+      status: AgentRunStatus.superseded,
       shapeHash: 'an-old-shape',
     })
-    expect(old.costUsd).toBeCloseTo(0.0045)
-    expect(old.durationSeconds).toBeGreaterThanOrEqual(0)
-    expect(await stepRows(stale.runId)).toHaveLength(2)
+    expect(old.finishedAt).not.toBeNull()
+    // The superseded run keeps its messages and its artifact stays empty.
+    expect(await rows(stale.id)).toHaveLength(2)
+    expect(old.artifact).toBeNull()
 
-    const fresh = await service.prisma.experimentRun.findFirstOrThrow({
-      where: {
-        organizationSlug: input.organizationSlug,
-        runId: { not: stale.runId },
-      },
+    const fresh = await service.prisma.agentRun.findFirstOrThrow({
+      where: { organizationSlug: input.organizationSlug, id: { not: stale.id } },
     })
     expect(fresh).toMatchObject({
-      experimentType: 'testAgent',
-      status: ExperimentRunStatus.COMPLETED,
+      agentName: 'testAgent',
+      status: AgentRunStatus.completed,
       shapeHash: SHAPE,
-      params: input,
+      input,
+      artifact: { summary: 'all about it' },
     })
     expect(calls).toEqual([0, 1, 2])
-    expect(artifacts).toEqual([expect.objectContaining({ runId: fresh.runId })])
+    expect(artifacts).toEqual([expect.objectContaining({ runId: fresh.id })])
+  })
+
+  it('treats an input schema change as a shape change too', async () => {
+    // The manifest is the input schema as well as the output one: widening what
+    // an agent accepts changes what its saved rows mean, so it restarts.
+    const widened = defineAgent({
+      input: z.object({
+        organizationSlug: z.string(),
+        topic: z.string(),
+        state: z.string(),
+      }),
+      output: OutputSchema,
+      model: 'claude-sonnet-4-6',
+      prompt: 'Look the topic up twice, then summarize it.',
+      tools: [],
+      onArtifact: async () => undefined,
+    })
+    expect(manifestShapeHash(agentManifest(widened))).not.toBe(SHAPE)
+  })
+
+  it('calls onArtifact again and makes no model call when the output was already accepted', async () => {
+    const calls = scriptedModel()
+    const input = await seedOrg('agents-idempotent')
+    const { runId } = await service.app.get(AgentsService).run('testAgent', input)
+    await service.jobs.settle()
+    expect(artifacts).toHaveLength(1)
+
+    // What a retry finds after a task died between onArtifact and the run being
+    // marked complete: the accepted output is on the run, and its messages end
+    // in the submitOutput call.
+    await service.prisma.agentRun.update({
+      where: { id: runId },
+      data: { status: AgentRunStatus.running, finishedAt: null },
+    })
+    await service.app.get(JobsService).send('agentRun', { runId })
+    await service.jobs.settle()
+
+    expect(calls).toEqual([0, 1, 2])
+    expect(artifacts).toHaveLength(2)
+    expect(
+      await service.prisma.agentRun.findUniqueOrThrow({ where: { id: runId } }),
+    ).toMatchObject({ status: AgentRunStatus.completed })
+  })
+
+  it('refuses a message with no parent and one with two', async () => {
+    const input = await seedOrg('agents-constraint')
+    const run = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'testAgent',
+        organizationSlug: input.organizationSlug,
+        status: AgentRunStatus.queued,
+        manifest: MANIFEST,
+        shapeHash: SHAPE,
+        input,
+      },
+    })
+    const conversation = await service.prisma.chatConversation.create({
+      data: {
+        ownerUserId: service.user.id,
+        scope: 'chief_of_staff',
+        organizationSlug: input.organizationSlug,
+      },
+    })
+
+    await expect(
+      service.prisma.agentMessage.create({
+        data: { index: 0, role: AgentMessageRole.user, parts: [] },
+      }),
+    ).rejects.toThrow(/agent_message_one_parent/)
+    await expect(
+      service.prisma.agentMessage.create({
+        data: {
+          index: 0,
+          role: AgentMessageRole.user,
+          parts: [],
+          agentRunId: run.id,
+          conversationId: conversation.id,
+        },
+      }),
+    ).rejects.toThrow(/agent_message_one_parent/)
+  })
+
+  it('refuses a second message at the same index in one parent', async () => {
+    const input = await seedOrg('agents-index')
+    const run = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'testAgent',
+        organizationSlug: input.organizationSlug,
+        status: AgentRunStatus.queued,
+        manifest: MANIFEST,
+        shapeHash: SHAPE,
+        input,
+        messages: {
+          create: { index: 0, role: AgentMessageRole.user, parts: [] },
+        },
+      },
+    })
+
+    await expect(
+      service.prisma.agentMessage.create({
+        data: {
+          index: 0,
+          role: AgentMessageRole.assistant,
+          parts: [],
+          agentRunId: run.id,
+        },
+      }),
+    ).rejects.toThrow(/agent_message_agent_run_id_index_key/)
   })
 
   it('fails the run on its last attempt with the error', async () => {
-    vi.spyOn(service.app.get(AgentModels), 'languageModel').mockReturnValue(
-      new MockLanguageModelV3({
+    vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+      model: new MockLanguageModelV3({
         doStream: async () => {
           throw new Error('provider down')
         },
       }),
-    )
+      modelId: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    })
 
     const { runId } = await service.app
       .get(AgentsService)
@@ -313,43 +467,36 @@ describe('AgentsService', () => {
       expect.objectContaining({ name: 'agentRun', error: 'provider down' }),
     ])
     expect(
-      await service.prisma.experimentRun.findUniqueOrThrow({
-        where: { runId },
-      }),
+      await service.prisma.agentRun.findUniqueOrThrow({ where: { id: runId } }),
     ).toMatchObject({
-      status: ExperimentRunStatus.FAILED,
+      status: AgentRunStatus.failed,
       error: 'provider down',
-      costUsd: 0,
+      artifact: null,
     })
     expect(artifacts).toEqual([])
   })
 
   it('fails a queued run whose agent is no longer registered', async () => {
     const input = await seedOrg('agents-removed')
-    const orphan = await service.prisma.experimentRun.create({
+    const orphan = await service.prisma.agentRun.create({
       data: {
-        experimentType: 'removedAgent',
+        agentName: 'removedAgent',
         organizationSlug: input.organizationSlug,
-        status: ExperimentRunStatus.QUEUED,
-        params: input,
+        status: AgentRunStatus.queued,
+        manifest: MANIFEST,
         shapeHash: SHAPE,
-        conversation: {
-          create: {
-            scope: ChatScope.background_agent,
-            organizationSlug: input.organizationSlug,
-          },
-        },
+        input,
       },
     })
-    await service.app.get(JobsService).send('agentRun', { runId: orphan.runId })
+    await service.app.get(JobsService).send('agentRun', { runId: orphan.id })
     await service.jobs.settle({ allowDeadLetters: true })
 
     expect(
-      await service.prisma.experimentRun.findUniqueOrThrow({
-        where: { runId: orphan.runId },
+      await service.prisma.agentRun.findUniqueOrThrow({
+        where: { id: orphan.id },
       }),
     ).toMatchObject({
-      status: ExperimentRunStatus.FAILED,
+      status: AgentRunStatus.failed,
       error: 'no agent named removedAgent',
     })
   })
@@ -362,6 +509,6 @@ describe('AgentsService', () => {
     await expect(
       agents.run('noSuchAgent', { organizationSlug: 'agents-bad' }),
     ).rejects.toThrow(/no agent named noSuchAgent/)
-    expect(await service.prisma.experimentRun.count()).toBe(0)
+    expect(await service.prisma.agentRun.count()).toBe(0)
   })
 })

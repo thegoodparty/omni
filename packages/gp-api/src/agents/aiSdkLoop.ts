@@ -4,14 +4,20 @@ import {
   type JSONSchema7,
   type LanguageModel,
   type ModelMessage,
-  modelMessageSchema,
   type StepResult,
   streamText,
   tool,
   type ToolSet,
 } from 'ai'
 import { z } from 'zod'
+import {
+  type AgentMessageRow,
+  nudgeRow,
+  type StepUsage,
+  stepRows,
+} from './agentMessages'
 import { instrumentTool } from './agentRunSpans'
+import { recordOutputFailure } from './agentMetrics'
 import type { AgentTool, ToolContext } from './tools/tool'
 
 export const SUBMIT_TOOL = 'submitOutput'
@@ -30,32 +36,17 @@ const LENGTH_NUDGE = `Your last reply hit the output limit before \`${SUBMIT_TOO
 
 const FINISH_NUDGE = `You ended your turn without calling \`${SUBMIT_TOOL}\`. Carry on with the work, or if it is done, call \`${SUBMIT_TOOL}\` now with your structured output.`
 
-export const StepUsageSchema = z.object({
-  inputTokens: z.number(),
-  outputTokens: z.number(),
-  cacheReadTokens: z.number(),
-  cacheWriteTokens: z.number(),
-})
-export type StepUsage = z.infer<typeof StepUsageSchema>
-
-// ai's own schema is built on a different zod instance, so it is wrapped.
-const ModelMessageSchema = z.custom<ModelMessage>(
-  (value) => modelMessageSchema.safeParse(value).success,
-  'not an AI SDK model message',
-)
-
-// What ChatMessage.step holds for one completed step: the messages the step
-// added (assistant content and tool results) and what it used.
-export const SavedStepSchema = z.object({
-  messages: z.array(ModelMessageSchema),
-  usage: StepUsageSchema,
-})
-export type SavedStep = z.infer<typeof SavedStepSchema>
-
 export class RunStoppedError extends Error {
   constructor() {
     super('run stopped after its current step; the job resumes it')
     this.name = 'RunStoppedError'
+  }
+}
+
+export class RunBudgetError extends Error {
+  constructor(agentName: string, maxSteps: number) {
+    super(`${agentName} used its ${maxSteps} steps without submitting`)
+    this.name = 'RunBudgetError'
   }
 }
 
@@ -74,7 +65,7 @@ const SubmitResultSchema = z.object({
 })
 
 // The run's output is the input of the last accepted submitOutput call,
-// whether it was made in this attempt or found in the saved steps.
+// whether it was made in this attempt or found in the saved rows.
 export const submittedOutput = (
   messages: ModelMessage[],
   output: z.ZodType,
@@ -143,8 +134,9 @@ const isJsonSchema = (value: unknown): value is JSONSchema7 =>
 export type AgentLoopArgs = {
   agentName: string
   model: LanguageModel
+  modelId: string
   system: string
-  // The run's first message, its saved steps and any nudges, in order.
+  // Every saved message of the run, in index order.
   messages: ModelMessage[]
   tools: AgentTool[]
   output: z.ZodType
@@ -154,20 +146,17 @@ export type AgentLoopArgs = {
   maxNudges: number
   stopRequested: () => boolean
   abortSignal: AbortSignal
-  saveStep: (step: SavedStep, text: string) => Promise<void>
-  saveNudge: (text: string) => Promise<void>
+  saveRows: (rows: AgentMessageRow[]) => Promise<void>
 }
 
-// Runs the agent on the AI SDK's own tool loop, saving a row after every
-// step (onStepFinish) so a retry continues from the last saved step. Stops
-// after the current step when the job is told to stop.
+// Runs the agent on the AI SDK's own tool loop, saving the messages of every
+// step as it ends (onStepFinish) so a retry continues from the last saved one.
+// Stops after the current step when the job is told to stop.
 export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
   const saved = submittedOutput(args.messages, args.output)
   if (saved.found) return saved.value
   if (args.savedSteps >= args.maxSteps) {
-    throw new Error(
-      `${args.agentName} used its ${args.maxSteps} steps without submitting`,
-    )
+    throw new RunBudgetError(args.agentName, args.maxSteps)
   }
 
   let currentStep = args.savedSteps
@@ -185,26 +174,33 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
   if (!isJsonSchema(submitJsonSchema)) {
     throw new Error(`${args.agentName}: output schema has no JSON schema`)
   }
+  // The model sees the schema, but the AI SDK does not check against it: its
+  // error repeats the whole input, which for a large output is tens of
+  // thousands of tokens added to the context on every miss. Zod's own list of
+  // what is wrong is enough to fix it.
   const tools: ToolSet = {
     [SUBMIT_TOOL]: tool({
       description:
         'Submit the output. Call once, at the end, with the whole structured output.',
-      // The model sees the schema, but the AI SDK does not check against it:
-      // its error repeats the whole input, which for a large output is tens
-      // of thousands of tokens added to the context on every miss. Zod's own
-      // list of what is wrong is enough to fix it.
       inputSchema: jsonSchema<{ output?: unknown }>(submitJsonSchema),
       execute: async ({ output }) => {
         const parsed = args.output.safeParse(output)
         if (!parsed.success) {
+          const problems = describeIssues(parsed.error.issues, ['output'])
+          recordOutputFailure(
+            args.agentName,
+            'submitOutput',
+            problems.slice(0, 5).join('; '),
+          )
           throw new Error(
-            `The output does not match the schema. Fix these and call ${SUBMIT_TOOL} again:\n${describeIssues(parsed.error.issues, ['output']).join('\n')}`,
+            `The output does not match the schema. Fix these and call ${SUBMIT_TOOL} again:\n${problems.join('\n')}`,
           )
         }
         return 'accepted'
       },
     }),
   }
+  // The one place an agent tool becomes an AI SDK tool, for every agent.
   for (const agentTool of args.tools) {
     const instrumented = instrumentTool(agentTool)
     tools[agentTool.name] = dynamicTool({
@@ -218,11 +214,7 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
     })
   }
 
-  // A reply cut off mid tool call saves an assistant message with no
-  // content, which the provider refuses to be sent back.
-  const hasContent = (message: ModelMessage): boolean =>
-    typeof message.content === 'string' || message.content.length > 0
-  const messages = args.messages.filter(hasContent)
+  const messages = [...args.messages]
   let saveError: unknown
   let cutOff = 0
   for (let nudges = 0; ; nudges++) {
@@ -266,9 +258,8 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
         const fresh = step.response.messages.slice(seen)
         seen = step.response.messages.length
         try {
-          await args.saveStep(
-            { messages: fresh, usage: stepUsage(step) },
-            step.text,
+          await args.saveRows(
+            stepRows(fresh, stepUsage(step), args.modelId),
           )
           currentStep++
         } catch (err) {
@@ -279,15 +270,13 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
     await result.consumeStream()
     if (saveError !== undefined) throw saveError
     if (streamError !== undefined) throw streamError
-    messages.push(...(await result.response).messages.filter(hasContent))
+    messages.push(...(await result.response).messages)
 
     const submitted = submittedOutput(messages, args.output)
     if (submitted.found) return submitted.value
     if (args.stopRequested()) throw new RunStoppedError()
     if (currentStep >= args.maxSteps) {
-      throw new Error(
-        `${args.agentName} used its ${args.maxSteps} steps without submitting`,
-      )
+      throw new RunBudgetError(args.agentName, args.maxSteps)
     }
     if ((await result.steps).at(-1)?.finishReason === 'length') {
       cutOff++
@@ -296,14 +285,14 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
           `${args.agentName} hit the output limit twice without submitting`,
         )
       }
-      await args.saveNudge(LENGTH_NUDGE)
+      await args.saveRows([nudgeRow(LENGTH_NUDGE)])
       messages.push({ role: 'user', content: LENGTH_NUDGE })
       continue
     }
     if (nudges >= args.maxNudges) {
       throw new Error(`${args.agentName} ended without submitting its output`)
     }
-    await args.saveNudge(FINISH_NUDGE)
+    await args.saveRows([nudgeRow(FINISH_NUDGE)])
     messages.push({ role: 'user', content: FINISH_NUDGE })
   }
 }

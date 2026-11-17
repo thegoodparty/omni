@@ -6,7 +6,7 @@ import { MockLanguageModelV3 } from 'ai/test'
 import { PinoLogger } from 'nestjs-pino'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { ChatMessageRole, ExperimentRunStatus } from '@/generated/prisma'
+import { AgentMessageRole, AgentRunStatus } from '@/generated/prisma'
 import { JOBS, SCHEDULES } from '@/jobs/jobs.registry'
 import { JobsService } from '@/jobs/jobs.service'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -17,8 +17,8 @@ import { AgentsService } from './agents.service'
 import { defineAgent } from './defineAgent'
 
 // A deploy stopping a run part way through. The test app runs no workers; a
-// stand-in gp-api task does, stopped while the run's second model call is
-// in flight.
+// stand-in gp-api task does, stopped while the run's second model call is in
+// flight.
 const service = useTestService()
 
 const startTask = async (): Promise<JobsService> => {
@@ -88,21 +88,23 @@ describe('an agent run at shutdown', () => {
     delete AGENTS.testAgent
   })
 
-  it('stops after its current step, with the steps saved and the run not failed', async () => {
+  it('stops after its current step, with the messages saved and the run not failed', async () => {
     let calls = 0
     let release: () => void = () => undefined
     const released = new Promise<void>((resolve) => {
       release = resolve
     })
-    vi.spyOn(service.app.get(AgentModels), 'languageModel').mockReturnValue(
-      new MockLanguageModelV3({
+    vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+      model: new MockLanguageModelV3({
         doStream: async () => {
           calls++
           if (calls === 2) await released
           return { stream: simulateReadableStream({ chunks: lookUpCall() }) }
         },
       }),
-    )
+      modelId: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    })
     await service.prisma.organization.create({
       data: { slug: 'agents-shutdown', ownerId: service.user.id },
     })
@@ -117,25 +119,23 @@ describe('an agent run at shutdown', () => {
     await stopping
 
     expect(calls).toBe(2)
-    const run = await service.prisma.experimentRun.findUniqueOrThrow({
-      where: { runId },
+    const run = await service.prisma.agentRun.findUniqueOrThrow({
+      where: { id: runId },
       include: {
-        conversation: {
-          include: {
-            messages: {
-              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-              select: { role: true },
-            },
-          },
+        messages: {
+          orderBy: { index: 'asc' },
+          select: { role: true },
         },
       },
     })
-    expect(run.status).toBe(ExperimentRunStatus.RUNNING)
+    expect(run.status).toBe(AgentRunStatus.running)
     expect(run.error).toBeNull()
-    expect(run.conversation?.messages).toEqual([
-      { role: ChatMessageRole.user },
-      { role: ChatMessageRole.assistant },
-      { role: ChatMessageRole.assistant },
+    expect(run.messages.map((m) => m.role)).toEqual([
+      AgentMessageRole.user,
+      AgentMessageRole.assistant,
+      AgentMessageRole.tool,
+      AgentMessageRole.assistant,
+      AgentMessageRole.tool,
     ])
   })
 })

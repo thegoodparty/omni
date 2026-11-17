@@ -35,7 +35,6 @@ const makeRun = (overrides: Partial<ExperimentRun> = {}): ExperimentRun => ({
   dataQuality: null,
   resumeScheduledFor: null,
   resumeAttempts: 0,
-  shapeHash: null,
   createdAt: new Date('2026-05-01T00:00:00Z'),
   updatedAt: new Date('2026-05-01T00:10:00Z'),
   ...overrides,

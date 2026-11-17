@@ -8,17 +8,18 @@ export type AgentDefinition<
   }>,
   O extends z.ZodType = z.ZodType,
 > = {
-  // The run's input, stored on ExperimentRun.params. organizationSlug is the
-  // run's owner.
+  // The run's input. organizationSlug is the run's owner, and the whole input
+  // is AgentRun.input and the run's first message.
   input: I
-  // Checked when the agent calls submitOutput, and hashed into the run's
-  // shape (shapeHash.ts).
+  // Checked when the model calls submitOutput. The input and output schemas
+  // are the run's manifest, and their hash is its shapeHash (manifest.ts).
   output: O
   model: string
   // The system prompt.
   prompt: string
   tools: AgentTool[]
-  // Saves the validated output where the product reads it.
+  // Saves the validated output where the product reads it. It can run twice
+  // for one run, so make it an upsert.
   onArtifact: (
     artifact: z.infer<O>,
     run: { runId: string; input: z.infer<I> },
@@ -43,3 +44,10 @@ export const defineAgent = <
       context,
     ),
 })
+
+// Identity at runtime. It is here so a tool gets the contextual typing an agent
+// gets from defineAgent: execute's input is inferred from `input`, and ctx is a
+// ToolContext.
+export const defineTool = <I extends z.ZodType>(
+  tool: AgentTool<I>,
+): AgentTool<I> => tool

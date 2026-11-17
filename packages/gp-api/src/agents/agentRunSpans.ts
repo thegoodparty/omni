@@ -114,7 +114,7 @@ const inSpan = async <T>(
 
 // The whole attempt, under one invoke_agent span tied to the run.
 export const withAgentRunSpan = <T>(
-  run: AgentRunIdentity & { model: string },
+  run: AgentRunIdentity & { model: string; provider: string },
   fn: () => Promise<T>,
 ): Promise<T> =>
   withAgentRun(run, () =>
@@ -122,7 +122,7 @@ export const withAgentRunSpan = <T>(
       `invoke_agent ${run.agent}`,
       {
         'gen_ai.operation.name': 'invoke_agent',
-        'gen_ai.provider.name': 'anthropic',
+        'gen_ai.provider.name': run.provider,
         'gen_ai.request.model': run.model,
       },
       fn,

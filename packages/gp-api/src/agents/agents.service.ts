@@ -2,29 +2,22 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import type { ModelMessage } from 'ai'
 import { z } from 'zod'
 import {
-  ChatMessageRole,
-  ChatScope,
-  type ExperimentRun,
-  ExperimentRunStatus,
+  AgentMessageRole,
+  type AgentRun,
+  AgentRunStatus,
   type Prisma,
 } from '@/generated/prisma'
 import type { JobRun, WorkerContext } from '@/jobs/jobs.registry'
 import { JobShutdownError, JobsService } from '@/jobs/jobs.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { AgentModels } from './agentModels'
+import { runInputRow, toModelMessages } from './agentMessages'
+import { type AgentModel, AgentModels } from './agentModels'
+import { recordOutputFailure } from './agentMetrics'
 import { withAgentRunSpan } from './agentRunSpans'
 import { AGENTS } from './agents.registry'
-import {
-  FINISH_INSTRUCTIONS,
-  runAgentLoop,
-  RunStoppedError,
-  type SavedStep,
-  SavedStepSchema,
-  StepUsageSchema,
-} from './aiSdkLoop'
+import { FINISH_INSTRUCTIONS, runAgentLoop, RunStoppedError } from './aiSdkLoop'
 import type { AgentDefinition } from './defineAgent'
-import { stepCostUsd } from './modelPricing'
-import { agentShapeHash } from './shapeHash'
+import { type AgentManifest, agentManifest, manifestShapeHash } from './manifest'
 
 export type AgentRunJobData = { runId: string }
 
@@ -33,13 +26,11 @@ const MAX_STEPS_PER_RUN = 120
 const MAX_NUDGES_PER_ATTEMPT = 5
 // As AgentExperimentResultService truncates the PMF Engine's errors.
 const MAX_ERROR_LENGTH = 1000
-const TERMINAL: ExperimentRunStatus[] = [
-  ExperimentRunStatus.COMPLETED,
-  ExperimentRunStatus.FAILED,
-  ExperimentRunStatus.SUPERSEDED,
+const TERMINAL: AgentRunStatus[] = [
+  AgentRunStatus.completed,
+  AgentRunStatus.failed,
+  AgentRunStatus.superseded,
 ]
-
-const SavedUsageSchema = z.object({ usage: StepUsageSchema })
 
 const definitionOf = (name: string): AgentDefinition => {
   const definition = AGENTS[name]
@@ -47,21 +38,20 @@ const definitionOf = (name: string): AgentDefinition => {
   return definition
 }
 
-// Agent inputs and steps are JSON by construction: the input schema parsed
-// them, or the model produced them.
+// Agent inputs and message parts are JSON by construction: the input schema
+// parsed them, or the model produced them.
 const toJson = (value: unknown): Prisma.InputJsonValue => {
   const json = z.json().parse(JSON.parse(JSON.stringify(value)))
   if (json === null) throw new Error('agent run state cannot be null')
   return json
 }
 
-// gp-api's own agents (src/agents/AGENTS.md). A run is an ExperimentRun,
-// read by products and gp-admin as the PMF Engine's runs are, holding one
-// ChatConversation whose ChatMessage rows are the run's completed steps.
-// The agentRun job works a run; a retry loads the saved steps and calls the
-// loop again.
+// gp-api's own agents (src/agents/AGENTS.md). A background run is an AgentRun
+// whose AgentMessage rows are every message the run has written, chat and
+// background sharing the one table. The agentRun job works a run; a retry loads
+// the rows and calls the loop again.
 @Injectable()
-export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
+export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
   constructor(
     private readonly jobs: JobsService,
     private readonly models: AgentModels,
@@ -78,7 +68,7 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
         name,
         organizationSlug: parsed.organizationSlug,
         input: parsed,
-        shapeHash: agentShapeHash(definition.output),
+        manifest: agentManifest(definition),
       }),
     )
     return { runId }
@@ -89,12 +79,8 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
     job: JobRun<AgentRunJobData>,
     context: WorkerContext,
   ): Promise<void> {
-    const run = await this.model.findUnique({
-      where: { runId: job.data.runId },
-      include: { conversation: { select: { id: true } } },
-    })
-    if (!run?.conversation || TERMINAL.includes(run.status)) return
-    const conversationId = run.conversation.id
+    const run = await this.model.findUnique({ where: { id: job.data.runId } })
+    if (!run || TERMINAL.includes(run.status)) return
 
     // pg-boss timing the attempt out stops tools and model calls at once. A
     // deploy only asks the run to stop after its current step.
@@ -106,48 +92,55 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
     })
 
     try {
-      const definition = definitionOf(run.experimentType)
-      const shapeHash = agentShapeHash(definition.output)
+      const definition = definitionOf(run.agentName)
+      const manifest = agentManifest(definition)
+      const shapeHash = manifestShapeHash(manifest)
       if (run.shapeHash !== shapeHash) {
-        await this.supersede(run, conversationId, shapeHash)
+        await this.supersede(run, manifest)
         return
       }
 
       await this.model.update({
-        where: { runId: run.runId },
-        data: { status: ExperimentRunStatus.RUNNING },
+        where: { id: run.id },
+        data: {
+          status: AgentRunStatus.running,
+          startedAt: run.startedAt ?? new Date(),
+        },
       })
+      const agentModel = this.models.resolve(definition.model)
       const output = await withAgentRunSpan(
         {
-          runId: run.runId,
-          agent: run.experimentType,
+          runId: run.id,
+          agent: run.agentName,
           shapeHash,
-          model: definition.model,
+          model: agentModel.modelId,
+          provider: agentModel.provider,
         },
         () =>
-          this.runLoop(run, conversationId, definition, context, {
+          this.runLoop(run, definition, agentModel, context, {
             stopRequested: () =>
               job.signal.aborted &&
               job.signal.reason instanceof JobShutdownError,
             abortSignal: timedOut.signal,
           }),
       )
+      // Before onArtifact: a task that dies after it finds the accepted output
+      // on the run and calls onArtifact again rather than redoing the loop.
+      await this.model.update({
+        where: { id: run.id },
+        data: { artifact: toJson(output) },
+      })
       await definition.onArtifact(
         output,
-        { runId: run.runId, input: definition.input.parse(run.params) },
+        { runId: run.id, input: definition.input.parse(run.input) },
         context,
       )
-      await this.finish(run, conversationId, ExperimentRunStatus.COMPLETED)
+      await this.finish(run, AgentRunStatus.completed)
     } catch (err) {
       const lastAttempt = job.retryCount >= job.retryLimit
       if (lastAttempt && !(err instanceof RunStoppedError)) {
         const message = err instanceof Error ? err.message : String(err)
-        await this.finish(
-          run,
-          conversationId,
-          ExperimentRunStatus.FAILED,
-          message,
-        )
+        await this.finish(run, AgentRunStatus.failed, message)
       }
       throw err
     }
@@ -159,79 +152,67 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
       name: string
       organizationSlug: string
       input: unknown
-      shapeHash: string
+      manifest: AgentManifest
     },
   ): Promise<string> {
-    const params = toJson(args.input)
-    const { runId } = await tx.experimentRun.create({
+    const input = toJson(args.input)
+    const { id } = await tx.agentRun.create({
       data: {
-        experimentType: args.name,
+        agentName: args.name,
         organizationSlug: args.organizationSlug,
-        status: ExperimentRunStatus.QUEUED,
-        params,
-        shapeHash: args.shapeHash,
-        conversation: {
-          create: {
-            scope: ChatScope.background_agent,
-            organizationSlug: args.organizationSlug,
-            title: args.name,
-            messages: {
-              create: {
-                role: ChatMessageRole.user,
-                content: JSON.stringify(params, null, 2),
-              },
-            },
-          },
-        },
+        status: AgentRunStatus.queued,
+        manifest: toJson(args.manifest),
+        shapeHash: manifestShapeHash(args.manifest),
+        input,
+        // The run's input is its first message, so a resume and onArtifact both
+        // read it from one place.
+        messages: { create: { ...runInputRow(input), index: 0 } },
       },
-      select: { runId: true },
+      select: { id: true },
     })
-    await this.jobs.send('agentRun', { runId }, { tx })
-    return runId
+    await this.jobs.send('agentRun', { runId: id }, { tx })
+    return id
   }
 
-  // The saved steps were taken under another output schema, so they stay on
-  // this run (still measurable) and a fresh run starts in its place.
-  private async supersede(
-    run: ExperimentRun,
-    conversationId: string,
-    shapeHash: string,
-  ): Promise<void> {
-    const costUsd = await this.costUsd(conversationId)
+  // The saved rows were written under another manifest, so they stay on this
+  // run (readable, and counted toward its tokens) and a fresh run starts in
+  // their place from the same input.
+  private async supersede(run: AgentRun, manifest: AgentManifest): Promise<void> {
+    const shapeHash = manifestShapeHash(manifest)
     const freshId = await this.client.$transaction(async (tx) => {
-      await tx.experimentRun.update({
-        where: { runId: run.runId },
-        data: {
-          status: ExperimentRunStatus.SUPERSEDED,
-          costUsd,
-          durationSeconds: (Date.now() - run.createdAt.getTime()) / 1000,
-        },
+      await tx.agentRun.update({
+        where: { id: run.id },
+        data: { status: AgentRunStatus.superseded, finishedAt: new Date() },
       })
       return this.createRun(tx, {
-        name: run.experimentType,
+        name: run.agentName,
         organizationSlug: run.organizationSlug,
-        input: run.params,
-        shapeHash,
+        input: run.input,
+        manifest,
       })
     })
     this.logger.info(
-      { runId: run.runId, supersededBy: freshId, shapeHash },
+      { runId: run.id, supersededBy: freshId, shapeHash },
       'agent run shape changed; started a fresh run',
     )
   }
 
   private async finish(
-    run: ExperimentRun,
-    conversationId: string,
-    status: ExperimentRunStatus,
+    run: AgentRun,
+    status: AgentRunStatus,
     error?: string,
   ): Promise<void> {
+    // A run that ends failed never produced an accepted output, which is the
+    // failure nothing else would notice: it stops, and the product's table
+    // simply does not change.
+    if (status === AgentRunStatus.failed) {
+      recordOutputFailure(run.agentName, 'noOutput', error ?? 'failed')
+    }
     await this.model.update({
-      where: { runId: run.runId },
+      where: { id: run.id },
       data: {
         status,
-        costUsd: await this.costUsd(conversationId),
-        durationSeconds: (Date.now() - run.createdAt.getTime()) / 1000,
+        finishedAt: new Date(),
         ...(error !== undefined && {
           error: error.slice(0, MAX_ERROR_LENGTH),
         }),
@@ -239,56 +220,32 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
     })
   }
 
-  // Priced from each step's tokens; null when a step's model has no price.
-  private async costUsd(conversationId: string): Promise<number | null> {
-    const steps = await this.client.chatMessage.findMany({
-      where: { conversationId, role: ChatMessageRole.assistant },
-      select: { model: true, step: true },
-    })
-    let total = 0
-    for (const step of steps) {
-      const saved = SavedUsageSchema.safeParse(step.step)
-      const cost =
-        saved.success && step.model
-          ? stepCostUsd(step.model, saved.data.usage)
-          : null
-      if (cost === null) return null
-      total += cost
-    }
-    return total
-  }
-
   private async runLoop(
-    run: ExperimentRun,
-    conversationId: string,
+    run: AgentRun,
     definition: AgentDefinition,
+    agentModel: AgentModel,
     context: WorkerContext,
     control: { stopRequested: () => boolean; abortSignal: AbortSignal },
   ): Promise<unknown> {
-    const rows = await this.client.chatMessage.findMany({
-      where: { conversationId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const rows = await this.client.agentMessage.findMany({
+      where: { agentRunId: run.id },
+      orderBy: { index: 'asc' },
     })
-    const messages: ModelMessage[] = []
-    let savedSteps = 0
-    for (const row of rows) {
-      if (row.role === ChatMessageRole.user) {
-        messages.push({ role: 'user', content: row.content })
-        continue
-      }
-      messages.push(...SavedStepSchema.parse(row.step).messages)
-      savedSteps++
-    }
+    const messages: ModelMessage[] = toModelMessages(rows)
+    const savedSteps = rows.filter(
+      (row) => row.role === AgentMessageRole.assistant,
+    ).length
 
     return runAgentLoop({
-      agentName: run.experimentType,
-      model: this.models.languageModel(definition.model),
+      agentName: run.agentName,
+      model: agentModel.model,
+      modelId: agentModel.modelId,
       system: definition.prompt + FINISH_INSTRUCTIONS,
       messages,
       tools: definition.tools,
       output: definition.output,
       toolContext: {
-        runId: run.runId,
+        runId: run.id,
         organizationSlug: run.organizationSlug,
         signal: control.abortSignal,
         get: context.get,
@@ -298,22 +255,27 @@ export class AgentsService extends createPrismaBase(MODELS.ExperimentRun) {
       maxNudges: MAX_NUDGES_PER_ATTEMPT,
       stopRequested: control.stopRequested,
       abortSignal: control.abortSignal,
-      saveStep: async (step: SavedStep, text: string) => {
-        await this.client.chatMessage.create({
-          data: {
-            conversationId,
-            role: ChatMessageRole.assistant,
-            content: text,
-            model: definition.model,
-            inputTokens: step.usage.inputTokens,
-            outputTokens: step.usage.outputTokens,
-            step: toJson(step),
-          },
+      saveRows: async (newRows) => {
+        // Read from the table, not counted in memory: rows a killed attempt
+        // wrote are here, and a resume starts after them.
+        const highest = await this.client.agentMessage.findFirst({
+          where: { agentRunId: run.id },
+          orderBy: { index: 'desc' },
+          select: { index: true },
         })
-      },
-      saveNudge: async (text: string) => {
-        await this.client.chatMessage.create({
-          data: { conversationId, role: ChatMessageRole.user, content: text },
+        const start = (highest?.index ?? -1) + 1
+        await this.client.agentMessage.createMany({
+          data: newRows.map((row, offset) => ({
+            agentRunId: run.id,
+            index: start + offset,
+            role: row.role,
+            parts: toJson(row.parts),
+            model: row.model ?? null,
+            inputTokens: row.inputTokens ?? null,
+            outputTokens: row.outputTokens ?? null,
+            cacheReadTokens: row.cacheReadTokens ?? null,
+            cacheWriteTokens: row.cacheWriteTokens ?? null,
+          })),
         })
       },
     })
