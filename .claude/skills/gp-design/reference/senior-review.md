@@ -49,7 +49,8 @@ Give the subagent this brief, with the paths filled in:
 2. Rebuild, then rerun `ux-review-options` steps 7 to 9: the check, the step 8
    review and `build-shape`, because any edit to the option makes the build
    shape stale.
-3. Run this review again with a fresh subagent. Stop when list A has no Do, or
-   after three rounds; then list what is still open in the hand-back.
+3. One review round only. Don't ask the person before fixing and don't run
+   the review again: fix, rebuild, pass the check, and hand back. List anything
+   from list A you didn't fix, and why, in the hand-back.
 4. List B goes in the hand-back under "Skill feedback". Don't edit the skill
    during a design run; the person decides whether it becomes a PR.

@@ -76,9 +76,9 @@ above, not your memory of them:
 - Where a rulebook vs code conflict goes: "Existing screens" item 2 in
   `.claude/skills/ux-review-options/reference/wireframe-build.md`.
 - After step 9, always: the senior design review in
-  `reference/senior-review.md`. A fresh subagent reviews the page; fix its
-  findings and review again until it has no Do, up to three rounds. Nothing
-  is published or shown before it passes.
+  `reference/senior-review.md`. A fresh subagent reviews the page once; fix
+  its findings right away, without asking and without a second review.
+  Nothing is published or shown before the fixes are in.
 
 ## 4. Hand it back
 
@@ -87,8 +87,8 @@ link, plus the same link with `?view=phone` and with `?view=desktop`. The main
 link always shows Phone and Desktop side by side. If the person asked not to
 publish, give the local path to `index.html` instead (for a prototype in gp-webapp, the branch and route). Add one line on
 what it is, the gaps and proposed components (or "None"), and every open
-question for a person. Add how many review rounds ran, any Do the review
-still flags, and its "Skill feedback". What goes in `#questions` and how it is ranked:
+question for a person. Add what the review found and fixed, anything left
+unfixed and why, and its "Skill feedback". What goes in `#questions` and how it is ranked:
 `ux-review-options` step 4. When there is a ticket, post back per step 11,
 unless the person asked not to post.
 
