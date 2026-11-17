@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   addDays,
+  differenceInCalendarDays,
   format,
   isWeekend,
   nextMonday,
@@ -1574,6 +1575,8 @@ export const SmsFlow = ({
       usedImproveWithAi: managedUsedAiRef.current,
       usedDictation: managedUsedDictationRef.current,
       inviteSegments: Math.max(1, Math.ceil(composedLength / 160)),
+      firstSendDate: format(kickoffDate, 'yyyy-MM-dd'),
+      startDaysOut: differenceInCalendarDays(kickoffDate, new Date()),
     })
     managedApprove.mutate(
       {

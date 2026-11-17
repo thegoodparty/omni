@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { addDays, format, isWeekend, nextMonday, startOfDay } from 'date-fns'
+import {
+  addDays,
+  differenceInCalendarDays,
+  format,
+  isWeekend,
+  nextMonday,
+  parseISO,
+  startOfDay,
+} from 'date-fns'
 import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import {
@@ -220,6 +228,11 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
         usedImproveWithAi: false,
         usedDictation: false,
         inviteSegments: Math.ceil(approvals[0]!.inviteMessage.length / 160),
+        firstSendDate: earliestStart(),
+        startDaysOut: differenceInCalendarDays(
+          parseISO(earliestStart()),
+          new Date(),
+        ),
       },
     )
     // Never an Outreach row, a list, a checkout or a payment.
