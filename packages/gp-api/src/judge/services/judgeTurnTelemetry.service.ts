@@ -110,14 +110,14 @@ export class JudgeTurnTelemetryService extends createPrismaBase(
               }),
             ).filter((m) => messageIds.includes(m.id))
           : await this.client.chatMessage.findMany({
-            where: { id: { in: messageIds } },
-            select: {
-              id: true,
-              model: true,
-              inputTokens: true,
-              outputTokens: true,
-            },
-          })
+              where: { id: { in: messageIds } },
+              select: {
+                id: true,
+                model: true,
+                inputTokens: true,
+                outputTokens: true,
+              },
+            })
     const usageById = new Map(messages.map((m) => [m.id, m]))
 
     return {

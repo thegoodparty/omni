@@ -59,7 +59,10 @@ const syncAgentMessages = async (
   })
   const missing = await tx.chatMessage.findMany({
     where: { conversationId, id: { notIn: existing.map((row) => row.id) } },
-    orderBy: [{ createdAt: Prisma.SortOrder.asc }, { id: Prisma.SortOrder.asc }],
+    orderBy: [
+      { createdAt: Prisma.SortOrder.asc },
+      { id: Prisma.SortOrder.asc },
+    ],
     include: { segments: { orderBy: { ordinal: Prisma.SortOrder.asc } } },
   })
   let index = existing.reduce((max, row) => Math.max(max, row.index + 1), 0)
@@ -158,9 +161,7 @@ export class ChatStoreService extends createPrismaBase(
       })
       const messages = agentMessagesToChatMessages(rows.reverse())
       // A full page may start partway into a turn; that message is dropped.
-      return (rows.length === take ? messages.slice(1) : messages).slice(
-        -limit,
-      )
+      return (rows.length === take ? messages.slice(1) : messages).slice(-limit)
     }
     const rows = await this.client.chatMessage.findMany({
       where: { conversationId, conversation: { deletedAt: null } },

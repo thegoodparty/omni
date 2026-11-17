@@ -1,4 +1,5 @@
 import type { ModelMessage } from 'ai'
+import { z } from 'zod'
 import { isToolRefusal } from '@goodparty_org/contracts'
 import {
   AgentMessage,
@@ -20,7 +21,7 @@ export const CHAT_AGENT_MESSAGE_FLAG = 'chat-agent-message'
 
 export type AgentMessageDraft = {
   role: AgentMessageRole
-  parts: Prisma.InputJsonValue[]
+  parts: Prisma.JsonValue[]
   model?: string | null
   inputTokens?: number | null
   outputTokens?: number | null
@@ -40,7 +41,7 @@ export type StoredAgentMessage = Pick<
   | 'createdAt'
 >
 
-type JsonObject = Record<string, unknown>
+type JsonObject = Prisma.JsonObject
 
 type SegmentLike = Pick<PersistedSegment, 'kind'> & {
   text?: string | null
@@ -49,17 +50,34 @@ type SegmentLike = Pick<PersistedSegment, 'kind'> & {
   payload?: unknown
 }
 
+const JsonSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonSchema),
+    z.record(z.string(), JsonSchema),
+  ]),
+)
+
+// Parts are JSON by construction (model output and tool results the AI SDK
+// already serialised); the round trip drops undefined fields the way the
+// database would.
+const toJson = (value: unknown): Prisma.JsonValue =>
+  JsonSchema.parse(JSON.parse(JSON.stringify(value ?? null)))
+
 const isObject = (value: unknown): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 // The AI SDK has no citation part, so a citation rides as an empty text part
 // that names it. Replay and display both read text through readParts, which
 // keeps it out of the text.
-const citationPart = (payload: unknown): Prisma.InputJsonValue => ({
+const citationPart = (payload: unknown): Prisma.JsonValue => ({
   type: 'text',
   text: '',
   providerOptions: {
-    goodparty: { citation: (payload ?? null) as Prisma.InputJsonValue },
+    goodparty: { citation: toJson(payload) },
   },
 })
 
@@ -74,9 +92,11 @@ const citationOf = (part: JsonObject): unknown => {
 const contentParts = (message: ModelMessage): JsonObject[] =>
   typeof message.content === 'string'
     ? [{ type: 'text', text: message.content }]
-    : (message.content as unknown as JsonObject[])
+    : (Array.isArray(message.content) ? message.content : [])
+        .map(toJson)
+        .filter(isObject)
 
-const segmentToPart = (segment: SegmentLike): Prisma.InputJsonValue => {
+const segmentToPart = (segment: SegmentLike): Prisma.JsonValue => {
   if (segment.kind === ChatMessageSegmentKind.citation) {
     return citationPart(segment.payload)
   }
@@ -86,7 +106,7 @@ const segmentToPart = (segment: SegmentLike): Prisma.InputJsonValue => {
       // Older segments predate toolCallId; '' reads back as null.
       toolCallId: segment.toolCallId ?? '',
       toolName: segment.toolName ?? '',
-      input: (segment.payload ?? null) as Prisma.InputJsonValue,
+      input: toJson(segment.payload),
     }
   }
   return { type: 'text', text: segment.text ?? '' }
@@ -151,7 +171,9 @@ const sumTokens = (
     ? null
     : rows.reduce((sum, row) => sum + (row[field] ?? 0), 0)
 
-const toChatMessage = (group: StoredAgentMessage[]): ChatMessageWithSegments => {
+const toChatMessage = (
+  group: StoredAgentMessage[],
+): ChatMessageWithSegments => {
   const first = group[0]!
   if (first.role === AgentMessageRole.user) {
     const text = (Array.isArray(first.parts) ? first.parts : [])
@@ -176,8 +198,10 @@ const toChatMessage = (group: StoredAgentMessage[]): ChatMessageWithSegments => 
   )
   const last = assistants[assistants.length - 1]!
   const refused = refusedToolCallIds(group)
-  const segments: Omit<ChatMessageSegment, 'id' | 'chatMessageId' | 'ordinal'>[] =
-    []
+  const segments: Omit<
+    ChatMessageSegment,
+    'id' | 'chatMessageId' | 'ordinal'
+  >[] = []
   for (const row of assistants) {
     for (const part of Array.isArray(row.parts) ? row.parts : []) {
       if (!isObject(part)) continue
@@ -189,7 +213,7 @@ const toChatMessage = (group: StoredAgentMessage[]): ChatMessageWithSegments => 
             text: null,
             toolName: null,
             toolCallId: null,
-            payload: citation as Prisma.JsonValue,
+            payload: toJson(citation),
           })
           continue
         }
@@ -220,7 +244,7 @@ const toChatMessage = (group: StoredAgentMessage[]): ChatMessageWithSegments => 
           payload:
             refused.has(toolCallId) || input === undefined
               ? null
-              : (input as Prisma.JsonValue),
+              : toJson(input),
         })
       }
     }
@@ -279,9 +303,7 @@ export const agentMessagesToChatMessages = (
     previous = row
   }
   return groups
-    .filter((group) =>
-      group.some((row) => row.role !== AgentMessageRole.tool),
-    )
+    .filter((group) => group.some((row) => row.role !== AgentMessageRole.tool))
     .map(toChatMessage)
 }
 
@@ -336,7 +358,7 @@ export const turnToAgentMessages = (args: {
           .map((part) => String(part['toolCallId'])),
       ),
   )
-  const placed = assistants.map((): Prisma.InputJsonValue[] => [])
+  const placed = assistants.map((): Prisma.JsonValue[] => [])
   const pending = new Set(clientCallIds[0])
   let step = 0
   for (const segment of segments) {
@@ -359,14 +381,14 @@ export const turnToAgentMessages = (args: {
         part['toolCallId'] === segment.toolCallId,
     )
     if (!call) return null
-    placed[step]!.push(call as Prisma.InputJsonValue)
+    placed[step]!.push(toJson(call))
     if (call['providerExecuted'] === true) {
       const result = parts.find(
         (part) =>
           part['type'] === 'tool-result' &&
           part['toolCallId'] === segment.toolCallId,
       )
-      if (result) placed[step]!.push(result as Prisma.InputJsonValue)
+      if (result) placed[step]!.push(toJson(result))
     }
     pending.delete(String(segment.toolCallId))
   }
@@ -387,7 +409,7 @@ export const turnToAgentMessages = (args: {
     if (message.role !== 'assistant') {
       return {
         role: AgentMessageRole.tool,
-        parts: contentParts(message) as Prisma.InputJsonValue[],
+        parts: contentParts(message).map(toJson),
       }
     }
     const usage = args.stepUsages[assistantIndex]!
@@ -408,7 +430,7 @@ export const turnToAgentMessages = (args: {
       id: String(i),
       conversationId: null,
       role: draft.role,
-      parts: draft.parts as Prisma.JsonValue,
+      parts: toJson(draft.parts),
       model: draft.model ?? null,
       inputTokens: draft.inputTokens ?? null,
       outputTokens: draft.outputTokens ?? null,

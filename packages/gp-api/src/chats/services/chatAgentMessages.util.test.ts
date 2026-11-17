@@ -7,7 +7,9 @@ import {
 
 const usage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
 
-const readBack = (drafts: NonNullable<ReturnType<typeof turnToAgentMessages>>) =>
+const readBack = (
+  drafts: NonNullable<ReturnType<typeof turnToAgentMessages>>,
+) =>
   agentMessagesToChatMessages(
     drafts.map((d, i) => ({
       id: `r${i}`,

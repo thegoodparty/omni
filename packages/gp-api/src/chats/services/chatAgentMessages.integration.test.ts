@@ -68,7 +68,10 @@ const toolTurn =
           },
         ],
       },
-      { role: 'assistant', content: [{ type: 'text', text: 'It costs $40k.' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'It costs $40k.' }],
+      },
     ]
     return {
       textStream: (async function* () {
@@ -105,8 +108,10 @@ describe('chat on AgentMessage', () => {
   })
 
   const createAndSend = async (toolCallId: string) => {
-    vi.spyOn(service.app.get(LlmService), 'streamChatCompletion')
-      .mockImplementation(toolTurn(toolCallId))
+    vi.spyOn(
+      service.app.get(LlmService),
+      'streamChatCompletion',
+    ).mockImplementation(toolTurn(toolCallId))
     const created = await service.client.post(
       '/v1/chats',
       { scope: COS },

@@ -459,8 +459,7 @@ export const inProcessChatRuntime = (
       return (
         messages.find(
           (m) =>
-            m.id === assistantMessageId &&
-            m.role === ChatMessageRole.assistant,
+            m.id === assistantMessageId && m.role === ChatMessageRole.assistant,
         )?.content ?? null
       )
     }
