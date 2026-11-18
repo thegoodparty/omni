@@ -2,10 +2,12 @@ import { z } from 'zod'
 import {
   assertAggregateSelectShape,
   assertRowCountShape,
+  collectAllColumns,
   containsWriteNode,
   findPeopleCountColumns,
   findRowCountColumn,
   mandatoryValuesForColumn,
+  normalizeColumn,
   type ScrubResult,
   scrubResults,
   SqlRejected,
@@ -257,15 +259,30 @@ const assertAggregateOnly = (
   dimensions: string[],
 ): void => {
   // The jurisdiction columns are server-bound and named per run (the office's
-  // own L2 district column), so they are groupable without being declarable in
-  // the tool's options. Grouping by one cannot narrow a cell below the floor:
-  // it is the same single value the WHERE already pins.
-  assertAggregateSelectShape(select, {
-    allowedGroupBy: new Set([
-      ...dimensions,
-      ...requiredFilters(scope).map(([column]) => column),
-    ]),
-  })
+  // own L2 district column), so they are groupable and filterable without being
+  // declarable in the tool's options.
+  const named = [...dimensions, ...requiredFilters(scope).map(([c]) => c)]
+  assertAggregateSelectShape(select, { allowedGroupBy: new Set(named) })
+
+  // The aggregate-only shape only constrains the select list and GROUP BY, and
+  // a filter is the other way to isolate one person. `AND LALVOTERID <> 'x'`
+  // on otherwise identical queries leaves both cells far above the floor, and
+  // the difference between them is that person's score — the differencing
+  // attack the floor cannot see. So every column a WHERE or HAVING names must
+  // be one the agent may slice by. An aggregate's own argument is not a filter:
+  // that is what the aggregate is for, and the floor covers its result.
+  const sliced = new Set<string>()
+  collectAllColumns(select.where, sliced)
+  collectAllColumns(select.having, sliced)
+  const allowed = new Set(named.map(normalizeColumn))
+  for (const column of sliced) {
+    if (!allowed.has(normalizeColumn(column))) {
+      throw new SqlRejected(
+        `a WHERE or HAVING may only name one of the allowed dimensions (${named.join(', ') || '(none)'}): ${column}`,
+      )
+    }
+  }
+
   // Only a SELECT that reads the data needs a group size. A derived table of
   // literals reads nothing and has no cell to floor.
   if (readsTable) assertRowCountShape(select)
@@ -415,7 +432,7 @@ export const databricksTool = (options: DatabricksToolOptions) => {
       ? 'the table named in your input'
       : options.tables.join(', ')
   return defineTool({
-    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and only these columns may be grouped or filtered on: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no DDL, no writes.`,
+    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no DDL, no writes.`,
     input: queryInput,
     execute: async ({ sql }, ctx) => {
       const scope = await options.scope(ctx)
@@ -505,9 +522,12 @@ export const databricksTool = (options: DatabricksToolOptions) => {
         return { ok: false, reason: 'rejected', detail: brief(error) }
       }
 
-      // Truncation is measured on the rows that survived the floor: a group
-      // dropped for being too small was never a result to cut.
-      const truncated = scrubbed.kept.length > options.maxRows
+      // Either page full means the warehouse withheld more: the raw page when
+      // it came back at the cap plus the provocation row, and the surviving rows
+      // when the floor ate that row. Only the second count would under-report.
+      const truncated =
+        result.rows.length > options.maxRows ||
+        scrubbed.kept.length > options.maxRows
       const rows = scrubbed.kept
         .slice(0, options.maxRows)
         .map((row) => result.columns.map((column) => row[column] ?? null))

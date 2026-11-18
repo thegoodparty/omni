@@ -6,22 +6,22 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 
 ## Key files
 
-| Path                        | What                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------ |
-| `agents.registry.ts`        | `AGENTS`: every agent by name. The name is the run's `agentName`                                 |
-| `defineAgent.ts`            | `AgentDefinition` and `defineAgent`                                                              |
-| `agents.service.ts`         | `AgentsService.run(name, input)` and the `agentRun` worker                                       |
-| `aiSdkLoop.ts`              | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget                           |
-| `manifest.ts`               | The run's manifest (input and output schema) and its `shapeHash`                                 |
-| `agentMessages.ts`          | `AgentMessage` rows ↔ the AI SDK's messages, both ways                                           |
-| `agentRunSpans.ts`          | Grafana Agent Observability attributes and spans (`otel.ts` loads it)                            |
-| `agentModels.ts`            | Model id to provider model; tests swap in a mock model here                                      |
-| `tools/tool.ts`             | `AgentTool`, `defineTool` and `ToolContext`                                                      |
-| `tools/webSearch.ts`        | Brave web search: ranked result URLs with titles and snippets                                    |
-| `tools/fetchPage.ts`        | A web page as markdown, 10,000 characters a call (`offset` reads on), and its own published date |
-| `tools/checkLink.ts`        | HEAD status and final URL                                                                        |
-| `tools/agentWeb.service.ts` | Plain HTTP behind the private-address guard, on every redirect hop                               |
-| `tools/judgeReplay.ts`      | Serves the judge's recorded pages to a judge run                                                 |
+| Path                        | What                                                                                                             |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `agents.registry.ts`        | `AGENTS`: every agent by name. The name is the run's `agentName`                                                 |
+| `defineAgent.ts`            | `AgentDefinition` and `defineAgent`                                                                              |
+| `agents.service.ts`         | `AgentsService.run(name, input)` and the `agentRun` worker                                                       |
+| `aiSdkLoop.ts`              | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget                                           |
+| `manifest.ts`               | The run's manifest (input and output schema) and its `shapeHash`                                                 |
+| `agentMessages.ts`          | `AgentMessage` rows ↔ the AI SDK's messages, both ways                                                           |
+| `agentRunSpans.ts`          | Grafana Agent Observability attributes and spans (`otel.ts` loads it)                                            |
+| `agentModels.ts`            | Model id to provider model; tests swap in a mock model here                                                      |
+| `tools/tool.ts`             | `AgentTool`, `defineTool` and `ToolContext`                                                                      |
+| `tools/webSearch.ts`        | Brave web search: ranked result URLs with titles and snippets                                                    |
+| `tools/fetchPage.ts`        | A web page as markdown, 10,000 characters a call (`offset` reads on), and its own published date                 |
+| `tools/checkLink.ts`        | HEAD status and final URL                                                                                        |
+| `tools/agentWeb.service.ts` | Plain HTTP behind the private-address guard, on every redirect hop                                               |
+| `tools/judgeReplay.ts`      | Serves the judge's recorded pages to a judge run                                                                 |
 | `tools/queryDatabricks.ts`  | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
 
 Agents live with their product: `trending_issues` is
@@ -119,20 +119,27 @@ and have the resolver read it back from the stored `AgentRun.input` by
   `COUNT(DISTINCT …)` and an aggregate wrapped in arithmetic are all refused. The
   broker never enforced any of this, so a query here could otherwise have
   selected `LALVOTERID` and its `hs_*` scores 50,000 rows deep.
-- **`dimensions` is the groupable-column allowlist.** A GROUP BY may name only
-  these, and `assertAggregateSelectShape` accepts a bare column only when it is
-  in that same set, so a row identifier (`LALVOTERID`) can be neither selected nor
-  grouped. An agent lists the coarse dimensions it reasons about — `Active`
-  and the like — and nothing row-level. The scope's own jurisdiction columns
-  (the state, and the office's L2 district column) are groupable without being
-  declared, because their name comes from the run rather than the definition.
-- **A COUNT(*) and a cell-size floor.** Every SELECT that reads the table must
+- **`dimensions` is the slicing allowlist.** A GROUP BY may name only these, a
+  bare select item is accepted only when it is in that same set, and every column
+  a `WHERE` or `HAVING` names must be one of them too — so a row identifier
+  (`LALVOTERID`) can be neither selected, grouped nor filtered on. That last one
+  is the differencing control the floor cannot be: `AND LALVOTERID <> 'x'` leaves
+  both cells far above the floor and the difference between them is one
+  person's score. An aggregate's own argument (`AVG(hs_x)`) is unrestricted,
+  because that is what the aggregate is for and the floor holds its result. An
+  agent lists the coarse dimensions it reasons about — `Active` and the like —
+  and nothing row-level. The scope's own jurisdiction columns (the state, and the
+  office's L2 district column) are sliceable without being declared, because
+  their name comes from the run rather than the definition.
+- **A COUNT(\*) and a cell-size floor.** Every SELECT that reads the table must
   carry a bare, unfiltered `COUNT(*)`, and `scrubResults` drops each result row
   whose `COUNT(*)` is below `minCellSize` (default 100, the
   `CONSTITUENT_MIN_CELL_SIZE` the chat tools use) and nulls any other count-like
-  value below it. The floor also contains a predicate on an identifier: a query
-  that adds `LALVOTERID = '…'` returns a group of one, and a group of one is
-  dropped. `suppressed` reports how many rows the floor removed.
+  value below it. `suppressed` reports how many rows the floor removed.
+  `truncated` is true when either the raw page or the surviving rows exceed
+  `maxRows`, because the warehouse cuts the page at `maxRows + 1` and the floor
+  can eat that extra row; only the second count would report a partial result as
+  complete.
 - **Every SELECT, not just the outer one.** The shape check and the floor's
   `COUNT(*)` run on each SELECT the walk finds — the outer query, each UNION
   branch, each derived table — because a row read in a branch is exactly what the
@@ -162,7 +169,7 @@ and have the resolver read it back from the stored `AgentRun.input` by
 - **One relation per SELECT.** `assertScope` proves the filter over the WHERE,
   and a second relation would let a predicate qualified to it stand in as proof
   for the table (`JOIN (SELECT 'IL' AS Residence_Addresses_State) d … WHERE
-  d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
+d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   have nothing else in its `FROM`. A self-join hits the same rule.
 - **The run's jurisdiction is not the model's to choose.** `scope` resolves it
   from `ctx.organizationSlug` through `orgDatabricksScope` — the org's elected

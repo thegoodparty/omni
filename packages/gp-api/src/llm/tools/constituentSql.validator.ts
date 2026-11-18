@@ -528,7 +528,7 @@ export const ALLOWED_AGGREGATE_FUNCTIONS = new Set([
   'APPROX_COUNT_DISTINCT',
 ])
 
-const normalizeColumn = (name: string): string => name.toLowerCase()
+export const normalizeColumn = (name: string): string => name.toLowerCase()
 
 const collectColumnNode = (node: unknown): string | null => {
   if (!isRecord(node)) return null
@@ -545,7 +545,7 @@ const collectColumnNode = (node: unknown): string | null => {
 // Every column_ref referenced ANYWHERE in the statement (select list, where,
 // group by, having, order by). Used for both the dimension allowlist and the
 // forbidden-column check, so a party column can't hide in any clause.
-const collectAllColumns = (node: unknown, acc: Set<string>): void => {
+export const collectAllColumns = (node: unknown, acc: Set<string>): void => {
   if (node === null || node === undefined) return
   if (Array.isArray(node)) {
     for (const item of node) collectAllColumns(item, acc)

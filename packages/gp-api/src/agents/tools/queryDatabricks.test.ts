@@ -398,7 +398,7 @@ describe('queryDatabricks', () => {
     await expect(
       runs(
         `SELECT COUNT(*) AS n FROM ${TABLE}
-         WHERE Residence_Addresses_State = 'IL' AND city = 'O''Fallon'`,
+         WHERE Residence_Addresses_State = 'IL' AND title = 'O''Fallon'`,
       ),
     ).resolves.toMatchObject({ ok: true })
   })
@@ -537,29 +537,52 @@ describe('queryDatabricks', () => {
       expect(query).not.toHaveBeenCalled()
     })
 
-    // A row identifier in the WHERE is a predicate, not a select item, so it is
-    // the cell-size floor that contains it: the one person it isolates is a
-    // group of one, and a group of one never reaches the model.
-    it('drops a row the WHERE isolates by its identifier', async () => {
+    // A filter is the other way to isolate one person. The floor cannot see
+    // it: `AND LALVOTERID <> 'x'` leaves both cells far above 100, and the
+    // difference between the two results IS that person's score.
+    it.each([
+      ['an identifier equality', `AND LALVOTERID = 'abc'`],
+      [
+        'an identifier inequality, which shifts a whole cell',
+        `AND LALVOTERID <> 'abc'`,
+      ],
+      ['a score range', 'AND hs_other > 63'],
+    ])('refuses %s in the WHERE', async (_label, predicate) => {
+      const result = await runs(
+        `SELECT COUNT(*) AS n, AVG(hs_violent_crime_worried) AS avg_score
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL' ${predicate}`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain('WHERE or HAVING')
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('refuses an off-allowlist column in HAVING', async () => {
+      const result = await runs(
+        `SELECT title, COUNT(*) AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL'
+         GROUP BY title HAVING hs_other > 60`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    // The aggregate's own argument is not a filter: it is what the aggregate is
+    // for, and the floor holds its result.
+    it('still accepts an aggregate over a score column', async () => {
       query.mockResolvedValue({
         columns: ['n', 'avg_score'],
-        rows: [['1', '63.0']],
+        rows: [['4820', '61.4']],
       })
 
       await expect(
         runs(
           `SELECT COUNT(*) AS n, AVG(hs_violent_crime_worried) AS avg_score
-           FROM ${TABLE}
-           WHERE Residence_Addresses_State = 'IL' AND LALVOTERID = 'abc'`,
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
         ),
-      ).resolves.toEqual({
-        ok: true,
-        columns: ['n', 'avg_score'],
-        rows: [],
-        rowCount: 0,
-        suppressed: 1,
-        truncated: false,
-      })
+      ).resolves.toMatchObject({ ok: true, rowCount: 1, suppressed: 0 })
     })
 
     it('refuses an aggregate query with no COUNT(*)', async () => {
@@ -682,13 +705,37 @@ describe('queryDatabricks', () => {
         ],
       })
 
+      // `truncated` counts the raw page too: three rows came back and the cap
+      // is two, so more matched even though the floor cut it to one. Reporting
+      // false here would read as a complete result.
       await expect(runs(counted)).resolves.toEqual({
         ok: true,
         columns: ['title', 'n'],
         rows: [['issue-b', '100']],
         rowCount: 1,
         suppressed: 2,
-        truncated: false,
+        truncated: true,
+      })
+    })
+
+    // The under-report the floor could cause on its own: a page cut by the
+    // warehouse to the cap plus one, where the floor eats exactly that one
+    // row, leaves exactly maxRows and would read as complete.
+    it('reports truncation when the floor eats the row past the cap', async () => {
+      query.mockResolvedValue({
+        columns: ['title', 'n'],
+        rows: [
+          ['issue-a', '900'],
+          ['issue-b', '800'],
+          ['issue-c', '3'],
+        ],
+      })
+
+      await expect(runs(counted)).resolves.toMatchObject({
+        ok: true,
+        rowCount: 2,
+        suppressed: 1,
+        truncated: true,
       })
     })
 
