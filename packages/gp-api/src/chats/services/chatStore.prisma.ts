@@ -18,7 +18,6 @@ import {
 // its own. Deliberately says nothing about the row that holds the id.
 export const USER_MESSAGE_ID_TAKEN = 'That message id is already in use.'
 
-
 const agentMessageSelect = {
   id: true,
   conversationId: true,
@@ -34,8 +33,8 @@ const agentMessageSelect = {
 // turn is one row, or a few when the model called tools.
 const AGENT_ROWS_PER_RECENT_MESSAGE = 10
 
-// Every ChatMessage write takes this lock first, so the AgentMessage rows of
-// one conversation are numbered in the order their ChatMessages were written.
+// Every message write takes this lock first, so one conversation's rows are
+// numbered in the order their turns were written.
 const lockConversation = async (
   tx: Prisma.TransactionClient,
   conversationId: string,
