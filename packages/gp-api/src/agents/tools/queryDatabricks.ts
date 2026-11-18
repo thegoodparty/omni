@@ -150,19 +150,54 @@ const requiredFilters = (scope: DatabricksScope): Array<[string, string]> => [
 const assertScope = (
   where: unknown,
   table: string,
+  alias: string,
   scope: DatabricksScope,
 ): void => {
   for (const [column, value] of requiredFilters(scope)) {
-    // mandatoryValuesForColumn: an AND unions, an OR intersects, so
-    // `= 'x' OR 1=1` proves nothing and is rejected. The same proof the
-    // constituent tool uses to hold its district filter in place. Only sound
-    // because this SELECT reads one relation, so a bare column can only be
-    // this table's (assertAllowedQuery refuses anything else).
-    if (mandatoryValuesForColumn(where, column).has(value)) continue
+    // Reused from the constituent tool: an AND unions, an OR intersects, so
+    // `= 'x' OR 1=1` proves nothing and is rejected.
+    const proven = mandatoryValuesForColumn(where, column).has(value)
+    if (proven && !qualifiedElsewhere(where, column, alias)) continue
     throw new SqlRejected(
-      `every SELECT that reads ${table} must guarantee ${column} = '${value}' in its own WHERE, with no OR that could step around it`,
+      `every SELECT that reads ${table} must guarantee ${column} = '${value}' on ${table} itself in its own WHERE, with no OR that could step around it`,
     )
   }
+}
+
+// mandatoryValuesForColumn drops a column's qualifier, so a predicate on any
+// other relation reads as proof for this one. Wherever the column appears in
+// this WHERE, it has to be unqualified (unambiguous: the SELECT reads one
+// relation, which assertAllowedQuery enforces) or qualified to this table's
+// own alias.
+const qualifiedElsewhere = (
+  node: unknown,
+  column: string,
+  alias: string,
+): boolean => {
+  if (Array.isArray(node)) {
+    return node.some((item) => qualifiedElsewhere(item, column, alias))
+  }
+  if (!isRecord(node)) return false
+  if (node.type === 'column_ref') {
+    const target = node.column
+    const name =
+      typeof target === 'string'
+        ? target
+        : isRecord(target) &&
+            isRecord(target.expr) &&
+            typeof target.expr.value === 'string'
+          ? target.expr.value
+          : null
+    if (name?.toLowerCase() === column.toLowerCase()) {
+      const qualifier = node.table
+      if (typeof qualifier === 'string' && qualifier !== '') {
+        return qualifier.toLowerCase() !== alias.toLowerCase()
+      }
+    }
+  }
+  return Object.entries(node).some(
+    ([key, value]) => key !== 'loc' && qualifiedElsewhere(value, column, alias),
+  )
 }
 
 // Read-only, allowlisted and scoped, proven on the parsed statement. Nothing
@@ -198,6 +233,7 @@ const assertAllowedQuery = (
     }
     const from = Array.isArray(select.from) ? select.from : []
     let read: string | null = null
+    let alias: string | null = null
     for (const entry of from) {
       if (!isRecord(entry)) continue
       if (typeof entry.table !== 'string') {
@@ -221,18 +257,23 @@ const assertAllowedQuery = (
         )
       }
       read = ref
+      // The name a predicate may be qualified by: the alias when it has one,
+      // else the table's own last part.
+      alias =
+        typeof entry.as === 'string' && entry.as !== ''
+          ? entry.as
+          : (ref.split('.').pop() ?? ref)
     }
-    if (read === null) continue
+    if (read === null || alias === null) continue
     // The filter proof is over the WHERE, and a second relation in FROM would
-    // let a predicate qualified to it stand in as proof for this table (a
-    // derived table carrying the column is enough). One relation means a bare
-    // column can only be this table's.
+    // let a predicate qualified to it stand in as proof for this table, which
+    // the qualifier check alone cannot catch once the relation is anonymous.
     if (from.length > 1) {
       throw new SqlRejected(
         `read ${read} on its own: a query that joins it to another relation cannot prove the jurisdiction filter is on ${read}`,
       )
     }
-    assertScope(select.where, read, scope)
+    assertScope(select.where, read, alias, scope)
   }
 }
 

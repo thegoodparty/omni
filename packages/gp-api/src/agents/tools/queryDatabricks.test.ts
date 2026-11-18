@@ -248,15 +248,29 @@ describe('queryDatabricks', () => {
     ).resolves.toMatchObject({ ok: true })
   })
 
-  it('refuses a self-join that would satisfy the filter for one alias only', async () => {
+  // The qualifier has to be this table's own alias. A correlated subquery can
+  // name the outer relation's column and look like proof while its own read of
+  // the table is unfiltered.
+  it('refuses a filter qualified to an alias that is not the table own', async () => {
     const result = await runs(
-      `SELECT a.title FROM ${TABLE} a
-       JOIN ${TABLE} b ON a.title = b.title
-       WHERE a.Residence_Addresses_State = 'IL'`,
+      `SELECT COUNT(*) AS n FROM ${TABLE}
+       WHERE Residence_Addresses_State = 'IL'
+         AND d.Residence_Addresses_State = 'IL'`,
     )
 
     expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+    expect(String(result.detail)).toContain('on goodparty_data_catalog.dbt')
     expect(query).not.toHaveBeenCalled()
+  })
+
+  it('accepts a filter qualified to the table own alias', async () => {
+    query.mockResolvedValue({ columns: ['n'], rows: [['1']] })
+
+    await expect(
+      runs(
+        `SELECT COUNT(*) AS n FROM ${TABLE} t WHERE t.Residence_Addresses_State = 'IL'`,
+      ),
+    ).resolves.toMatchObject({ ok: true })
   })
 
   it('refuses a CTE whose body reads the allowed table unscoped', async () => {
