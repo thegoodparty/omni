@@ -104,9 +104,12 @@ tools: {
   UNION branch, each subquery), and a write node anywhere — `INSERT`, `UPDATE`,
   `DELETE`, `MERGE`, DDL, or `SELECT INTO` — is rejected. Two statements after a
   semicolon, a table function in `FROM`, and a query the parser cannot read are
-  all refused, never passed through. A comment is refused outright: it is the
-  one construct whose extent is decided purely by parsing, and the parser here
-  is not the one that runs the statement. A statement with a CTE is refused too: a
+  all refused, never passed through. A comment or a backslash is refused
+  outright: both are decided purely by the parser's lexical rules, the parser
+  here is not the one that runs the statement, and a statement that proves a
+  filter here but lexes differently in Spark could have that filter removed. A
+  doubled quote (`'O''Fallon'`) is fine — both grammars implement it the same
+  way. A statement with a CTE is refused too: a
   CTE name can mean the CTE in one place and a real table in another (a
   non-recursive CTE cannot see itself, and a reference outside its WITH is the
   real table), and there is no Spark binder here to resolve that. Use a derived

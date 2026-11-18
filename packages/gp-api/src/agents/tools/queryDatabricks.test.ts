@@ -329,21 +329,13 @@ describe('queryDatabricks', () => {
   // rather than prove a filter on a statement Spark would run differently.
   describe('parser differences fail closed', () => {
     it.each([
-      // A backslash before the quote: this grammar reads one literal that is
-      // not the state, and whether Spark closes the string there and runs the
-      // rest as SQL, either way nothing is proven and the query is refused.
+      // A real backslash, with a proven 'IL' filter right beside it. This
+      // grammar reads the whole `a\' OR 1=1 OR \'b'` as one literal, so the
+      // filter proves; Spark's own escaping may close the string there and run
+      // the rest as SQL. That is the divergence the refusal exists to prevent.
       [
-        'a backslash-escaped quote',
-        `SELECT COUNT(*) AS n FROM ${TABLE}
-         WHERE Residence_Addresses_State = 'x\' OR 1=1 OR 'a'='a'`,
-      ],
-      // A doubled quote reads as one literal here, while Spark's own escaping
-      // can split it into a string followed by more SQL. The filter is proven
-      // against a statement Spark might not be running the same way.
-      [
-        'a doubled quote',
-        `SELECT COUNT(*) AS n FROM ${TABLE}
-         WHERE Residence_Addresses_State = 'x'' OR 1=1 OR ''a''=''a'''`,
+        'a backslash in a literal beside a proven filter',
+        String.raw`SELECT COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL' AND title = 'a\' OR 1=1 OR \'b'`,
       ],
       // postgres reads a parenthesised join as one opaque FROM entry, which is
       // not a table it can allowlist, so it is refused rather than skipped.
@@ -363,6 +355,20 @@ describe('queryDatabricks', () => {
       expect(result).toMatchObject({ ok: false, reason: 'rejected' })
       expect(query).not.toHaveBeenCalled()
     })
+  })
+
+  // A doubled quote is the one escaping form both grammars implement the same
+  // way, so a literal using it is read identically by the validator and by
+  // Spark and is allowed through. (A backslash is not: see above.)
+  it('accepts a doubled-quote literal inside an otherwise proven query', async () => {
+    query.mockResolvedValue({ columns: ['n'], rows: [['1']] })
+
+    await expect(
+      runs(
+        `SELECT COUNT(*) AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL' AND city = 'O''Fallon'`,
+      ),
+    ).resolves.toMatchObject({ ok: true })
   })
 
   it('refuses a UNION branch that reads the table unscoped', async () => {

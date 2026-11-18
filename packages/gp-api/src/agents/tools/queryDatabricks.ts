@@ -215,16 +215,22 @@ const qualifiedElsewhere = (
   )
 }
 
-// A comment is the one construct whose extent is a pure parsing question, and
-// this tool checks a statement with a different parser than the one that runs
-// it. Each comment difference found so far (nested blocks, a `--` after a
-// closed block) happens to fail closed, but a generated query has no use for a
-// comment and enumerating every dialect difference is not a guarantee. Refusing
-// them removes the class.
-const assertNoComments = (sql: string): void => {
+// A comment or a backslash is the one kind of construct whose meaning is
+// decided purely by the parser's lexical rules, and the parser here is not the
+// one that runs the statement: Spark's escaping and its block-comment nesting
+// are both settings a grammar may or may not reproduce. A statement that proves
+// a filter here but lexes differently in Spark could have that filter removed,
+// so both are refused outright rather than reasoned about. A generated
+// aggregation over voter data needs neither.
+const assertPlainSql = (sql: string): void => {
   if (sql.includes('/*') || sql.includes('--')) {
     throw new SqlRejected(
       'write the query with no comments: neither /* */ nor --',
+    )
+  }
+  if (sql.includes('\\')) {
+    throw new SqlRejected(
+      'write the query with no backslash anywhere, in a string or out of one',
     )
   }
 }
@@ -239,7 +245,7 @@ const assertAllowedQuery = (
   tables: string[],
   scope: DatabricksScope,
 ): void => {
-  assertNoComments(sql)
+  assertPlainSql(sql)
   const parsed = parseSingleSelect(sql)
   if (!parsed) {
     throw new SqlRejected(
