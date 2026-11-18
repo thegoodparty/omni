@@ -862,6 +862,10 @@ export class ChatStreamService {
         ...(args.models && { models: args.models }),
         ...(args.maxSteps && { maxSteps: args.maxSteps }),
         ...(args.signal && { abortSignal: args.signal }),
+        agentTrace: {
+          conversationId: args.conversationId,
+          agentName: args.scope ?? 'chat',
+        },
         onStreamError: (err) => {
           streamError = err
         },
