@@ -287,6 +287,61 @@ describe('GET /v1/community-issues — trending refresh on the gp-api engine', (
   })
 })
 
+describe('GET /v1/community-issues — top_community refresh on the gp-api engine', () => {
+  beforeEach(() => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'top_community_issues')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('reports completed at the newest top_community row when the org has no AgentRun', async () => {
+    const issue = await seedIssue({ list: CommunityIssueList.top_community })
+    await seedIssue({ list: CommunityIssueList.trending })
+    await service.prisma.$executeRaw`
+      UPDATE community_issue
+      SET updated_at = ${subDays(new Date(), 1)}
+      WHERE id = ${issue.id}
+    `
+    const refreshed = await service.prisma.communityIssue.findFirstOrThrow({
+      where: { id: issue.id },
+    })
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh).toEqual({
+      status: 'completed',
+      lastCompletedAt: refreshed.updatedAt.toISOString(),
+    })
+  })
+
+  it('lets the top_community_issues AgentRun decide once the org has one', async () => {
+    await seedIssue({ list: CommunityIssueList.top_community })
+    await service.prisma.agentRun.create({
+      data: {
+        agentName: 'top_community_issues',
+        organizationSlug: eoOrgSlug,
+        status: AgentRunStatus.running,
+        manifest: {},
+        shapeHash: 'a-shape',
+        input: { organizationSlug: eoOrgSlug },
+      },
+    })
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.data.refresh).toEqual({
+      status: 'running',
+      lastCompletedAt: null,
+    })
+  })
+})
+
 describe('GET /v1/community-issues — archived priority', () => {
   it('returns prioritized:false when the matching Priority has archivedAt set', async () => {
     const issue = await seedIssue()

@@ -25,7 +25,8 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 | `tools/queryDatabricks.ts`  | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
 
 Agents live with their product: `trending_issues` is
-`src/communityIssues/trendingIssuesAgent/`.
+`src/communityIssues/trendingIssuesAgent/`, `top_community_issues` is
+`src/communityIssues/topCommunityIssuesAgent/`.
 
 ## Adding an agent
 
@@ -187,6 +188,17 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   that itself contains a single quote is refused: Spark reads `''` as two
   adjacent literals, not an escaped quote, so that value cannot be written in a
   query at all and a query naming it would match nothing.
+- **A scope can come from the run's stored input instead.**
+  `top_community_issues` passes `topCommunityIssuesDatabricksScope`, which
+  reads `AgentRun.input` by `ctx.runId` (never anything the model sends). The
+  dispatcher built that input from the same `resolveServeContext`, so in
+  production the two agree (a test holds them equal), and a judge run, whose
+  cases share one fixture org, is scoped to each case's own district. It fails
+  closed: no state or half an L2 pair is `no_scope`.
+- **The table must be one gp-api's principal can read**: `mart_gp_api`, the
+  schema with a grant that survives a dbt rebuild. A manifest's `dbt.*` table
+  gets a mart view first (`top_community_issues` reads
+  `mart_gp_api.gp_api_haystaq_issue_scores`).
 - **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
   reads a double-quoted identifier as a string), so the model writes the filter
   itself and the tool proves it rather than splicing SQL.
@@ -227,6 +239,8 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
 5. Add it to `IN_PROCESS_AGENTS` in the judge
    (`src/chats/evals/judge/runners/backgroundInProcess.ts`): its candidate
    arm then runs on gp-api against the PMF Engine's base arm.
+6. Delete its `qa/` manifest under `packages/runbooks/experiments/`. QA
+   checkers are not migrated.
 
 ## How a run works
 

@@ -111,7 +111,7 @@ export class CommunityIssueReadService extends createPrismaBase(
         orderBy: { rank: Prisma.SortOrder.asc },
       }),
       runsOnGpApi(experimentType)
-        ? this.agentRunRefresh(organizationSlug, experimentType)
+        ? this.agentRunRefresh(organizationSlug, experimentType, prismaList)
         : this.experimentRunRefresh(organizationSlug, experimentType),
     ])
 
@@ -180,6 +180,7 @@ export class CommunityIssueReadService extends createPrismaBase(
   private async agentRunRefresh(
     organizationSlug: string,
     agentName: string,
+    list: CommunityIssueList,
   ): Promise<Refresh> {
     const [latestRun, latestCompletedRun] = await Promise.all([
       this.client.agentRun.findFirst({
@@ -195,16 +196,16 @@ export class CommunityIssueReadService extends createPrismaBase(
         orderBy: { updatedAt: Prisma.SortOrder.desc },
       }),
     ])
-    // Cutover: trending_issues last ran on the PMF Engine, so an org with no
+    // Cutover: the list last ran on the PMF Engine, so an org with no
     // AgentRun yet carries only the rows that run's ingest wrote, and the newest
     // of them is when the user's list last refreshed. Reporting it as completed
     // keeps the banner from polling a run that will never arrive. Removed at
     // teardown.
-    if (latestRun === null && agentName === 'trending_issues') {
+    if (latestRun === null) {
       const newestRow = await this.model.findFirst({
         where: {
           organizationSlug,
-          list: CommunityIssueList.trending,
+          list,
           archivedAt: null,
         },
         orderBy: { updatedAt: Prisma.SortOrder.desc },

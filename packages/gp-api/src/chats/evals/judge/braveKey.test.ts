@@ -4,7 +4,7 @@ import {
 } from '@aws-sdk/client-secrets-manager'
 import { mockClient } from 'aws-sdk-client-mock'
 import { afterEach, describe, expect, it } from 'vitest'
-import { installBraveKey } from './braveKey'
+import { installBraveKey, installPeopleDbxKeys } from './braveKey'
 
 const secrets = mockClient(SecretsManagerClient)
 
@@ -78,5 +78,36 @@ describe('installBraveKey', () => {
 
     expect(installed).toBe(true)
     expect(JSON.stringify(installed)).not.toContain('brave-dev')
+  })
+})
+
+describe('installPeopleDbxKeys', () => {
+  const dbx = {
+    PEOPLE_DATABRICKS_WAREHOUSE_ID: 'wh-1',
+    PEOPLE_DATABRICKS_CLIENT_ID: 'client-1',
+    PEOPLE_DATABRICKS_CLIENT_SECRET: 'secret-1',
+  }
+
+  it('installs the voter-file identity from the dev app secret', async () => {
+    secrets.on(GetSecretValueCommand).resolves({ SecretString: blob(dbx) })
+    const env: NodeJS.ProcessEnv = {}
+
+    await expect(installPeopleDbxKeys(env)).resolves.toBe(true)
+
+    expect(env).toEqual(dbx)
+  })
+
+  it('installs none of it when one name is missing', async () => {
+    secrets.on(GetSecretValueCommand).resolves({
+      SecretString: blob({
+        PEOPLE_DATABRICKS_WAREHOUSE_ID: 'wh-1',
+        PEOPLE_DATABRICKS_CLIENT_ID: 'client-1',
+      }),
+    })
+    const env: NodeJS.ProcessEnv = {}
+
+    await expect(installPeopleDbxKeys(env)).resolves.toBe(false)
+
+    expect(env).toEqual({})
   })
 })

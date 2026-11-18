@@ -9,6 +9,11 @@ import { submittedOutput } from '@/agents/aiSdkLoop'
 import { agentManifest, manifestShapeHash } from '@/agents/manifest'
 import type { AgentRunReplay } from '@/agents/tools/judgeReplay'
 import {
+  topCommunityIssuesArtifact,
+  TopCommunityIssuesInputSchema,
+  TopCommunityIssuesOutputSchema,
+} from '@/communityIssues/topCommunityIssuesAgent/topCommunityIssues.schema'
+import {
   trendingIssuesArtifact,
   TrendingIssuesInputSchema,
   TrendingIssuesOutputSchema,
@@ -62,7 +67,31 @@ const TrendingIssuesParamsSchema = z.object({
   district_descriptor: z.string(),
 })
 
+const TopCommunityIssuesParamsSchema = TrendingIssuesParamsSchema.extend({
+  l2_district_type: z.string().optional(),
+  l2_district_name: z.string().optional(),
+})
+
 export const IN_PROCESS_AGENTS: Partial<Record<string, InProcessAgent>> = {
+  top_community_issues: {
+    input: (params, today) => {
+      const parsed = TopCommunityIssuesParamsSchema.parse(params)
+      return TopCommunityIssuesInputSchema.parse({
+        organizationSlug: parsed.organization_slug,
+        state: parsed.state,
+        office: parsed.office,
+        districtDescriptor: parsed.district_descriptor,
+        l2DistrictType: parsed.l2_district_type,
+        l2DistrictName: parsed.l2_district_name,
+        today,
+      })
+    },
+    artifact: (output, run) =>
+      topCommunityIssuesArtifact(
+        TopCommunityIssuesOutputSchema.parse(output),
+        run,
+      ),
+  },
   trending_issues: {
     input: (params, today) => {
       const parsed = TrendingIssuesParamsSchema.parse(params)

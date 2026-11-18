@@ -31,6 +31,14 @@ const EXPERIMENT_TYPES = ['top_community_issues', 'trending_issues'] as const
 
 type CommunityIssueExperimentType = (typeof EXPERIMENT_TYPES)[number]
 
+const LIST_FOR_EXPERIMENT_TYPE: Record<
+  CommunityIssueExperimentType,
+  CommunityIssueList
+> = {
+  top_community_issues: CommunityIssueList.top_community,
+  trending_issues: CommunityIssueList.trending,
+}
+
 // Per-cron-tick cap: limits how many dispatches can fire in a single run of
 // the daily cron (both trending and top share this constant).
 const DISPATCH_CAP_PER_TICK = 200
@@ -346,15 +354,15 @@ export class CommunityIssueDispatchService extends createPrismaBase(
             select: { updatedAt: true },
           }),
         ])
-        // Cutover: trending_issues last ran on the PMF Engine, so an org with
-        // no AgentRun yet carries only that engine's rows, and the ingest that
+        // Cutover: the type last ran on the PMF Engine, so an org with no
+        // AgentRun yet carries only that engine's rows, and the ingest that
         // wrote them is when the user's list last refreshed. Removed at teardown.
         const newestOrgRow =
-          anyRun === null && experimentType === 'trending_issues'
+          anyRun === null
             ? await this.client.communityIssue.findFirst({
                 where: {
                   organizationSlug: orgSlug,
-                  list: CommunityIssueList.trending,
+                  list: LIST_FOR_EXPERIMENT_TYPE[experimentType],
                   archivedAt: null,
                 },
                 orderBy: { updatedAt: Prisma.SortOrder.desc },
@@ -413,7 +421,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     ctx: ResolvedDispatchContext,
     priority?: 'HIGH',
   ): Promise<void> {
-    if (experimentType === 'trending_issues' && runsOnGpApi(experimentType)) {
+    if (runsOnGpApi(experimentType)) {
       // The PMF Engine's dispatchRun makes the same check.
       const organization = await this.client.organization.findUnique({
         where: { slug: organizationSlug },
@@ -432,13 +440,27 @@ export class CommunityIssueDispatchService extends createPrismaBase(
         )
         return
       }
-      await this.agents.run(experimentType, {
+      const input = {
         organizationSlug,
         state: ctx.state,
         office: ctx.positionName,
         districtDescriptor: ctx.districtDescriptor,
         today: new Date().toISOString().slice(0, 10),
-      })
+      }
+      // As in buildDispatchParams: only top_community_issues takes the L2
+      // pair, and only as a pair.
+      await this.agents.run(
+        experimentType,
+        experimentType === 'top_community_issues' &&
+          ctx.l2DistrictType &&
+          ctx.l2DistrictName
+          ? {
+              ...input,
+              l2DistrictType: ctx.l2DistrictType,
+              l2DistrictName: ctx.l2DistrictName,
+            }
+          : input,
+      )
       return
     }
     await this.experimentRuns.dispatchRun({

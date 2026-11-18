@@ -1,8 +1,12 @@
 import type { JudgeReplay } from '@goodparty_org/contracts'
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import type { AgentRunReplay } from '@/agents/tools/judgeReplay'
 import { AgentMessageRole, AgentRunStatus } from '@/generated/prisma'
+import { readFileSync } from 'node:fs'
+import { caseListPath } from '../cases'
 import {
+  IN_PROCESS_AGENTS,
   type InProcessMessage,
   type InProcessRunInput,
   type InProcessRunnerDeps,
@@ -244,5 +248,57 @@ describe('runInProcessBackgroundCase', () => {
     await expect(
       runInProcessBackgroundCase(deps, input({ env: {} })),
     ).rejects.toThrow('JUDGE_SPEND')
+  })
+})
+
+describe('top_community_issues in process', () => {
+  // Every case in the bench becomes the agent's input, with nothing the
+  // in-process arm refuses (staged files, seeded pages).
+  it('turns all eight bench cases into the agent input', () => {
+    const list = z
+      .object({
+        cases: z.array(
+          z.object({
+            caseId: z.string(),
+            params: z.record(z.string(), z.string()),
+            inputFiles: z.array(z.unknown()).optional(),
+            seedPages: z.array(z.unknown()).optional(),
+          }),
+        ),
+      })
+      .parse(
+        JSON.parse(
+          readFileSync(caseListPath('top_community_issues.json'), 'utf8'),
+        ),
+      )
+    const agent = IN_PROCESS_AGENTS.top_community_issues
+    expect(agent).toBeDefined()
+
+    const inputs = list.cases.map((one) => ({
+      caseId: one.caseId,
+      refused: (one.inputFiles ?? []).length + (one.seedPages ?? []).length,
+      input: agent?.input(
+        {
+          ...one.params,
+          organization_slug: (one.params.organization_slug ?? '').replace(
+            '{judgeOrgSlug}',
+            'judge-fixture',
+          ),
+        },
+        '2026-11-18',
+      ),
+    }))
+
+    expect(inputs).toHaveLength(8)
+    expect(inputs.filter((one) => one.refused > 0)).toEqual([])
+    expect(inputs[0]?.input).toEqual({
+      organizationSlug: 'judge-fixture',
+      state: 'NC',
+      office: 'City Council Member',
+      districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
+      l2DistrictType: 'City_Ward',
+      l2DistrictName: 'FAYETTEVILLE CITY WARD 2',
+      today: '2026-11-18',
+    })
   })
 })
