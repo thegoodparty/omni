@@ -114,8 +114,9 @@ and have the resolver read it back from the stored `AgentRun.input` by
   (`query_constituent_data`, `district_insights`) hold model-written voter SQL to
   `validateConstituentSql`; this tool runs the same shape checks per SELECT, from
   the same functions. Every select item is an allowlisted aggregate
-  (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `APPROX_COUNT_DISTINCT`), a literal, or a
-  GROUP BY column; `SELECT *`, `DISTINCT`, window functions, a scalar function,
+  (`COUNT`, `SUM`, `AVG`, `APPROX_COUNT_DISTINCT`), a literal, or a
+  GROUP BY column; `MIN` and `MAX` are refused here, because each returns one
+  row's own value (`MAX(LALVOTERID)` is a voter ID); `SELECT *`, `DISTINCT`, window functions, a scalar function,
   `COUNT(DISTINCT …)` and an aggregate wrapped in arithmetic are all refused. The
   broker never enforced any of this, so a query here could otherwise have
   selected `LALVOTERID` and its `hs_*` scores 50,000 rows deep.
@@ -141,10 +142,11 @@ and have the resolver read it back from the stored `AgentRun.input` by
   can eat that extra row; only the second count would report a partial result as
   complete.
 - **Every SELECT, not just the outer one.** The shape check and the floor's
-  `COUNT(*)` run on each SELECT the walk finds — the outer query, each UNION
-  branch, each derived table — because a row read in a branch is exactly what the
-  outer aggregate hides. A statement with a CTE is refused before that (see
-  below).
+  `COUNT(*)` run on each SELECT the walk finds — the outer query and each UNION
+  branch — because a row read in a branch is exactly what the outer aggregate
+  hides. A subquery in `FROM` is refused: the floor reads only the outermost
+  result, so an outer aggregate over a derived table could hand back an inner
+  cell of any size. A statement with a CTE is refused before that (see below).
 
 - **One read-only SELECT, parsed.** Not a regex: the statement goes through
   `parseSingleSelect`, every SELECT at any depth is walked (the outer one, each
@@ -158,8 +160,7 @@ and have the resolver read it back from the stored `AgentRun.input` by
   statement with a CTE is refused too: a
   CTE name can mean the CTE in one place and a real table in another (a
   non-recursive CTE cannot see itself, and a reference outside its WITH is the
-  real table), and there is no Spark binder here to resolve that. Use a derived
-  table in `FROM`, which has no name to resolve.
+  real table), and there is no Spark binder here to resolve that.
 - **The allowlist is the manifest's.** A table reference must resolve to exactly
   the allowed name — catalog, schema and all. A bare or partly-qualified name
   resolves against the statement client's pinned default

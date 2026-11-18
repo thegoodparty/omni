@@ -675,6 +675,34 @@ describe('queryDatabricks', () => {
       expect(query).not.toHaveBeenCalled()
     })
 
+    // The floor reads only the outer result, so an outer aggregate over
+    // cross-joined derived tables would report an inner cell of any size.
+    it('refuses an outer aggregate over derived tables', async () => {
+      const inner = `(SELECT Active, COUNT(*) AS n FROM ${TABLE}
+        WHERE Residence_Addresses_State = 'IL' GROUP BY Active)`
+      const result = await runs(
+        `SELECT MIN(a.n) AS m, COUNT(*) AS c
+         FROM ${inner} a, ${inner} b, ${inner} c, ${inner} d`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it.each(['MAX(LALVOTERID)', 'MIN(hs_violent_crime_worried)'])(
+      'refuses %s, which returns one row of its own',
+      async (item) => {
+        const result = await runs(
+          `SELECT ${item} AS v, COUNT(*) AS n FROM ${TABLE}
+           WHERE Residence_Addresses_State = 'IL'`,
+        )
+
+        expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+        expect(String(result.detail)).toContain('one row')
+        expect(query).not.toHaveBeenCalled()
+      },
+    )
+
     // The lean query an agent actually writes: bare aggregates and the COUNT(*)
     // the floor reads, with the office's own filters.
     it('accepts a batched AVG and coverage COUNT with COUNT(*)', async () => {

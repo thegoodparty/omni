@@ -559,7 +559,7 @@ export const collectAllColumns = (node: unknown, acc: Set<string>): void => {
   }
 }
 
-const aggregateFunctionName = (
+export const aggregateFunctionName = (
   expr: Record<string, unknown>,
 ): string | null => {
   if (expr.type === 'aggr_func' && typeof expr.name === 'string') {

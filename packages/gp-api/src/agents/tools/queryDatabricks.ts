@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  aggregateFunctionName,
   assertAggregateSelectShape,
   assertRowCountShape,
   collectAllColumns,
@@ -168,10 +169,9 @@ const selectsIn = (
 // non-recursive CTE cannot see itself, so `WITH s AS (SELECT * FROM s)` reads
 // the real `s`, and a reference outside its WITH is the real table too. This
 // has no Spark binder to ask which one a name is, so a statement with a CTE is
-// refused: a derived table in FROM does the same job and has no name to
-// resolve.
+// refused.
 const CTE_REFUSED =
-  'write the query without WITH/CTE: a CTE name can shadow a real table, so put the subquery in FROM instead'
+  'write the query without WITH/CTE: a CTE name can shadow a real table, so read the table directly'
 
 // The state always, and the district whenever the org has one — the same
 // predicates the broker injected, which the model now writes itself and the
@@ -264,6 +264,18 @@ const assertAggregateOnly = (
   const named = [...dimensions, ...requiredFilters(scope).map(([c]) => c)]
   assertAggregateSelectShape(select, { allowedGroupBy: new Set(named) })
 
+  // MIN and MAX return one row's own value, so MAX(LALVOTERID) is a voter ID
+  // and MIN(hs_x) is one person's score. AVG, SUM and COUNT blend the cell.
+  for (const column of Array.isArray(select.columns) ? select.columns : []) {
+    const expr = isRecord(column) ? column.expr : null
+    const name = isRecord(expr) ? aggregateFunctionName(expr) : null
+    if (name === 'MIN' || name === 'MAX') {
+      throw new SqlRejected(
+        `${name} returns one row's own value; use AVG, SUM or COUNT instead`,
+      )
+    }
+  }
+
   // The aggregate-only shape only constrains the select list and GROUP BY, and
   // a filter is the other way to isolate one person. `AND LALVOTERID <> 'x'`
   // on otherwise identical queries leaves both cells far above the floor, and
@@ -353,7 +365,9 @@ const assertAllowedQuery = (
         if (!(isRecord(entry.expr) && isRecord(entry.expr.ast))) {
           throw new SqlRejected(`read a table from the allowlist: ${allowlist}`)
         }
-        continue
+        // The floor reads only the outermost result, so an outer aggregate
+        // over a derived table can hand back an inner cell of any size.
+        throw new SqlRejected(`read ${allowlist} directly: no subquery in FROM`)
       }
       const ref = tableRef(entry)
       if (!isAllowedTable(ref, tables)) {
@@ -432,7 +446,7 @@ export const databricksTool = (options: DatabricksToolOptions) => {
       ? 'the table named in your input'
       : options.tables.join(', ')
   return defineTool({
-    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no DDL, no writes.`,
+    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no subquery in FROM, no DDL, no writes.`,
     input: queryInput,
     execute: async ({ sql }, ctx) => {
       const scope = await options.scope(ctx)
