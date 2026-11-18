@@ -40,11 +40,6 @@ export const spendCapUsd = (): number =>
 export const filtersInternalAccounts = (): boolean =>
   process.env.OTEL_SERVICE_ENVIRONMENT === 'prod'
 
-// Outside prod the publisher never opens a PR, so nothing proposed can merge,
-// and a merge share would only ever pull the nightly cap down to 1.
-export const proposalsCanMerge = (): boolean =>
-  process.env.OTEL_SERVICE_ENVIRONMENT === 'prod'
-
 const requiredEnv = (name: string): string => {
   const value = process.env[name]
   if (!value) {
