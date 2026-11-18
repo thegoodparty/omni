@@ -231,24 +231,40 @@ IMPORTERS = {}
 
 
 def importers(path):
-    """Files in gp-webapp and the styleguide that import the module at path (by its file name)."""
+    """Files in gp-webapp and the styleguide that use the module at path: imported by its file
+    name, through a folder index that re-exports it, or (a styleguide component) by an exported
+    name through the @styleguide entry point, which is how gp-webapp imports most of them."""
     if path not in IMPORTERS:
         root = repo_root()
+        target = root / path
         stem = re.escape(Path(path).stem)
-        pat = re.compile(rf"""from\s+['"][^'"]*/{stem}['"]""")
+        pats = [re.compile(rf"""from\s+['"][^'"]*/{stem}['"]""")]
+        index = next((target.parent / n for n in ('index.ts', 'index.tsx') if (target.parent / n).exists()), None)
+        if index and re.search(rf"""from\s+['"]\./{stem}['"]""", index.read_text(encoding='utf-8', errors='ignore')):
+            pats.append(re.compile(rf"""from\s+['"][^'"]*/{re.escape(target.parent.name)}['"]"""))
+        names = []
+        if path.startswith('packages/styleguide/') and target.exists():
+            src = target.read_text(encoding='utf-8', errors='ignore')
+            names = re.findall(r'export\s+(?:const|function)\s+([A-Z]\w*)', src)
+            for group in re.findall(r'export\s*\{([^}]*)\}', src):
+                names += [n.split(' as ')[-1].strip() for n in group.split(',') if n.strip()[:1].isupper()]
+        styleguide_import = re.compile(r"""import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]@styleguide[^'"]*['"]""")
         found = set()
         for base in ('packages/gp-webapp/app', 'packages/gp-webapp/components', 'packages/styleguide/src'):
             d = root / base
             if not d.is_dir():
                 continue
-            for f in d.rglob('*.tsx'):
-                if 'node_modules' in f.parts or f.as_posix().endswith(path):
+            for f in [*d.rglob('*.tsx'), *d.rglob('*.ts')]:
+                if 'node_modules' in f.parts or f == target or f == index:
                     continue
                 try:
-                    if pat.search(f.read_text(encoding='utf-8', errors='ignore')):
-                        found.add(f.relative_to(root).as_posix())
+                    text = f.read_text(encoding='utf-8', errors='ignore')
                 except OSError:
-                    pass
+                    continue
+                used = any(p.search(text) for p in pats) or (names and any(
+                    re.search(rf'\b{re.escape(n)}\b', g) for g in styleguide_import.findall(text) for n in names))
+                if used:
+                    found.add(f.relative_to(root).as_posix())
         IMPORTERS[path] = found
     return IMPORTERS[path]
 
