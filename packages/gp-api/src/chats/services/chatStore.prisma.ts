@@ -174,7 +174,12 @@ export class ChatStoreService extends createPrismaBase(
         drafts,
         await nextIndex(tx, args.conversationId),
       )
-      return (await this.readOne(tx, ids[ids.length - 1]!))!
+      // A turn whose last step was empty ends on its tool row; the reply is
+      // keyed by its last assistant row.
+      const replyIndex = drafts.findLastIndex(
+        (draft) => draft.role !== AgentMessageRole.tool,
+      )
+      return (await this.readOne(tx, ids[replyIndex]!))!
     })
   }
 

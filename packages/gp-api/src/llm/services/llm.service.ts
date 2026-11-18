@@ -738,9 +738,32 @@ export class LlmService {
     const responseMessages = Promise.resolve(result.response).then(
       (response) => response.messages,
     )
-    const stepUsages = Promise.resolve(result.steps).then((steps) =>
-      steps.map((step) => toStreamUsage(step.usage)),
-    )
+    // One usage per assistant message in response.messages. A step whose
+    // output was empty (a final step that streamed no text) adds no assistant
+    // message, so its usage is folded into the step before it, keeping the
+    // turn's totals.
+    const stepUsages = Promise.resolve(result.steps).then((steps) => {
+      const usages: LlmStreamUsage[] = []
+      let messageCount = 0
+      for (const step of steps) {
+        const added = step.response.messages.slice(messageCount)
+        messageCount = step.response.messages.length
+        const usage = toStreamUsage(step.usage)
+        const last = usages[usages.length - 1]
+        if (!last || added.some((m) => m.role === 'assistant')) {
+          usages.push(usage)
+          continue
+        }
+        last.inputTokens += usage.inputTokens
+        last.outputTokens += usage.outputTokens
+        last.totalTokens += usage.totalTokens
+        last.cacheReadTokens =
+          (last.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0)
+        last.cacheWriteTokens =
+          (last.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+      }
+      return usages
+    })
     // A stream that ends with no output rejects all three, and callers await
     // only some of them. Node exits on an unhandled rejection, which took dev
     // gp-api down mid-release (ENG-11524). The no-op handlers mark them

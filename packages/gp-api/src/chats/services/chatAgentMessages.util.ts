@@ -358,25 +358,24 @@ export const turnToAgentMessages = (args: {
   if (assistants.length === 0) return null
   if (assistants.length !== args.stepUsages.length) return null
 
-  const clientCallIds = assistants.map(
-    (m) =>
-      new Set(
-        toolCallParts(m)
-          .filter((part) => part['providerExecuted'] !== true)
-          .map((part) => String(part['toolCallId'])),
-      ),
+  // Provider-executed calls (Anthropic web search) count as a step's calls
+  // too: the step that made one ends only after it, even though its result
+  // can arrive at the start of the next step's message.
+  const callIds = assistants.map(
+    (m) => new Set(toolCallParts(m).map((part) => String(part['toolCallId']))),
   )
   const placed = assistants.map((): Prisma.JsonValue[] => [])
-  const pending = new Set(clientCallIds[0])
+  const placedResultIds = new Set<string>()
+  const pending = new Set(callIds[0])
   let step = 0
   for (const segment of segments) {
     while (
-      clientCallIds[step]!.size > 0 &&
+      callIds[step]!.size > 0 &&
       pending.size === 0 &&
       step + 1 < assistants.length
     ) {
       step += 1
-      for (const id of clientCallIds[step]!) pending.add(id)
+      for (const id of callIds[step]!) pending.add(id)
     }
     if (segment.kind !== ChatMessageSegmentKind.tool) {
       placed[step]!.push(segmentToPart(segment))
@@ -396,10 +395,21 @@ export const turnToAgentMessages = (args: {
           part['type'] === 'tool-result' &&
           part['toolCallId'] === segment.toolCallId,
       )
-      if (result) placed[step]!.push(toJson(result))
+      if (result) {
+        placed[step]!.push(toJson(result))
+        placedResultIds.add(String(segment.toolCallId))
+      }
     }
     pending.delete(String(segment.toolCallId))
   }
+  assistants.forEach((message, index) => {
+    const carried = contentParts(message).filter(
+      (part) =>
+        part['type'] === 'tool-result' &&
+        !placedResultIds.has(String(part['toolCallId'])),
+    )
+    placed[index]!.unshift(...carried.map(toJson))
+  })
   const streamedCallIds = new Set(
     segments
       .filter((s) => s.kind === ChatMessageSegmentKind.tool)
