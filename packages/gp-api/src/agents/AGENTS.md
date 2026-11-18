@@ -139,7 +139,10 @@ tools: {
 - **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
   reads a double-quoted identifier as a string), so the model writes the filter
   itself and the tool proves it rather than splicing SQL.
-- Results are cut at `maxRows` with `truncated: true`. Every refusal is a value
+- The row cap is applied at the warehouse: the statement carries
+  `row_limit: maxRows + 1`, so the extra row proves there was more without this
+  process holding every match first. The result is then cut at `maxRows` with
+  `truncated: true`. Every refusal is a value
   the model reads and corrects — `rejected` with the fix, `no_scope`,
   `query_failed` with the warehouse's message, `timeout` — so one bad query
   never ends a run. The only throw is the run's own `signal` aborting, which

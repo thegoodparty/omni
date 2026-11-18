@@ -359,9 +359,16 @@ export const databricksTool = (options: DatabricksToolOptions) => {
       const signal = AbortSignal.any([ctx.signal, timeout])
       let result: { columns: string[]; rows: Array<Array<string | null>> }
       try {
-        const query = ctx
-          .get(PeopleDbxStatementClient)
-          .query({ sql, params: [] }, { signal })
+        const query = ctx.get(PeopleDbxStatementClient).query(
+          { sql, params: [] },
+          {
+            signal,
+            // One more than the cap, so "there was more than maxRows" is
+            // observable while the warehouse does the cutting. Without it every
+            // row a broad query matched would be materialized here first.
+            rowLimit: options.maxRows + 1,
+          },
+        )
         // The arm that loses the race may still reject later, and an
         // unhandled rejection would take the task down.
         query.catch(() => undefined)

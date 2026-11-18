@@ -444,7 +444,7 @@ describe('queryDatabricks', () => {
   })
 
   it('truncates the result at the row cap and says so', async () => {
-    query.mockResolvedValue({ columns: ['title', 'n'], rows: rows(5) })
+    query.mockResolvedValue({ columns: ['title', 'n'], rows: rows(3) })
 
     const result = await runs(
       `SELECT title, COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
@@ -456,6 +456,19 @@ describe('queryDatabricks', () => {
       rowCount: 2,
       truncated: true,
     })
+    // The warehouse does the cutting: one row past the cap is what makes
+    // "there was more" observable without materializing the rest here.
+    expect(query.mock.calls[0]?.[1]).toMatchObject({ rowLimit: 3 })
+  })
+
+  it('reports an exactly-full result as not truncated', async () => {
+    query.mockResolvedValue({ columns: ['title', 'n'], rows: rows(2) })
+
+    const result = await runs(
+      `SELECT title, COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+    )
+
+    expect(result).toMatchObject({ ok: true, rowCount: 2, truncated: false })
   })
 
   it('gives up at its own statement ceiling and cancels the query', async () => {

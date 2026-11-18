@@ -207,6 +207,22 @@ describe('PeopleDbxStatementClient', () => {
       expect(callsMatching('/cancel')).toHaveLength(1)
     })
 
+    // An agent tool caps the rows at the warehouse rather than pulling every
+    // match into this process and cutting afterwards.
+    it('sends a row limit when one is given, and none when it is not', async () => {
+      await client.query(stmt('SELECT 1'), { rowLimit: 50001 })
+
+      expect(JSON.parse(String(callAt(0).init?.body))).toMatchObject({
+        row_limit: 50001,
+      })
+
+      fetchMock.mockClear()
+      await client.query(stmt('SELECT 1'))
+      expect(JSON.parse(String(callAt(0).init?.body))).not.toHaveProperty(
+        'row_limit',
+      )
+    })
+
     // A pg-boss worker has no HTTP request to hang a signal on, so the tool
     // hands one in directly and the statement still stops.
     it('cancels the statement and stops polling once a passed-in signal aborts', async () => {
