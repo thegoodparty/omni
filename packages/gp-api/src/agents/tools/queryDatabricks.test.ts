@@ -357,10 +357,39 @@ describe('queryDatabricks', () => {
     })
   })
 
-  // A doubled quote is the one escaping form both grammars implement the same
-  // way, so a literal using it is read identically by the validator and by
-  // Spark and is allowed through. (A backslash is not: see above.)
-  it('accepts a doubled-quote literal inside an otherwise proven query', async () => {
+  // Spark does not read `''` as an escaped quote the way this grammar does: it
+  // reads two adjacent literals. The filter still proves (both parsers end the
+  // literal in the same place), but the value Spark compares is different, so a
+  // scope value containing a quote can never be matched — and one written here
+  // would come back empty with no error. An org whose district name carries an
+  // apostrophe gets a clear refusal instead.
+  it('refuses when the scope value itself contains a quote', async () => {
+    const quoted = databricksTool({
+      tables: [TABLE],
+      maxRows: 10,
+      scope: async () => ({
+        state: 'IL',
+        district: { column: 'City_Ward', value: "O'Fallon Ward 1" },
+      }),
+    })
+
+    const result = await quoted.execute(
+      {
+        sql: `SELECT COUNT(*) AS n FROM ${TABLE}
+              WHERE Residence_Addresses_State = 'IL'
+                AND City_Ward = 'O''Fallon Ward 1'`,
+      },
+      ctx(),
+    )
+
+    expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+    expect(String((result as { detail: string }).detail)).toContain(
+      'contains a quote',
+    )
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('accepts a doubled-quote literal elsewhere in a proven query', async () => {
     query.mockResolvedValue({ columns: ['n'], rows: [['1']] })
 
     await expect(
@@ -526,6 +555,45 @@ describe('queryDatabricks', () => {
         ctx({ signal: stopping.signal }),
       ),
     ).rejects.toThrow('aborted')
+  })
+
+  // The run can stop before the query is even sent, which is the state a deploy
+  // leaves behind. An already-aborted signal never fires `abort` again, so
+  // without checking first the race would wait on a statement nobody wants.
+  it('stops without sending when the run stopped before the query started', async () => {
+    const stopping = new AbortController()
+    stopping.abort()
+
+    await expect(
+      tool.execute(
+        {
+          sql: `SELECT COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        },
+        ctx({ signal: stopping.signal }),
+      ),
+    ).rejects.toThrow('stopped before the query ran')
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  // The ceiling is only useful if a statement that never settles still stops,
+  // which is what this covers: the query promise is left pending forever.
+  it('stops at the ceiling even when the query promise never settles', async () => {
+    query.mockImplementation(() => new Promise(() => undefined))
+    const timed = databricksTool({
+      tables: [TABLE],
+      maxRows: 10,
+      scope: async () => SCOPE,
+      statementTimeoutMs: 20,
+    })
+
+    await expect(
+      timed.execute(
+        {
+          sql: `SELECT COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        },
+        ctx(),
+      ),
+    ).resolves.toMatchObject({ ok: false, reason: 'timeout' })
   })
 
   it('answers the same way twice', async () => {

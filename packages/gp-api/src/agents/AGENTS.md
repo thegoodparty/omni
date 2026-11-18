@@ -108,8 +108,7 @@ tools: {
   outright: both are decided purely by the parser's lexical rules, the parser
   here is not the one that runs the statement, and a statement that proves a
   filter here but lexes differently in Spark could have that filter removed. A
-  doubled quote (`'O''Fallon'`) is fine — both grammars implement it the same
-  way. A statement with a CTE is refused too: a
+  statement with a CTE is refused too: a
   CTE name can mean the CTE in one place and a real table in another (a
   non-recursive CTE cannot see itself, and a reference outside its WITH is the
   real table), and there is no Spark binder here to resolve that. Use a derived
@@ -135,7 +134,10 @@ tools: {
   qualified to that table's own alias — a predicate belonging to another
   relation is not proof. A query with no filter, another state's, one qualified
   elsewhere, or an OR that steps around it is rejected with the clause to add.
-  An org with no jurisdiction gets `no_scope` and no query runs.
+  An org with no jurisdiction gets `no_scope` and no query runs. A scope value
+  that itself contains a single quote is refused: Spark reads `''` as two
+  adjacent literals, not an escaped quote, so that value cannot be written in a
+  query at all and a query naming it would match nothing.
 - **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
   reads a double-quoted identifier as a string), so the model writes the filter
   itself and the tool proves it rather than splicing SQL.

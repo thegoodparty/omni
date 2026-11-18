@@ -169,6 +169,16 @@ const assertScope = (
   scope: DatabricksScope,
 ): void => {
   for (const [column, value] of requiredFilters(scope)) {
+    // A single-quoted literal is the only form this tool can prove and the only
+    // one it lets the model write (backslashes are refused), and Spark does not
+    // read `''` as an escaped quote: it reads two adjacent literals. So a scope
+    // value containing a quote cannot be written here at all, and would silently
+    // match nothing if it were. Fail rather than filter for the wrong value.
+    if (value.includes("'")) {
+      throw new SqlRejected(
+        `the office's ${column} value contains a quote, which a query cannot express: report what you can without this data`,
+      )
+    }
     // Reused from the constituent tool: an AND unions, an OR intersects, so
     // `= 'x' OR 1=1` proves nothing and is rejected.
     const proven = mandatoryValuesForColumn(where, column).has(value)
@@ -324,6 +334,14 @@ const brief = (error: unknown): string =>
 // the caller builds for this one call, never on the run's.
 const rejectedOnAbort = (signal: AbortSignal): Promise<never> =>
   new Promise((_resolve, reject) => {
+    // A signal that is already aborted never fires `abort` again, and the
+    // combined one is already aborted whenever the run or the timeout was
+    // before the query started. Without this the race would wait on a query
+    // that may never settle.
+    if (signal.aborted) {
+      reject(signal.reason)
+      return
+    }
     signal.addEventListener('abort', () => reject(signal.reason), {
       once: true,
     })
@@ -357,6 +375,10 @@ export const databricksTool = (options: DatabricksToolOptions) => {
 
       const timeout = AbortSignal.timeout(statementTimeoutMs)
       const signal = AbortSignal.any([ctx.signal, timeout])
+      if (ctx.signal.aborted) {
+        // The run stopped before the query started; nothing should be sent.
+        throw new Error('the run was stopped before the query ran')
+      }
       let result: { columns: string[]; rows: Array<Array<string | null>> }
       try {
         const query = ctx.get(PeopleDbxStatementClient).query(
