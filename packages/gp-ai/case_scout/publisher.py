@@ -477,10 +477,11 @@ def slack_channel_for_environment(environment: str) -> str:
 
 
 def databricks_table_for_environment(environment: str) -> str:
-    """Implementation Notes 2.3: "reading mart_case_scout.case_scout_messages
-    (the _dev view in dev)"."""
-    table = "case_scout_messages" if environment == "prod" else "case_scout_messages_dev"
-    return f"mart_case_scout.{table}"
+    """gp-api's chat_message table through the Databricks federation's foreign
+    catalog (packages/gp-api/deploy/databricks/federation/README.md), so a
+    reviewer can read a source chat by id without access to the database."""
+    catalog = "gp_api_pg" if environment == "prod" else "gp_api_pg_dev"
+    return f"{catalog}.public.chat_message"
 
 
 PR_FOOTER = (
