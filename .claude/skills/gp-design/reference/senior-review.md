@@ -40,7 +40,9 @@ Give the subagent this brief, with the paths filled in:
 > on a phone and on desktop? Are the hierarchy, copy and every state (empty,
 > loading, AI working, error, filled) right? Hover, focus and disable every
 > control the design adds or changes, and screenshot each: a static screenshot
-> never shows them. Is nothing invented? Are the open
+> never shows them. Is nothing invented, and is nothing drawn that the task
+> didn't ask for? Does it change a component other screens use without
+> asking under Decisions needed? Are the open
 > questions and the list of what changes honest, complete and ranked?
 >
 > Return two lists, each item tagged Do, Consider or Nit:

@@ -219,7 +219,12 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    mark it "product". Then list what each option changes from today for
    `#a-drops`. When a designer gave a direction, map each clause of it to the
    screen that delivers it; a clause not delivered as written goes in
-   `#<x>-drops` or "Decisions needed".
+   `#<x>-drops` or "Decisions needed". Draw only what the task asks: every
+   screen, section and state on the page answers a clause of the ticket or
+   the direction, or is a screen the flow passes through to get there.
+   Anything more you think the feature needs (another section, a step after
+   the flow, a settings change, a new notice) goes under "Decisions needed"
+   as a question, not onto the page.
 6. **Build the page.** Copy `assets/page-template.html` to
    `<work>/page/src.html` and fill in the three options' text, and copy
    `assets/flow-template.tsx` to `<work>/flow/option-a.tsx` (b, c) and draw
@@ -305,7 +310,11 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
 10. **Publish** with the `artifacts` skill (`.claude/skills/artifacts/SKILL.md`):
     `.claude/skills/artifacts/scripts/publish.sh <work>/page <feature>-options`, for
     example `import-contacts-options`.
-    Pass `--update` when you republish.
+    Pass `--update` when you republish. Publishing needs `npx vercel login`
+    with a goodparty.org account that can assign `*.artifacts.goodparty.org`
+    aliases. If `publish.sh` deploys but can't assign the alias, stop: don't
+    share the raw deployment URL, tell the person their Vercel account needs
+    that access, and hand back the local `index.html` meanwhile.
 11. **Post back.** Comment on the ticket (with no ticket, reply in chat; and reply
     in the Slack thread, if one asked) with the artifact link, the same link with `?build` for engineers,
     one line per option, the feedback we want, the new
@@ -381,6 +390,12 @@ system and never forks it.
   navigation pattern the product doesn't have (a "Back to X" link in a page body, a
   tab strip, a side sheet where the product uses a full-height drawer).
 
+- **Unrequested scope.** A design that adds sections, steps or screens the
+  task didn't ask for hides the answer to the ask and makes reviewers cut it
+  back. Ask about them under "Decisions needed" instead (step 5).
+- **Changing a shared component quietly.** A component other screens use (the
+  flow shell, a card, a sheet, a styleguide component) changes everywhere it
+  is used. "Mutations" in `reference/wireframe-build.md` says how to list it.
 - **Unearned elements.** Helper text, banners and summary numbers break "Earn
   every element" in `docs/product-design.md`. `check.py` flags them.
 - **Convergence.** Rounds of fixing pull options toward the same safe middle. Each
