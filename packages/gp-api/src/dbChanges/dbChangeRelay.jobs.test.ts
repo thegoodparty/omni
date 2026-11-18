@@ -30,6 +30,7 @@ const createCampaign = async (): Promise<number> => {
       slug,
       organizationSlug: slug,
       isActive: false,
+      data: { hubspotId: 'hubspot-company' },
     },
   })
   return campaign.id
@@ -286,5 +287,22 @@ describe('db change cleanup', () => {
     expect(
       await service.prisma.dbChange.count({ where: { relayedAt: null } }),
     ).toBe(1)
+  })
+  it('leaves a campaign with no HubSpot company to the request', async () => {
+    const track = vi
+      .spyOn(service.app.get(CrmCampaignsService), 'trackCampaign')
+      .mockResolvedValue(undefined)
+    const slug = `change-${randomUUID()}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: { userId: service.user.id, slug, organizationSlug: slug },
+    })
+
+    await relay().relayPass()
+    await service.jobs.settle()
+
+    expect(track).not.toHaveBeenCalled()
   })
 })

@@ -171,9 +171,9 @@ Add an entry to `CHANGES` in `changes.registry.ts`, wrapped in
 const importNeedsAttention = defineChangeHandler({
   model: 'ContactUpload',
   alertAfterWaitingMinutes: 30, // required, as on a job
-  onInsert: (row, context) => get(SomeService).handle(row.id),
-  onUpdate: (previous, next, context) => get(SomeService).handle(next.id),
-  onDelete: (row, context) => get(SomeService).handle(row.id),
+  onInsert: (row, { get }) => get(SomeService).handle(row.id),
+  onUpdate: (previous, next, { get }) => get(SomeService).handle(next.id),
+  onDelete: (row, { get }) => get(SomeService).handle(row.id),
 })
 ```
 
@@ -222,6 +222,10 @@ migrated triggers disagree, so nothing reaches a handler until both are in.
 - **A write inside a transaction is captured when the transaction
   commits**, and vanishes if it rolls back. The relay reads nothing a
   transaction has not committed.
+- **One row drains one job at a time.** Its changes share a group, so a
+  thousand writes to one row run one after another; on a preview, 19,000
+  changes to one campaign took about 4.5 minutes to handle. A backfill or
+  loop that rewrites one row many times should use `skipChangeEvents`.
 - **Backfills skip it.** In the transaction that does one, call
   `skipChangeEvents(tx)` (`src/dbChanges/skipChangeEvents.ts`); it is
   `SET LOCAL app.skip_change_events = 'on'`, so it ends with the

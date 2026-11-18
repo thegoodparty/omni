@@ -35,7 +35,8 @@ export type ChangeEntry<M extends ChangeModel = ChangeModel> = {
   attempts?: number
   concurrency?: number
   maxConcurrent?: number
-  // The row from the trigger's to_jsonb(): its columns, by database name.
+  // The row from the trigger's to_jsonb(), keyed by Prisma field name
+  // (changeRow maps each database column through the model's @map).
   onInsert?(row: ChangeRow<M>, context: ChangeContext): Promise<void>
   onUpdate?(
     previous: ChangeRow<M>,
@@ -49,11 +50,15 @@ export const defineChangeHandler = <M extends ChangeModel>(
   entry: ChangeEntry<M>,
 ): ChangeEntry<M> => entry
 
+// Only campaigns that already have a HubSpot company. Creating the company
+// stays with the in-request trackCampaign calls until they are removed: two
+// creates racing on a missing hubspotId each make a company.
 const syncCampaignToHubspot = async (
-  campaignId: number,
+  row: ChangeRow<'Campaign'>,
   get: WorkerContext['get'],
 ): Promise<void> => {
-  await get(CrmCampaignsService).trackCampaign(campaignId)
+  if (!row.data?.hubspotId) return
+  await get(CrmCampaignsService).trackCampaign(row.id)
 }
 
 // Every change handler gp-api runs, keyed by the pg-boss queue the relay
@@ -70,8 +75,8 @@ export const CHANGES = {
     // association, and HubSpot answers a burst over its limit with 429s.
     concurrency: 2,
     // Re-reading the campaign makes a retry the same as the next update.
-    onInsert: (row, { get }) => syncCampaignToHubspot(row.id, get),
-    onUpdate: (_previous, next, { get }) => syncCampaignToHubspot(next.id, get),
+    onInsert: (row, { get }) => syncCampaignToHubspot(row, get),
+    onUpdate: (_previous, next, { get }) => syncCampaignToHubspot(next, get),
   }),
 }
 
