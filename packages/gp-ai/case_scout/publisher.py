@@ -477,11 +477,11 @@ def slack_channel_for_environment(environment: str) -> str:
 
 
 def databricks_table_for_environment(environment: str) -> str:
-    """gp-api's chat_message table through the Databricks federation's foreign
+    """gp-api's agent_message table through the Databricks federation's foreign
     catalog (packages/gp-api/deploy/databricks/federation/README.md), so a
     reviewer can read a source chat by id without access to the database."""
     catalog = "gp_api_pg" if environment == "prod" else "gp_api_pg_dev"
-    return f"{catalog}.public.chat_message"
+    return f"{catalog}.public.agent_message"
 
 
 PR_FOOTER = (
@@ -595,7 +595,7 @@ def render_slack_note(
     table = databricks_table_for_environment(environment)
     if conversation_ids:
         id_list = ", ".join(f"'{c}'" for c in conversation_ids)
-        query = f"SELECT * FROM {table} WHERE conversation_id IN ({id_list}) ORDER BY created_at"
+        query = f"SELECT * FROM {table} WHERE conversation_id IN ({id_list}) ORDER BY conversation_id, `index`"
     else:
         query = f"-- no cases tonight; nothing to query from {table}"
 
