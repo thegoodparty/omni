@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
+  AgentMessageRole,
   ChatFeedbackKind,
   ChatMessageFeedback,
   ChatMessageRole,
@@ -11,6 +12,7 @@ import {
   type ChatMessageFeedback as ChatMessageFeedbackDTO,
 } from '@goodparty_org/contracts'
 import { ChatMessageFeedbackService } from '@/chats/services/chatMessageFeedback.prisma'
+import { cannedReplyId } from '@/chats/services/chatAgentMessages.util'
 import {
   ChatMessageWithSegments,
   ChatStoreService,
@@ -62,7 +64,7 @@ export interface SendMessageArgs {
   organizationSlug: string | null
   userMessage: string
   signal?: AbortSignal
-  clientMessageId?: string
+  userMessageId?: string
   attachmentIds?: string[]
   pagePath?: string
 }
@@ -275,11 +277,11 @@ export class GeneralChatsService {
 
       const canned = handler.maybeCannedReply?.(args.userMessage, ctx) ?? null
       if (canned !== null) {
-        if (!args.clientMessageId) {
+        if (!args.userMessageId) {
           yield {
             type: 'error',
             code: 'internal',
-            message: 'clientMessageId is required for this request.',
+            message: 'A message id is required for this request.',
             retryable: false,
           }
           return
@@ -287,14 +289,23 @@ export class GeneralChatsService {
         // Persist the user (sentinel) turn BEFORE the canned assistant reply
         // so history alternates user/assistant. Anthropic rejects two
         // consecutive assistant turns on the candidate's next real message.
-        // The user turn dedups on clientMessageId; the assistant reply carries
-        // a derived idempotency key so a retry with the same clientMessageId
-        // re-streams the same reply without appending a second assistant row.
+        // A retry finds the reply already stored under its derived id and
+        // replays it instead of appending a second one.
+        const reply = await self.chatStore.replayedReplyTo({
+          userMessageId: args.userMessageId,
+          conversationId: args.conversationId,
+          ownerUserId: args.userId,
+        })
+        if (reply) {
+          yield { type: 'text', delta: reply.content }
+          yield { type: 'done', assistantMessageId: reply.id }
+          return
+        }
         const userTurn = await self.chatStore.appendUserMessageIfAlive({
           conversationId: args.conversationId,
           ownerUserId: args.userId,
           content: args.userMessage,
-          clientMessageId: args.clientMessageId,
+          id: args.userMessageId,
         })
         if (!userTurn) {
           yield {
@@ -309,9 +320,15 @@ export class GeneralChatsService {
           conversationId: args.conversationId,
           role: ChatMessageRole.assistant,
           content: canned,
-          clientMessageId: `${args.clientMessageId}:assistant`,
-          inputTokens: 0,
-          outputTokens: 0,
+          agentMessages: [
+            {
+              id: cannedReplyId(args.userMessageId),
+              role: AgentMessageRole.assistant,
+              parts: [{ type: 'text', text: canned }],
+              inputTokens: 0,
+              outputTokens: 0,
+            },
+          ],
         })
         yield { type: 'text', delta: canned }
         yield { type: 'done', assistantMessageId: saved.id }
@@ -350,7 +367,7 @@ export class GeneralChatsService {
         scope: handler.scope,
         ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),
-        ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(args.userMessageId && { userMessageId: args.userMessageId }),
         ...(args.attachmentIds && { attachmentIds: args.attachmentIds }),
         ...(judgeSweepId !== null && { judgeSweepId }),
         ...(handler.onTurnUsage && {

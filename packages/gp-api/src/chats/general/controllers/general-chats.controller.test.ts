@@ -57,6 +57,11 @@ const QUERY = { scope: 'ordinance_flow' } as unknown as ChatHistoryQueryDto
 const BODY = { content: 'hi' } as unknown as SendChatMessageDto
 
 const ATTACHMENTS = {} as unknown as ChatAttachmentsService
+import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
+
+const STORE = {
+  userMessageIdIsAvailable: () => Promise.resolve(true),
+} as unknown as ChatStoreService
 
 const run = (
   controller: GeneralChatsController,
@@ -74,6 +79,7 @@ describe('GeneralChatsController.streamMessage', () => {
         buildIterable([{ type: 'text', delta: 'hello' }, { type: 'done' }]),
       ),
       ATTACHMENTS,
+      STORE,
       createMockLogger(),
     )
 
@@ -97,6 +103,7 @@ describe('GeneralChatsController.streamMessage', () => {
     const controller = new GeneralChatsController(
       buildService(throwing),
       ATTACHMENTS,
+      STORE,
       logger,
     )
 
@@ -127,6 +134,7 @@ describe('GeneralChatsController.streamMessage', () => {
         signalRef.signal = args.signal
       }),
       ATTACHMENTS,
+      STORE,
       createMockLogger(),
     )
     const { req, emitter } = buildReq()
@@ -162,6 +170,7 @@ describe('GeneralChatsController.streamMessage', () => {
         ]),
       ),
       ATTACHMENTS,
+      STORE,
       createMockLogger(),
     )
 

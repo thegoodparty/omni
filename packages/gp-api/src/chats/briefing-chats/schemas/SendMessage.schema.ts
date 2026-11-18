@@ -10,7 +10,16 @@ export const sendMessageSchema = z.object({
     .max(SEND_MESSAGE_MAX_LENGTH)
     .transform((v) => v.trim())
     .refine((v) => v.length > 0, { message: 'content must not be empty' }),
-  clientMessageId: z.guid().optional(),
+  // The user message's own id; a retry reuses it and the insert collides
+  // instead of running the turn again.
+  id: z.uuid().optional(),
+  // The old name for `id`, kept for tabs loaded before the rename.
+  clientMessageId: z.uuid().optional(),
 })
+
+export const userMessageIdOf = (body: {
+  id?: string
+  clientMessageId?: string
+}): string | undefined => body.id ?? body.clientMessageId
 
 export class SendMessageSchema extends createZodDto(sendMessageSchema) {}

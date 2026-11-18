@@ -48,14 +48,15 @@ Request body:
 ```json
 {
   "content": "What's the controversy on agenda item 2?",
-  "clientMessageId": "9c2d8e1f-..."
+  "id": "9c2d8e1f-3b4a-4c5d-8e9f-0a1b2c3d4e5f"
 }
 ```
 
-| Field             | Required | Notes                                                             |
-| ----------------- | -------- | ----------------------------------------------------------------- |
-| `content`         | yes      | Trimmed; max 10,000 chars; empty rejected with 400                |
-| `clientMessageId` | optional | UUID v4. **Strongly recommended** — see idempotency section below |
+| Field             | Required | Notes                                                                          |
+| ----------------- | -------- | ------------------------------------------------------------------------------ |
+| `content`         | yes      | Trimmed; max 10,000 chars; empty rejected with 400                             |
+| `id`              | optional | UUID. **Strongly recommended** — it is the stored turn's id. See below         |
+| `clientMessageId` | optional | The old name for `id`; still accepted for one release. Use `id` in new code.   |
 
 Response is **SSE** (`Content-Type: text/event-stream`). Each frame is `data: <JSON>\n\n`. The JSON shape is one of:
 
@@ -81,20 +82,22 @@ Always handle `done` and `error` as terminal — close the stream and stop readi
 
 Always show `message` to the user — it's already sanitized server-side (no stack traces, no internal model names, no provider URLs).
 
-## Idempotency — `clientMessageId`
+## Idempotency — `id`
 
 **Rule: one UUID per logical send. New send → new UUID. Network retry of the same send → reuse the same UUID.**
 
+The id you send becomes the stored user turn's primary key. That is the whole mechanism: a second delivery of the same send collides on the key, so the server replays the reply that turn produced instead of running the model again.
+
 ```ts
-const messageId = crypto.randomUUID()
+const id = crypto.randomUUID()
 
 async function send(content: string) {
   try {
-    return await postMessage({ content, clientMessageId: messageId })
+    return await postMessage({ content, id })
   } catch (err) {
     if (isRetryable(err)) {
-      // reuse the same messageId — backend dedupes via partial unique index
-      return await postMessage({ content, clientMessageId: messageId })
+      // reuse the same id — the server finds the stored turn
+      return await postMessage({ content, id })
     }
     throw err
   }
@@ -103,10 +106,12 @@ async function send(content: string) {
 
 What this prevents:
 
-- **Double-click on Send** — two POSTs with the same `clientMessageId` → only one user message persisted, only one LLM stream runs. (Best UX is still to disable the Send button while the request is in flight; idempotency is a backstop.)
-- **Network-retry mid-send** — client times out, retries → same id → backend returns the existing message instead of running the LLM twice.
+- **Double-click on Send** — two POSTs with the same `id` → one user turn, one LLM stream. (Best UX is still to disable the Send button while the request is in flight; idempotency is a backstop.)
+- **Network-retry mid-send** — client times out, retries → same id → the server replays the stored reply instead of running the LLM twice.
 
-If you omit `clientMessageId` you get the old non-idempotent behavior. Use it.
+An id that is already a *different* turn's (another conversation, another user, or an assistant row) is rejected with **409**, and the message says nothing about the row that holds it. Reusing an id for a different send is a client bug: mint a new UUID.
+
+If you omit `id` you get the old non-idempotent behavior. Use it.
 
 ## Abort / disconnect
 
@@ -184,7 +189,7 @@ const controller = new AbortController()
 const res = await fetch(`/api/v1/briefing-chats/${annotationId}/messages`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ content, clientMessageId: messageId }),
+  body: JSON.stringify({ content, id: messageId }),
   signal: controller.signal,
 })
 
@@ -231,7 +236,7 @@ while (true) {
 
 ## Quick checklist before shipping
 
-- [ ] Generate a fresh `clientMessageId` per send; reuse on retry
+- [ ] Generate a fresh `id` per send; reuse it on retry
 - [ ] Disable Send while a stream is in flight (don't rely on idempotency alone)
 - [ ] Handle all five error codes (different UX per `retryable`)
 - [ ] Wire `AbortController` to component unmount / navigation

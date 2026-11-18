@@ -1,6 +1,11 @@
 import { BadRequestException } from '@nestjs/common'
 import { User } from '../../../generated/prisma'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
+
+const STORE = {
+  userMessageIdIsAvailable: () => Promise.resolve(true),
+} as unknown as ChatStoreService
 import { EventEmitter } from 'events'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -99,6 +104,7 @@ const buildService = (
     loadConversation: vi.fn(),
     deleteConversation: vi.fn(),
     assertBriefingChatAccessible: vi.fn(() => Promise.resolve()),
+    conversationIdFor: vi.fn(() => Promise.resolve({ conversationId: 'c-1' })),
     ...overrides,
   }) as unknown as BriefingChatsService
 
@@ -128,7 +134,7 @@ describe('BriefingChatsController.streamMessage', () => {
     userId: number
     userMessage: string
     signal?: AbortSignal
-    clientMessageId?: string
+    userMessageId?: string
   }
 
   beforeEach(() => {
@@ -164,6 +170,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, raw } = buildReply()
@@ -196,6 +203,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state } = buildReply()
@@ -221,6 +229,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state } = buildReply()
@@ -247,6 +256,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state } = buildReply()
@@ -275,6 +285,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state } = buildReply()
@@ -297,6 +308,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state } = buildReply()
@@ -317,6 +329,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply } = buildReply()
@@ -336,25 +349,48 @@ describe('BriefingChatsController.streamMessage', () => {
     expect(lastCall.signal).toBeInstanceOf(AbortSignal)
   })
 
-  it('forwards clientMessageId when provided', async () => {
+  it('forwards the user message id when provided', async () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply } = buildReply()
     const { req } = buildReq()
-    const clientMessageId = '22222222-2222-4222-8222-222222222222'
+    const id = '22222222-2222-4222-8222-222222222222'
 
     await controller.streamMessage(
       buildUser(USER_ID),
       ANNOTATION_ID,
-      { content: 'hello', clientMessageId },
+      { content: 'hello', id },
       req,
       reply,
     )
 
-    expect(lastCall.clientMessageId).toBe(clientMessageId)
+    expect(lastCall.userMessageId).toBe(id)
+  })
+
+  it('accepts the old clientMessageId name as the same id', async () => {
+    const controller = new BriefingChatsController(
+      serviceSpy,
+      buildCreateService(),
+      STORE,
+      logger,
+    )
+    const { reply } = buildReply()
+    const { req } = buildReq()
+    const id = '22222222-2222-4222-8222-222222222222'
+
+    await controller.streamMessage(
+      buildUser(USER_ID),
+      ANNOTATION_ID,
+      { content: 'hello', clientMessageId: id },
+      req,
+      reply,
+    )
+
+    expect(lastCall.userMessageId).toBe(id)
   })
 
   it('aborts mid-stream and stops drain when request close is emitted', async () => {
@@ -381,6 +417,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state } = buildReply()
@@ -427,6 +464,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { req, emitter } = buildReq()
@@ -478,6 +516,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { req } = buildReq()
@@ -515,6 +554,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state } = buildReply()
@@ -557,6 +597,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state, raw } = buildReply()
@@ -613,6 +654,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply } = buildReply()
@@ -658,6 +700,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state } = buildReply()
@@ -698,6 +741,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, state, raw } = buildReply()
@@ -742,6 +786,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply, raw } = buildReply()
@@ -777,6 +822,7 @@ describe('BriefingChatsController.streamMessage', () => {
     const controller = new BriefingChatsController(
       serviceSpy,
       buildCreateService(),
+      STORE,
       logger,
     )
     const { reply } = buildReply()

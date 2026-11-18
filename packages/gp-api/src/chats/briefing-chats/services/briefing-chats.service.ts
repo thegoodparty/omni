@@ -28,7 +28,7 @@ export interface SendMessageArgs {
   userId: number
   userMessage: string
   signal?: AbortSignal
-  clientMessageId?: string
+  userMessageId?: string
 }
 
 export interface LoadConversationResult {
@@ -91,7 +91,7 @@ export class BriefingChatsService {
         models: self.handler.models,
         traceName: self.handler.traceName,
         ...(args.signal && { signal: args.signal }),
-        ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(args.userMessageId && { userMessageId: args.userMessageId }),
         ...(finalizing && {
           finalizeText: (text, turn) =>
             finalizing.finalizeAssistantText(text, turn, ctx),
@@ -102,6 +102,21 @@ export class BriefingChatsService {
     }
     return {
       [Symbol.asyncIterator]: () => run(this),
+    }
+  }
+
+  // The conversation an annotation's chat lives on, after the same ownership
+  // check every other route does.
+  async conversationIdFor(
+    annotationId: string,
+    userId: number,
+  ): Promise<{ conversationId: string }> {
+    const { annotation } = await this.briefingContext.loadContext(
+      annotationId,
+      userId,
+    )
+    return {
+      conversationId: requireConversationId(annotation.chatConversationId),
     }
   }
 

@@ -136,7 +136,7 @@ export const chatApi: ChatClient = {
     })
   },
 
-  async *streamMessage({ annotationId, content, clientMessageId, signal }) {
+  async *streamMessage({ annotationId, content, id, signal }) {
     let res: Response
     try {
       res = await fetch(
@@ -148,7 +148,7 @@ export const chatApi: ChatClient = {
             'Content-Type': 'application/json',
             Accept: 'text/event-stream',
           },
-          body: JSON.stringify({ content, clientMessageId }),
+          body: JSON.stringify({ content, id }),
           signal,
         },
       )

@@ -8,6 +8,7 @@ import { HttpStatus } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
+import { agentMessagesToChatMessages } from '@/chats/services/chatAgentMessages.util'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   ORDINANCE_FLOW_GUARDRAIL_DECLINE,
@@ -102,11 +103,12 @@ const runAdversarialStep = async (args: {
   const ordinance = await service.prisma.ordinance.findUniqueOrThrow({
     where: { id: seeded.ordinanceId },
   })
-  const messages = await service.prisma.chatMessage.findMany({
-    where: { conversationId },
-    include: { segments: true },
-    orderBy: { createdAt: 'asc' },
-  })
+  const messages = agentMessagesToChatMessages(
+    await service.prisma.agentMessage.findMany({
+      where: { conversationId },
+      orderBy: { index: 'asc' },
+    }),
+  )
   const segments = messages.flatMap((m) => m.segments)
   const toolNames = segments
     .filter((s) => s.toolName !== null)

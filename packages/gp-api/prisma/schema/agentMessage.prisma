@@ -17,9 +17,8 @@ model AgentMessage {
   conversationId String?           @map("conversation_id")
   conversation   ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  /// The background run this message belongs to. Its foreign key arrives with
-  /// the agent_run table (AgentRun), in the core PR that adds it.
-  agentRunId String? @map("agent_run_id")
+  agentRunId String?   @map("agent_run_id")
+  agentRun   AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
 
   /// Position within the parent. Order never depends on timestamps.
   index Int
@@ -36,6 +35,8 @@ model AgentMessage {
   cacheWriteTokens Int?    @map("cache_write_tokens")
 
   createdAt DateTime @default(now()) @map("created_at")
+
+  messageFeedback ChatMessageFeedback[]
 
   @@unique([conversationId, index])
   @@unique([agentRunId, index])

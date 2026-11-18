@@ -230,7 +230,7 @@ export function createAgentChatClient(
     async *streamMessage({
       conversationId,
       content,
-      clientMessageId,
+      id,
       attachmentIds,
       signal,
     }) {
@@ -248,7 +248,7 @@ export function createAgentChatClient(
             },
             body: JSON.stringify({
               content,
-              clientMessageId,
+              id,
               ...(attachmentIds?.length && { attachmentIds }),
               // Read at send time, not mount time: a dock stays open while the
               // user moves between pages. Only scopes that resolve it use it.

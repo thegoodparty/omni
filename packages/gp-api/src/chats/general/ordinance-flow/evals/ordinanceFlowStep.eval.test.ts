@@ -9,6 +9,7 @@ import { OrdinanceExistingLawSchema } from '@goodparty_org/contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
+import { agentMessagesToChatMessages } from '@/chats/services/chatAgentMessages.util'
 import { LlmService } from '../../../../llm/services/llm.service'
 import { OrdinanceFlowSearchService } from '../services/ordinanceFlowSearch.service'
 import {
@@ -197,11 +198,12 @@ const runStep = async (
   const ordinance = await service.prisma.ordinance.findUniqueOrThrow({
     where: { id: seeded.ordinanceId },
   })
-  const messages = await service.prisma.chatMessage.findMany({
-    where: { conversationId },
-    include: { segments: true },
-    orderBy: { createdAt: 'asc' },
-  })
+  const messages = agentMessagesToChatMessages(
+    await service.prisma.agentMessage.findMany({
+      where: { conversationId },
+      orderBy: { index: 'asc' },
+    }),
+  )
   const segments = messages.flatMap((m) => m.segments)
   const toolNames = segments
     .filter((s) => s.toolName !== null)

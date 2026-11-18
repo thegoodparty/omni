@@ -158,7 +158,7 @@ tap, for an official not yet sworn in to start after they take office. No purpos
 checkout or payment, and it never creates an Outreach row. The
 editable body is `initialScript` (the first name merge tag a chip at its
 start; `managedInviteDraft` writes it from the official's full name, office
-and place, and never names the civic panel). The JOIN line and the opt-out sit
+and place in two paragraphs, and never names the civic panel). The JOIN line and the opt-out sit
 locked under it as one block, the opt-out directly under the JOIN line
 (`composeManagedInvite`, `MANAGED_INVITE_LOCKED_LINES`), and Improve sends the
 whole invite and keeps only the body of the reply (`managedInviteBody`).

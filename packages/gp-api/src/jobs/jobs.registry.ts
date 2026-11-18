@@ -79,6 +79,8 @@ import { RunIdSchema } from '@/caseScout/schemas/caseScoutBucket.schema'
 import { CaseScoutDraftService } from '@/caseScout/services/caseScoutDraft.service'
 import { CaseScoutNightlyService } from '@/caseScout/services/caseScoutNightly.service'
 import { CaseScoutScoreService } from '@/caseScout/services/caseScoutScore.service'
+import { AgentsService } from '@/agents/agents.service'
+import { AgentRunReplaySchema } from '@/agents/tools/judgeReplay'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -314,6 +316,22 @@ export const JOBS = {
     alertAfterWaitingMinutes: 10,
     // Each step's LLM call has its own 4-minute budget.
     timeoutMinutes: 10,
+  }),
+  // One run of a gp-api agent (src/agents). Only AgentsService.run sends it.
+  // A retry continues from the run's last saved step; a deploy stops it
+  // after its current step and it resumes on a new task.
+  agentRun: defineJob({
+    schema: z.object({
+      runId: z.string().min(1),
+      judgeReplay: AgentRunReplaySchema.optional(),
+    }),
+    worker: (job, context) => context.get(AgentsService).execute(job, context),
+    alertAfterWaitingMinutes: 60,
+    timeoutMinutes: 120,
+    attempts: 5,
+    concurrency: 2,
+    // Every agent shares this queue and this one fleet-wide cap.
+    maxConcurrent: 10,
   }),
   // Agent-run dispatchers fanned out by their daily schedules, one office,
   // org, row or campaign each. The agent platform queues the runs themselves.
