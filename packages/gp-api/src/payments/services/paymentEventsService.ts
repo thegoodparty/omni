@@ -285,6 +285,7 @@ export class PaymentEventsService {
         { campaignId, userId: user.id, subscriptionId, status },
         '[WEBHOOK] Fulfilled Pro from customer.subscription.created',
       )
+      await this.dispatchOpponentCollectionOnProUpgrade(campaignId)
     }
   }
 

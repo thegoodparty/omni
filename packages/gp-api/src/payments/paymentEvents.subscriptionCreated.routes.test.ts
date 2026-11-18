@@ -1,4 +1,5 @@
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
+import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
 import { useTestService } from '@/test-service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { addDays, format } from 'date-fns'
@@ -137,6 +138,14 @@ const seedCampaign = async (details: Record<string, unknown> = {}) => {
 const readCampaign = (id: number) =>
   service.prisma.campaign.findUniqueOrThrow({ where: { id } })
 
+// The dispatch is one of the one-time Pro-upgrade side effects, gated on the
+// same `becamePro` transition as the flip. Only the arm that wins the race can
+// fire it, so the arm that loses must not be the only one that knows about it.
+const spyOnOpponentCollection = () =>
+  vi
+    .spyOn(service.app.get(RaceOpponentService), 'autoCollectOnProUpgrade')
+    .mockResolvedValue(undefined)
+
 beforeEach(() => {
   // `setIsPro` ends in a CRM sync and `checkout.session.completed` in two
   // candidate-facing notifications. Both are third-party calls incidental to
@@ -157,6 +166,7 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
   // sees — so they are asserted as one outcome.
   it('links the campaign and flips it Pro for an active subscription', async () => {
     const campaign = await seedCampaign()
+    const opponentCollection = spyOnOpponentCollection()
 
     const res = await deliverStripeEvent(
       subscriptionCreatedEvent({
@@ -176,6 +186,10 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
     expect(updated.details.subscriptionId).toBe('sub_pro_created')
     expect(updated.isPro).toBe(true)
     expect(updated.details.isProUpdatedAt).toBeDefined()
+    // Flipping Pro without this leaves the candidate Pro with no opponent
+    // research started, because the sibling completion event then computes
+    // `becamePro === false` and skips its own dispatch.
+    expect(opponentCollection).toHaveBeenCalledExactlyOnceWith(campaign.id)
   })
 
   it('flips Pro for a trialing subscription', async () => {
@@ -206,6 +220,7 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
     'canceled',
   ])('links a %s subscription without flipping Pro', async (status) => {
     const campaign = await seedCampaign()
+    const opponentCollection = spyOnOpponentCollection()
 
     const res = await deliverStripeEvent(
       subscriptionCreatedEvent({
@@ -221,6 +236,7 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
     const updated = await readCampaign(campaign.id)
     expect(updated.details.subscriptionId).toBe(`sub_pro_${status}`)
     expect(updated.isPro).toBe(false)
+    expect(opponentCollection).not.toHaveBeenCalled()
   })
 
   // Overwriting a different stored id is the duplicate-checkout shape
@@ -304,6 +320,7 @@ describe('POST /v1/payments/events — checkout.session.completed (regression)',
   // announce or stamp the upgrade again.
   it('is a no-op on a campaign the created event already fulfilled', async () => {
     const campaign = await seedCampaign()
+    const opponentCollection = spyOnOpponentCollection()
 
     await deliverStripeEvent(
       subscriptionCreatedEvent({
@@ -332,5 +349,47 @@ describe('POST /v1/payments/events — checkout.session.completed (regression)',
     expect(afterCompleted.details.isProUpdatedAt).toBe(
       afterCreated.details.isProUpdatedAt,
     )
+    expect(opponentCollection).toHaveBeenCalledExactlyOnceWith(campaign.id)
+  })
+
+  // The reverse order: Stripe delivers the two sibling events concurrently, so
+  // `completed` can be the arm that fulfils. The `created` event that follows
+  // finds the id already stored and the campaign already Pro, and must change
+  // nothing — no second flip, no second stamp, no second one-time dispatch.
+  it('is a no-op when the created event arrives after the completion', async () => {
+    const campaign = await seedCampaign()
+    const opponentCollection = spyOnOpponentCollection()
+
+    await deliverStripeEvent(
+      checkoutCompletedEvent({
+        subscriptionId: 'sub_completed_first',
+        customerId: 'cus_completed_first',
+        userId: service.user.id,
+      }),
+    )
+    const afterCompleted = await readCampaign(campaign.id)
+    expect(afterCompleted.isPro).toBe(true)
+
+    const res = await deliverStripeEvent(
+      subscriptionCreatedEvent({
+        subscriptionId: 'sub_completed_first',
+        customerId: 'cus_completed_first',
+        status: 'active',
+        metadata: {
+          userId: String(service.user.id),
+          campaignId: String(campaign.id),
+        },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+
+    const afterCreated = await readCampaign(campaign.id)
+    expect(afterCreated.details.subscriptionId).toBe('sub_completed_first')
+    expect(afterCreated.isPro).toBe(true)
+    expect(afterCreated.details.isProUpdatedAt).toBe(
+      afterCompleted.details.isProUpdatedAt,
+    )
+    expect(opponentCollection).toHaveBeenCalledExactlyOnceWith(campaign.id)
   })
 })
