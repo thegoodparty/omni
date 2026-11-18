@@ -215,6 +215,20 @@ const qualifiedElsewhere = (
   )
 }
 
+// A comment is the one construct whose extent is a pure parsing question, and
+// this tool checks a statement with a different parser than the one that runs
+// it. Each comment difference found so far (nested blocks, a `--` after a
+// closed block) happens to fail closed, but a generated query has no use for a
+// comment and enumerating every dialect difference is not a guarantee. Refusing
+// them removes the class.
+const assertNoComments = (sql: string): void => {
+  if (sql.includes('/*') || sql.includes('--')) {
+    throw new SqlRejected(
+      'write the query with no comments: neither /* */ nor --',
+    )
+  }
+}
+
 // Read-only, allowlisted and scoped, proven on the parsed statement. Nothing
 // here rewrites the SQL: gp-api has no Spark re-emitter it can trust (Spark
 // reads a double-quoted identifier as a string, so a re-emitted query would
@@ -225,6 +239,7 @@ const assertAllowedQuery = (
   tables: string[],
   scope: DatabricksScope,
 ): void => {
+  assertNoComments(sql)
   const parsed = parseSingleSelect(sql)
   if (!parsed) {
     throw new SqlRejected(

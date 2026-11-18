@@ -298,6 +298,31 @@ describe('queryDatabricks', () => {
     expect(query).not.toHaveBeenCalled()
   })
 
+  // Comments are refused outright rather than reasoned about: each comment
+  // dialect difference found so far fails closed, but a generated query never
+  // needs one, and a comment is the one construct whose extent is a pure
+  // parsing question between two different parsers.
+  it.each([
+    [
+      'a nested block comment hiding the filter',
+      `SELECT * FROM ${TABLE} WHERE /* /* */ Residence_Addresses_State = 'IL' -- */ 1=1`,
+    ],
+    [
+      'a plain block comment',
+      `SELECT * FROM ${TABLE} WHERE /* state */ Residence_Addresses_State = 'IL'`,
+    ],
+    [
+      'a line comment',
+      `SELECT * FROM ${TABLE} WHERE Residence_Addresses_State = 'IL' -- always`,
+    ],
+  ])('refuses %s', async (_label, sql) => {
+    const result = await runs(sql)
+
+    expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+    expect(String(result.detail)).toContain('no comments')
+    expect(query).not.toHaveBeenCalled()
+  })
+
   // node-sql-parser's postgres grammar and Spark do not agree on every literal
   // and FROM shape, and there is no way to prove they do. Each disagreement
   // here has to fail closed: where the two see different SQL, this must refuse
