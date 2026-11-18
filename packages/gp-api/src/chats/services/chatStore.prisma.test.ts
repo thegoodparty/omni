@@ -4,6 +4,7 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { ConflictException } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ChatMessageRole } from '../../generated/prisma'
+import { FeaturesService } from '@/features/services/features.service'
 import { ChatStoreService } from './chatStore.prisma'
 
 const service = useTestService()
@@ -28,7 +29,7 @@ describe('ChatStoreService', () => {
 
   beforeEach(() => {
     const prisma = service.app.get(PrismaService)
-    store = new ChatStoreService()
+    store = new ChatStoreService(service.app.get(FeaturesService))
     Object.defineProperty(store, '_prisma', {
       get: () => prisma,
       configurable: true,

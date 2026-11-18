@@ -1,0 +1,44 @@
+enum AgentRunStatus {
+  queued
+  running
+  completed
+  failed
+  superseded
+}
+
+/// The parent of one background agent run (src/agents). Chat's parent is
+/// ChatConversation, which stays chat only: no status, failure or artifact.
+/// Messages hang off this, one AgentMessage row each.
+model AgentRun {
+  id String @id @default(uuid(7))
+
+  agentName String @map("agent_name")
+
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+
+  status AgentRunStatus
+
+  /// The agent's input and output schemas, serialized, as they were when the
+  /// run started.
+  manifest  Json   @db.JsonB
+  /// Hash of manifest. A retry under a different one supersedes the run.
+  shapeHash String @map("shape_hash")
+
+  input Json @db.JsonB
+  /// The output the last accepted submitOutput call produced.
+  artifact Json? @db.JsonB
+
+  /// The last attempt's failure; null unless status is failed.
+  error String?
+
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  messages AgentMessage[]
+
+  @@index([organizationSlug, agentName, status])
+  @@map("agent_run")
+}

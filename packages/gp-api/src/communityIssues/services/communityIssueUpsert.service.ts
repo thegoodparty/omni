@@ -1,9 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import {
-  CommunityIssue,
-  CommunityIssueList,
-  ExperimentRun,
-} from '../../generated/prisma'
+import { CommunityIssue, CommunityIssueList } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CommunityIssuesArtifact,
@@ -26,7 +22,7 @@ export class CommunityIssueUpsertService extends createPrismaBase(
   MODELS.CommunityIssue,
 ) {
   async upsertFromArtifact(
-    run: ExperimentRun,
+    run: { runId: string },
     artifact: CommunityIssuesArtifact,
   ): Promise<CommunityIssueUpsertSummary | null> {
     const list =

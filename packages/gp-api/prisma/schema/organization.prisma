@@ -11,6 +11,7 @@ model Organization {
   electedOffice                     ElectedOffice?
   voterFileFilters                  VoterFileFilter[]
   experimentRuns                    ExperimentRun[]
+  agentRuns                         AgentRun[]
   artifactFeedbacks                 ArtifactFeedback[]
   communityIssues                   CommunityIssue[]
   ordinanceCodeRecord               OrdinanceCodeRecord?

@@ -551,6 +551,25 @@ describe('ChatStreamService', () => {
       expect(userIdx).toBeLessThan(llmIdx)
     })
 
+    it('groups the turn under its chat scope for Agent Observability', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(
+        service.stream(
+          baseStreamArgs({
+            userMessage: 'hello',
+            scope: ChatScope.chief_of_staff,
+          }),
+        ),
+      )
+
+      expect(firstOrThrow(llm.calls).options.agentTrace).toEqual({
+        conversationId: CONVERSATION_ID,
+        agentName: ChatScope.chief_of_staff,
+      })
+    })
+
     it('passes the persisted user message in history to llm', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([{ kind: 'text', delta: 'ok' }])

@@ -8,6 +8,7 @@ import {
   streamText as realStreamText,
   tool,
   type LanguageModel,
+  type LanguageModelUsage,
   type ModelMessage,
   type PrepareStepFunction,
   type Tool,
@@ -24,9 +25,11 @@ import {
   type LlmMessage,
   type LlmToolChoice,
 } from '../types/llmMessages.types'
+import { agentTraceTracer, type AgentTraceIdentity } from './agentTrace'
 import { toModelMessages } from './messageConversion'
 
 export { toModelMessages } from './messageConversion'
+export type { AgentTraceIdentity } from './agentTrace'
 
 export interface LlmChatCompletionOptions {
   messages: LlmMessage[]
@@ -266,6 +269,10 @@ export interface LlmStreamOptions {
     filename?: string
     providerMetadata?: Record<string, Record<string, unknown>>
   }) => void
+  // Groups this turn's spans into one Grafana Agent Observability
+  // conversation. Set by the chat turn; a call with none stays a plain Tempo
+  // trace.
+  agentTrace?: AgentTraceIdentity
 }
 
 export interface LlmStreamUsage {
@@ -282,6 +289,11 @@ export interface LlmStreamResult {
   finalText: Promise<string>
   toolCalls: Promise<ToolCall[]>
   usage: Promise<LlmStreamUsage>
+  // The turn's model messages (each step's assistant message and the tool
+  // results after it) and each step's usage, for the chat store. Absent on
+  // results built by hand in tests.
+  responseMessages?: Promise<ModelMessage[]>
+  stepUsages?: Promise<LlmStreamUsage[]>
   model: string
 }
 
@@ -328,12 +340,13 @@ export const defaultAnthropicProviderFactory: AnthropicProviderFactory = ({
 // Inputs and outputs are deliberately off. They default to ON, and prompts here
 // carry voter and campaign data while responses are unbounded — neither belongs
 // in a span attribute.
-const llmTelemetry = (functionId: string) =>
+const llmTelemetry = (functionId: string, agentTrace?: AgentTraceIdentity) =>
   ({
     isEnabled: true,
     functionId,
     recordInputs: false,
     recordOutputs: false,
+    ...(agentTrace && { tracer: agentTraceTracer(agentTrace) }),
   }) as const
 
 @Injectable()
@@ -562,6 +575,7 @@ export class LlmService {
       onToolInputStart,
       onStreamError,
       onSource,
+      agentTrace,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -617,7 +631,10 @@ export class LlmService {
             providerOptions: {
               anthropic: { cacheControl: { type: 'ephemeral' } },
             },
-            experimental_telemetry: llmTelemetry('llm.stream-chat-completion'),
+            experimental_telemetry: llmTelemetry(
+              'llm.stream-chat-completion',
+              agentTrace,
+            ),
             ...(toolSet && { tools: toolSet, prepareStep }),
             // streamText swallows errors by default (they surface only on the
             // stream) — log them so a mid-generation provider failure is not
@@ -710,22 +727,43 @@ export class LlmService {
     const toolCalls = Promise.resolve(result.toolCalls).then((calls) =>
       this.mapAiSdkToolCalls(calls),
     )
-    const usage = Promise.resolve(result.totalUsage).then((u) => ({
+    const toStreamUsage = (u: LanguageModelUsage): LlmStreamUsage => ({
       inputTokens: u.inputTokens ?? 0,
       outputTokens: u.outputTokens ?? 0,
       totalTokens: u.totalTokens ?? 0,
       cacheReadTokens: u.inputTokenDetails?.cacheReadTokens ?? 0,
       cacheWriteTokens: u.inputTokenDetails?.cacheWriteTokens ?? 0,
-    }))
+    })
+    const usage = Promise.resolve(result.totalUsage).then(toStreamUsage)
+    const responseMessages = Promise.resolve(result.response).then(
+      (response) => response.messages,
+    )
+    const stepUsages = Promise.resolve(result.steps).then((steps) =>
+      steps.map((step) => toStreamUsage(step.usage)),
+    )
     // A stream that ends with no output rejects all three, and callers await
     // only some of them. Node exits on an unhandled rejection, which took dev
     // gp-api down mid-release (ENG-11524). The no-op handlers mark them
     // handled; a caller that awaits one still gets the rejection.
-    for (const pending of [finalText, toolCalls, usage]) {
+    for (const pending of [
+      finalText,
+      toolCalls,
+      usage,
+      responseMessages,
+      stepUsages,
+    ]) {
       pending.catch(() => undefined)
     }
 
-    return { textStream: result.textStream, finalText, toolCalls, usage, model }
+    return {
+      textStream: result.textStream,
+      finalText,
+      toolCalls,
+      usage,
+      responseMessages,
+      stepUsages,
+      model,
+    }
   }
 
   // Builds the AI SDK tool set. Client tools wrap their `execute` (and fire the
