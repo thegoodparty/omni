@@ -853,6 +853,23 @@ export {
 export type { JudgeReplay } from './agentRuns/JudgeReplay.schema'
 
 export {
+  BackgroundAgentRunListItemSchema,
+  type BackgroundAgentRunListItem,
+  BackgroundAgentRunsListQuerySchema,
+  type BackgroundAgentRunsListQuery,
+  BackgroundAgentMessageSchema,
+  type BackgroundAgentMessage,
+  BackgroundAgentRunDetailSchema,
+  type BackgroundAgentRunDetail,
+  AGENT_RUN_STATUS_VALUES,
+  AgentRunStatusSchema,
+  type AgentRunStatus,
+  AGENT_MESSAGE_ROLE_VALUES,
+  AgentMessageRoleSchema,
+  type AgentMessageRole,
+} from './backgroundAgentRuns/BackgroundAgentRun.schema'
+
+export {
   BRIEFING_DATE_RANGE_VALUES,
   BriefingDateRangeFilterSchema,
   type BriefingDateRangeFilter,

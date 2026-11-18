@@ -155,3 +155,17 @@ return a `MockLanguageModelV3`, call `AgentsService.run`, then
 `service.jobs.settle()` and assert on the rows.
 `agents.service.shutdown.test.ts` stops a stand-in gp-api task mid-run to
 prove a deploy stops the run after its current step.
+
+## Reading a run from staff tooling
+
+`admin/background-agent-runs` (`src/admin/backgroundAgentRuns`, `M2MOnly`) is
+the read-only admin surface for these runs, and gp-admin's "Agent Run" page is
+its one consumer. `GET /v1/admin/background-agent-runs` lists runs newest
+first, filtered by `agentName`, `status`, `organizationSlug`, `createdAfter`
+and `createdBefore`, paginated with `limit`/`offset`; duration is derived from
+`startedAt`/`finishedAt` at read time. `GET /v1/admin/background-agent-runs/:runId`
+returns the run plus its `AgentMessage` rows in `index` order, each with its
+`parts` and, on assistant rows, the model and its four token counts. There is
+no retry: re-running an agent from here would bypass the dispatcher's gates.
+`admin/agent-runs` next door is the PMF Engine's `ExperimentRun` and does not
+read this table. The shapes are in contracts `backgroundAgentRuns/`.

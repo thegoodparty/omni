@@ -10,6 +10,7 @@ import {
   HiKey,
   HiStatusOnline,
   HiCheckCircle,
+  HiTerminal,
 } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -38,6 +39,12 @@ export const navItems: NavItem[] = [
     title: 'Agent Runs',
     href: '/dashboard/agent-runs',
     icon: HiLightningBolt,
+    permission: PERMISSIONS.READ_AGENT_RUNS,
+  },
+  {
+    title: 'Agent Run',
+    href: '/dashboard/background-agent-runs',
+    icon: HiTerminal,
     permission: PERMISSIONS.READ_AGENT_RUNS,
   },
   {

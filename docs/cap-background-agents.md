@@ -255,6 +255,9 @@ dormant and dispatches nothing.
 - `POST /v1/community-issues/dispatch` (`AdminOrM2MGuard`) → `dispatchForCohort`.
 - `admin/agent-runs` (`src/admin/agentRuns`, `M2MOnly`) — list, detail (incl. S3
   artifact + `conversation.log`), and retry (`compliance_setup` only).
+- `admin/background-agent-runs` (`src/admin/backgroundAgentRuns`, `M2MOnly`) —
+  read-only list and detail (run + its `AgentMessage` rows) for the agents that
+  run on gp-api's own engine (`src/agents/AGENTS.md`).
 - `admin/briefings` + the review-verdict controller
   (`src/artifactReview/controllers/briefingReviewVerdict.controller.ts`) — gp-admin's
   human-review surface that writes `ArtifactReview` rows.
