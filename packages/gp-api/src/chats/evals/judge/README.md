@@ -1840,7 +1840,7 @@ needs its cache rates in `pricing.ts` before a cached run can be priced.
 Interactive chats cache their prompts (`llm.service.ts`
 `streamChatCompletion`). An in-process chat run reads the split from the AI
 SDK's usage and records `input` as uncached input only. An HTTP chat run
-reads `chat_message.input_tokens`, which folds cache tokens into input, so
+reads `agent_message.input_tokens`, which folds cache tokens into input, so
 it records zero cache tokens and its cost is an upper bound.
 
 A background record's counts come from the `type: result` line of the run's

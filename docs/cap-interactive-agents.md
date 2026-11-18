@@ -21,7 +21,8 @@ path; a surface is just a controller plus the choices it makes when it calls
 - **Tools** — a surface may register `ai`-SDK tools for the model to call, or none.
 - **Streaming** — SSE token streaming with multi-step tool loops, or a single
   non-streaming completion.
-- **Persistence** — normalized `ChatConversation`/`ChatMessage` rows.
+- **Persistence** — one `ChatConversation` per thread, and its messages in
+  `AgentMessage`.
 
 The sections below describe the wrapper, then catalog the surfaces and where they sit
 on those axes.
@@ -362,15 +363,15 @@ string `boundarySavedMessage` sends — change one and change the other.
 ## Chat persistence (Prisma)
 
 - **Serve chats (briefing + COS)** — `ChatConversation` (`chatConversation.prisma`:
-  `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete),
-  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable
-  except the assistant turn's `model`/`inputTokens`/`outputTokens`, stamped by
-  `chatStream.service.ts` after a clean finish and before `done`, and summed
-  into the `usage` field of both conversation GETs), and
-  `ChatMessageSegment` (`ordinal` + `kind ∈ {text, tool}`, created only when a turn
-  used tools, for rendering tool "pills"). A briefing chat is an `Annotation(kind=chat)`
-  pointing at a `ChatConversation` — which is why briefing-chat endpoints key on
-  `:annotationId`. Stores: `chatStore.prisma.ts`, `generalChatStore.prisma.ts`.
+  `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete) and
+  its messages in `AgentMessage` (`index` for order, `parts` in the AI SDK's
+  format, and on assistant rows `model`/`inputTokens`/`outputTokens`, stamped by
+  `chatStream.service.ts` after a clean finish and before `done`, and summed into
+  the `usage` field of both conversation GETs). A user turn's id is the client's,
+  so a retried send collides instead of appending a second turn. A briefing chat
+  is an `Annotation(kind=chat)` pointing at a `ChatConversation` — which is why
+  briefing-chat endpoints key on `:annotationId`.
+  Stores: `chatStore.prisma.ts`, `generalChatStore.prisma.ts`.
 
 ## Prompt management
 

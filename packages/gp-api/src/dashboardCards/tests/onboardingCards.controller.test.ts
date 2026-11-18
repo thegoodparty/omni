@@ -33,7 +33,13 @@ const seedConversation = (organizationSlug: string, firstTurn: string) =>
       ownerUserId: service.user.id,
       organizationSlug,
       scope: ChatScope.chief_of_staff,
-      messages: { create: { role: 'user', content: firstTurn } },
+      agentMessages: {
+        create: {
+          index: 0,
+          role: 'user',
+          parts: [{ type: 'text', text: firstTurn }],
+        },
+      },
     },
   })
 

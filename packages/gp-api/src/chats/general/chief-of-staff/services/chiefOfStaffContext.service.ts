@@ -115,7 +115,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
         // otherwise match every null-slug conversation instead of none.
         organizationSlug: conversation.organizationSlug ?? '',
         deletedAt: null,
-        messages: { some: {} },
+        agentMessages: { some: {} },
       },
     })
 
