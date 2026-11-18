@@ -7,7 +7,6 @@ import { WaitHelper } from 'src/helpers/wait.helper'
 import {
   expectTurnSurvivesReload,
   sendChatTurn,
-  sendButtonInComposer,
 } from 'src/helpers/chatSmoke.helper'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 
@@ -88,7 +87,7 @@ test.describe('Briefing chat', () => {
     const sent = await sendChatTurn({
       conversation,
       composer,
-      sendButton: sendButtonInComposer(composer, 'Ask Assistant'),
+      sendButton: page.getByRole('button', { name: 'Ask Assistant' }),
       prompt,
     })
 
