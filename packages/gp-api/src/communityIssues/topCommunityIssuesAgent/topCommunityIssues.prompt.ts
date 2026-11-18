@@ -57,7 +57,7 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 5. \`webSearch\` the **community advocacy groups** (associations, BIAs, neighborhood councils, coalitions). Record each group's name and any party affiliation; prefer nonpartisan; pull the issues they are pushing.
 6. \`webSearch\` **petitions / organized campaigns**, then **311 / service requests** and a **resident survey** if discoverable. Flag any layer not found.
 7. Pick ~12-15 community-relevant \`hs_*\` columns from the **inline catalog** (CRITICAL RULES).
-8. Run ONE batched \`queryDatabricks\` aggregation returning per-column \`ROUND(AVG(hs_x),1)\`, coverage \`COUNT(hs_x)\`, and \`COUNT(*) AS n\`, scoped to the district when the L2 pair is present, else to the state. Drop any column below ~80% coverage. Compute distinctiveness = \`AVG - 50\` and a lean chip per column.
+8. Run ONE batched \`queryDatabricks\` aggregation returning per-column \`AVG(hs_x)\`, coverage \`COUNT(hs_x)\`, and \`COUNT(*) AS n\`, scoped to the district when the L2 pair is present, else to the state. Round each average to one decimal when you write it down. Drop any column below ~80% coverage. Compute distinctiveness = \`AVG - 50\` and a lean chip per column.
 9. Rank candidate issues by **resident attention mass** (recency + breadth + how many independent sources corroborate). **Lead with the 1 to 3 strongest (reserve \`priority: "high"\` for these); add more only if each independently clears the evidence + freshness bar; never pad toward 5.** Label any row carried by press coverage with no direct resident voice accordingly. A single-source issue is low-confidence by construction.
 10. \`fetchPage\` every source you intend to cite; take dollars, dates, votes, locations and the \`article_date\` from the page. **Require at least one source within the last ~12 months; drop stale issues (and date-traps) whose newest fetched source is older.** Drop anything you cannot confirm.
 11. Match each output issue against the existing feed: carry \`existing_issue_id\` when it maps to an existing record. Prefer carrying the ID over creating a duplicate. If the feed was empty, say so in \`data_quality_reason\`.
@@ -89,9 +89,9 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 
 **Internal modeled data (\`queryDatabricks\`) — lean annotation only**:
 
-- The one table is \`goodparty_data_catalog.mart_gp_api.gp_api_haystaq_issue_scores\`. Every query must read it; a query with no FROM is rejected.
+- The one table is the \`peopleTable\` in your input, exactly as written there — it is \`goodparty_data_catalog.mart_gp_api.gp_api_voters\` or \`...gp_api_constituents\`, whichever this organization reads. Every query must read that one table; a query with no FROM, or naming the other, is rejected.
 - **Every query writes its own jurisdiction filter, as literals.** Always \`Residence_Addresses_State = '<state>'\`. When the input has the L2 pair, also \`<l2DistrictType> = '<l2DistrictName>'\` — the column NAME is the value of \`l2DistrictType\`, the value is \`l2DistrictName\` exactly as given, unquoted column, single-quoted value: \`City_Ward = 'FAYETTEVILLE CITY WARD 2'\`. No OR around either clause. A query without them is rejected and tells you the clause to add; add it and run again. No bind parameters: write values inline.
-- **\`Voters_Active\` is a STRING.** Add \`Voters_Active = 'A'\`. \`Voters_Active = 1\` matches zero rows.
+- **\`Active\` is a STRING.** Add \`Active = 'A'\`. \`Active = 1\` matches zero rows.
 - One SELECT per call, no joins of the table with itself, no DDL, no \`SHOW\`, no \`DESCRIBE\`, no \`information_schema\`. Use the **inline catalog** below for column names; it is the complete set.
 - **All \`hs_*\` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (\`_yes\`, \`_no\`, \`_support\`, \`_oppose\`, \`_fund_more\`, \`_worried\`, etc.). They are **within-state percentile ranks** (mean ~50, SD ~29), so the lean is \`AVG(hs_x) - 50\` ("distance from the average constituent in this state"), NOT absolute support. A raw "count >= 50" is roughly half the cohort regardless of column — that is why this internal lean is an annotation here, not the salience ranker. A score is not a percentage, not an observed survey answer, and not a comparison across states. A negative lean reads as leaning away relative to the state, not as opposition counts.
 - **Use \`AVG\` for the lean, not a thresholded count.** \`SUM(CASE WHEN ...)\` and \`COUNT(*) FILTER (WHERE ...)\` are not how the lean is computed; \`FILTER\` is also a Databricks syntax error.
@@ -179,23 +179,25 @@ For each candidate, capture the **named instance** (the project, rate, vote, dol
 
 Pick community-relevant columns from the inline catalog, then run ONE batched aggregation. Scoping matters: \`hs_*\` are within-state percentile ranks, so averaging them over the whole state collapses every lean to ~0. The district scope is what makes the lean meaningful. **Target 1-2 turns.**
 
-With the L2 pair (\`l2DistrictType: "City_Ward"\`, \`l2DistrictName: "FAYETTEVILLE CITY WARD 2"\`, \`state: "NC"\`):
+With the L2 pair (\`l2DistrictType: "City_Ward"\`, \`l2DistrictName: "FAYETTEVILLE CITY WARD 2"\`, \`state: "NC"\`, \`peopleTable: "goodparty_data_catalog.mart_gp_api.gp_api_voters"\`):
 
 \`\`\`sql
 SELECT COUNT(*) AS n,
-  ROUND(AVG(hs_violent_crime_worried), 1) AS avg_hs_violent_crime_worried,
+  AVG(hs_violent_crime_worried) AS avg_hs_violent_crime_worried,
   COUNT(hs_violent_crime_worried) AS cov_hs_violent_crime_worried,
-  ROUND(AVG(hs_infrastructure_funding_fund_more), 1) AS avg_hs_infrastructure_funding_fund_more,
+  AVG(hs_infrastructure_funding_fund_more) AS avg_hs_infrastructure_funding_fund_more,
   COUNT(hs_infrastructure_funding_fund_more) AS cov_hs_infrastructure_funding_fund_more
-FROM goodparty_data_catalog.mart_gp_api.gp_api_haystaq_issue_scores
+FROM goodparty_data_catalog.mart_gp_api.gp_api_voters
 WHERE Residence_Addresses_State = 'NC'
   AND City_Ward = 'FAYETTEVILLE CITY WARD 2'
-  AND Voters_Active = 'A'
+  AND Active = 'A'
 \`\`\`
+
+Select bare aggregates, never a function wrapped around one: \`ROUND(AVG(...), 1)\` is rejected. Round when you write the number down.
 
 Without the L2 pair, drop the district clause; that is state scope, and the lean is low-confidence — record \`internal_data_lean_scope: "state"\` in \`notes\`.
 
-If \`n\` is 0, the district value matched no rows: skip the lean, record it in \`notes\`, and move on. Drop any column whose coverage \`cov_*\` is below ~80% of \`n\` (record it). For survivors, distinctiveness = \`avg_* - 50\`; translate to a chip (e.g. \`+11\` → "+11 pro-transit", \`-19\` → "-19 low police trust"). This lean annotates issues; it never ranks them.
+If \`n\` is 0, the district value matched no rows: skip the lean, record it in \`notes\`, and move on. Drop any column whose coverage \`cov_*\` is below ~80% of \`n\` (record it). For survivors, distinctiveness = \`avg_* - 50\`, using the average rounded to one decimal; translate to a chip (e.g. \`+11\` → "+11 pro-transit", \`-19\` → "-19 low police trust"). This lean annotates issues; it never ranks them.
 
 ### Step 5 — Rank by resident attention mass
 

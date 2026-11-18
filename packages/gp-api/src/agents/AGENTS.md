@@ -208,8 +208,8 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   closed: no state or half an L2 pair is `no_scope`.
 - **The table must be one gp-api's principal can read**: `mart_gp_api`, the
   schema with a grant that survives a dbt rebuild. A manifest's `dbt.*` table
-  gets a mart view first (`top_community_issues` reads
-  `mart_gp_api.gp_api_haystaq_issue_scores`).
+  gets a mart view first, and where the table varies by org the run carries the
+  name (`top_community_issues` reads the org's own people mart).
 - **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
   reads a double-quoted identifier as a string), so the model writes the filter
   itself and the tool proves it rather than splicing SQL.

@@ -5,8 +5,8 @@ ClickUp ticket 17tnw2b5rd0, "Consolidate In-Product Agent Architecture".
 Status: in progress. The core, `AgentMessage` and `trending_issues` are on
 main; `trending_issues` runs on gp-api's own agents in dev and prod, and
 preview still sends it to the PMF Engine. `top_community_issues` is built on
-gp-api's agents with its switch off everywhere: it reads the
-`mart_gp_api.gp_api_haystaq_issue_scores` view, which has to exist before it
+gp-api's agents with its switch off everywhere: its lean annotation needs the
+`hs_*` scores in the people marts, which a data-platform change adds before it
 can be judged. Every other agent still runs on the PMF Engine in every
 environment. Until an agent moves, it runs as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs

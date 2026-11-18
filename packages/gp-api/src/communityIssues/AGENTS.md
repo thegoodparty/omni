@@ -155,13 +155,17 @@ accepted.
   `fetchPage`, `checkLink`, `queryDatabricks`, `submitOutput`). Like
   trending's copy it requires a `fetchPage` for every cited source and takes
   `article_date` off the page, and it carries trending's office-exists gate.
-- `queryDatabricks` reads `goodparty_data_catalog.mart_gp_api.gp_api_haystaq_issue_scores`
-  (50,000 rows max), a mart view over the manifest's
-  `dbt.int__l2_nationwide_uniform_w_haystaq`: gp-api's Databricks principal
-  reads `mart_gp_api` only. The model writes the state and L2 district clauses
-  itself, and the tool proves them against `topCommunityIssuesDatabricksScope`:
-  the run's stored `AgentRun.input`, read by run id. The dispatcher builds
-  that input from `resolveServeContext`, so in production it equals
+- `queryDatabricks` reads the org's own people mart (50,000 rows max),
+  `mart_gp_api.gp_api_voters` or `gp_api_constituents`: gp-api's Databricks
+  principal reads `mart_gp_api` only, and which of the two a run may read is
+  `PeopleDatasetService`'s choice for its org, exactly as for every other people
+  read. The dispatcher resolves it and puts it in the run's input as
+  `peopleTable`; `topCommunityIssuesDatabricksTables` reads it back by run id
+  and the tool accepts no other table. The model writes the state and L2
+  district clauses itself, and the tool proves them against
+  `topCommunityIssuesDatabricksScope`: the run's stored `AgentRun.input`, read
+  by run id. The dispatcher builds that input from `resolveServeContext`, so in
+  production it equals
   `orgDatabricksScope`; a judge run, where every case shares the fixture org,
   is scoped to the case's own district. No state, or half an L2 pair, refuses
   every query. This is narrower than the PMF Engine's broker scope in practice
@@ -173,8 +177,8 @@ accepted.
   names is narrower than a city, and is the scope the instruction already
   asked the broker for in its own WHERE.
 - The input carries `l2DistrictType` and `l2DistrictName` only as a pair, as
-  `buildDispatchParams` does for the PMF Engine. Signup's `HIGH` priority is
-  not carried over.
+  `buildDispatchParams` does for the PMF Engine, plus the `peopleTable` its
+  queries read. Signup's `HIGH` priority is not carried over.
 - `onArtifact` is the same `ingestAgentArtifact` path: the upsert with
   archive-by-omission, carried `existing_issue_id`s (so a priority made from
   an issue stays on it), task cards on a refresh, and the Segment events below,

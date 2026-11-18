@@ -3,6 +3,8 @@ import { runsOnGpApi } from '@/agents/agents.registry'
 import { AgentsService } from '@/agents/agents.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
+import { peopleTable as peopleTableFor } from '@/peopleDb/databricks/databricksVoterSql.util'
 import { WrapperType } from '@/shared/types/utility.types'
 import { JobsService } from '@/jobs/jobs.service'
 import { isTestUser } from '@/users/util/users.util'
@@ -56,6 +58,9 @@ type ResolvedDispatchContext = {
   districtDescriptor: string
   l2DistrictType?: string
   l2DistrictName?: string
+  // The people mart the org reads, from PeopleDatasetService. Only
+  // top_community_issues takes it: it is the table its tool may query.
+  peopleTable?: string
   lastVisitedMs?: number
 }
 
@@ -99,6 +104,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     // dependency at DI time. forwardRef + WrapperType defers resolution.
     @Inject(forwardRef(() => AnalyticsService))
     private readonly analytics: WrapperType<AnalyticsService>,
+    private readonly peopleDatasets: PeopleDatasetService,
   ) {
     super()
   }
@@ -450,16 +456,19 @@ export class CommunityIssueDispatchService extends createPrismaBase(
         today: new Date().toISOString().slice(0, 10),
       }
       // As in buildDispatchParams: only top_community_issues takes the L2
-      // pair, and only as a pair.
+      // pair, and only as a pair. It is also the only type that reads the
+      // people mart, so only it carries the table.
       await this.agents.run(
         experimentType,
-        experimentType === 'top_community_issues' &&
-          ctx.l2DistrictType &&
-          ctx.l2DistrictName
+        experimentType === 'top_community_issues'
           ? {
               ...input,
-              l2DistrictType: ctx.l2DistrictType,
-              l2DistrictName: ctx.l2DistrictName,
+              ...(ctx.l2DistrictType &&
+                ctx.l2DistrictName && {
+                  l2DistrictType: ctx.l2DistrictType,
+                  l2DistrictName: ctx.l2DistrictName,
+                }),
+              ...(ctx.peopleTable && { peopleTable: ctx.peopleTable }),
             }
           : input,
       )
@@ -631,6 +640,12 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       ? `${serveCtx.l2DistrictName}, ${serveCtx.state}`
       : `${serveCtx.positionName}, ${serveCtx.state}`
 
+    // The same choice every other people read makes for this org, so the agent
+    // reads exactly the mart its product surfaces read.
+    const peopleTable = organization
+      ? peopleTableFor(await this.peopleDatasets.resolve(organization))
+      : undefined
+
     return {
       userId: eo.user.id,
       clerkUserId: eo.user.clerkId,
@@ -639,6 +654,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       districtDescriptor,
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
+      peopleTable,
       lastVisitedMs: eo.user.metaData?.lastVisited,
     }
   }

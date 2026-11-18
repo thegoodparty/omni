@@ -23,16 +23,21 @@ import {
 } from '@/generated/prisma'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { PeopleDbxStatementClient } from '@/peopleDb/databricks/peopleDbxStatement.client'
+import { peopleTable } from '@/peopleDb/databricks/databricksVoterSql.util'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { useTestService } from '@/test-service'
 // Imported after useTestService: analytics.service sits on a circular import
 // chain and must not be the first app-graph module evaluated.
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
-  TOP_COMMUNITY_ISSUES_TABLE,
   topCommunityIssuesDatabricksScope,
+  topCommunityIssuesDatabricksTables,
 } from './topCommunityIssues.agent'
-import { TopCommunityIssuesInputSchema } from './topCommunityIssues.schema'
+import {
+  PEOPLE_MART_TABLES,
+  TopCommunityIssuesInputSchema,
+} from './topCommunityIssues.schema'
 
 const service = useTestService({ jobs: true })
 
@@ -45,7 +50,33 @@ const SERVE_CONTEXT = {
   l2DistrictName: 'FAYETTEVILLE CITY WARD 2',
 }
 
-const LEAN_SQL = `SELECT COUNT(*) AS n, ROUND(AVG(hs_violent_crime_worried), 1) AS avg_hs_violent_crime_worried FROM ${TOP_COMMUNITY_ISSUES_TABLE} WHERE Residence_Addresses_State = 'NC' AND City_Ward = 'FAYETTEVILLE CITY WARD 2' AND Voters_Active = 'A'`
+const VOTERS_MART = PEOPLE_MART_TABLES[0]
+
+// The mart the run's input names, read from the prompt the way the model reads
+// it. The fixture org resolves through PeopleDatasetService like any other, so
+// it is the constituents mart when its owner carries the consumer-data flag —
+// never assume VOTERS_MART.
+const peoplesTableFromPrompt = (
+  prompt: LanguageModelV3CallOptions['prompt'],
+): string => {
+  for (const message of prompt) {
+    const text =
+      typeof message.content === 'string'
+        ? message.content
+        : message.content
+            .map((part) => ('text' in part ? part.text : ''))
+            .join('')
+    if (!text.startsWith('{')) continue
+    const parsed = TopCommunityIssuesInputSchema.safeParse(JSON.parse(text))
+    if (parsed.success) return parsed.data.peopleTable
+  }
+  throw new Error('the run input was not in the prompt')
+}
+// The prompt's step-8 query, written against whichever table the run's input
+// names, exactly as a model reading that input would: bare aggregates and a
+// COUNT(*), because a function wrapped around an aggregate is rejected.
+const leanSql = (table: string) =>
+  `SELECT COUNT(*) AS n, AVG(hs_violent_crime_worried) AS avg_hs_violent_crime_worried, COUNT(hs_violent_crime_worried) AS cov_hs_violent_crime_worried FROM ${table} WHERE Residence_Addresses_State = 'NC' AND City_Ward = 'FAYETTEVILLE CITY WARD 2' AND Active = 'A'`
 
 let orgSlug: string
 let officeId: string
@@ -102,7 +133,10 @@ const scriptedModel = () => {
     const step = options.prompt.filter((m) => m.role === 'assistant').length
     if (step === 0)
       return toolCall('getCommunityIssues', { list: 'top_community' })
-    if (step === 1) return toolCall('queryDatabricks', { sql: LEAN_SQL })
+    if (step === 1)
+      return toolCall('queryDatabricks', {
+        sql: leanSql(peoplesTableFromPrompt(options.prompt)),
+      })
     return toolCall('submitOutput', {
       output: output([
         issue('Stormwater flooding on Murchison Road', 1, carriedId),
@@ -275,7 +309,9 @@ describe('top_community_issues on gp-api agents', () => {
       l2DistrictName: 'FAYETTEVILLE CITY WARD 2',
     })
     expect(prompts[1]).toContain(carriedId)
-    expect(query.mock.calls.map((call) => call[0].sql)).toEqual([LEAN_SQL])
+    expect(query.mock.calls.map((call) => call[0].sql)).toEqual([
+      leanSql(TopCommunityIssuesInputSchema.parse(run.input).peopleTable),
+    ])
 
     const rows = await service.prisma.communityIssue.findMany({
       where: {
@@ -353,7 +389,15 @@ describe('top_community_issues on gp-api agents', () => {
     const query = vi
       .spyOn(service.app.get(PeopleDbxStatementClient), 'query')
       .mockResolvedValue({ columns: ['n'], rows: [['31000']] })
-    spies.push(track, query)
+    // This test writes its own SQL, so it pins the mart the run resolves to
+    // instead of reading it back from the input.
+    spies.push(
+      track,
+      query,
+      vi
+        .spyOn(service.app.get(PeopleDatasetService), 'resolve')
+        .mockResolvedValue({ base: 'voters' }),
+    )
     // Submit with no query run first, then run it, then the same submit. The
     // first is the fabricated list the PMF Engine's broker refuses to publish.
     const replies = [
@@ -361,7 +405,7 @@ describe('top_community_issues on gp-api agents', () => {
       toolCall('submitOutput', {
         output: output([issue('Stormwater flooding on Murchison Road', 1)]),
       }),
-      toolCall('queryDatabricks', { sql: LEAN_SQL }),
+      toolCall('queryDatabricks', { sql: leanSql(VOTERS_MART) }),
       toolCall('submitOutput', {
         output: output([issue('Stormwater flooding on Murchison Road', 1)]),
       }),
@@ -513,6 +557,7 @@ describe('top_community_issues on gp-api agents', () => {
       state: 'NC',
       office: 'City Council Member',
       districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
+      peopleTable: VOTERS_MART,
       today: '2026-11-18',
     })
 
@@ -614,12 +659,58 @@ describe('topCommunityIssuesDatabricksScope', () => {
     expect(fromRun).toEqual(await orgDatabricksScope(toolContext(run.id)))
   })
 
+  // The table the tool may read is the org's own people mart, resolved at
+  // dispatch by PeopleDatasetService — the same choice every other people read
+  // makes. A Win org reads voters; a Serve org with the consumer-data flag
+  // reads constituents. Either way the run carries exactly one name.
+  it("carries the org's PeopleDatasetService mart, and the tool accepts only it", async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'top_community_issues')
+    spies.push(
+      vi
+        .spyOn(service.app.get(PeopleDbxStatementClient), 'query')
+        .mockResolvedValue({ columns: [], rows: [] }),
+    )
+    scriptedModel()
+
+    await service.client.post(
+      `${BASE}/self-dispatch`,
+      { type: 'top_community_issues' },
+      { headers: { 'x-organization-slug': orgSlug } },
+    )
+    await service.jobs.settle()
+    const run = await service.prisma.agentRun.findFirstOrThrow({
+      where: { organizationSlug: orgSlug, agentName: 'top_community_issues' },
+    })
+    const organization = await service.prisma.organization.findFirstOrThrow({
+      where: { slug: orgSlug },
+    })
+
+    const expected = peopleTable(
+      await service.app.get(PeopleDatasetService).resolve(organization),
+    )
+    expect(TopCommunityIssuesInputSchema.parse(run.input).peopleTable).toBe(
+      expected,
+    )
+    await expect(
+      topCommunityIssuesDatabricksTables(toolContext(run.id)),
+    ).resolves.toEqual([expected])
+  })
+
+  it('names no table for a run whose input it cannot read', async () => {
+    const run = await seedRun({ organizationSlug: orgSlug, state: 'NC' })
+
+    await expect(
+      topCommunityIssuesDatabricksTables(toolContext(run.id)),
+    ).resolves.toEqual([])
+  })
+
   it('scopes to the state when the run has no L2 pair', async () => {
     const run = await seedRun({
       organizationSlug: orgSlug,
       state: 'TX',
       office: 'County Commissioner',
       districtDescriptor: 'Kenedy County Commissioner, Precinct 2, TX',
+      peopleTable: VOTERS_MART,
       today: '2026-11-18',
     })
 
@@ -636,6 +727,7 @@ describe('topCommunityIssuesDatabricksScope', () => {
         office: 'City Council Member',
         districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
         l2DistrictType: 'City_Ward',
+        peopleTable: VOTERS_MART,
         today: '2026-11-18',
       },
     ],
@@ -644,6 +736,7 @@ describe('topCommunityIssuesDatabricksScope', () => {
       {
         office: 'City Council Member',
         districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
+        peopleTable: VOTERS_MART,
         today: '2026-11-18',
       },
     ],
@@ -653,6 +746,7 @@ describe('topCommunityIssuesDatabricksScope', () => {
         state: '',
         office: 'City Council Member',
         districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
+        peopleTable: VOTERS_MART,
         today: '2026-11-18',
       },
     ],
@@ -675,6 +769,7 @@ describe('topCommunityIssuesDatabricksScope', () => {
         state: 'NC',
         office: 'City Council Member',
         districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
+        peopleTable: VOTERS_MART,
         today: '2026-11-18',
       },
       otherSlug,

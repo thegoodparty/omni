@@ -298,6 +298,9 @@ describe('top_community_issues in process', () => {
       districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
       l2DistrictType: 'City_Ward',
       l2DistrictName: 'FAYETTEVILLE CITY WARD 2',
+      // Every case shares one fixture org, so a case names the mart it reads;
+      // the voters mart when it names none.
+      peopleTable: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
       today: '2026-11-18',
     })
   })
