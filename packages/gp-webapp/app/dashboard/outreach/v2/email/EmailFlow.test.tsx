@@ -15,6 +15,7 @@ import type { ContactUpload } from '@goodparty_org/contracts'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
 import { Toaster } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { EmailFlow } from './EmailFlow'
 import { SERVE_EMAIL_SURFACE } from './emailSurface'
 import { initialCompose, toContent } from './emailForm.util'
@@ -29,6 +30,13 @@ vi.mock('app/shared/experiments/serveImportContactsFlag', () => ({
   useServeImportContactsFlag: () => ({ ready: true, enabled: mockImportOn.on }),
 }))
 
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
+const { confirmSetupMock } = vi.hoisted(() => ({ confirmSetupMock: vi.fn() }))
+
 vi.mock('@stripe/stripe-js', () => ({
   loadStripe: vi.fn(() => Promise.resolve(null)),
 }))
@@ -38,7 +46,7 @@ vi.mock('@stripe/react-stripe-js', () => ({
     <div>{children}</div>
   ),
   PaymentElement: () => <div data-testid="payment-element" />,
-  useStripe: () => ({ confirmSetup: vi.fn() }),
+  useStripe: () => ({ confirmSetup: confirmSetupMock }),
   useElements: () => ({}),
 }))
 
@@ -1960,5 +1968,220 @@ describe('EmailFlow imports in the picker', () => {
       expect.stringContaining('Renters in 98103'),
       expect.stringContaining('Everyone on Elm'),
     ])
+  })
+})
+
+describe('EmailFlow analytics', () => {
+  beforeEach(() => {
+    vi.mocked(trackEvent).mockClear()
+    confirmSetupMock
+      .mockReset()
+      .mockResolvedValue({ setupIntent: { payment_method: 'pm_new' } })
+    api.mock('POST /v1/outreach/holds/card-intent', {
+      status: 200,
+      data: { clientSecret: 'seti_secret_1' },
+    })
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  const calls = (event: string) =>
+    vi.mocked(trackEvent).mock.calls.filter(([name]) => name === event)
+
+  const toPay = async (user: ReturnType<typeof userEvent.setup>) => {
+    await toReview(user)
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to payment' }),
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Pay and send' }),
+    )
+  }
+
+  it('reports the campaign created once, on the first save', async () => {
+    const saves = mockApi()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await toReview(user)
+
+    expect(saves).toHaveLength(2)
+    expect(calls(EVENTS.Dashboard.VoterContact.CampaignCreated)).toEqual([
+      [
+        EVENTS.Dashboard.VoterContact.CampaignCreated,
+        {
+          medium: 'email',
+          fanout: 'one-to-many',
+          product: 'win',
+          recipientCount: 4800,
+          voterContacts: 4800,
+          outreachCampaignId: 11,
+          listId: 1,
+          audienceSource: 'savedList',
+          purpose: 'introduce_myself',
+        },
+      ],
+    ])
+    expect(calls(EVENTS.Dashboard.VoterContact.CampaignCompleted)).toEqual([])
+  })
+
+  it('reports the campaign completed when confirm takes the card', async () => {
+    mockApi()
+    api.mock('POST /v1/outreach/email/:id/confirm', {
+      status: 200,
+      data: {
+        outcome: 'held',
+        email: {
+          ...sendShape,
+          status: 'pending',
+          date: '2026-11-20T15:00:00.000Z',
+          voterFileFilterId: 1,
+          recipientCap: 1000,
+          priceCents: 1000,
+        },
+      },
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await toPay(user)
+
+    await waitFor(() =>
+      expect(
+        calls(EVENTS.Dashboard.VoterContact.CampaignCompleted),
+      ).toHaveLength(1),
+    )
+    expect(
+      calls(EVENTS.Dashboard.VoterContact.CampaignCompleted)[0]![1],
+    ).toEqual({
+      medium: 'email',
+      fanout: 'one-to-many',
+      product: 'win',
+      recipientCount: 1000,
+      voterContacts: 1000,
+      sendDate: format(new Date('2026-11-20T15:00:00.000Z'), 'yyyy-MM-dd'),
+      price: 10,
+      outreachCampaignId: 11,
+      listId: 1,
+      audienceSource: 'savedList',
+      purpose: 'introduce_myself',
+    })
+  })
+
+  it('reports nothing completed when the card is declined', async () => {
+    mockApi()
+    // The endpoint map lists no 402; the pay step's tests cast it the same way.
+    api.mock(
+      'POST /v1/outreach/email/:id/confirm',
+      () =>
+        ({
+          status: 402,
+          data: {
+            message: 'Your card was declined.',
+            declineCode: 'expired_card',
+          },
+        }) as never,
+    )
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await toPay(user)
+
+    expect(
+      await screen.findByText('That card has expired. Try another.'),
+    ).toBeInTheDocument()
+    expect(calls(EVENTS.Dashboard.VoterContact.CampaignCompleted)).toEqual([])
+  })
+
+  it('reports nothing for a draft that is left unpaid', async () => {
+    mockApi()
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={onClose} />)
+
+    await toReview(user)
+    await user.click(screen.getByRole('button', { name: /Exit/ }))
+    expect(onClose).toHaveBeenCalled()
+
+    expect(calls(EVENTS.Dashboard.VoterContact.CampaignCompleted)).toEqual([])
+  })
+
+  it('does not report a reopened draft created again', async () => {
+    const saves = mockApi()
+    const user = userEvent.setup()
+    render(
+      <EmailFlow
+        open
+        onClose={vi.fn()}
+        draft={{ ...sendShape, id: 42, voterFileFilterId: 1 }}
+      />,
+    )
+
+    await screen.findByRole('heading', {
+      level: 3,
+      name: 'What do you want to say?',
+    })
+    await writeAndLook(user)
+    await waitFor(() => expect(saves).toHaveLength(1))
+
+    expect(calls(EVENTS.Dashboard.VoterContact.CampaignCreated)).toEqual([])
+  })
+
+  it('reports a Serve email under the serve product', async () => {
+    api.mock('GET /v1/outreach/serve/email/sender', {
+      status: 200,
+      data: sender,
+    })
+    api.mock('POST /v1/outreach/serve/email', { status: 200, data: draft })
+    api.mock('POST /v1/outreach/serve/email/draft', {
+      status: 502,
+      data: { message: 'We could not draft that. Try again.' },
+    })
+    mockLists(40)
+    api.mock('GET /v1/elected-office/current', {
+      status: 200,
+      data: {
+        id: 'eo-1',
+        swornInDate: null,
+        electedDate: null,
+        termStartDate: null,
+        termEndDate: null,
+        termLengthDays: null,
+        isActive: true,
+        party: null,
+        pledgedAt: null,
+        onboardingCompletedAt: null,
+        selfReported: true,
+        onboardingStep: null,
+        campaignId: null,
+      },
+    })
+    api.mock('POST /v1/outreach/serve/email/audience-counts', {
+      status: 200,
+      data: { anyoneWithEmail: true, everyone: 55, lists: [], uploads: [] },
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} surface={SERVE_EMAIL_SURFACE} />)
+
+    await user.click(screen.getByText('Introduce myself to constituents'))
+    await pickList(user)
+    await screen.findByText('40 people with an email address')
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    await writeAndLook(user)
+
+    await waitFor(() =>
+      expect(calls(EVENTS.Dashboard.VoterContact.CampaignCreated)).toHaveLength(
+        1,
+      ),
+    )
+    expect(
+      calls(EVENTS.Dashboard.VoterContact.CampaignCreated)[0]![1],
+    ).toMatchObject({
+      medium: 'email',
+      product: 'serve',
+      recipientCount: 40,
+      purpose: SERVE_EMAIL_SURFACE.goals.find(
+        (g) => g.label === 'Introduce myself to constituents',
+      )!.id,
+    })
   })
 })

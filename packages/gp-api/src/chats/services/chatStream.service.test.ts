@@ -404,6 +404,7 @@ const baseStreamArgs = (
     maxSteps: number
     attachmentIds: string[]
     scope: ChatScope
+    agentName: string
     judgeSweepId: string
   }> = {},
 ) => ({
@@ -421,6 +422,9 @@ const baseStreamArgs = (
     attachmentIds: overrides.attachmentIds,
   }),
   ...(overrides.scope !== undefined && { scope: overrides.scope }),
+  ...(overrides.agentName !== undefined && {
+    agentName: overrides.agentName,
+  }),
   ...(overrides.judgeSweepId !== undefined && {
     judgeSweepId: overrides.judgeSweepId,
   }),
@@ -583,6 +587,26 @@ describe('ChatStreamService', () => {
       expect(firstOrThrow(llm.calls).options.agentTrace).toEqual({
         conversationId: CONVERSATION_ID,
         agentName: ChatScope.chief_of_staff,
+      })
+    })
+
+    it('files the turn under an explicit agent name over the scope', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(
+        service.stream(
+          baseStreamArgs({
+            userMessage: 'hello',
+            scope: ChatScope.chief_of_staff,
+            agentName: ChatScope.briefing_annotation,
+          }),
+        ),
+      )
+
+      expect(firstOrThrow(llm.calls).options.agentTrace).toEqual({
+        conversationId: CONVERSATION_ID,
+        agentName: ChatScope.briefing_annotation,
       })
     })
 

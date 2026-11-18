@@ -319,8 +319,8 @@ one event per channel.** The three per-channel `Outreach - <channel>: Complete`
 events went dark one at a time when this hub replaced the surfaces that fired
 them, and nothing noticed for a month. `Outreach - Campaign Completed`
 now fires from every flow (`SmsFlow` on payment settling, `RobocallFlow` on the
-hold settling, `SocialFlow` on Save, phone banking when the last entry in a
-list is called), and `Outreach - Campaign Created` fires on every channel
+hold settling, `EmailFlow` when confirm takes the card, `SocialFlow` on Save,
+phone banking when the last entry in a list is called), and `Outreach - Campaign Created` fires on every channel
 before it, so created → completed is one funnel with no channel-shaped hole.
 
 **Win and Serve are the `product` property, not a second event name.** One

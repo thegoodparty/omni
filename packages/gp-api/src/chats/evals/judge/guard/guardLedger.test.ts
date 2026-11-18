@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   GuardRulingSchema,
   appendLedgerLine,
@@ -66,6 +66,43 @@ describe('ledgerKey / monthKeyOf', () => {
 
   it('derives the month key from an ISO timestamp', () => {
     expect(monthKeyOf('2026-11-05T12:00:00.000Z')).toBe('2026-11')
+  })
+})
+
+// A machine west of UTC reads 2026-11-01T00:00Z as October. The ledger key is
+// the timestamp's own UTC month, so a line written at that instant must land in
+// the November object a later read of November finds.
+describe('monthKeyOf on a machine west of UTC', () => {
+  beforeAll(() => {
+    vi.stubEnv('TZ', 'America/New_York')
+  })
+  afterAll(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('keeps a line recorded just after UTC midnight in the UTC month', async () => {
+    expect(new Date('2026-11-01T00:00:00.000Z').getMonth() + 1).toBe(10)
+
+    expect(monthKeyOf('2026-11-01T00:00:00.000Z')).toBe('2026-11')
+
+    const port = fakePort()
+    await appendLedgerLine(
+      port,
+      line({ pr: 1, recordedAt: '2026-11-01T00:00:00.000Z' }),
+    )
+    expect((await readLedgerMonth(port, '2026-10')).map((l) => l.pr)).toEqual(
+      [],
+    )
+    expect((await readLedgerMonth(port, '2026-11')).map((l) => l.pr)).toEqual([
+      1,
+    ])
+  })
+
+  it('lists recent months in UTC, matching the month a write lands in', () => {
+    expect(recentMonthKeys(new Date('2026-11-01T00:00:00.000Z'), 2)).toEqual([
+      '2026-11',
+      '2026-10',
+    ])
   })
 })
 

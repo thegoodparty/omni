@@ -2713,9 +2713,10 @@ next free C-ID and status `proposed`.
   step title, 20 large heading, 18 overlay title, 16 page and section title,
   14 body and card title, 12 badge, with headings at 600. Styleguide titles
   move onto it: `DrawerTitle` and `AlertDialogTitle` 20 to 18px,
-  `ContentCard` title 18 to 14px, overlay descriptions 16 to 14px. Add the
-  matching classes to the prototype CSS (`gp-ui.css`), which defaults to
-  16px today.
+  `ContentCard` title 18 to 14px, overlay descriptions 16 to 14px.
+  `gp-design` prototypes render the styleguide components, so they follow
+  with no extra change; add the matching classes to the `ux-review-options`
+  prototype CSS (`gp-ui.css`), which defaults to 16px today.
 - **Replaces today:** `@shared/typography` and hand-picked `text-*` sizes on
   titles.
 - **Also (audit 2026-11-12):** `onboarding/components/OnboardingFlow.tsx:1393`, `sign-up/SignUpForm.tsx:248`, `dashboard/chief-of-staff/components/TaskStack.tsx:403`, `dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx:2032`, and 23 more, see `product-design-gaps-locations.md`.

@@ -67,6 +67,7 @@ disagree in five places: `p2p` → `text`, `nativeDoorKnocking` → `doorKnockin
 | `doorKnocking` | one-to-one  | a turf is completed (`turfLifecycle.ts`)        | required†        | omitted  |
 | `phoneBanking` | one-to-one  | the last entry in a call list is called         | required†        | omitted  |
 | `directMail`   | one-to-many | the manual log modal submits                    | required         | omitted  |
+| `email`        | one-to-many | confirm takes the card (`EmailFlow`)            | required         | required |
 | `event`        | one-to-many | the manual log modal submits                    | required         | omitted  |
 | `awareness`    | —           | no outreach surface; tracker-only               | n/a              | n/a      |
 | `general`      | —           | no outreach surface; tracker-only               | n/a              | n/a      |
@@ -81,6 +82,22 @@ Completed fires when the poll's payment settles (`PollFlow`) and carries the
 setup choices below. A poll fires no `Outreach - Campaign Created`: gp-api's
 `Polls - Poll Created` covers that moment, and fires on each re-entry to
 review, so it counts drafts rather than sends.
+
+**An email Completed fires at the moment gp-api fires `Email - Send
+Completed`**: confirm moved the send out of draft with the card held, paid
+now or scheduled. Its `recipientCount` is the cap confirm froze (the people
+it will actually go to, not the whole audience), `price` the frozen cap's
+price, and `sendDate` the scheduled day, or the confirm day for a send-now.
+A declined card or an abandoned draft fires nothing. Email has no campaign
+name, so `campaignName` is omitted. `Email - Send Completed` keeps firing
+beside it and lands in Amplitude like any other event, but the activation
+metrics (`win_activated_users`, `activated_serve_users`) count only Created
+and Completed, so this is what counts email toward Win and Serve activation.
+
+**`email` is a value on `TaskChannelSchema`** for the same reason as
+`socialMedia` below: analytics needed an honest value, and `general` would
+have hidden email inside the tracker-only bucket. No tracker task carries it
+yet.
 
 **`socialMedia` is a new value on `TaskChannelSchema`.** The enum had no social
 value: the three social tracker tasks (`schedule-social-posts`,
@@ -309,6 +326,7 @@ channel-shaped hole in it:
 | `socialMedia`  | Save — the same press as Completed, immediately before |
 | `doorKnocking` | per turf, on the create flow's press                   |
 | `phoneBanking` | the call list is created                               |
+| `email`        | the draft's first save (look step, or an upload)       |
 
 A **gated** candidate (`outreach-pro-gating-v2`, milestone 2) never reaches the
 review or pay step, so for text and robocall the event fires off the `draft`
@@ -480,10 +498,10 @@ the baseline only sees post-cutover rows.
 
 Before merge, the SMS, robocall and email send specs assert that Created and
 Completed fire with the `purpose` the spec picked (`expectEvent`,
-`packages/gp-webapp/e2e-tests/AGENTS.md`). It runs in shadow mode until
+`packages/gp-webapp/e2e-tests/AGENTS.md`); the email spec also asserts
+`medium: email`. It runs in shadow mode until
 `E2E_EVENT_ASSERTIONS` in `.github/workflows/gp-webapp.yml` is set to `block`.
-The email flow fires neither event yet, so its assertion reports a miss. No
-spec drives phone banking, door knocking, social or polls to Created.
+No spec drives phone banking, door knocking, social or polls to Created.
 
 Not built:
 
