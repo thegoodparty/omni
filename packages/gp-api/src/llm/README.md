@@ -47,5 +47,11 @@ A call with no `agentTrace` stays a plain Tempo trace — the non-streaming call
 and anything that is not a chat turn. `recordInputs`/`recordOutputs` stay off
 either way, because prompts here carry voter data.
 
+The agent name comes from the chat scope, so a turn is filed under the scope it
+declares. Briefing chat's annotation route declares no scope — scope also
+decides attachment injection and which product a citation is attributed to —
+so `StreamArgs.agentName` names its agent explicitly (`briefing_annotation`)
+instead of falling back to the generic `chat`.
+
 Use this module when you need an LLM call. Don't add new direct `ai` SDK or
 `@ai-sdk/anthropic` imports outside `src/llm/services/`.
