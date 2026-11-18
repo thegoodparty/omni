@@ -911,6 +911,10 @@ jwIDAQAB
       ...(driftProbePeerlyIdentityId
         ? { DRIFT_PROBE_PEERLY_IDENTITY_ID: driftProbePeerlyIdentityId }
         : {}),
+      // Background agents that dispatch to gp-api's own agents instead of
+      // the PMF Engine. Each one is added per environment only after the
+      // Universal Judge reads it as same or better (docs/cap-consolidation.md).
+      ...(environment === 'dev' ? { AGENTS_ON_GP_API: 'trending_issues' } : {}),
     },
     permissions: [
       {
