@@ -3,7 +3,7 @@ title: A chat user turn's id is the client's, and it is the row's primary key
 status: active
 decided_by: [swain]
 date: 2026-11-18
-code: []
+code: ['#3872']
 scope:
   - packages/gp-api/src/chats/**
   - packages/gp-api/prisma/schema/agentMessage.prisma
