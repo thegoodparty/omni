@@ -84,7 +84,7 @@ BEGIN
     WHERE n.nspname = 'public'
       AND NOT t.tgisinternal
       AND t.tgname LIKE '%\\_db\\_change'
-      AND c.relname <> ALL (ARRAY[${tables.map((t) => `'${t}'`).join(', ')}])
+      AND c.relname <> ALL (ARRAY[${tables.map((t) => `'${t}'`).join(', ')}]::text[])
   LOOP
     EXECUTE format('DROP TRIGGER %I ON %I', stale.trg, stale.tbl);
   END LOOP;

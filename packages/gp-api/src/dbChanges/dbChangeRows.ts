@@ -23,17 +23,22 @@ const DMMF_MODELS = new Map(
 // names and a handler reads Prisma's field names, and DMMF is what has both.
 const MODEL_TABLES = new Map<ChangeModel, ModelTable>(
   Object.values(Prisma.ModelName).flatMap((model) => {
-    const fields = DMMF_MODELS.get(model)?.fields
+    const dmmf = DMMF_MODELS.get(model)
+    const fields = dmmf?.fields
     if (!fields) return []
+    const byName = new Map(fields.map((field) => [field.name, field]))
+    // A single-column @id sets isId; a composite @@id lists its fields on the
+    // model instead and leaves isId false on every one.
+    const keyFields = dmmf.primaryKey
+      ? dmmf.primaryKey.fields.flatMap((name) => byName.get(name) ?? [])
+      : fields.filter((field) => field.isId)
     return [
       [
         model,
         {
           model,
           table: DMMF_MODELS.get(model)?.dbName ?? model,
-          primaryKey: fields
-            .filter((field) => field.isId)
-            .map((field) => field.dbName ?? field.name),
+          primaryKey: keyFields.map((field) => field.dbName ?? field.name),
           columns: fields
             .filter((field) => field.kind === 'scalar' || field.kind === 'enum')
             .map((field) => ({

@@ -49,7 +49,7 @@ BEGIN
     WHERE n.nspname = 'public'
       AND NOT t.tgisinternal
       AND t.tgname LIKE '%\_db\_change'
-      AND c.relname <> ALL (ARRAY['campaign'])
+      AND c.relname <> ALL (ARRAY['campaign']::text[])
   LOOP
     EXECUTE format('DROP TRIGGER %I ON %I', stale.trg, stale.tbl);
   END LOOP;

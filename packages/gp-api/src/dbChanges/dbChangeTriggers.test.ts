@@ -42,7 +42,9 @@ const inRegistry = () =>
   capturedTables()
     .map(({ table, primaryKey, operations }) => ({
       table,
-      events: [...operations].sort(),
+      events: (['insert', 'update', 'delete'] as const).filter((op) =>
+        operations.includes(op),
+      ),
       args: primaryKey,
     }))
     .sort((left, right) => (left.table < right.table ? -1 : 1))
