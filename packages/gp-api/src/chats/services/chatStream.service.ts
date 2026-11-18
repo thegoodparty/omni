@@ -652,9 +652,10 @@ export class ChatStreamService {
       // The same send arrived twice. Its turn already ran, so replay the reply
       // it produced rather than paying for and storing a second one. A retry
       // that arrived before the turn finished has no reply yet, and finishes
-      // the turn instead.
+      // the turn instead, and so does a retry of a turn that was interrupted
+      // before any output.
       const reply = await this.store.replayedReplyTo(appended.message.id)
-      if (reply) {
+      if (reply && reply.content !== CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER) {
         yield { type: 'text', delta: reply.content }
         yield { type: 'done', assistantMessageId: reply.id }
         return

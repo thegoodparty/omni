@@ -1,4 +1,5 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { randomUUID } from 'crypto'
 import { HttpStatus } from '@nestjs/common'
 import { simulateReadableStream } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
@@ -8,6 +9,7 @@ import {
   ChatMessageSegmentKind,
   ChatScope,
 } from '../../generated/prisma'
+import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 
@@ -58,10 +60,10 @@ const scriptedModel = (script: ScriptStep[]) => {
       if (s.text !== undefined) {
         chunks.push({ type: 'text-start', id: `t-${step}` })
         chunks.push({ type: 'text-delta', id: `t-${step}`, delta: s.text })
-        if (s.failMidStream) {
-          chunks.push({ type: 'error', error: new Error('overloaded') })
-        }
         chunks.push({ type: 'text-end', id: `t-${step}` })
+      }
+      if (s.failMidStream) {
+        chunks.push({ type: 'error', error: new Error('overloaded') })
       }
       for (const call of s.calls ?? []) {
         chunks.push({
@@ -120,7 +122,11 @@ describe('chat turns stored on AgentMessage from the real model loop', () => {
     ).anthropicProvider = originalProvider
   })
 
-  const send = async (script: ScriptStep[], content: string) => {
+  const send = async (
+    script: ScriptStep[],
+    content: string,
+    sendTo?: { conversationId: string; id: string },
+  ) => {
     const anthropic = createAnthropic({ apiKey: 'test' })
     const model = scriptedModel(script)
     ;(
@@ -130,15 +136,13 @@ describe('chat turns stored on AgentMessage from the real model loop', () => {
       webSearchTool: (spec: { maxUses?: number }) =>
         anthropic.tools.webSearch_20250305(spec),
     }
-    const created = await service.client.post(
-      '/v1/chats',
-      { scope: COS },
-      headers,
-    )
-    const conversationId = created.data.conversationId as string
+    const conversationId =
+      sendTo?.conversationId ??
+      ((await service.client.post('/v1/chats', { scope: COS }, headers)).data
+        .conversationId as string)
     const sent = await service.client.post(
       `/v1/chats/${conversationId}/messages?scope=${COS}`,
-      { content },
+      { content, ...(sendTo && { id: sendTo.id }) },
       headers,
     )
     expect(sent.status).toBe(HttpStatus.OK)
@@ -150,7 +154,7 @@ describe('chat turns stored on AgentMessage from the real model loop', () => {
       `/v1/chats/${conversationId}?scope=${COS}`,
       headers,
     )
-    return { rows, history: history.data }
+    return { conversationId, rows, history: history.data }
   }
 
   const partTypes = (parts: unknown): string[] =>
@@ -324,5 +328,36 @@ describe('chat turns stored on AgentMessage from the real model loop', () => {
       AgentMessageRole.assistant,
     ])
     expect(history.messages).toHaveLength(2)
+  })
+
+  it('re-runs a retried turn that was interrupted before any text', async () => {
+    const created = await service.client.post(
+      '/v1/chats',
+      { scope: COS },
+      headers,
+    )
+    const sendTo = {
+      conversationId: created.data.conversationId as string,
+      id: randomUUID(),
+    }
+    const interrupted = await send(
+      [
+        { calls: [{ id: 'brief-5', name: 'list_briefings', input: {} }] },
+        { failMidStream: true },
+      ],
+      'What is new?',
+      sendTo,
+    )
+    expect(interrupted.history.messages[1].content).toBe(
+      CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
+    )
+    const retried = await send(
+      [{ text: 'Nothing new this week.' }],
+      'What is new?',
+      sendTo,
+    )
+    expect(retried.history.messages.at(-1).content).toBe(
+      'Nothing new this week.',
+    )
   })
 })
