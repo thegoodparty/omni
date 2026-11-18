@@ -9,6 +9,7 @@ import { formatISO } from 'date-fns'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ChatScope, Prisma } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
+import { agentMessagesToChatMessages } from '@/chats/services/chatAgentMessages.util'
 import { LlmService } from '../../../../llm/services/llm.service'
 import { OrdinanceFlowFetchService } from '../services/ordinanceFlowFetch.service'
 import { seedFromFixture } from './seedFromFixture'
@@ -109,11 +110,12 @@ const runTurn = async (args: {
   const ordinance = await service.prisma.ordinance.findUniqueOrThrow({
     where: { id: seeded.ordinanceId },
   })
-  const messages = await service.prisma.chatMessage.findMany({
-    where: { conversationId },
-    include: { segments: true },
-    orderBy: { createdAt: 'asc' },
-  })
+  const messages = agentMessagesToChatMessages(
+    await service.prisma.agentMessage.findMany({
+      where: { conversationId },
+      orderBy: { index: 'asc' },
+    }),
+  )
   const segments = messages.flatMap((m) => m.segments)
   const toolNames = segments
     .filter((s) => s.toolName !== null)

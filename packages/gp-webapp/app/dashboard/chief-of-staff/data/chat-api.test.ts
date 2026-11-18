@@ -177,7 +177,7 @@ describe('chiefOfStaffChatApi', () => {
         chiefOfStaffChatApi.streamMessage({
           conversationId: 'conv_1',
           content: 'hi',
-          clientMessageId: 'uuid-1',
+          id: '3f1b7c2e-5a44-4b9e-9f1a-2c6d8e0b7a51',
         }),
       )
 
@@ -191,7 +191,7 @@ describe('chiefOfStaffChatApi', () => {
       expect(init.method).toBe('POST')
       expect(JSON.parse(init.body as string)).toEqual({
         content: 'hi',
-        clientMessageId: 'uuid-1',
+        id: '3f1b7c2e-5a44-4b9e-9f1a-2c6d8e0b7a51',
         pagePath: window.location.pathname,
       })
     })

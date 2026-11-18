@@ -372,6 +372,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
+  // Experiment ids that run on gp-api's own agents (src/agents) instead of
+  // the PMF Engine, comma-separated. Unset sends every one to the PMF Engine.
+  AGENTS_ON_GP_API: { tier: 'optional' },
   ORDINANCES_AUTOMATION_ENABLED: { tier: 'optional' },
   CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },

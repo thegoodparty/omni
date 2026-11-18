@@ -535,7 +535,9 @@ export const withOptOutUnderLastLine = (script: string): string =>
 // The draft body, greeting included. `office` has been through
 // `grammarizeOfficeName` ("Maplewood City Council Member"), and `place` is
 // the city or district as the civic panel copy names it ("Maplewood"). It
-// never names the civic panel: residents only hear what joining means.
+// never names the civic panel: residents only hear what joining means. It is
+// two paragraphs because the text is sent as written, and staff found a
+// single block hard to skim (91081, 2026-11-18).
 export const managedInviteDraft = ({
   name,
   office,
@@ -548,7 +550,7 @@ export const managedInviteDraft = ({
   `Hi {{first_name}}, this is ${name || SERVE_SMS_IDENTIFICATION_FALLBACK.name}, ` +
   `your ${office || SERVE_SMS_IDENTIFICATION_FALLBACK.office}. I want to hear ` +
   `from people across ${place ?? 'our community'}, not just those who come to ` +
-  "meetings, so I'm inviting a group of residents to share their views. " +
+  "meetings, so I'm inviting a group of residents to share their views.\n\n" +
   "I'll text you about once a month to ask what you think. Replies only " +
   'come to me.'
 

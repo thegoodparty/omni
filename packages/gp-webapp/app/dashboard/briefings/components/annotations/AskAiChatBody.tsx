@@ -156,11 +156,11 @@ export default function AskAiChatBody({
     Pick<AgentChatClient, 'streamMessage' | 'listMessages'>
   >(
     () => ({
-      streamMessage: ({ conversationId, content, clientMessageId, signal }) =>
+      streamMessage: ({ conversationId, content, id, signal }) =>
         chatApi.streamMessage({
           annotationId: conversationId,
           content,
-          clientMessageId,
+          id,
           signal,
         }),
       listMessages: (conversationId) => chatApi.listMessages(conversationId),
@@ -283,7 +283,7 @@ export default function AskAiChatBody({
   const deliver = useCallback(
     async (
       content: string,
-      opts?: { hidden?: boolean; clientMessageId?: string },
+      opts?: { hidden?: boolean; id?: string },
     ): Promise<boolean> => {
       const trimmed = content.trim()
       // `isStreaming()` (synchronous) drops a same-tick double-submit while a
@@ -294,12 +294,13 @@ export default function AskAiChatBody({
       deliveringRef.current = true
       try {
         setStreamError(null)
-        // A retry replays the original id (so the server dedupes); a fresh send
-        // mints one and remembers it for its own retry.
-        const clientMessageId = opts?.clientMessageId ?? newClientMessageId()
+        // A retry replays the original id (so the server finds that turn
+        // instead of running it again); a fresh send mints one and remembers
+        // it for its own retry.
+        const userMessageId = opts?.id ?? newClientMessageId()
         if (!opts?.hidden) {
           lastUserContentRef.current = trimmed
-          lastClientMessageIdRef.current = clientMessageId
+          lastClientMessageIdRef.current = userMessageId
         }
         // Push the optimistic bubble BEFORE the deferred create so it stays
         // visible through the create round-trip and survives a create failure
@@ -333,7 +334,7 @@ export default function AskAiChatBody({
         // guards it), and the onChatCreated handoff runs via onTurnSuccess.
         // Awaiting would hold deliveringRef across the whole settle window and
         // block a legitimate follow-up send.
-        void send(id, trimmed, { hidden: true, clientMessageId })
+        void send(id, trimmed, { hidden: true, id: userMessageId })
         return true
       } finally {
         deliveringRef.current = false
@@ -357,10 +358,10 @@ export default function AskAiChatBody({
       // Re-stream through `deliver` (hidden — the optimistic bubble already
       // exists) so a post-create retry still fires the deferred onChatCreated
       // handoff, and a create-on-send failure re-attempts the create. Replay
-      // the original client-message id so the server dedupes the turn.
+      // the original id so the server finds the stored turn.
       void deliver(content, {
         hidden: true,
-        clientMessageId: lastClientMessageIdRef.current || undefined,
+        id: lastClientMessageIdRef.current || undefined,
       })
       return
     }
@@ -370,12 +371,12 @@ export default function AskAiChatBody({
   }, [deliver, loadExistingChat])
 
   // Re-stream an existing user turn (interrupted-box or bare-user retry).
-  // Replays the original client-message id when retrying the most-recent turn
-  // (so the server's (conversation_id, client_message_id) index dedupes it) and
-  // keeps the retry refs consistent, so the error-box `onRetry` never replays a
-  // stale id afterward. An older turn — whose id we can't recover, since
-  // ChatMessageDto carries none and the transcript doesn't return it — mints a
-  // fresh id (repeated retries of it still dedupe via the stored ref).
+  // Replays the original id when retrying the most-recent turn (so the server
+  // finds the stored turn rather than running it again) and keeps the retry
+  // refs consistent, so the error-box `onRetry` never replays a stale id
+  // afterward. An older turn — whose id we can't recover, since ChatMessageDto
+  // carries none and the transcript doesn't return it — mints a fresh id
+  // (repeated retries of that still replay via the stored ref).
   const resendUserTurn = useCallback(
     (content: string): void => {
       if (!annotationId) return
@@ -384,13 +385,13 @@ export default function AskAiChatBody({
       // Content-match, not per-message tracking: if two user turns share the
       // exact text and the OLDER is retried, this replays the newer turn's id —
       // acceptable, since same-text turns dedupe to an indistinguishable result.
-      const clientMessageId =
+      const userMessageId =
         trimmed === lastUserContentRef.current && lastClientMessageIdRef.current
           ? lastClientMessageIdRef.current
           : newClientMessageId()
       lastUserContentRef.current = trimmed
-      lastClientMessageIdRef.current = clientMessageId
-      void send(annotationId, trimmed, { hidden: true, clientMessageId })
+      lastClientMessageIdRef.current = userMessageId
+      void send(annotationId, trimmed, { hidden: true, id: userMessageId })
     },
     [annotationId, send],
   )

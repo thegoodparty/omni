@@ -98,7 +98,13 @@ export const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL = '__product_overview__'
 
 export const SendChatMessageRequestSchema = z.object({
   content: z.string().min(1).max(CHAT_MESSAGE_MAX_LENGTH),
-  clientMessageId: z.guid().optional(),
+  // The user message's own id. Reusing it on a retry is what makes a send
+  // idempotent: the server inserts that id, so a second delivery of the same
+  // send collides instead of running the turn twice.
+  id: z.uuid().optional(),
+  // The old name for `id`, kept so a tab loaded before the rename keeps
+  // deduping. Same meaning, same id.
+  clientMessageId: z.uuid().optional(),
   attachmentIds: z.array(z.string()).max(10).optional(),
   // The page the message was sent from. A scope that reads it resolves it
   // against its own product map, so an unknown path adds nothing.

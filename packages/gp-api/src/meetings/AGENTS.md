@@ -20,7 +20,7 @@ Eight Prisma models + two enums participate. File paths are under `prisma/schema
 | `AnnotationNote`           | `annotationNote.prisma`           | Optional `body` (typed text) for `kind=note` annotations. Owns attachments.                                                              |
 | `AnnotationNoteAttachment` | `annotationNoteAttachment.prisma` | File uploads on a note (image / pdf / docx / plaintext). Carries OCR status + extracted text.                                            |
 | `ChatConversation`         | `chatConversation.prisma`         | Persistent conversation owned by a user. Linked 1:1 to an `Annotation` of `kind=chat`.                                                   |
-| `ChatMessage`              | `chatMessage.prisma`              | Individual user/assistant/system/tool message in a conversation.                                                                         |
+| `AgentMessage`             | `agentMessage.prisma`             | One message in a conversation: user, assistant or tool, with the AI SDK parts.                                                           |
 | `ArtifactFeedback`         | `artifactFeedback.prisma`         | Per-user thumbs up/down on an item inside the briefing artifact (currently agenda items only).                                           |
 
 Enums:
@@ -30,7 +30,6 @@ Enums:
 | `AnnotationKind`         | `note`, `chat`, `bug_report`                              | `Annotation.kind`                    |
 | `AnnotationResourceType` | `briefing` (only value today)                             | `Annotation.resourceType`            |
 | `OcrStatus`              | `pending`, `processing`, `completed`, `failed`, `skipped` | `AnnotationNoteAttachment.ocrStatus` |
-| `ChatMessageRole`        | `user`, `assistant`, `system`, `tool`                     | `ChatMessage.role`                   |
 | `ArtifactResourceType`   | `agenda_item`                                             | `ArtifactFeedback.artifactType`      |
 | `ArtifactFeedbackKind`   | `positive`, `negative`                                    | `ArtifactFeedback.feedback`          |
 | `ExperimentRunStatus`    | `RUNNING`, `COMPLETED`, `FAILED`                          | `ExperimentRun.status`               |
