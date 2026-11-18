@@ -411,7 +411,9 @@ describe('the anti-fabrication gate', () => {
     let call = 0
     const model = new MockLanguageModelV3({
       doStream: async () =>
-        (call < replies.length ? replies[call++]!() : replies.at(-1)!()) as never,
+        (call < replies.length
+          ? replies[call++]!()
+          : replies.at(-1)!()) as never,
     })
     return model
   }
@@ -428,7 +430,12 @@ describe('the anti-fabrication gate', () => {
           type: 'finish' as const,
           finishReason: { unified: 'stop' as const, raw: 'end_turn' },
           usage: {
-            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+            inputTokens: {
+              total: 10,
+              noCache: 10,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
             outputTokens: { total: 10, text: 10, reasoning: undefined },
           },
         },

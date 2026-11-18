@@ -226,7 +226,10 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
   const warehouseTools = Object.entries(args.tools)
     .filter(([, agentTool]) => agentTool.readsWarehouse === true)
     .map(([name]) => name)
-  let warehouseQueries = savedWarehouseQueriesSucceeded(messages, warehouseTools)
+  let warehouseQueries = savedWarehouseQueriesSucceeded(
+    messages,
+    warehouseTools,
+  )
   const submitJsonSchema: unknown = z.toJSONSchema(
     z.object({ output: args.output }),
     { unrepresentable: 'any' },
