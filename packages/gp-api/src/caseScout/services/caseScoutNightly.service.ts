@@ -80,7 +80,10 @@ export class CaseScoutNightlyService {
     const lastSessionStart = marker.lastSessionStart ?? null
     const windowStart = lastSessionStart
       ? addMinutes(parseISO(lastSessionStart), -QUERY_OVERLAP_MINUTES)
-      : subHours(now, FIRST_NIGHT_WINDOW_HOURS)
+      : addMinutes(
+          subHours(now, FIRST_NIGHT_WINDOW_HOURS),
+          -QUERY_OVERLAP_MINUTES,
+        )
     const isInternalFilter = filtersInternalAccounts()
     const messages = await this.messages.readSince(
       windowStart,

@@ -469,14 +469,15 @@ describe('caseScoutNightly', () => {
     })
   })
 
-  it('reads only the last 24 hours when there is no marker yet', async () => {
+  it('reads only the last 24 hours and the overlap with no marker', async () => {
     await seedConversation({ id: 'conv-fn', scope: ChatScope.chief_of_staff })
-    // A minute before the window: 24 hours before the 09:17 run.
+    // A minute before the window: 24 hours and the 60-minute overlap before
+    // the 09:17 run.
     await seedMessage(
       'conv-fn',
       'msg-fn-old',
       ChatMessageRole.user,
-      '2026-11-15T09:16:00.000Z',
+      '2026-11-15T08:16:00.000Z',
       'An older question.',
     )
     await seedConversation({ id: 'conv-fn2', scope: ChatScope.chief_of_staff })
@@ -484,7 +485,7 @@ describe('caseScoutNightly', () => {
       'conv-fn2',
       'msg-fn-new',
       ChatMessageRole.user,
-      '2026-11-15T09:17:00.000Z',
+      '2026-11-15T08:17:00.000Z',
       'A new question.',
     )
 
@@ -493,7 +494,7 @@ describe('caseScoutNightly', () => {
     const manifest = ManifestSchema.parse(
       JSON.parse(bucketJson(`runs/${RUN_ID}/manifest.json`) ?? '{}'),
     )
-    expect(manifest.windowStart).toBe('2026-11-15T09:17:00.000Z')
+    expect(manifest.windowStart).toBe('2026-11-15T08:17:00.000Z')
     expect(manifest.sessions.map((s) => s.sessionId)).toEqual([
       'conv-fn2:msg-fn-new',
     ])
