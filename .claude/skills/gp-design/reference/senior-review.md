@@ -1,6 +1,6 @@
 # Senior design review
 
-Every `gp-design` run ends with this review, after `ux-review-options` step 9
+Every `gp-design` run ends with this review, after step 9 of `reference/options-workflow.md`
 and before anything is published or shown. It is a fresh subagent that did not
 build the page, so it judges the result, not the intent.
 
@@ -16,7 +16,7 @@ Give the subagent this brief, with the paths filled in:
 > `packages/styleguide/COMPONENTS.md`, `docs/design-memory/learned.md`,
 > `docs/design-memory/fixtures.md`, `docs/product-copy.md`,
 > `docs/product-vocabulary.md`, and `docs/adr/`. Read the skill that built it:
-> `.claude/skills/gp-design/` and `.claude/skills/ux-review-options/`. Read the
+> `.claude/skills/gp-design/`. Read the
 > task: `<ticket text, the designer's direction, and any notes>`. Read the
 > output: `<work>/page/index.html` and the screenshots in `<work>/screens/`;
 > render it at the widths in `docs/product-design.md` §10 (375 and 1280, once
@@ -56,7 +56,7 @@ Give the subagent this brief, with the paths filled in:
    needs a person's call (a product decision, the designer's direction against
    a rule) is not fixed silently: it goes under "Decisions needed" in
    `#questions`.
-2. Rebuild, then rerun `ux-review-options` steps 7 to 9: the check, the step 8
+2. Rebuild, then rerun steps 7 to 9 of `reference/options-workflow.md`: the check, the step 8
    review and `build-shape`, because any edit to the option makes the build
    shape stale. The step 8 rerun fixes only what the senior review fixes
    broke; it never undoes a senior review fix.

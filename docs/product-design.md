@@ -421,9 +421,9 @@ Stop at the first that fits:
    and wording, not the structure this file rules out.
 2. **A styleguide component, as it ships.** `packages/styleguide/COMPONENTS.md`
    says what job each one is for. Documented props and variants only, never a
-   className that changes how it looks. A prototype
-   (`.claude/skills/ux-review-options`) renders the styleguide components
-   themselves.
+   className that changes how it looks. A `gp-design` prototype renders the
+   styleguide components themselves; in a `ux-review-options` canvas, the
+   styleguide is `.claude/skills/ux-review-options/assets/gp-ui.css`.
 3. **Propose a new component or variant,** only if it replaces hand-rolled or
    modified UI in two or more places, or two or more flows need it. Until
    the team approves it, build from the closest fit.

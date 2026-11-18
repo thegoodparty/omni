@@ -1,7 +1,7 @@
 # Eval tasks
 
-A fixed set of tasks to rerun after any change to `gp-design` or
-`ux-review-options` (its text, templates, CSS or scripts). The same tasks every
+A fixed set of tasks to rerun after any change to `gp-design` (its text,
+templates or scripts). The same tasks every
 time, so a change shows up as a difference between two runs, not as a new
 task's quirks.
 

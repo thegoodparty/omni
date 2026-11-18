@@ -8,7 +8,7 @@
 //   <option>-state-<key>-phone.png         each state alone at 375 x 812
 // and prints one line per page error, blank icon or sideways scroll (none: "clean").
 // It screenshots; clicking through, hover, focus and disabled stay with the person
-// or agent checking the design (ux-review-options step 7).
+// or agent checking the design (gp-design options-workflow.md step 7).
 import { createRequire } from 'node:module'
 import { mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
