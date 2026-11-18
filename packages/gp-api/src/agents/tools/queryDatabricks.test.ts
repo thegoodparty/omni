@@ -329,18 +329,21 @@ describe('queryDatabricks', () => {
   // rather than prove a filter on a statement Spark would run differently.
   describe('parser differences fail closed', () => {
     it.each([
-      // Spark leaves backslash alone in a literal, so it ends the string early
-      // and the rest becomes SQL; postgres reads one long literal. Either way
-      // the value is not the state, so nothing is proven.
+      // A backslash before the quote: this grammar reads one literal that is
+      // not the state, and whether Spark closes the string there and runs the
+      // rest as SQL, either way nothing is proven and the query is refused.
       [
         'a backslash-escaped quote',
         `SELECT COUNT(*) AS n FROM ${TABLE}
-         WHERE Residence_Addresses_State = 'x\' OR 1=1 --'`,
+         WHERE Residence_Addresses_State = 'x\' OR 1=1 OR 'a'='a'`,
       ],
+      // A doubled quote reads as one literal here, while Spark's own escaping
+      // can split it into a string followed by more SQL. The filter is proven
+      // against a statement Spark might not be running the same way.
       [
         'a doubled quote',
         `SELECT COUNT(*) AS n FROM ${TABLE}
-         WHERE Residence_Addresses_State = 'x'' OR 1=1 --'`,
+         WHERE Residence_Addresses_State = 'x'' OR 1=1 OR ''a''=''a'''`,
       ],
       // postgres reads a parenthesised join as one opaque FROM entry, which is
       // not a table it can allowlist, so it is refused rather than skipped.
