@@ -78,13 +78,10 @@ export class CaseScoutMessagesService extends createPrismaBase(
     super()
   }
 
-  async readSince(
-    since: Date | null,
-    dropInternal: boolean,
-  ): Promise<Message[]> {
+  async readSince(since: Date, dropInternal: boolean): Promise<Message[]> {
     const rows = await this.model.findMany({
       where: {
-        ...(since ? { createdAt: { gte: since } } : {}),
+        createdAt: { gte: since },
         conversation: {
           deletedAt: null,
           ...(dropInternal

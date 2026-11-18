@@ -35,7 +35,9 @@ const seedChat = async (email: string, scope = ChatScope.chief_of_staff) => {
 }
 
 const read = (dropInternal: boolean) =>
-  service.app.get(CaseScoutMessagesService).readSince(null, dropInternal)
+  service.app
+    .get(CaseScoutMessagesService)
+    .readSince(parseISO('2026-11-15T00:00:00.000Z'), dropInternal)
 
 describe('CaseScoutMessagesService', () => {
   beforeEach(() => {

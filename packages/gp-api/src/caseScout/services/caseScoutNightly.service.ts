@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { addMinutes, parseISO } from 'date-fns'
+import { addMinutes, parseISO, subHours } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { PinoLogger } from 'nestjs-pino'
 import { JobsService } from '@/jobs/jobs.service'
@@ -7,6 +7,7 @@ import {
   caseScoutEnabled,
   COVERED_SCOPES,
   filtersInternalAccounts,
+  FIRST_NIGHT_WINDOW_HOURS,
   sessionCap,
 } from '../caseScout.config'
 import type { Manifest } from '../schemas/caseScoutBucket.schema'
@@ -79,7 +80,7 @@ export class CaseScoutNightlyService {
     const lastSessionStart = marker.lastSessionStart ?? null
     const windowStart = lastSessionStart
       ? addMinutes(parseISO(lastSessionStart), -QUERY_OVERLAP_MINUTES)
-      : null
+      : subHours(now, FIRST_NIGHT_WINDOW_HOURS)
     const isInternalFilter = filtersInternalAccounts()
     const messages = await this.messages.readSince(
       windowStart,
@@ -94,7 +95,7 @@ export class CaseScoutNightlyService {
     return {
       runId,
       startedAt: now.toISOString(),
-      windowStart: windowStart?.toISOString() ?? null,
+      windowStart: windowStart.toISOString(),
       isInternalFilter,
       excludedProcessedCount,
       cappedCount,

@@ -11,6 +11,10 @@ export const DEFAULT_SPEND_CAP_USD = 50
 // price), not metered spend: the cap bounds a runaway, it does not bill.
 export const ESTIMATED_COST_PER_CALL_USD = 0.75
 
+// With no marker yet, a night reads one night's worth of chats. All history
+// would load up to 50,000 messages and spend the session cap on the oldest.
+export const FIRST_NIGHT_WINDOW_HOURS = 24
+
 export const caseScoutEnabled = (): boolean =>
   process.env.CASE_SCOUT_ENABLED === 'true'
 
