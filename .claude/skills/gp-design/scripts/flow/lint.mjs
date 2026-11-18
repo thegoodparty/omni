@@ -363,8 +363,11 @@ const walk = (node, ctx) => {
     const open = ts.isJsxElement(node) ? node.openingElement : node
     const name = open.tagName.getText(sf)
     const a = attrs(open)
-    const source = str(a['data-source'])
+    const sourceRefs = refsOf(a['data-source']) ?? []
+    const source = sourceRefs.find((r) => r !== '<unresolved>') ?? null
     const contentSources = refsOf(a['data-content-source'])
+    const mutationRef =
+      /^product\s+(\S+:\d+)/.exec(str(a['data-mutation']) ?? '')?.[1] ?? null
     // data-editor marks editor chrome sitting inside rendered content (a row of
     // controls over the email): its subtree is checked as product UI, not content.
     const editor = 'data-editor' in a
@@ -374,7 +377,14 @@ const walk = (node, ctx) => {
         : a.className.value.expr.getText(sf)
       : ''
     const next = {
-      source: ctx.source || source,
+      // The nearest cite wins: an element copied from another file inside a copied
+      // shell is checked against its own source, not the shell's.
+      // A data-mutation="product <path>:<line>" cites where the product draws it, so it
+      // stands in as the subtree's source.
+      source: source ?? mutationRef ?? ctx.source,
+      // Set only below an element that carries a cite: new markup there is checked
+      // against the cited file, so a wrapper's cite does not excuse what it holds.
+      inherited: source === null && mutationRef === null && Boolean(ctx.source),
       content: editor ? false : ctx.content || 'data-content' in a,
       contentSources: editor ? null : (contentSources ?? ctx.contentSources),
       gap: ctx.gap || 'data-gap' in a,
@@ -391,19 +401,35 @@ const walk = (node, ctx) => {
         `<${name} variant="seamless"> needs seamlessFieldHost on the card around it, or focus never shows (textarea.tsx)`,
       )
     const facts = elementFacts(node, open, name, a)
-    if (source !== null) {
-      if (sourceLine(source) === null)
+    for (const ref of sourceRefs) {
+      if (ref === '<unresolved>') {
         fail(
           open,
-          `data-source="${source}" is not <repo path>:<line> of a real line`,
+          'data-source: write it as "<path>:<line>", or as an expression whose values are such strings in this file',
         )
-      else if (!citeHolds(source, facts))
+        continue
+      }
+      if (sourceLine(ref) === null)
         fail(
           open,
-          `data-source="${source}": the lines around the cite (3 up, 8 down) hold none of this element's tag, classes or text; cite the line it was copied from`,
+          `data-source="${ref}" is not <repo path>:<line> of a real line`,
         )
-      markers.push({ kind: 'source', text: source, line: lineOf(open) })
+      else if (!citeHolds(ref, facts))
+        fail(
+          open,
+          `data-source="${ref}": the lines around the cite (3 up, 8 down) hold none of this element's tag, classes or text; cite the line it was copied from`,
+        )
+      markers.push({ kind: 'source', text: ref, line: lineOf(open) })
     }
+    // Below a cite, an element with no cite of its own is the product's only when the
+    // cited file holds its classes (copied markup keeps them; its text is often sample
+    // data standing in for a variable), or its text when it has no classes.
+    const fileText = next.source ? sourceNear(next.source, 1e6, 1e6) : ''
+    const copiedText =
+      !next.inherited ||
+      (facts.classes.length
+        ? facts.classes.every((c) => hasToken(fileText, c.toLowerCase()))
+        : facts.text.every((t) => fileText.includes(t.toLowerCase())))
     for (const ref of contentSources ?? []) {
       if (ref === '<unresolved>')
         fail(
@@ -463,7 +489,7 @@ const walk = (node, ctx) => {
       goTargets.push({ step: go.value, node: open })
 
     const plain = /^[a-z]/.test(name)
-    const earned = 'data-earned' in a || next.source
+    const earned = 'data-earned' in a || (next.source && copiedText)
     if (name === 'Alert' && !earned)
       fail(
         open,
@@ -584,7 +610,8 @@ const walk = (node, ctx) => {
       // A bracketed value (a hex, a width) in copied markup is the product's own only
       // when the source holds it.
       // On the element that carries data-source, the cited lines; below it, the cited file.
-      if (next.source && !('data-gap' in a) && mutation === null) {
+      // A data-gap covers its subtree: the missing component's own layout values.
+      if (next.source && !next.gap && mutation === null) {
         const near =
           source !== null
             ? sourceNear(source, 3, 9)
@@ -626,9 +653,12 @@ const walk = (node, ctx) => {
           )
       } else if (plain) {
         const visual = list.filter((t) => RESTYLE_RES.some((re) => re.test(t)))
+        const unsourced = next.inherited
+          ? visual.filter((t) => !hasToken(fileText, t.toLowerCase()))
+          : visual
         if (
-          visual.length &&
-          !next.source &&
+          unsourced.length &&
+          (!next.source || next.inherited) &&
           !next.gap &&
           !('data-earned' in a) &&
           mutation === null &&
@@ -636,7 +666,7 @@ const walk = (node, ctx) => {
         )
           fail(
             open,
-            `<${name}> draws its own look (${visual.join(' ')}): copy it from the product under data-source="<path>:<line>", or mark data-gap="<what>; proposes <component or C-xx>"`,
+            `<${name}> draws its own look (${unsourced.join(' ')}): copy it from the product under data-source="<path>:<line>" (below a cite, the cited file must hold the class), or mark data-gap="<what>; proposes <component or C-xx>"`,
           )
         const palette = list.filter((t) => PALETTE_RE.test(t))
         if (palette.length && !next.source && !next.content)
@@ -655,6 +685,7 @@ const walk = (node, ctx) => {
 const ROOT = {
   gap: false,
   source: null,
+  inherited: false,
   content: false,
   contentSources: null,
   parentAsChild: false,

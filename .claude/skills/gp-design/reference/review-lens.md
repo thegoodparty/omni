@@ -81,6 +81,9 @@ Check every option against `docs/product-design.md` and
   actions as on the phone (`docs/product-design.md` §10)?
 - Does every Other states screen follow `docs/product-design.md` §6 and §11
   (no bare "...ing..." loading line; AI waits per §11)?
+- Can every failure and loading state happen? Each needs a request the step
+  really makes for this person: read the handler first (a save that runs
+  only `if (campaign)` never fails for someone who has no campaign yet).
 - Is every rulebook-vs-code conflict, dropped behavior and ADR reversal on the
   page?
 - Small type, low contrast, or a flow only a technical user would get through are

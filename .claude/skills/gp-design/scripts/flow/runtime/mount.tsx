@@ -74,6 +74,19 @@ const Navigator = ({
             const target = (e.target as Element).closest('[data-go]')
             if (target) go(target.getAttribute('data-go') ?? 'entry')
           }}
+          // A copied link or button drawn as role="link"/"button" (raw <a> is banned)
+          // still answers the keyboard, as the product's does.
+          onKeyDown={(e) => {
+            const target = (e.target as Element).closest(
+              '[data-go][role="link"], [data-go][role="button"]',
+            )
+            if (!target || target !== e.target) return
+            const role = target.getAttribute('role')
+            if (e.key === 'Enter' || (e.key === ' ' && role === 'button')) {
+              e.preventDefault()
+              ;(target as HTMLElement).click()
+            }
+          }}
         >
           {Screen ? <Screen key={visit} /> : <Missing what={step} />}
         </div>

@@ -44,6 +44,9 @@ anything else, from the repo root, and fix what is missing without asking:
   Any script you write to render the page launches it the way
   `scripts/flow/shoot.mjs` does, `chromium.launch({ channel: 'chromium' })`:
   a plain `launch()` looks for a headless shell that this install skips.
+- Optional: the `amp` CLI or the Amplitude MCP for the baseline
+  (`.claude/skills/query-analytics-data/SKILL.md`). Without either, the
+  baseline is "Unknown" and the run goes on.
 
 ## 1. Take the task
 

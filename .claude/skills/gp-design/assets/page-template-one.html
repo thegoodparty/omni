@@ -45,6 +45,8 @@ body[data-view] > :not(#gp-view) { display: none; }
   .page { padding-left: 0; padding-right: 0; }
   .brief, .option > h2, .option > p, .frame-head, .appendix, .sources, .drops, .mutations, .build-shape { padding-left: 16px; padding-right: 16px; }
   .gp-frame--phone { width: 100%; border-radius: 0; border-left: 0; border-right: 0; }
+  /* The bar wraps to several rows on a phone; sticky, it would cover the frame. */
+  .page-bar { position: static; }
 }
 /* Other states: collapsed under the frame so the happy path stays uncluttered. */
 .appendix, .sources, .drops, .mutations { margin-top: 16px; max-width: 1200px; }

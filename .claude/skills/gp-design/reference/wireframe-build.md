@@ -58,8 +58,13 @@ no review page around it and no `data-gp-flow` mount: the screen sits in
 `#gp-view > [data-gp-frame]`, so a script that clicks through it looks there.
 `scripts/flow/shoot.mjs` shoots every screen and state this way, waits for an
 open overlay to finish sliding in, adds a `-full.png` at the screen's full
-height when something in the frame scrolls, and reports two keys that shoot
-identically (a state that opens the wrong screen).
+height when something in the frame scrolls, and reports two keys of one
+option that shoot identically (a state that opens the wrong screen).
+
+A screen with a bar fixed to the bottom (a reading page with actions) is an
+`h-dvh` flex column with a scrolling body, not `position: fixed`: the frame
+turns `dvh` into its own height. To open such a screen scrolled to a section,
+call `scrollIntoView` on it from a `useEffect` in that screen.
 
 So one flow draws both widths, as the product does:
 
@@ -137,10 +142,19 @@ that in a flow:
    `DashboardMenu.tsx`), same title bar, same cards, same row layout, same sheet
    pattern, same labels word for word. Copy each element's classes from its
    source and put `data-source="<path>:<line>"` on the outermost element you
-   copied, naming the line of that element; it covers everything inside it.
-   The lint reads the cited file: the lines around the cite (3 up, 8 down)
-   must hold that element's component tag, one of its classes, or its text,
-   so an import line or a nearby line that only looks right fails.
+   copied, naming the line of that element. The lint reads the cited file:
+   the lines around the cite (3 up, 8 down) must hold that element's component
+   tag, one of its classes, or its text, so an import line or a nearby line
+   that only looks right fails. A cite can be a const or template
+   (``data-source={`${DIR}/Card.tsx:27`}``), read like `data-content-source`.
+   The cite covers what's inside it only as far as the cited file holds it:
+   an element below it with no cite of its own passes when the cited file has
+   all its classes (or its text, when it has none), so new markup inside a
+   copied shell still needs its own cite, a `data-gap` or `data-earned`. The
+   nearest cite wins: an element copied from another file (a card inside a
+   copied page) carries its own `data-source`, and everything below it is
+   read against that file. A `data-mutation="product <path>:<line>"` counts as
+   the cite for its subtree.
    Classes copied as they are keep the visual order: the `OutreachFlowShell.tsx`
    footer is `flex-row-reverse` with the main action first in the DOM, so Back
    shows on the left. Secondary text the source ships (a muted caption, a price line) is earned by
@@ -154,7 +168,8 @@ that in a flow:
    - Unchanged screens, and shared shell and chrome the ticket doesn't change
      (the flow footer, the header), are copied as shipped, audit problems
      included, even on a changed step, and listed under "Rulebook vs code
-     (copied, no action)".
+     (copied, no action)". The one exception is a banned word ("Words"):
+     rewrite it even on an unchanged screen.
    - When the rule conflicts with the designer's direction, or the rulebook
      ties fixing the gap to this change (`docs/product-design.md` §3, "move it
      to a page"), list it under "Decisions needed" with both sources.
@@ -167,7 +182,10 @@ that in a flow:
    screen "as shipped", list every conditional string and control in its source
    component (rendered under `&&` or a ternary) and say whether the fixture
    state shows it. Anything the frame drops goes in `#<x>-drops`. A summary you
-   copy keeps its real rows and numbers: no invented rows or numbers.
+   copy keeps its real rows and numbers: no invented rows or numbers. "As
+   shipped" covers control state too: which buttons are disabled until input,
+   which option starts selected. A count the source computes ("Sources (2)")
+   matches what the frame draws.
 5. **Sub-steps copy the sibling flow.** A sub-step reached from a step (a crop
    opened from an upload step) copies how the sibling flow does it. Count it
    as a segment in the progress bar only when it sits in the forward sequence
@@ -234,7 +252,15 @@ The rules are gp-webapp's `check:design-system` (`packages/gp-webapp/AGENTS.md`,
 - **Earned elements.** A muted paragraph (`<p>` with `text-muted-foreground`),
   an `Alert`, and a new plain element that needs its own look (a helper line)
   carry `data-earned="<why>"` unless they're copied under `data-source`. A
-  `data-gap` covers the element's subtree, like `data-source`.
+  `data-gap` covers its subtree's look and bracketed layout values, but not
+  earned text: a muted paragraph under a gap still needs `data-earned`.
+- **Links.** A copied link or button you can't draw as a component (a raw
+  `<a>` is banned) is a plain element with `role="link"` or `role="button"`,
+  `tabIndex={0}` and `data-go`; the runtime answers Enter (and Space on a
+  button) as the product does.
+- **Component defaults.** A styleguide default that breaks the copy rules
+  shows on every screen: `SourceCitation`'s `internalFooter` has an em dash,
+  so pass your own.
 
 Each `data-mutation` and `data-gap` marker gets a row in the option's Mutations
 list (`<details class="mutations" id="a-mutations">`): the element, the kind

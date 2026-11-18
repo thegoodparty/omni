@@ -38,8 +38,9 @@ A task passes when all three hold:
 
 - `scripts/check.py` with no flag prints `ok` (or with `--skip-build-shape`
   when the run wrote `no-build-shape.txt`).
-- The senior design review (`senior-review.md`) returns no Do in list A
-  after the fixes.
+- Every Do in the senior design review's list A (`senior-review.md`) is
+  fixed or listed under Decisions needed, as counted by the check after the
+  fixes (`senior-review.md`, "What to do with the findings" step 3).
 - Every clause of the direction is delivered on the page, or listed in
   `#<x>-drops` or "Decisions needed". Tasks 2 to 4 have no direction: the
   ticket or the one-line ask stands in for it.

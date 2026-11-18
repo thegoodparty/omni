@@ -151,9 +151,10 @@ const shootFull = async (page, file) => {
   const frame = await page.$('[data-gp-frame]')
   return frame.screenshot({ path: file })
 }
+// Options may share a screen (the entry, a landing step), so compare within one option.
 const hashes = new Map()
-const remember = (buf, name) => {
-  const h = createHash('sha256').update(buf).digest('hex')
+const remember = (buf, name, oid) => {
+  const h = oid + createHash('sha256').update(buf).digest('hex')
   if (hashes.has(h))
     found.push(
       `${name} looks exactly like ${hashes.get(h)}: check that it opens what its key says`,
@@ -178,7 +179,7 @@ for (const { oid, kind, key } of keys) {
     const shot = await page.screenshot({ path: path.join(out, `${name}.png`) })
     const full = await shootFull(page, path.join(out, `${name}-full.png`))
     if (label === 'phone' || label === 'desktop')
-      remember(full ?? shot, `${name}${full ? '-full' : ''}.png`)
+      remember(full ?? shot, `${name}${full ? '-full' : ''}.png`, oid)
     await ctx.close()
   }
 }

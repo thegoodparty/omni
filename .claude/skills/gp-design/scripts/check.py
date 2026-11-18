@@ -285,12 +285,14 @@ def main():
     src = index.resolve().parent / 'src.html'
     skip = index.resolve().parent.parent / 'no-build-shape.txt'
     skip_reason = skip.read_text().strip() if skip.exists() else ''
-    if not skip_build_shape and not build.is_dir() and not skip_reason:
+    # An empty build/ (made up front, then skipped) doesn't override the skip note.
+    has_build = build.is_dir() and any(build.glob('option-*.html'))
+    if not skip_build_shape and not has_build and not skip_reason:
         problems.append(
             f'no build shapes: run build-shape in UX mode, or write {skip} '
             'with one line on why this has no system change'
         )
-    if build.is_dir() and not skip_build_shape:
+    if has_build and not skip_build_shape:
         src_html = src.read_text() if src.exists() else ''
         if not src_html:
             problems.append(f'{build} exists but {src} is missing; build shapes are hashed against src.html')
@@ -319,7 +321,8 @@ def main():
             ctx = text[max(0, m.start() - 30):m.end() + 30].replace('\n', ' ')
             problems.append(f'{label}: ...{ctx}...')
     for word in copy_doc_words():
-        for m in re.finditer(r'\b' + re.escape(word) + r'\b', text, flags=re.I):
+        # Inflected forms count: "empowered" is "empower".
+        for m in re.finditer(r'\b' + re.escape(word) + r'(?:s|es|d|ed|ing|ment|ments)?\b', text, flags=re.I):
             ctx = text[max(0, m.start() - 30):m.end() + 30].replace('\n', ' ')
             problems.append(f'"{word}" (docs/product-copy.md, Words we do not use): ...{ctx}...')
     serve_text = visible_text(html, skip_win=True, skip_quoted=True)
@@ -497,7 +500,12 @@ def main():
         problems.append('page over 5 MB')
 
     if problems:
-        print('\n'.join(f'- {p}' for p in problems))
+        # One line per problem, with a count when the same one repeats (a hidden
+        # popover rendered on every screen).
+        counts = {}
+        for p in problems:
+            counts[p] = counts.get(p, 0) + 1
+        print('\n'.join(f'- {p}' + (f' (x{n})' if n > 1 else '') for p, n in counts.items()))
         sys.exit(1)
     print('ok')
 

@@ -10,7 +10,8 @@ Give the subagent this brief, with the paths filled in:
 
 > You are a senior product designer at GoodParty reviewing a design an agent
 > just built. Be rigorous and independent; don't assume it's good. Do not
-> edit anything.
+> edit the page, the flow files or the repo; put your screenshots and any
+> scripts in `<work>/senior-review/`.
 >
 > Read the rules: `docs/product-design.md` (the whole file),
 > `packages/styleguide/COMPONENTS.md`, `docs/design-memory/learned.md`,
@@ -23,7 +24,8 @@ Give the subagent this brief, with the paths filled in:
 > at 1023 and 1024, and 320 with no sideways scroll), check the fold at
 > 375x812. Click through the phone frame and Desktop preview;
 > `?view=phone&step=<key>` and `?view=desktop&step=<key>` open one screen
-> alone. Read today's code for every screen the design copies or changes. Compare it
+> alone, `&state=<key>` in place of `&step` opens a state, and on an options
+> page add `&option=b` or `&option=c`. Read today's code for every screen the design copies or changes. Compare it
 > against the reference screens in `docs/product-design.md` §13 for the same
 > kind of screen.
 >
@@ -58,10 +60,15 @@ Give the subagent this brief, with the paths filled in:
    `#questions`.
 2. Rebuild, then rerun steps 7 to 9 of `reference/options-workflow.md`: the check, the step 8
    review and `build-shape`, because any edit to the option makes the build
-   shape stale. The step 8 rerun fixes only what the senior review fixes
-   broke; it never undoes a senior review fix.
+   shape stale. The step 8 rerun is a new subagent with a narrow brief: "Read
+   the senior review's list A and the page. Check that each fix landed and
+   broke nothing near it; fix only what the fixes broke, never undo one."
 3. One review round only. Don't ask the person before fixing and don't run
-   the review again: fix, rebuild, pass the check, and hand back. List anything
-   from list A you didn't fix, and why, in the hand-back.
+   the full review again: fix, rebuild, pass the check, and hand back. Then a
+   fresh subagent with this brief and the list A findings checks, without
+   editing, whether each Do is fixed or listed under Decisions needed, and
+   returns the counts left of Do, Consider and Nit. Those are the "after"
+   counts. List anything from list A you didn't fix, and why, in the
+   hand-back.
 4. List B goes in the hand-back under "Skill feedback". Don't edit the skill
    during a design run; the person decides whether it becomes a PR.

@@ -115,6 +115,9 @@ from its source, never drawn as a gray block.
 Every person, place and sample value comes from
 `docs/design-memory/fixtures.md`, including the sample recipient a merge tag
 preview fills in. Never put real constituent, voter or CRM data on the page.
+When the fixtures lack something the design needs, use a plausible value,
+keep every date in the future, and add "add <what> to fixtures.md" under
+Decisions needed. "Gap:" is for components only.
 
 ## Process
 
@@ -157,7 +160,9 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    source file of each. Build today's version of each from that source, render it
    next to the version on the page, and compare layout, labels and navigation.
    Never invent a screen. How, in `reference/wireframe-build.md`, "Existing
-   screens". To see today's screen, in this order: run the local app or dev
+   screens". Screens behind sign-in (onboarding, the dashboard) can't be seen
+   without a session the person gives you; with none, go straight to captures
+   and code. To see today's screen, in this order: run the local app or dev
    with Playwright, if you can; else use screenshots from an existing capture;
    else compare against the code only, and say so in the brief and the
    post-back. Never sign in by creating a user: no test users, and no
@@ -230,8 +235,7 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    hardcoded colors, `style={}`, shrunk text, off-scale spacing, unearned
    muted text and banners, a seamless field with no host, a cite that holds
    nothing of what it claims, and `data-go` to no screen. Then render
-   it with `agent-browser` (headless Chromium), or Playwright (channel
-   `chromium`) when `agent-browser` isn't installed. Playwright lives in the
+   it with Playwright (channel `chromium`). Playwright lives in the
    repo root `node_modules`, or the main checkout's when a worktree has none.
    Render at the widths in `docs/product-design.md` §10: 375px and 1280px,
    once at 1023px and 1024px for layouts that change at the breakpoint, and
@@ -241,8 +245,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    screenshots the page and every screen and state alone (phone, and each
    screen at 1280, 1024 and 1023), at full height when the screen scrolls,
    clicks every `data-go` on every screen at 375, and reports page errors,
-   blank icons, sideways scroll, dead `data-go` and screens that come out
-   identical. It does not follow a path of several screens, so click through
+   blank icons, sideways scroll, dead `data-go` and screens of one option
+   that come out identical. It does not follow a path of several screens, so click through
    each path yourself to see that a choice made on one screen (a photo, a
    color) is still there on the next. To open one
    screen yourself, `?view=phone` or `?view=desktop` with `&step=<screen key>`
@@ -274,11 +278,12 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
 9. **Add how it's built, then the final check.** Build shapes come last because
    any edit to an option makes its build shape stale. Run the `build-shape`
    skill (`.claude/skills/build-shape/SKILL.md`) in UX mode on
-   `<work>/page/src.html` and the flow files. Wherever build-shape names a
+   `<work>/page/src.html` and the flow files. **build-shape is written for
+   ux-review-options: wherever it names a
    script under `.claude/skills/ux-review-options/scripts/` (`option_section.py`,
    `build.py`), run the one with the same name under
    `.claude/skills/gp-design/scripts/` instead: only it hashes the flow file,
-   and `check.py` here rejects a fragment hashed any other way. build-shape's
+   and `check.py` here rejects a fragment hashed any other way.** build-shape's
    own scripts (its `check.py` on the fragments) run as it says. It writes one fragment per option to `<work>/build/`,
    which is reserved for those fragments: backups and tools go elsewhere.
    Its notes go to `<work>/build-shape-notes.md`. A risk it reports about an
@@ -286,8 +291,10 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    `#<x>-drops`. Editing `#<x>-drops` or the flow file changes the option's
    hash, so rerun this step after it.
    Rerun `build.py`, which inlines each fragment at the end of its option. This
-   step is required. Skip it only when no option touches the system (copy or
-   layout only): then write one line on why to `<work>/no-build-shape.txt`.
+   step is required. Skip it only when no option touches the system: copy,
+   layout, or a screen's own states only. Any change to an API, a contract, a
+   job, a stored field or a field the front end needs from the API touches it.
+   Then write one line on why to `<work>/no-build-shape.txt`.
    Then run `python3 scripts/check.py <work>/page/index.html` with no flag: it
    also fails when build shapes are missing (with no skip note), stale, or
    showing by default. Render at the step 7 widths, confirm the build
