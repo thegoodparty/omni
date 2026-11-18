@@ -136,7 +136,11 @@ class FakeChatStore {
     return Promise.resolve([...sliced])
   }
 
-  replayedReplyTo(userMessageId: string): Promise<ChatMessage | null> {
+  replayedReplyTo({
+    userMessageId,
+  }: {
+    userMessageId: string
+  }): Promise<ChatMessage | null> {
     this.replayedFor = userMessageId
     const list = this.messagesByConversation.get(this.replyConversationId) ?? []
     const userIndex = list.findIndex((m) => m.id === userMessageId)

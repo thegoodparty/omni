@@ -33,10 +33,11 @@ type ScriptStep = {
   failMidStream?: boolean
 }
 
-const scriptedModel = (script: ScriptStep[]) => {
+const scriptedModel = (script: ScriptStep[], prompts: unknown[]) => {
   let step = 0
   return new MockLanguageModelV3({
-    doStream: async () => {
+    doStream: async ({ prompt }) => {
+      prompts.push(prompt)
       const s = script[step] ?? {}
       step += 1
       const chunks: unknown[] = [{ type: 'stream-start', warnings: [] }]
@@ -128,7 +129,8 @@ describe('chat turns stored on AgentMessage from the real model loop', () => {
     sendTo?: { conversationId: string; id: string },
   ) => {
     const anthropic = createAnthropic({ apiKey: 'test' })
-    const model = scriptedModel(script)
+    const prompts: unknown[] = []
+    const model = scriptedModel(script, prompts)
     ;(
       service.app.get(LlmService) as unknown as ProviderSlot
     ).anthropicProvider = {
@@ -154,7 +156,7 @@ describe('chat turns stored on AgentMessage from the real model loop', () => {
       `/v1/chats/${conversationId}?scope=${COS}`,
       headers,
     )
-    return { conversationId, rows, history: history.data }
+    return { conversationId, rows, history: history.data, prompts }
   }
 
   const partTypes = (parts: unknown): string[] =>
@@ -359,5 +361,34 @@ describe('chat turns stored on AgentMessage from the real model loop', () => {
     expect(retried.history.messages.at(-1).content).toBe(
       'Nothing new this week.',
     )
+  })
+
+  it('re-runs a retried turn that was cut off mid-reply', async () => {
+    const created = await service.client.post(
+      '/v1/chats',
+      { scope: COS },
+      headers,
+    )
+    const sendTo = {
+      conversationId: created.data.conversationId as string,
+      id: randomUUID(),
+    }
+    const interrupted = await send(
+      [{ text: 'Half an ans', failMidStream: true }],
+      'What is new?',
+      sendTo,
+    )
+    expect(interrupted.history.messages[1].content).toBe('Half an ans')
+    const retried = await send(
+      [{ text: 'Nothing new this week.' }],
+      'What is new?',
+      sendTo,
+    )
+    expect(retried.history.messages.at(-1).content).toBe(
+      'Nothing new this week.',
+    )
+    expect(retried.prompts).toHaveLength(1)
+    expect(JSON.stringify(retried.prompts[0])).toContain('Half an ans')
+    expect(JSON.stringify(retried.prompts[0])).not.toContain('interrupted')
   })
 })

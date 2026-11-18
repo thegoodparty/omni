@@ -291,7 +291,11 @@ export class GeneralChatsService {
         // consecutive assistant turns on the candidate's next real message.
         // A retry finds the reply already stored under its derived id and
         // replays it instead of appending a second one.
-        const reply = await self.chatStore.replayedReplyTo(args.userMessageId)
+        const reply = await self.chatStore.replayedReplyTo({
+          userMessageId: args.userMessageId,
+          conversationId: args.conversationId,
+          ownerUserId: args.userId,
+        })
         if (reply) {
           yield { type: 'text', delta: reply.content }
           yield { type: 'done', assistantMessageId: reply.id }

@@ -12,6 +12,7 @@ import {
   AgentMessageDraft,
   agentMessagesToChatMessages,
   chatMessageToAgentMessages,
+  isObject,
 } from './chatAgentMessages.util'
 
 // Returned to a client that reused a user message id for a turn that is not
@@ -146,8 +147,11 @@ export class ChatStoreService extends createPrismaBase(
     // The turn's real AgentMessage rows; without them the message is stored
     // as its own single row.
     agentMessages?: AgentMessageDraft[]
+    // A reply cut off mid-stream. Its last text part carries the mark, so a
+    // retry of the same send runs the turn again instead of replaying it.
+    interrupted?: boolean
   }): Promise<ChatMessage> {
-    const drafts =
+    const built =
       args.agentMessages ??
       chatMessageToAgentMessages({
         role: args.role,
@@ -166,6 +170,25 @@ export class ChatStoreService extends createPrismaBase(
           payload: s.payload ?? null,
         })),
       })
+    const drafts = args.interrupted
+      ? built.map((draft) => {
+          if (draft.role !== AgentMessageRole.assistant) return draft
+          const lastText = draft.parts.findLastIndex(
+            (part) => isObject(part) && part['type'] === 'text',
+          )
+          return {
+            ...draft,
+            parts: draft.parts.map((part, i) =>
+              i === lastText && isObject(part)
+                ? {
+                    ...part,
+                    providerOptions: { goodparty: { interrupted: true } },
+                  }
+                : part,
+            ),
+          }
+        })
+      : built
     return this.client.$transaction(async (tx) => {
       await lockConversation(tx, args.conversationId)
       const ids = await insertDrafts(
@@ -312,12 +335,22 @@ export class ChatStoreService extends createPrismaBase(
     })
   }
 
-  // The stored reply to a user turn: the assistant rows that follow it, read
-  // back as the one message the client saw. Null when the turn has none, so
-  // the caller finishes the turn instead of replaying nothing.
-  async replayedReplyTo(userMessageId: string): Promise<ChatMessage | null> {
+  // The stored reply to a user turn in the caller's own conversation: the
+  // assistant rows that follow it, read back as the one message the client
+  // saw. Null when the turn has none or was cut off mid-stream, so the caller
+  // finishes the turn instead of replaying nothing or a partial reply.
+  async replayedReplyTo(args: {
+    userMessageId: string
+    conversationId: string
+    ownerUserId: number
+  }): Promise<ChatMessage | null> {
     const userRow = await this.client.agentMessage.findFirst({
-      where: { id: userMessageId },
+      where: {
+        id: args.userMessageId,
+        conversationId: args.conversationId,
+        role: AgentMessageRole.user,
+        conversation: { ownerUserId: args.ownerUserId, deletedAt: null },
+      },
       select: { conversationId: true, index: true },
     })
     if (!userRow?.conversationId) return null
@@ -334,6 +367,18 @@ export class ChatStoreService extends createPrismaBase(
     )
     const turn = nextUser === -1 ? following : following.slice(0, nextUser)
     if (turn.length === 0) return null
+    const interrupted = turn.some(
+      (row) =>
+        Array.isArray(row.parts) &&
+        row.parts.some((part) => {
+          if (!isObject(part)) return false
+          const options = part['providerOptions']
+          if (!isObject(options)) return false
+          const goodparty = options['goodparty']
+          return isObject(goodparty) && goodparty['interrupted'] === true
+        }),
+    )
+    if (interrupted) return null
     const reply = agentMessagesToChatMessages(turn).at(-1)
     return reply?.role === ChatMessageRole.assistant ? reply : null
   }

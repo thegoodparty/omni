@@ -928,7 +928,13 @@ describe('GeneralChatsController (integration)', () => {
       const assistant = await service.prisma.agentMessage.findFirst({
         where: { conversationId, role: AgentMessageRole.assistant },
       })
-      expect(assistant?.parts).toEqual([{ type: 'text', text: 'Partial' }])
+      expect(assistant?.parts).toEqual([
+        {
+          type: 'text',
+          text: 'Partial',
+          providerOptions: { goodparty: { interrupted: true } },
+        },
+      ])
       expect(assistant?.inputTokens).toBeNull()
       expect(await getUsage(conversationId, COS_SCOPE, headers)).toEqual({
         complete: false,

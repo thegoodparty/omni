@@ -654,7 +654,11 @@ export class ChatStreamService {
       // that arrived before the turn finished has no reply yet, and finishes
       // the turn instead, and so does a retry of a turn that was interrupted
       // before any output.
-      const reply = await this.store.replayedReplyTo(appended.message.id)
+      const reply = await this.store.replayedReplyTo({
+        userMessageId: appended.message.id,
+        conversationId: args.conversationId,
+        ownerUserId: args.ownerUserId,
+      })
       if (reply && reply.content !== CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER) {
         yield { type: 'text', delta: reply.content }
         yield { type: 'done', assistantMessageId: reply.id }
@@ -838,6 +842,7 @@ export class ChatStreamService {
             segments,
             cleanFinish,
             agentMessages,
+            !cleanFinish,
           )) ??
           // Only an interrupted turn falls back to the sentinel. A clean finish
           // that produced no content was not interrupted — persist nothing
@@ -1276,6 +1281,7 @@ export class ChatStreamService {
     segments?: PersistedSegment[],
     allowToolOnly = false,
     agentMessages?: AgentMessageDraft[],
+    interrupted = false,
   ): Promise<ChatMessage | null> {
     const row = assistantRowToPersist(text, segments, allowToolOnly)
     if (!row) return null
@@ -1284,6 +1290,7 @@ export class ChatStreamService {
       role: ChatMessageRole.assistant,
       ...row,
       ...(agentMessages && { agentMessages }),
+      ...(interrupted && { interrupted }),
     })
   }
 }

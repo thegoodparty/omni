@@ -719,7 +719,11 @@ describe('GeneralChatsService', () => {
       { type: 'text', delta: 'Welcome aboard!' },
       { type: 'done', assistantMessageId: 'assistant-msg-1' },
     ])
-    expect(chatStore.replayedReplyTo).toHaveBeenCalledWith(userMessageId)
+    expect(chatStore.replayedReplyTo).toHaveBeenCalledWith({
+      userMessageId,
+      conversationId: 'c1',
+      ownerUserId: USER_ID,
+    })
     expect(chatStore.appendUserMessageIfAlive).not.toHaveBeenCalled()
     expect(chatStore.appendMessage).not.toHaveBeenCalled()
     expect(chatStream.stream).not.toHaveBeenCalled()

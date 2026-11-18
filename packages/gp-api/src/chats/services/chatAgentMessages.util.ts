@@ -75,7 +75,7 @@ const JsonSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
 const toJson = (value: unknown): Prisma.JsonValue =>
   JsonSchema.parse(JSON.parse(JSON.stringify(value ?? null)))
 
-const isObject = (value: unknown): value is JsonObject =>
+export const isObject = (value: unknown): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 // The AI SDK has no citation part, so a citation rides as an empty text part

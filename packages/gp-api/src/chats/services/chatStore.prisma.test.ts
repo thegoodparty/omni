@@ -527,7 +527,11 @@ describe('ChatStoreService', () => {
         content: 'answer',
       })
 
-      const replayed = await store.replayedReplyTo(id)
+      const replayed = await store.replayedReplyTo({
+        userMessageId: id,
+        conversationId: convo.id,
+        ownerUserId: service.user.id,
+      })
 
       expect(replayed?.id).toBe(reply.id)
       expect(replayed?.content).toBe('answer')
@@ -543,7 +547,13 @@ describe('ChatStoreService', () => {
         id,
       })
 
-      expect(await store.replayedReplyTo(id)).toBeNull()
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: id,
+          conversationId: convo.id,
+          ownerUserId: service.user.id,
+        }),
+      ).toBeNull()
     })
 
     it('does not reach into the next turn', async () => {
@@ -566,7 +576,70 @@ describe('ChatStoreService', () => {
         content: 'answer',
       })
 
-      expect(await store.replayedReplyTo(first)).toBeNull()
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: first,
+          conversationId: convo.id,
+          ownerUserId: service.user.id,
+        }),
+      ).toBeNull()
+    })
+    it('does not replay a turn from another conversation or owner', async () => {
+      const convo = await createConversation(service.user.id)
+      const id = randomUUID()
+      await store.appendUserMessageIfAlive({
+        conversationId: convo.id,
+        ownerUserId: service.user.id,
+        content: 'question',
+        id,
+      })
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.assistant,
+        content: 'answer',
+      })
+      const otherConvo = await createConversation(service.user.id)
+
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: id,
+          conversationId: otherConvo.id,
+          ownerUserId: service.user.id,
+        }),
+      ).toBeNull()
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: id,
+          conversationId: convo.id,
+          ownerUserId: service.user.id + 1,
+        }),
+      ).toBeNull()
+    })
+
+    it('does not replay a reply that was cut off mid-stream', async () => {
+      const convo = await createConversation(service.user.id)
+      const id = randomUUID()
+      await store.appendUserMessageIfAlive({
+        conversationId: convo.id,
+        ownerUserId: service.user.id,
+        content: 'question',
+        id,
+      })
+      const partial = await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.assistant,
+        content: 'half an ans',
+        interrupted: true,
+      })
+
+      expect(partial.content).toBe('half an ans')
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: id,
+          conversationId: convo.id,
+          ownerUserId: service.user.id,
+        }),
+      ).toBeNull()
     })
   })
 
