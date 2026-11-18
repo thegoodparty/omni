@@ -14,7 +14,8 @@
 -- reported instead, and NOT NULL follows in its own migration once prod is
 -- known to have none. Nothing is deleted: those rows keep their conversation
 -- and comment, and read as unkeyed until they are re-pointed. The unique index
--- below tolerates them, as Postgres treats NULLs as distinct.
+-- on (submitter_user_id, agent_message_id) that #3872's migration already
+-- created tolerates them, as Postgres treats NULLs as distinct.
 DO $$
 DECLARE
     unkeyed bigint;
