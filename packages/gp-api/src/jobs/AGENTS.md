@@ -210,6 +210,13 @@ migrated triggers disagree, so nothing reaches a handler until both are in.
 - **A new row's insert is one write, an update is one.** A backfill or a
   data repair that changes thousands of rows fires the handler thousands of
   times.
+- **Never capture a table with secret columns as is.** The trigger copies
+  whole rows, so a handler on `user` would put `password` and
+  `password_reset_token` into `db_change`, where the source table's
+  column-level grants do not reach. Before adding a handler on `user`,
+  `peerly_phone_list` or any table with a token, hash or key column, make
+  `db_change_capture()` drop those columns from both copies. `db_change`
+  itself is revoked from `databricks_federation`.
 - **`TRUNCATE` is not captured**, and neither is a `DELETE` cascade from a
   parent table: only `AFTER ROW INSERT/UPDATE/DELETE` on the table itself.
 - **A write inside a transaction is captured when the transaction
