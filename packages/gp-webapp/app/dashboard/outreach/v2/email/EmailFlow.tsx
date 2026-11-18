@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
-import type { EmailDraft } from '@goodparty_org/contracts'
+import type { EmailDraft, EmailSend } from '@goodparty_org/contracts'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeImportContactsFlag } from 'app/shared/experiments/serveImportContactsFlag'
 import { useContactUploads } from 'app/dashboard/contacts/crm/import/importContactsApi'
 import { getImportContactsCopy } from 'app/dashboard/contacts/crm/import/importContactsCopy'
@@ -12,6 +13,7 @@ import { Alert, AlertDescription, toast } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { ChannelBadge } from '../channelMeta'
+import { outreachEventProps } from '../../util/outreachAnalytics'
 import { useOutreachAudience } from '../audience/useOutreachAudience'
 import { EmailAudienceStep } from './EmailAudienceStep'
 import { EmailGoalStep } from './EmailGoalStep'
@@ -95,6 +97,10 @@ export const EmailFlow = ({
   const [writePresses, setWritePresses] = useState(0)
   const [lookAttempted, setLookAttempted] = useState(false)
   const [draftId, setDraftId] = useState<number | null>(draft?.id ?? null)
+  // A reopened draft reported itself created when it was first saved, and a
+  // ref rather than draftId because the upload path saves from a closure
+  // that can still read draftId as null.
+  const createdTracked = useRef(draft !== undefined)
   const draftListId = loaded?.listId ?? null
   const audience = useOutreachAudience({
     open,
@@ -249,6 +255,47 @@ export const EmailFlow = ({
     return true
   }
 
+  // The first save is when the email becomes a campaign: the row exists and
+  // waits in the history, having reached nobody yet.
+  const trackCreated = (id: number, list: number | null) => {
+    const recipientCount = audience.reachableCount ?? everyone.count
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
+      ...outreachEventProps({
+        channel: 'email',
+        isServe: surface.isServe,
+        outreachCampaignId: id,
+        ...(recipientCount !== null ? { recipientCount } : {}),
+        ...(list !== null ? { listId: list } : {}),
+        audienceSource: audience.audienceSource,
+        ...(goalId ? { purpose: goalId } : {}),
+      }),
+    })
+  }
+
+  // Confirm moved the send out of draft with the card held, the moment gp-api
+  // fires `Email - Send Completed`. A declined card never reaches here.
+  const trackCompleted = (send: EmailSend) => {
+    const recipientCount =
+      send.recipientCap ?? send.estimate?.recipientCap ?? null
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+      ...outreachEventProps({
+        channel: 'email',
+        isServe: surface.isServe,
+        outreachCampaignId: send.id,
+        ...(recipientCount !== null ? { recipientCount } : {}),
+        // A Date, not the ISO string, so the day is the sender's local one.
+        // A send-now is stamped with its send time at confirm.
+        sendDate: send.date ? new Date(send.date) : new Date(),
+        ...(send.priceCents !== null ? { price: send.priceCents / 100 } : {}),
+        ...(send.voterFileFilterId !== null
+          ? { listId: send.voterFileFilterId }
+          : {}),
+        audienceSource: audience.audienceSource,
+        ...(goalId ? { purpose: goalId } : {}),
+      }),
+    })
+  }
+
   // `list` is for a list just picked, before the selection has rendered.
   const save = async (
     date: string | undefined,
@@ -262,6 +309,10 @@ export const EmailFlow = ({
         toDraftSave(goalText, compose, draftId, date, list),
       )
       setDraftId(draft.id)
+      if (!createdTracked.current) {
+        createdTracked.current = true
+        trackCreated(draft.id, list)
+      }
       setSavedKey(
         JSON.stringify(
           toDraftSave(goalText, compose, null, date, list ?? keyListId),
@@ -521,7 +572,10 @@ export const EmailFlow = ({
             surface={surface}
             draftId={draftId}
             scheduled={schedule.ok && schedule.iso !== undefined}
-            onPaid={() => setPaid(true)}
+            onPaid={(send) => {
+              trackCompleted(send)
+              setPaid(true)
+            }}
             onConfirmAttempted={() => setConfirmTried(true)}
             onFixBlock={fixBlock}
           />
