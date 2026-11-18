@@ -1708,11 +1708,12 @@ describe('the arms reach AWS on the role, not on the stub', () => {
       })
       .filter((client) => client.any > 0)
     expect(found).toEqual([
+      { file: 'braveKey.ts', any: 1, exact: 1 },
       { file: 'guard/appendGuardBaselineTrailerCli.ts', any: 2, exact: 2 },
       { file: 'guard/guardBaselineCli.ts', any: 2, exact: 2 },
       { file: 'guard/guardLedgerCli.ts', any: 1, exact: 1 },
       { file: 'guard/judgeSpendCli.ts', any: 2, exact: 2 },
-      { file: 'sweep.eval.test.ts', any: 2, exact: 2 },
+      { file: 'sweep.eval.test.ts', any: 3, exact: 3 },
       { file: 'sweepEnv.ts', any: 1, exact: 1 },
     ])
   })

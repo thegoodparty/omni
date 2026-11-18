@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
-import { isChatCase } from './cases'
+import { isChatCase, loadSeedPages } from './cases'
 import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
 import { chatArmRuntimeFor } from './runners/httpChatRuntime'
 import { captureArm, unjudgeableRecords, type ArmCaseRequest } from './sweepArm'
+import { installBraveKey } from './braveKey'
 import { restoreRealModelKey } from './modelKey'
 import { judgeAwsClientConfig } from './awsCredentials'
 import { S3Client } from '@aws-sdk/client-s3'
@@ -15,7 +16,16 @@ import {
   sqsDispatchQueue,
 } from './runners/awsAdapters'
 import type { BackgroundRunnerDeps } from './runners/background'
-import { runBackgroundCase } from './runners/background'
+import { pageReplayFor, runBackgroundCase } from './runners/background'
+import {
+  IN_PROCESS_AGENTS,
+  prismaRunReader,
+  recordOnly,
+  runInProcessBackgroundCase,
+} from './runners/backgroundInProcess'
+import { seedJudgeFixture } from './judgeFixtureSeed'
+import { AgentsService } from '@/agents/agents.service'
+import { AgentPageReplayService } from '@/agents/tools/judgeReplay'
 import {
   ARM_BUDGET_MS,
   armDeps,
@@ -55,7 +65,19 @@ import {
 // sweep at all.
 if (process.env.JUDGE_ARM !== undefined) restoreRealModelKey()
 
-const service = useTestService()
+// The candidate arm of an agent that has moved onto gp-api's own agents runs
+// it in this app (runners/backgroundInProcess.ts), so the app's job workers
+// have to be on for it. Decided at module scope because the app boots before
+// any test body.
+const inProcessAgentIds =
+  process.env.JUDGE_ARM === 'candidate'
+    ? (process.env.JUDGE_AGENTS ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => IN_PROCESS_AGENTS[id] !== undefined)
+    : []
+
+const service = useTestService({ jobs: inProcessAgentIds.length > 0 })
 
 // Absent means nobody asked for a sweep, so the file is skipped and `npm run
 // verify` does not try to drive an agent. PRESENT means it runs, and anything
@@ -134,6 +156,26 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
         return ports
       }
 
+      // The in-process candidate reads the same issue feed the base arm's
+      // broker reads from dev, the page recordings with the judge's own
+      // credentials, and writes nothing to the product.
+      if (inProcessAgentIds.length > 0) {
+        // THE ONE OTHER KEY THE ARM CANNOT GET FROM ITS ENVIRONMENT. An
+        // agent whose tools search the web reads BRAVE_API_KEY at call time,
+        // `.env.test` does not define it, and an arm that left it unset
+        // would grade a searchless agent — every `webSearch` answering
+        // `not_configured`. Read here with the judge role's own credentials,
+        // from the dev app secret; braveKey.ts says why not the model-key
+        // pattern, and it is a no-op when the key is already set or the
+        // secret cannot be read.
+        await installBraveKey()
+        await seedJudgeFixture(service.prisma)
+        service.app.get(AgentPageReplayService).s3 = new S3Client(
+          judgeAwsClientConfig(),
+        )
+        inProcessAgentIds.forEach(recordOnly)
+      }
+
       const manifest = await captureArm(
         {
           store,
@@ -144,6 +186,56 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
             // the same way for both shapes and `walkCases` validates whatever
             // comes back against the same record schema, so the shape only
             // decides which runner drives the case and what it needs to do it.
+            if (
+              request.agent.shape === 'background' &&
+              inProcessAgentIds.includes(request.agent.agentId)
+            ) {
+              if (isChatCase(request.case)) {
+                throw new Error(
+                  `${request.case.caseId} carries no params, so it is not ` +
+                    'a background case',
+                )
+              }
+              const agentCase = {
+                caseId: request.case.caseId,
+                params: request.case.params,
+                ...(request.case.inputFiles && {
+                  inputFiles: request.case.inputFiles,
+                }),
+                ...(request.case.seedPages && {
+                  seedPages: loadSeedPages(request.agent.agentId, request.case),
+                }),
+              }
+              const replay = pageReplayFor({
+                sweepId: request.sweepId,
+                agentId: request.agent.agentId,
+                arm: request.arm,
+                attempt: request.attempt,
+                agentCase,
+              })
+              const agents = service.app.get(AgentsService)
+              return runInProcessBackgroundCase(
+                {
+                  start: (name, input, judgeReplay) =>
+                    agents.run(name, input, { judgeReplay }),
+                  readRun: prismaRunReader(service.prisma),
+                  clock: realClock,
+                },
+                {
+                  sweepId: request.sweepId,
+                  agentId: request.agent.agentId,
+                  arm: request.arm,
+                  attempt: request.attempt,
+                  agentCase,
+                  variant: request.variant,
+                  ...(replay && { replay }),
+                  poll: { timeoutMs: ARM_TIMEOUT_MS, intervalMs: 5_000 },
+                  ...(env.dataVersion !== undefined && {
+                    dataVersion: env.dataVersion,
+                  }),
+                },
+              )
+            }
             if (request.agent.shape === 'background') {
               return runBackgroundCase(
                 backgroundPorts(),

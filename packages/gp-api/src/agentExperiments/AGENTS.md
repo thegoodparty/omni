@@ -134,6 +134,9 @@ There is no time-based stale sweeper. A `RUNNING` run whose Fargate task dies wi
 - `params: Json`, `artifactBucket/Key`, `durationSeconds`, `error`
 - `@@index([organizationSlug, experimentType])`
 
+Runs of gp-api's own agents do not use this table: they live in `AgentRun` and
+`AgentMessage` (`src/agents/AGENTS.md`).
+
 ## Testing
 
 ```bash
