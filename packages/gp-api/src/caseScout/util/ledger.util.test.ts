@@ -128,8 +128,16 @@ describe('the nightly cap', () => {
       entry({ caseId, outcome: 'rejected', createdAt: NOW }),
     )
     const outside = entry({ caseId: 'd', createdAt: subDays(NOW, 20) })
+    const outsideMerged = entry({
+      caseId: 'd',
+      outcome: 'merged',
+      createdAt: NOW,
+    })
     expect(
-      trailingMergeShare([...proposals, merged, ...rejected, outside], NOW),
+      trailingMergeShare(
+        [...proposals, merged, ...rejected, outside, outsideMerged],
+        NOW,
+      ),
     ).toBeCloseTo(1 / 3)
   })
 
