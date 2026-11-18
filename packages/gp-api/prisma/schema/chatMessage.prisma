@@ -35,7 +35,6 @@ model ChatMessage {
   feedback ChatMessageFeedback[]
 
   @@index([conversationId, createdAt])
-  @@index([createdAt])
   @@index([conversationId, clientMessageId])
   @@map("chat_message")
 }
