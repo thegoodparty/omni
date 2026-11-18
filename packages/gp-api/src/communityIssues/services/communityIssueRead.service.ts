@@ -207,6 +207,8 @@ export class CommunityIssueReadService extends createPrismaBase(
           organizationSlug,
           list,
           archivedAt: null,
+          // A starter row (communityIssueStarter) is not a run.
+          lastRefreshedRunId: { not: null },
         },
         orderBy: { updatedAt: Prisma.SortOrder.desc },
         select: { updatedAt: true },

@@ -106,7 +106,9 @@ one go through the same `startRun`, so both schedules work on either engine.
 While both engines hold history, the `AgentRun` branch has one cutover
 fallback: an org whose type last ran on the PMF Engine has no
 `AgentRun` yet, so it is judged by its own `CommunityIssue` rows instead — the
-newest `updatedAt` among its non-archived rows on that type's list (every ingest stamps
+newest `updatedAt` among its non-archived rows on that type's list that an
+ingest wrote (`lastRefreshedRunId` set, so onboarding's starter rows do not
+count as a refresh; every ingest stamps
 `lastRefreshedRunId` on every row it keeps, which bumps `updatedAt`, unchanged
 ones included). Without it, the first day after the switch re-dispatches every
 active org on landing (the freshness gate finds no completion) and the read path

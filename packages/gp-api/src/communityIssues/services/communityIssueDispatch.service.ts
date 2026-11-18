@@ -364,6 +364,8 @@ export class CommunityIssueDispatchService extends createPrismaBase(
                   organizationSlug: orgSlug,
                   list: LIST_FOR_EXPERIMENT_TYPE[experimentType],
                   archivedAt: null,
+                  // A starter row (communityIssueStarter) is not a run.
+                  lastRefreshedRunId: { not: null },
                 },
                 orderBy: { updatedAt: Prisma.SortOrder.desc },
                 select: { updatedAt: true },

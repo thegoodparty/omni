@@ -992,6 +992,7 @@ describe('the CommunityIssue cutover while trending_issues has no AgentRun', () 
         title: 'Road Maintenance',
         summary: 'Roads need fixing.',
         rank: 1,
+        lastRefreshedRunId: 'an-earlier-run',
       },
     })
     // @updatedAt is Prisma-managed, so backdate the ingest via raw SQL.
@@ -1132,6 +1133,7 @@ describe('top_community_issues on the gp-api engine', () => {
         title: 'Road Maintenance',
         summary: 'Roads need fixing.',
         rank: 1,
+        lastRefreshedRunId: 'an-earlier-run',
       },
     })
     await service.prisma.$executeRaw`
@@ -1242,6 +1244,31 @@ describe('top_community_issues on the gp-api engine', () => {
     const orgSlug = `ci-top-cutover-stale-${Date.now()}`
     await seedOrgWithOffice(orgSlug)
     await seedTopRow(orgSlug, INACTIVITY_THRESHOLD_DAYS + 10)
+    mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ dispatched: 2, skipped: 0 })
+  })
+
+  it('the cutover does not count starter rows as a refresh', async () => {
+    const orgSlug = `ci-top-cutover-starter-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug: orgSlug,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
+        title: 'Starter issue',
+        summary: 'From onboarding.',
+        rank: 1,
+      },
+    })
     mockDispatchRun()
     const agentsSpy = mockAgentsRun()
 
