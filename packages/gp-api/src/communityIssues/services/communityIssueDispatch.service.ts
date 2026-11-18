@@ -12,6 +12,7 @@ import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { differenceInCalendarDays } from 'date-fns'
 import {
   AgentRunStatus,
+  CommunityIssueList,
   ElectedOffice,
   ExperimentRunStatus,
   Prisma,
@@ -285,7 +286,10 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       freshnessWindowDays,
     }: { skipActivityGate?: boolean; freshnessWindowDays?: number } = {},
   ): Promise<boolean> {
-    const inFlightOnGpApi = runsOnGpApi(experimentType)
+    // Cutover: only an AgentRun counts as in flight. A run the PMF Engine
+    // started just before the switch is invisible here, so an org mid-flight at
+    // deploy can get one duplicate run. Accepted.
+    const inFlightRunId = runsOnGpApi(experimentType)
       ? (
           await this.client.agentRun.findFirst({
             where: {
@@ -296,28 +300,22 @@ export class CommunityIssueDispatchService extends createPrismaBase(
             select: { id: true },
           })
         )?.id
-      : undefined
-    // Cutover: while both engines hold history, a run the PMF Engine started
-    // just before the switch is still in flight for this type too. Goes when
-    // ExperimentRun does.
-    const inFlightRunId =
-      inFlightOnGpApi ??
-      (
-        await this.client.experimentRun.findFirst({
-          where: {
-            organizationSlug: orgSlug,
-            experimentType,
-            status: {
-              in: [
-                ExperimentRunStatus.QUEUED,
-                ExperimentRunStatus.RUNNING,
-                ExperimentRunStatus.AWAITING_RESUME,
-              ],
+      : (
+          await this.client.experimentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              experimentType,
+              status: {
+                in: [
+                  ExperimentRunStatus.QUEUED,
+                  ExperimentRunStatus.RUNNING,
+                  ExperimentRunStatus.AWAITING_RESUME,
+                ],
+              },
             },
-          },
-          select: { runId: true },
-        })
-      )?.runId
+            select: { runId: true },
+          })
+        )?.runId
     if (inFlightRunId) {
       this.logger.info(
         { orgSlug, experimentType, runId: inFlightRunId },
@@ -331,25 +329,42 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     // lastVisited, so "issues are still fresh" and "user is still active" stay
     // one concept. Cron/admin/staff paths omit the window and never skip here.
     if (freshnessWindowDays !== undefined) {
-      const agentCompletedAt = runsOnGpApi(experimentType)
-        ? (
-            await this.client.agentRun.findFirst({
-              where: {
-                organizationSlug: orgSlug,
-                agentName: experimentType,
-                status: AgentRunStatus.completed,
-              },
-              orderBy: { updatedAt: Prisma.SortOrder.desc },
-              select: { updatedAt: true },
-            })
-          )?.updatedAt
-        : undefined
-      // Cutover: an org still carries only its PMF Engine history, so a
-      // completion there is the only evidence the old engine refreshed it.
-      // Newest of the two tables wins. Goes when ExperimentRun does.
-      const completedTimes = [
-        agentCompletedAt,
-        (
+      let lastCompletedAt: Date | undefined
+      if (runsOnGpApi(experimentType)) {
+        const [anyRun, latestCompletedRun] = await Promise.all([
+          this.client.agentRun.findFirst({
+            where: { organizationSlug: orgSlug, agentName: experimentType },
+            select: { id: true },
+          }),
+          this.client.agentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              agentName: experimentType,
+              status: AgentRunStatus.completed,
+            },
+            orderBy: { updatedAt: Prisma.SortOrder.desc },
+            select: { updatedAt: true },
+          }),
+        ])
+        // Cutover: trending_issues last ran on the PMF Engine, so an org with
+        // no AgentRun yet carries only that engine's rows, and the ingest that
+        // wrote them is when the user's list last refreshed. Removed at teardown.
+        const newestOrgRow =
+          anyRun === null && experimentType === 'trending_issues'
+            ? await this.client.communityIssue.findFirst({
+                where: {
+                  organizationSlug: orgSlug,
+                  list: CommunityIssueList.trending,
+                  archivedAt: null,
+                },
+                orderBy: { updatedAt: Prisma.SortOrder.desc },
+                select: { updatedAt: true },
+              })
+            : null
+        lastCompletedAt =
+          newestOrgRow?.updatedAt ?? latestCompletedRun?.updatedAt
+      } else {
+        lastCompletedAt = (
           await this.client.experimentRun.findFirst({
             where: {
               organizationSlug: orgSlug,
@@ -359,13 +374,8 @@ export class CommunityIssueDispatchService extends createPrismaBase(
             orderBy: { updatedAt: Prisma.SortOrder.desc },
             select: { updatedAt: true },
           })
-        )?.updatedAt,
-      ]
-        .filter((at): at is Date => at !== undefined)
-        .map((at) => at.getTime())
-      const lastCompletedAt = completedTimes.length
-        ? new Date(Math.max(...completedTimes))
-        : undefined
+        )?.updatedAt
+      }
       if (
         lastCompletedAt &&
         differenceInCalendarDays(new Date(), lastCompletedAt) <=

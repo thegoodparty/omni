@@ -195,18 +195,35 @@ export class CommunityIssueReadService extends createPrismaBase(
         orderBy: { updatedAt: Prisma.SortOrder.desc },
       }),
     ])
-    // Cutover: an org that ran this type on the PMF Engine has no AgentRun
-    // yet, so the old engine's last run is what the client should see. Goes
-    // when ExperimentRun does.
-    if (latestRun === null) {
-      return this.experimentRunRefresh(organizationSlug, agentName)
+    // Cutover: trending_issues last ran on the PMF Engine, so an org with no
+    // AgentRun yet carries only the rows that run's ingest wrote, and the newest
+    // of them is when the user's list last refreshed. Reporting it as completed
+    // keeps the banner from polling a run that will never arrive. Removed at
+    // teardown.
+    if (latestRun === null && agentName === 'trending_issues') {
+      const newestRow = await this.model.findFirst({
+        where: {
+          organizationSlug,
+          list: CommunityIssueList.trending,
+          archivedAt: null,
+        },
+        orderBy: { updatedAt: Prisma.SortOrder.desc },
+        select: { updatedAt: true },
+      })
+      if (newestRow) {
+        return refreshOf(
+          { status: 'completed', createdAt: newestRow.updatedAt },
+          true,
+          newestRow.updatedAt,
+        )
+      }
     }
     return refreshOf(
-      {
+      latestRun && {
         status: AGENT_RUN_STATUS_MAP[latestRun.status],
         createdAt: latestRun.createdAt,
       },
-      TERMINAL_AGENT_RUNS.has(latestRun.status),
+      latestRun !== null && TERMINAL_AGENT_RUNS.has(latestRun.status),
       latestCompletedRun?.updatedAt,
     )
   }

@@ -99,17 +99,21 @@ check and the freshness check in `communityIssueDispatch.service.ts`, and the
 refresh status in `communityIssueRead.service.ts`. `top_community_issues`
 stays on the PMF Engine; it also queries Databricks.
 
-While both engines hold history — every prod org has `ExperimentRun` rows and
-no `AgentRun` — the `AgentRun` branch falls back to the same org's
-`ExperimentRun` of that type. Without it, the first day after the switch
-re-dispatches every active org on landing (the freshness gate finds no
-completion) and the read path reports `running` with `lastCompletedAt: null`,
-which the webapp banner polls forever. So the in-flight check counts an
-in-flight `ExperimentRun` too (a run the old engine started just before the
-deploy), the freshness gate takes the newer completion of the two tables, and
-`agentRunRefresh` answers from `experimentRunRefresh` when the org has no
-`AgentRun` at all. Once an `AgentRun` exists it wins. Both fallbacks are
-deleted with `ExperimentRun`.
+While both engines hold history, the `AgentRun` branch has one cutover
+fallback: an org whose `trending_issues` last ran on the PMF Engine has no
+`AgentRun` yet, so it is judged by its own `CommunityIssue` rows instead — the
+newest `updatedAt` among its non-archived `trending` rows (every ingest stamps
+`lastRefreshedRunId` on every row it keeps, which bumps `updatedAt`, unchanged
+ones included). Without it, the first day after the switch re-dispatches every
+active org on landing (the freshness gate finds no completion) and the read path
+reports `running` with `lastCompletedAt: null`, which the webapp banner polls
+forever. An org with no trending rows at all has no completion either way, so
+landing starts its first run as it always did. Once an `AgentRun` exists it wins
+and the rows stop mattering. The fallback measures what the user actually sees
+and never reads the old engine's table, so it is deleted at teardown. The
+in-flight check stays `AgentRun`-only: a run the PMF Engine started just before
+the deploy is invisible there, so one org can get a duplicate run, and that is
+accepted.
 
 - `trendingIssues.prompt.ts` started as the experiment's `instruction.md` with
   the runtime swapped (input message, `getCommunityIssues`, `webSearch`,

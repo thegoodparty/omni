@@ -213,26 +213,21 @@ describe('GET /v1/community-issues — trending refresh on the gp-api engine', (
       },
     })
 
-  const backdateExperimentRun = async (runId: string, daysAgo: number) => {
-    const at = subDays(new Date(), daysAgo)
+  const seedTrendingIssueRefreshedDaysAgo = async (daysAgo: number) => {
+    const issue = await seedIssue({ list: CommunityIssueList.trending })
+    // @updatedAt is Prisma-managed, so backdate the ingest via raw SQL.
     await service.prisma.$executeRaw`
-      UPDATE experiment_run
-      SET updated_at = ${at}
-      WHERE run_id = ${runId}
+      UPDATE community_issue
+      SET updated_at = ${subDays(new Date(), daysAgo)}
+      WHERE id = ${issue.id}
     `
-    const run = await service.prisma.experimentRun.findFirstOrThrow({
-      where: { runId },
+    return service.prisma.communityIssue.findFirstOrThrow({
+      where: { id: issue.id },
     })
-    return run.updatedAt
   }
 
-  it('reports the completed ExperimentRun when the org has no AgentRun', async () => {
-    await seedIssue({ list: CommunityIssueList.trending })
-    const completed = await seedExperimentRun(
-      'trending_issues',
-      ExperimentRunStatus.COMPLETED,
-    )
-    const lastCompletedAt = await backdateExperimentRun(completed.runId, 1)
+  it('reports completed at the newest trending row when the org has no AgentRun', async () => {
+    const refreshed = await seedTrendingIssueRefreshedDaysAgo(1)
 
     const res = await service.client.get<{
       refresh: { status: string; lastCompletedAt: string | null }
@@ -240,16 +235,46 @@ describe('GET /v1/community-issues — trending refresh on the gp-api engine', (
 
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.refresh.status).toBe('completed')
-    expect(res.data.refresh.lastCompletedAt).toBe(lastCompletedAt.toISOString())
+    expect(res.data.refresh.lastCompletedAt).toBe(
+      refreshed.updatedAt.toISOString(),
+    )
   })
 
-  it('reports the AgentRun once the org has one', async () => {
-    await seedIssue({ list: CommunityIssueList.trending })
-    const completed = await seedExperimentRun(
-      'trending_issues',
-      ExperimentRunStatus.COMPLETED,
+  it('reports running when the org has no trending rows and no AgentRun', async () => {
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=trending`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('running')
+    expect(res.data.refresh.lastCompletedAt).toBeNull()
+  })
+
+  it('lets a completed AgentRun decide lastCompletedAt once the org has one', async () => {
+    await seedTrendingIssueRefreshedDaysAgo(10)
+    const run = await seedAgentRun(AgentRunStatus.completed)
+    await service.prisma.$executeRaw`
+      UPDATE agent_run
+      SET updated_at = ${subDays(new Date(), 1)}
+      WHERE id = ${run.id}
+    `
+    const completedRun = await service.prisma.agentRun.findFirstOrThrow({
+      where: { id: run.id },
+    })
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=trending`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('completed')
+    expect(res.data.refresh.lastCompletedAt).toBe(
+      completedRun.updatedAt.toISOString(),
     )
-    await backdateExperimentRun(completed.runId, 1)
+  })
+
+  it('lets the AgentRun decide once the org has one, ignoring the rows', async () => {
+    await seedTrendingIssueRefreshedDaysAgo(1)
     await seedAgentRun(AgentRunStatus.running)
 
     const res = await service.client.get<{
