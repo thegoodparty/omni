@@ -252,9 +252,6 @@ describe('queryDatabricks', () => {
     expect(query).not.toHaveBeenCalled()
   })
 
-  // A derived table reads nothing of its own, so it is fine — as long as it is
-  // the only thing in FROM alongside the table's own SELECT. A scalar subquery
-  // in the select list is not: it is neither an aggregate nor a GROUP BY column.
   it('refuses a scalar subquery in the select list', async () => {
     const result = await runs(
       `SELECT (SELECT MAX(title) FROM ${TABLE} WHERE Residence_Addresses_State = 'IL') AS m
@@ -262,7 +259,7 @@ describe('queryDatabricks', () => {
     )
 
     expect(result).toMatchObject({ ok: false, reason: 'rejected' })
-    expect(String(result.detail)).toContain('aggregate')
+    expect(String(result.detail)).toContain('no subquery')
     expect(query).not.toHaveBeenCalled()
   })
 
@@ -702,6 +699,38 @@ describe('queryDatabricks', () => {
         expect(query).not.toHaveBeenCalled()
       },
     )
+
+    it.each([
+      [
+        'a CASE inside an aggregate',
+        'plain column',
+        `SELECT title, COUNT(*) AS n,
+           AVG(CASE WHEN LALVOTERID = 'abc' THEN hs_violent_crime_worried END) AS s
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL' GROUP BY title`,
+      ],
+      [
+        'a UNION branch that moves its COUNT(*)',
+        'no subquery, UNION',
+        `SELECT title, COUNT(*) AS n, 0 AS c FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL' GROUP BY title
+         UNION ALL
+         SELECT title, 1000000, COUNT(*) FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL' GROUP BY title`,
+      ],
+      [
+        'a subquery in the WHERE',
+        'no subquery',
+        `SELECT COUNT(*) AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL'
+           AND title IN (SELECT title FROM ${TABLE} WHERE Residence_Addresses_State = 'IL')`,
+      ],
+    ])('refuses %s', async (_label, why, sql) => {
+      const result = await runs(sql)
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain(why)
+      expect(query).not.toHaveBeenCalled()
+    })
 
     // The lean query an agent actually writes: bare aggregates and the COUNT(*)
     // the floor reads, with the office's own filters.

@@ -127,7 +127,9 @@ and have the resolver read it back from the stored `AgentRun.input` by
   is the differencing control the floor cannot be: `AND LALVOTERID <> 'x'` leaves
   both cells far above the floor and the difference between them is one
   person's score. An aggregate's own argument (`AVG(hs_x)`) is unrestricted,
-  because that is what the aggregate is for and the floor holds its result. An
+  because that is what the aggregate is for and the floor holds its result, but
+  it must be one plain column or `*`: a CASE or comparison inside an aggregate
+  (`AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)`) is a filter of its own. An
   agent lists the coarse dimensions it reasons about — `Active` and the like —
   and nothing row-level. The scope's own jurisdiction columns (the state, and the
   office's L2 district column) are sliceable without being declared, because
@@ -141,16 +143,15 @@ and have the resolver read it back from the stored `AgentRun.input` by
   `maxRows`, because the warehouse cuts the page at `maxRows + 1` and the floor
   can eat that extra row; only the second count would report a partial result as
   complete.
-- **Every SELECT, not just the outer one.** The shape check and the floor's
-  `COUNT(*)` run on each SELECT the walk finds — the outer query and each UNION
-  branch — because a row read in a branch is exactly what the outer aggregate
-  hides. A subquery in `FROM` is refused: the floor reads only the outermost
-  result, so an outer aggregate over a derived table could hand back an inner
-  cell of any size. A statement with a CTE is refused before that (see below).
+- **One flat SELECT.** A UNION or other set operation, a subquery anywhere
+  (FROM, WHERE, the select list) and a CTE are all refused, as the chat tools
+  refuse them: the floor reads only the outer result's own `COUNT(*)` column, so
+  a nested cell — a UNION branch that moves its count, an outer aggregate over a
+  derived table — is one the floor never sees.
 
 - **One read-only SELECT, parsed.** Not a regex: the statement goes through
   `parseSingleSelect`, every SELECT at any depth is walked (the outer one, each
-  UNION branch, each subquery), and a write node anywhere — `INSERT`, `UPDATE`,
+  UNION branch, each subquery, before refusing the nesting), and a write node anywhere — `INSERT`, `UPDATE`,
   `DELETE`, `MERGE`, DDL, or `SELECT INTO` — is rejected. Two statements after a
   semicolon, a table function in `FROM`, and a query the parser cannot read are
   all refused, never passed through. A comment or a backslash is refused

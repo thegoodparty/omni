@@ -4,6 +4,7 @@ import {
   assertAggregateSelectShape,
   assertRowCountShape,
   collectAllColumns,
+  containsNestedSelect,
   containsWriteNode,
   findPeopleCountColumns,
   findRowCountColumn,
@@ -265,14 +266,29 @@ const assertAggregateOnly = (
   assertAggregateSelectShape(select, { allowedGroupBy: new Set(named) })
 
   // MIN and MAX return one row's own value, so MAX(LALVOTERID) is a voter ID
-  // and MIN(hs_x) is one person's score. AVG, SUM and COUNT blend the cell.
+  // and MIN(hs_x) is one person's score. AVG, SUM and COUNT blend the cell, as
+  // long as their argument is a plain column: a CASE or comparison inside one
+  // (AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)) is a filter of its own.
   for (const column of Array.isArray(select.columns) ? select.columns : []) {
     const expr = isRecord(column) ? column.expr : null
     const name = isRecord(expr) ? aggregateFunctionName(expr) : null
+    if (!isRecord(expr) || name === null) continue
     if (name === 'MIN' || name === 'MAX') {
       throw new SqlRejected(
         `${name} returns one row's own value; use AVG, SUM or COUNT instead`,
       )
+    }
+    const args = isRecord(expr.args) ? expr.args : null
+    const argList = Array.isArray(args?.value) ? args.value : [args?.expr]
+    for (const arg of argList) {
+      if (
+        !isRecord(arg) ||
+        (arg.type !== 'column_ref' && arg.type !== 'star')
+      ) {
+        throw new SqlRejected(
+          `${name} takes one plain column or *, never an expression, CASE or comparison`,
+        )
+      }
     }
   }
 
@@ -346,6 +362,18 @@ const assertAllowedQuery = (
   }
   if (isRecord(stmt.into) && stmt.into.expr) {
     throw new SqlRejected('SELECT INTO writes a table, so it is not allowed')
+  }
+
+  if (Array.isArray(stmt.with) && stmt.with.length > 0) {
+    throw new SqlRejected(CTE_REFUSED)
+  }
+  // The floor reads the outer result's own COUNT(*) column, so anything nested
+  // (a UNION branch that moves its count, a subquery in WHERE, a derived table)
+  // is a cell the floor never sees. The constituent-data tools refuse it too.
+  if (containsNestedSelect(stmt, true)) {
+    throw new SqlRejected(
+      'write one flat SELECT: no subquery, UNION or other set operation',
+    )
   }
 
   const allowlist = tables.join(', ') || '(none)'
@@ -446,7 +474,7 @@ export const databricksTool = (options: DatabricksToolOptions) => {
       ? 'the table named in your input'
       : options.tables.join(', ')
   return defineTool({
-    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no subquery in FROM, no DDL, no writes.`,
+    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One flat statement only: no subquery, UNION, MIN or MAX, an aggregate takes a plain column or *, no DDL, no writes.`,
     input: queryInput,
     execute: async ({ sql }, ctx) => {
       const scope = await options.scope(ctx)

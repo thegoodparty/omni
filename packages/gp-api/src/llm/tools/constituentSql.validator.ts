@@ -611,7 +611,10 @@ const containsWindowNode = (node: unknown): boolean => {
 // nested `ast` select node, or as a UNION via `_next` / `set_op`. Reject all of
 // them: a subquery against a base view re-opens row-level access and defeats the
 // aggregate-only and scoping guarantees.
-const containsNestedSelect = (node: unknown, isRoot: boolean): boolean => {
+export const containsNestedSelect = (
+  node: unknown,
+  isRoot: boolean,
+): boolean => {
   if (node === null || node === undefined) return false
   if (Array.isArray(node)) {
     return node.some((item) => containsNestedSelect(item, false))
