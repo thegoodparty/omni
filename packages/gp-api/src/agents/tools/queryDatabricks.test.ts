@@ -169,7 +169,10 @@ describe('queryDatabricks', () => {
     expect(query).not.toHaveBeenCalled()
   })
 
-  it('refuses a CTE whose body reads a table outside the grant', async () => {
+  // A CTE name can mean the CTE in one place and the real table in another, and
+  // there is no Spark binder here to tell them apart, so a CTE is refused
+  // outright rather than resolved.
+  it('refuses a CTE that hides a table outside the grant', async () => {
     const result = await runs(
       `WITH stolen AS (
          SELECT * FROM goodparty_data_catalog.gp_api_pg.gp_api_voters
@@ -179,8 +182,70 @@ describe('queryDatabricks', () => {
     )
 
     expect(result).toMatchObject({ ok: false, reason: 'rejected' })
-    expect(String(result.detail)).toContain('gp_api_voters')
+    expect(String(result.detail)).toContain('CTE')
     expect(query).not.toHaveBeenCalled()
+  })
+
+  // A non-recursive CTE cannot see itself, so the inner `secret` is the real
+  // table; without refusing CTEs by name this read escaped the allowlist and
+  // the scope check entirely.
+  it('refuses a CTE that references its own name', async () => {
+    const result = await runs(
+      `WITH secret AS (SELECT * FROM secret) SELECT * FROM secret`,
+    )
+
+    expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  // A reference outside its CTE's scope is the real table too, even when the
+  // CTE of that name is harmless.
+  it('refuses a table reference that shares a CTE name from outside its scope', async () => {
+    const result = await runs(
+      `SELECT * FROM (WITH secret AS (SELECT 1 AS a) SELECT a FROM secret) x
+       CROSS JOIN secret`,
+    )
+
+    expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  // mandatoryValuesForColumn drops the qualifier, so a predicate on a second
+  // relation used to count as proof for the table. A derived table carrying the
+  // column under the filter's name is the whole attack.
+  it('refuses a filter that belongs to another relation in the FROM', async () => {
+    const result = await runs(
+      `SELECT t.title FROM ${TABLE} t
+       JOIN (SELECT 'IL' AS Residence_Addresses_State) d ON 1 = 1
+       WHERE d.Residence_Addresses_State = 'IL'`,
+    )
+
+    expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('refuses a self-join that would satisfy the filter for one alias only', async () => {
+    const result = await runs(
+      `SELECT a.title FROM ${TABLE} a
+       JOIN ${TABLE} b ON a.title = b.title
+       WHERE a.Residence_Addresses_State = 'IL'`,
+    )
+
+    expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  // A derived table with no table of its own reads nothing, so it is fine — as
+  // long as it is the only thing in FROM alongside the table's own SELECT.
+  it('accepts a scoped read with a scalar subquery that reads the table scoped', async () => {
+    query.mockResolvedValue({ columns: ['n'], rows: [['1']] })
+
+    await expect(
+      runs(
+        `SELECT (SELECT MAX(title) FROM ${TABLE} WHERE Residence_Addresses_State = 'IL') AS m
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+      ),
+    ).resolves.toMatchObject({ ok: true })
   })
 
   it('refuses a self-join that would satisfy the filter for one alias only', async () => {
@@ -201,7 +266,6 @@ describe('queryDatabricks', () => {
     )
 
     expect(result).toMatchObject({ ok: false, reason: 'rejected' })
-    expect(String(result.detail)).toContain('Residence_Addresses_State')
     expect(query).not.toHaveBeenCalled()
   })
 

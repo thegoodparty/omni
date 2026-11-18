@@ -101,14 +101,22 @@ tools: {
 
 - **One read-only SELECT, parsed.** Not a regex: the statement goes through
   `parseSingleSelect`, every SELECT at any depth is walked (the outer one, each
-  UNION branch, each CTE body, each subquery), and a write node anywhere —
-  `INSERT`, `UPDATE`, `DELETE`, `MERGE`, DDL, or `SELECT INTO` — is rejected.
-  Two statements after a semicolon, a table function in `FROM`, and a query the
-  parser cannot read are all refused, never passed through.
+  UNION branch, each subquery), and a write node anywhere — `INSERT`, `UPDATE`,
+  `DELETE`, `MERGE`, DDL, or `SELECT INTO` — is rejected. Two statements after a
+  semicolon, a table function in `FROM`, and a query the parser cannot read are
+  all refused, never passed through. A statement with a CTE is refused too: a
+  CTE name can mean the CTE in one place and a real table in another (a
+  non-recursive CTE cannot see itself, and a reference outside its WITH is the
+  real table), and there is no Spark binder here to resolve that. Use a derived
+  table in `FROM`, which has no name to resolve.
 - **The allowlist is the manifest's.** A table reference must match
   `scope.allowed_tables` exactly, or be a dot-boundary suffix of one, so
-  `dbt.<t>` and bare `<t>` work and a spoofed `evil.public.<t>` does not. A CTE
-  name is not a table and is not checked.
+  `dbt.<t>` and bare `<t>` work and a spoofed `evil.public.<t>` does not.
+- **One relation per SELECT.** `assertScope` proves the filter over the WHERE,
+  and a second relation would let a predicate qualified to it stand in as proof
+  for the table (`JOIN (SELECT 'IL' AS Residence_Addresses_State) d … WHERE
+  d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
+  have nothing else in its `FROM`. A self-join hits the same rule.
 - **The run's jurisdiction is not the model's to choose.** `scope` resolves it
   from `ctx.organizationSlug` through `orgDatabricksScope` — the org's elected
   office and `OrganizationsService.resolveServeContext`, the same source

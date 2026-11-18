@@ -128,18 +128,14 @@ const selectsIn = (
   return selects
 }
 
-const cteNames = (selects: Record<string, unknown>[]): Set<string> => {
-  const names = new Set<string>()
-  for (const select of selects) {
-    for (const cte of Array.isArray(select.with) ? select.with : []) {
-      if (!isRecord(cte) || !isRecord(cte.name)) continue
-      if (typeof cte.name.value === 'string') {
-        names.add(cte.name.value.toLowerCase())
-      }
-    }
-  }
-  return names
-}
+// A CTE name can mean the CTE in one place and a real table in another: a
+// non-recursive CTE cannot see itself, so `WITH s AS (SELECT * FROM s)` reads
+// the real `s`, and a reference outside its WITH is the real table too. This
+// has no Spark binder to ask which one a name is, so a statement with a CTE is
+// refused: a derived table in FROM does the same job and has no name to
+// resolve.
+const CTE_REFUSED =
+  'write the query without WITH/CTE: a CTE name can shadow a real table, so put the subquery in FROM instead'
 
 // The state always, and the district whenever the org has one — the same
 // predicates the broker injected, which the model now writes itself and the
@@ -159,7 +155,9 @@ const assertScope = (
   for (const [column, value] of requiredFilters(scope)) {
     // mandatoryValuesForColumn: an AND unions, an OR intersects, so
     // `= 'x' OR 1=1` proves nothing and is rejected. The same proof the
-    // constituent tool uses to hold its district filter in place.
+    // constituent tool uses to hold its district filter in place. Only sound
+    // because this SELECT reads one relation, so a bare column can only be
+    // this table's (assertAllowedQuery refuses anything else).
     if (mandatoryValuesForColumn(where, column).has(value)) continue
     throw new SqlRejected(
       `every SELECT that reads ${table} must guarantee ${column} = '${value}' in its own WHERE, with no OR that could step around it`,
@@ -186,49 +184,55 @@ const assertAllowedQuery = (
   const { stmt } = parsed
   if (containsWriteNode(stmt)) {
     throw new SqlRejected(
-      'only a read is allowed; INSERT, UPDATE, DELETE, MERGE and DDL are rejected even inside a CTE or a subquery',
+      'only a read is allowed; INSERT, UPDATE, DELETE, MERGE and DDL are rejected even inside a subquery',
     )
   }
   if (isRecord(stmt.into) && stmt.into.expr) {
     throw new SqlRejected('SELECT INTO writes a table, so it is not allowed')
   }
 
-  const selects = selectsIn(stmt)
-  const ctes = cteNames(selects)
-  for (const select of selects) {
-    const reads: string[] = []
-    for (const entry of Array.isArray(select.from) ? select.from : []) {
+  const allowlist = tables.join(', ') || '(none)'
+  for (const select of selectsIn(stmt)) {
+    if (Array.isArray(select.with) && select.with.length > 0) {
+      throw new SqlRejected(CTE_REFUSED)
+    }
+    const from = Array.isArray(select.from) ? select.from : []
+    let read: string | null = null
+    for (const entry of from) {
       if (!isRecord(entry)) continue
       if (typeof entry.table !== 'string') {
         // A table function (read_files, range, explode…) is not a table at
         // all, so there is nothing to allowlist. A derived table is a nested
         // SELECT and is checked as one.
-        const derived = isRecord(entry.expr) && isRecord(entry.expr.ast)
-        if (!derived) {
-          throw new SqlRejected(
-            `read a table from the allowlist: ${tables.join(', ') || '(none)'}`,
-          )
+        if (!(isRecord(entry.expr) && isRecord(entry.expr.ast))) {
+          throw new SqlRejected(`read a table from the allowlist: ${allowlist}`)
         }
         continue
       }
       const ref = tableRef(entry)
-      if (ctes.has(ref.toLowerCase())) continue
       if (!isAllowedTable(ref, tables)) {
         throw new SqlRejected(
-          `${ref} is not an allowed table. Allowed: ${tables.join(', ') || '(none)'}`,
+          `${ref} is not an allowed table. Allowed: ${allowlist}`,
         )
       }
-      reads.push(ref)
+      if (read !== null) {
+        throw new SqlRejected(
+          `one table read per SELECT: query ${ref} separately instead of joining it to ${read}`,
+        )
+      }
+      read = ref
     }
-    // One read per SELECT. The proof below is over the WHERE, and in a
-    // self-join one alias' predicate reads as proof for both, so a second
-    // read of the same table would be a way around the filter.
-    if (reads.length > 1) {
+    if (read === null) continue
+    // The filter proof is over the WHERE, and a second relation in FROM would
+    // let a predicate qualified to it stand in as proof for this table (a
+    // derived table carrying the column is enough). One relation means a bare
+    // column can only be this table's.
+    if (from.length > 1) {
       throw new SqlRejected(
-        `one table read per SELECT: split ${reads.join(' and ')} into separate queries instead of joining them`,
+        `read ${read} on its own: a query that joins it to another relation cannot prove the jurisdiction filter is on ${read}`,
       )
     }
-    for (const ref of reads) assertScope(select.where, ref, scope)
+    assertScope(select.where, read, scope)
   }
 }
 
