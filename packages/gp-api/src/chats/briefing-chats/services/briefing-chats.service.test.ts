@@ -247,7 +247,7 @@ const consume = async <T>(iter: AsyncIterable<T>): Promise<T[]> => {
   return out
 }
 
-type StreamArgsWithClientId = StreamArgs & { clientMessageId?: string }
+type StreamArgsWithUserMessageId = StreamArgs & { userMessageId?: string }
 
 describe('BriefingChatsService', () => {
   let briefingContext: FakeBriefingContext
@@ -557,21 +557,21 @@ describe('BriefingChatsService', () => {
       )
     })
 
-    it('forwards clientMessageId to chatStream.stream when provided', async () => {
-      const clientMessageId = '11111111-1111-4111-8111-111111111111'
+    it('forwards userMessageId to chatStream.stream when provided', async () => {
+      const userMessageId = '11111111-1111-4111-8111-111111111111'
       const iter = svc.sendMessage({
         annotationId: ANNOTATION_ID,
         userId: USER_ID,
         userMessage: 'hi',
-        clientMessageId,
+        userMessageId,
       })
       await consume(iter)
 
-      const args = chatStream.lastArgs as StreamArgsWithClientId | undefined
-      expect(args?.clientMessageId).toBe(clientMessageId)
+      const args = chatStream.lastArgs as StreamArgsWithUserMessageId | undefined
+      expect(args?.userMessageId).toBe(userMessageId)
     })
 
-    it('does not set clientMessageId when omitted', async () => {
+    it('does not set userMessageId when omitted', async () => {
       const iter = svc.sendMessage({
         annotationId: ANNOTATION_ID,
         userId: USER_ID,
@@ -579,8 +579,8 @@ describe('BriefingChatsService', () => {
       })
       await consume(iter)
 
-      const args = chatStream.lastArgs as StreamArgsWithClientId | undefined
-      expect(args?.clientMessageId).toBeUndefined()
+      const args = chatStream.lastArgs as StreamArgsWithUserMessageId | undefined
+      expect(args?.userMessageId).toBeUndefined()
     })
 
     it('throws NotFoundException when annotation.chatConversationId is null', async () => {

@@ -165,7 +165,7 @@ export const seedPriorTranscript = async (
 
   for (const [turnIndex, turn] of request.turns.entries()) {
     if (turn.role === 'user') {
-      const row = await store.appendUserMessageIfAlive({
+      const appended = await store.appendUserMessageIfAlive({
         conversationId: request.conversationId,
         ownerUserId: request.ownerUserId,
         content: turn.content,
@@ -173,7 +173,7 @@ export const seedPriorTranscript = async (
       // Null means the conversation was deleted between the check above and
       // this write. Carrying on would drive a turn against a transcript
       // missing its middle.
-      if (!row) {
+      if (!appended) {
         throw new SeedTranscriptError(
           `conversation ${request.conversationId} is not open for this ` +
             'user, so a prior transcript cannot be written onto it',

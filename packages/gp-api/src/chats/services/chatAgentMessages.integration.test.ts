@@ -116,13 +116,9 @@ describe('chat on AgentMessage', () => {
     return conversationId
   }
 
-  it('writes every turn to both tables, with the real tool result and per-step usage', async () => {
+  it('writes the turn with the real tool result and per-step usage', async () => {
     const conversationId = await createAndSend('call-1')
 
-    const chat = await service.prisma.chatMessage.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: 'asc' },
-    })
     const rows = await service.prisma.agentMessage.findMany({
       where: { conversationId },
       orderBy: { index: 'asc' },
@@ -133,8 +129,6 @@ describe('chat on AgentMessage', () => {
       [2, AgentMessageRole.tool],
       [3, AgentMessageRole.assistant],
     ])
-    expect(rows[0]!.id).toBe(chat[0]!.id)
-    expect(rows[3]!.id).toBe(chat[1]!.id)
     expect(rows[2]!.parts).toEqual([
       {
         type: 'tool-result',

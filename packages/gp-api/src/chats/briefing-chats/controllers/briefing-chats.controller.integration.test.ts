@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import {
+  AgentMessageRole,
   Annotation,
   AnnotationKind,
   AnnotationResourceType,
@@ -158,13 +159,11 @@ describe('BriefingChatsController (integration)', () => {
           { type: 'done', assistantMessageId: 'asst-1' },
         ],
         async () => {
-          await chatStore.appendMessage({
+          await chatStore.appendUserMessageIfAlive({
             conversationId: args.conversationId,
-            role: ChatMessageRole.user,
+            ownerUserId: args.ownerUserId,
             content: args.userMessage,
-            ...(args.clientMessageId && {
-              clientMessageId: args.clientMessageId,
-            }),
+            ...(args.userMessageId && { id: args.userMessageId }),
           })
         },
       ),
@@ -447,59 +446,58 @@ describe('BriefingChatsController (integration)', () => {
       ).toBeUndefined()
     })
 
-    it('persists only one user message when clientMessageId is repeated', async () => {
-      const clientMessageId = '11111111-1111-1111-1111-111111111111'
+    it('persists only one user message when a send is repeated', async () => {
+      const id = '11111111-1111-4111-8111-111111111111'
       const content = 'idempotent message'
 
       const first = await service.client.post(
         `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
-        { content, clientMessageId },
+        { content, id },
       )
       const second = await service.client.post(
         `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
-        { content, clientMessageId },
+        { content, id },
       )
 
       expect(first.status).toBe(HttpStatus.OK)
       expect(second.status).toBe(HttpStatus.OK)
-      const userMessages = await service.prisma.chatMessage.findMany({
+      const userMessages = await service.prisma.agentMessage.findMany({
         where: {
           conversationId: fixtures.conversation.id,
-          role: ChatMessageRole.user,
+          role: AgentMessageRole.user,
         },
       })
       expect(userMessages).toHaveLength(1)
-      expect(userMessages[0]?.content).toBe(content)
-      expect(userMessages[0]?.clientMessageId).toBe(clientMessageId)
+      expect(userMessages[0]?.id).toBe(id)
     })
 
-    it('rejects a clientMessageId reused with different content (mid-stream conflict)', async () => {
-      // The chatStore enforces clientMessageId+content uniqueness by throwing
-      // ConflictException from appendMessage. By the time that runs the SSE
-      // response has already been opened (status 200), so the conflict is
-      // surfaced as an in-stream error frame, not an HTTP 409. The behavioral
-      // contract is: the second POST does NOT create a second user message.
-      const clientMessageId = '22222222-2222-2222-2222-222222222222'
+    it('replays the first turn when a send is repeated with other content', async () => {
+      // The id is the user turn's primary key, so a second delivery is the
+      // same turn however its body differs. It replays rather than writing a
+      // second user message or running the model again.
+      const id = '22222222-2222-4222-8222-222222222222'
 
       const first = await service.client.post(
         `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
-        { content: 'original content', clientMessageId },
+        { content: 'original content', id },
       )
       expect(first.status).toBe(HttpStatus.OK)
 
       await service.client.post(
         `/v1/briefing-chats/${fixtures.annotation.id}/messages`,
-        { content: 'tampered content', clientMessageId },
+        { content: 'tampered content', id },
       )
 
-      const userMessages = await service.prisma.chatMessage.findMany({
+      const userMessages = await service.prisma.agentMessage.findMany({
         where: {
           conversationId: fixtures.conversation.id,
-          role: ChatMessageRole.user,
+          role: AgentMessageRole.user,
         },
       })
       expect(userMessages).toHaveLength(1)
-      expect(userMessages[0]?.content).toBe('original content')
+      expect(userMessages[0]?.parts).toEqual([
+        { type: 'text', text: 'original content' },
+      ])
     })
   })
 

@@ -15,6 +15,8 @@ import {
 import { CaseListError } from '../cases'
 import { MAX_CHAT_HISTORY_MESSAGES } from '@/chats/services/chatStream.service'
 import { seedChatOrg } from './seedChatOrg'
+import { AgentMessageRole } from '@/generated/prisma'
+import { agentMessagesToChatMessages } from '@/chats/services/chatAgentMessages.util'
 import {
   chatOrgSlug,
   seedOptionsFor,
@@ -136,14 +138,14 @@ const runFor = async (
 const transcriptRows = async (): Promise<
   { role: ChatMessageRole; content: string; segments: number }[]
 > => {
-  const rows = await service.prisma.chatMessage.findMany({
-    orderBy: { createdAt: Prisma.SortOrder.asc },
-    include: { segments: true },
+  const rows = await service.prisma.agentMessage.findMany({
+    orderBy: [{ conversationId: Prisma.SortOrder.asc }, { index: Prisma.SortOrder.asc }],
+    where: { role: { not: AgentMessageRole.tool } },
   })
-  return rows.map((row) => ({
-    role: row.role,
-    content: row.content,
-    segments: row.segments.length,
+  return agentMessagesToChatMessages(rows).map((message) => ({
+    role: message.role,
+    content: message.content,
+    segments: message.segments.length,
   }))
 }
 
@@ -1194,12 +1196,14 @@ describe('runChatCase on briefing chat', () => {
 
       const conversations = await service.prisma.chatConversation.findMany({
         include: {
-          messages: { orderBy: { createdAt: Prisma.SortOrder.asc } },
+          agentMessages: { orderBy: { index: Prisma.SortOrder.asc } },
         },
         orderBy: { createdAt: Prisma.SortOrder.asc },
       })
       expect(
-        conversations.map((c) => c.messages.map((m) => m.content)),
+        conversations.map((c) =>
+          agentMessagesToChatMessages(c.agentMessages).map((m) => m.content),
+        ),
       ).toEqual([
         ['first question', ANSWER],
         ['second question', ANSWER],

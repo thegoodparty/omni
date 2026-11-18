@@ -1,4 +1,5 @@
 import type { ModelMessage } from 'ai'
+import { v5 } from 'uuid'
 import { z } from 'zod'
 import { isToolRefusal } from '@goodparty_org/contracts'
 import {
@@ -15,7 +16,18 @@ import type {
   PersistedSegment,
 } from './chatStore.prisma'
 
+// A canned reply's id, derived from the user turn it answers, so a retry of
+// the same send derives the same id and the primary key dedupes it.
+const CANNED_REPLY_NAMESPACE = '2b0d3f8e-5c1a-4f6b-9d7e-8a3c5b1f4e2d'
+
+export const cannedReplyId = (userMessageId: string): string =>
+  v5(userMessageId, CANNED_REPLY_NAMESPACE)
+
 export type AgentMessageDraft = {
+  // Set only by a caller that must own the id: a user turn keyed by the id the
+  // client sent, and the canned reply derived from it. Everything else lets
+  // the database assign uuid(7).
+  id?: string
   role: AgentMessageRole
   parts: Prisma.JsonValue[]
   model?: string | null

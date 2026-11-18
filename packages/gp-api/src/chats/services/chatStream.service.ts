@@ -131,7 +131,9 @@ export interface StreamArgs {
   tools: Record<string, LlmTool>
   userMessage: string
   signal?: AbortSignal
-  clientMessageId?: string
+  // The user message's own id, when the client sent one. It becomes that
+  // row's id, so a retried send finds the turn already stored.
+  userMessageId?: string
   models?: string[]
   maxSteps?: number
   // Called once after a clean finish with the turn's resolved token usage and
@@ -636,17 +638,27 @@ export class ChatStreamService {
   private async *run(
     args: StreamArgs,
   ): AsyncGenerator<ChatStreamChunk, void, void> {
-    const userMessage = await this.store.appendUserMessageIfAlive({
+    const appended = await this.store.appendUserMessageIfAlive({
       conversationId: args.conversationId,
       ownerUserId: args.ownerUserId,
       content: args.userMessage,
-      ...(args.clientMessageId !== undefined && {
-        clientMessageId: args.clientMessageId,
-      }),
+      ...(args.userMessageId !== undefined && { id: args.userMessageId }),
     })
-    if (!userMessage) {
+    if (!appended) {
       yield buildErrorChunk('conversation_not_found')
       return
+    }
+    if (appended.replayed) {
+      // The same send arrived twice. Its turn already ran, so replay the reply
+      // it produced rather than paying for and storing a second one. A retry
+      // that arrived before the turn finished has no reply yet, and finishes
+      // the turn instead.
+      const reply = await this.store.replayedReplyTo(appended.message.id)
+      if (reply) {
+        yield { type: 'text', delta: reply.content }
+        yield { type: 'done', assistantMessageId: reply.id }
+        return
+      }
     }
 
     const history = await this.store.listRecentMessagesByConversation(
@@ -1124,9 +1136,9 @@ export class ChatStreamService {
             conversationId: args.conversationId,
             // Derived from the conversation rather than counted: `history` is
             // this turn's replay, already fetched, and it grows by the user
-            // row this turn appended. A retry that reuses clientMessageId
-            // dedups that row, so it lands on the same index and the upsert
-            // overwrites instead of filing a second opinion.
+            // row this turn appended. A retried send reuses the user message
+            // id, so that row is already there and the retry never runs the
+            // turn again to file a second opinion.
             turnIndex: history.length,
             ...(persistedId !== undefined && {
               assistantMessageId: persistedId,

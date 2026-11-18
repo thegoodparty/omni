@@ -95,7 +95,7 @@ export interface StreamingTurn {
     content: string,
     opts?: {
       hidden?: boolean
-      clientMessageId?: string
+      id?: string
       attachmentIds?: string[]
     },
   ) => Promise<void>
@@ -175,7 +175,7 @@ export function useStreamingTurn(
       content: string,
       opts?: {
         hidden?: boolean
-        clientMessageId?: string
+        id?: string
         attachmentIds?: string[]
       },
     ): Promise<void> => {
@@ -258,9 +258,10 @@ export function useStreamingTurn(
           .streamMessage({
             conversationId,
             content: trimmed,
-            // Replay the caller's id on retry so the server's partial unique
-            // index on (conversation_id, client_message_id) dedupes the turn.
-            clientMessageId: opts?.clientMessageId ?? crypto.randomUUID(),
+            // Replay the caller's id on retry: the server stores the user
+            // turn under it, so a second delivery finds that turn instead of
+            // running it again.
+            id: opts?.id ?? crypto.randomUUID(),
             attachmentIds: opts?.attachmentIds,
             signal: abortController.signal,
           })
