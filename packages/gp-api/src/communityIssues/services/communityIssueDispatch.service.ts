@@ -1,8 +1,11 @@
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { runsOnGpApi } from '@/agents/agents.registry'
+import { AgentsService } from '@/agents/agents.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { WrapperType } from '@/shared/types/utility.types'
 import { JobsService } from '@/jobs/jobs.service'
+import { isTestUser } from '@/users/util/users.util'
 import type { JobRun } from '@/jobs/jobs.registry'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { forwardRef, Inject, Injectable } from '@nestjs/common'
@@ -76,6 +79,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
 ) {
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
+    private readonly agents: AgentsService,
     private readonly organizations: OrganizationsService,
     private readonly jobs: JobsService,
     // analytics.service sits on a circular import chain (analytics -> users
@@ -137,17 +141,12 @@ export class CommunityIssueDispatchService extends createPrismaBase(
         continue
       }
 
-      await this.experimentRuns.dispatchRun({
-        type: experimentType,
-        organizationSlug: electedOffice.organizationSlug,
-        clerkUserId: ctx.clerkUserId,
-        priority: 'HIGH',
-        params: buildDispatchParams(
-          electedOffice.organizationSlug,
-          experimentType,
-          ctx,
-        ),
-      })
+      await this.startRun(
+        electedOffice.organizationSlug,
+        experimentType,
+        ctx,
+        'HIGH',
+      )
     }
   }
 
@@ -324,13 +323,54 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       return false
     }
 
+    await this.startRun(orgSlug, experimentType, ctx)
+    return true
+  }
+
+  // The engine switch (runsOnGpApi): gp-api's own agent, or a PMF Engine
+  // dispatch. Either way the run is an ExperimentRun of this experiment type,
+  // so the gates above read both engines' runs alike.
+  private async startRun(
+    organizationSlug: string,
+    experimentType: CommunityIssueExperimentType,
+    ctx: ResolvedDispatchContext,
+    priority?: 'HIGH',
+  ): Promise<void> {
+    if (experimentType === 'trending_issues' && runsOnGpApi(experimentType)) {
+      // The PMF Engine's dispatchRun makes the same check.
+      const organization = await this.client.organization.findUnique({
+        where: { slug: organizationSlug },
+        select: {
+          owner: { select: { email: true } },
+          testModeCreatedAt: true,
+        },
+      })
+      if (
+        isTestUser({ email: organization?.owner.email ?? '' }) ||
+        organization?.testModeCreatedAt
+      ) {
+        this.logger.info(
+          { organizationSlug, experimentType },
+          'Skipping agent run for test-user org',
+        )
+        return
+      }
+      await this.agents.run(experimentType, {
+        organizationSlug,
+        state: ctx.state,
+        office: ctx.positionName,
+        districtDescriptor: ctx.districtDescriptor,
+        today: new Date().toISOString().slice(0, 10),
+      })
+      return
+    }
     await this.experimentRuns.dispatchRun({
       type: experimentType,
-      organizationSlug: orgSlug,
+      organizationSlug,
       clerkUserId: ctx.clerkUserId,
-      params: buildDispatchParams(orgSlug, experimentType, ctx),
+      ...(priority && { priority }),
+      params: buildDispatchParams(organizationSlug, experimentType, ctx),
     })
-    return true
   }
 
   private async trackDispatchSkippedInactive(

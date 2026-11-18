@@ -198,10 +198,14 @@ const GP_API_READERS: ReadonlySet<BackgroundAgentId> = new Set([
 // in their params, so both arms ask for the same pages. Agents that find their
 // own sources diverge at web search instead, where replay serves little; the
 // rest wait until these three's hit rates have been read.
+// trending_issues is here so its in-process candidate
+// (runners/backgroundInProcess.ts) reads the pages its Fargate base read,
+// once a base ref that records it is on main.
 const PAGE_REPLAY_AGENTS: ReadonlySet<BackgroundAgentId> = new Set([
   'opponent_research',
   'race_opponent_collection',
   'self_research',
+  'trending_issues',
 ])
 
 // Keyed by the id union, so dropping an experiment without dropping its

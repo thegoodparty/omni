@@ -81,6 +81,7 @@ import { CaseScoutDraftService } from '@/caseScout/services/caseScoutDraft.servi
 import { CaseScoutNightlyService } from '@/caseScout/services/caseScoutNightly.service'
 import { CaseScoutScoreService } from '@/caseScout/services/caseScoutScore.service'
 import { AgentsService } from '@/agents/agents.service'
+import { AgentRunReplaySchema } from '@/agents/tools/judgeReplay'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -321,7 +322,10 @@ export const JOBS = {
   // A retry continues from the run's last saved step; a deploy stops it
   // after its current step and it resumes on a new task.
   agentRun: defineJob({
-    schema: z.object({ runId: z.string().min(1) }),
+    schema: z.object({
+      runId: z.string().min(1),
+      judgeReplay: AgentRunReplaySchema.optional(),
+    }),
     worker: (job, context) => context.get(AgentsService).execute(job, context),
     alertAfterWaitingMinutes: 60,
     timeoutMinutes: 120,

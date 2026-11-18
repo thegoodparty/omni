@@ -1,10 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { isBefore, subHours } from 'date-fns'
 import {
+  AgentRunStatus,
   CommunityIssueList,
   ExperimentRunStatus,
   Prisma,
 } from '../../generated/prisma'
+import { runsOnGpApi } from '@/agents/agents.registry'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { toDateOnlyString } from 'src/shared/util/date.util'
 
@@ -20,10 +22,9 @@ const EXPERIMENT_TYPE_FOR_LIST: Record<'top_community' | 'trending', string> = {
   trending: 'trending_issues',
 }
 
-const RUN_STATUS_MAP: Record<
-  ExperimentRunStatus,
-  'running' | 'completed' | 'failed'
-> = {
+type RunStatus = 'running' | 'completed' | 'failed'
+
+const RUN_STATUS_MAP: Record<ExperimentRunStatus, RunStatus> = {
   [ExperimentRunStatus.QUEUED]: 'running',
   [ExperimentRunStatus.RUNNING]: 'running',
   [ExperimentRunStatus.AWAITING_RESUME]: 'running',
@@ -31,6 +32,41 @@ const RUN_STATUS_MAP: Record<
   [ExperimentRunStatus.COMPLETED]: 'completed',
   [ExperimentRunStatus.FAILED]: 'failed',
 }
+
+const AGENT_RUN_STATUS_MAP: Record<AgentRunStatus, RunStatus> = {
+  [AgentRunStatus.queued]: 'running',
+  [AgentRunStatus.running]: 'running',
+  [AgentRunStatus.superseded]: 'running',
+  [AgentRunStatus.completed]: 'completed',
+  [AgentRunStatus.failed]: 'failed',
+}
+
+type Refresh = { status: RunStatus; lastCompletedAt: string | null }
+
+const TERMINAL_AGENT_RUNS = new Set<AgentRunStatus>([
+  AgentRunStatus.completed,
+  AgentRunStatus.failed,
+])
+
+// Absent means the list has never run, which the client polls as running.
+const refreshOf = (
+  latest: { status: RunStatus; createdAt: Date } | null,
+  terminal: boolean,
+  lastCompletedAt: Date | undefined,
+): Refresh => ({
+  status:
+    latest === null
+      ? 'running'
+      : terminal
+        ? latest.status
+        : isBefore(
+              latest.createdAt,
+              subHours(new Date(), STALE_RUN_THRESHOLD_HOURS),
+            )
+          ? 'failed'
+          : latest.status,
+  lastCompletedAt: lastCompletedAt?.toISOString() ?? null,
+})
 
 type ArtifactItem = { item_id: string }
 type ArtifactLike = {
@@ -65,26 +101,18 @@ export class CommunityIssueReadService extends createPrismaBase(
         ? CommunityIssueList.top_community
         : CommunityIssueList.trending
 
-    const [issues, latestRun, latestCompletedRun] = await Promise.all([
+    const experimentType = EXPERIMENT_TYPE_FOR_LIST[list]
+    // Whichever engine the switch sends this list's next run to is the one
+    // whose runs the refresh state comes from: gp-api's own agents record
+    // AgentRun, the PMF Engine records ExperimentRun.
+    const [issues, refresh] = await Promise.all([
       this.model.findMany({
         where: { organizationSlug, list: prismaList, archivedAt: null },
         orderBy: { rank: Prisma.SortOrder.asc },
       }),
-      this.client.experimentRun.findFirst({
-        where: {
-          organizationSlug,
-          experimentType: EXPERIMENT_TYPE_FOR_LIST[list],
-        },
-        orderBy: { createdAt: Prisma.SortOrder.desc },
-      }),
-      this.client.experimentRun.findFirst({
-        where: {
-          organizationSlug,
-          experimentType: EXPERIMENT_TYPE_FOR_LIST[list],
-          status: ExperimentRunStatus.COMPLETED,
-        },
-        orderBy: { updatedAt: Prisma.SortOrder.desc },
-      }),
+      runsOnGpApi(experimentType)
+        ? this.agentRunRefresh(organizationSlug, experimentType)
+        : this.experimentRunRefresh(organizationSlug, experimentType),
     ])
 
     const issueIds = issues.map((i) => i.id)
@@ -105,25 +133,6 @@ export class CommunityIssueReadService extends createPrismaBase(
       priorities.map((p) => p.sourceCommunityIssueId),
     )
 
-    const runIsTerminal =
-      latestRun?.status === ExperimentRunStatus.COMPLETED ||
-      latestRun?.status === ExperimentRunStatus.FAILED
-    const runIsStale =
-      !!latestRun &&
-      !runIsTerminal &&
-      isBefore(
-        latestRun.createdAt,
-        subHours(new Date(), STALE_RUN_THRESHOLD_HOURS),
-      )
-    const runStatus = !latestRun
-      ? 'running'
-      : runIsStale
-        ? 'failed'
-        : RUN_STATUS_MAP[latestRun.status]
-    const lastCompletedAt = latestCompletedRun
-      ? latestCompletedRun.updatedAt.toISOString()
-      : null
-
     return {
       issues: issues.map((issue) => ({
         id: issue.id,
@@ -135,8 +144,65 @@ export class CommunityIssueReadService extends createPrismaBase(
         rank: issue.rank,
         prioritized: prioritizedIds.has(issue.id),
       })),
-      refresh: { status: runStatus, lastCompletedAt },
+      refresh,
     }
+  }
+
+  private async experimentRunRefresh(
+    organizationSlug: string,
+    experimentType: string,
+  ): Promise<Refresh> {
+    const [latestRun, latestCompletedRun] = await Promise.all([
+      this.client.experimentRun.findFirst({
+        where: { organizationSlug, experimentType },
+        orderBy: { createdAt: Prisma.SortOrder.desc },
+      }),
+      this.client.experimentRun.findFirst({
+        where: {
+          organizationSlug,
+          experimentType,
+          status: ExperimentRunStatus.COMPLETED,
+        },
+        orderBy: { updatedAt: Prisma.SortOrder.desc },
+      }),
+    ])
+    return refreshOf(
+      latestRun && {
+        status: RUN_STATUS_MAP[latestRun.status],
+        createdAt: latestRun.createdAt,
+      },
+      latestRun?.status === ExperimentRunStatus.COMPLETED ||
+        latestRun?.status === ExperimentRunStatus.FAILED,
+      latestCompletedRun?.updatedAt,
+    )
+  }
+
+  private async agentRunRefresh(
+    organizationSlug: string,
+    agentName: string,
+  ): Promise<Refresh> {
+    const [latestRun, latestCompletedRun] = await Promise.all([
+      this.client.agentRun.findFirst({
+        where: { organizationSlug, agentName },
+        orderBy: { createdAt: Prisma.SortOrder.desc },
+      }),
+      this.client.agentRun.findFirst({
+        where: {
+          organizationSlug,
+          agentName,
+          status: AgentRunStatus.completed,
+        },
+        orderBy: { updatedAt: Prisma.SortOrder.desc },
+      }),
+    ])
+    return refreshOf(
+      latestRun && {
+        status: AGENT_RUN_STATUS_MAP[latestRun.status],
+        createdAt: latestRun.createdAt,
+      },
+      latestRun !== null && TERMINAL_AGENT_RUNS.has(latestRun.status),
+      latestCompletedRun?.updatedAt,
+    )
   }
 
   async getDetailForOrg(
