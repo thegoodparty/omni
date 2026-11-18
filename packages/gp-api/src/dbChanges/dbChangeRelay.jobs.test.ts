@@ -305,4 +305,31 @@ describe('db change cleanup', () => {
 
     expect(track).not.toHaveBeenCalled()
   })
+  it('does not sync HubSpot when only the visit stamp changed', async () => {
+    const track = vi
+      .spyOn(service.app.get(CrmCampaignsService), 'trackCampaign')
+      .mockResolvedValue(undefined)
+    const campaignId = await createCampaign()
+    await relay().relayPass()
+    await service.jobs.settle()
+    track.mockClear()
+
+    await service.prisma.$executeRaw`
+      UPDATE campaign
+      SET data = data || jsonb_build_object('lastVisited', 1),
+          updated_at = now()
+      WHERE id = ${campaignId}
+    `
+    await relay().relayPass()
+    await service.jobs.settle()
+    expect(track).not.toHaveBeenCalled()
+
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { isActive: true },
+    })
+    await relay().relayPass()
+    await service.jobs.settle()
+    expect(track).toHaveBeenCalledWith(campaignId)
+  })
 })

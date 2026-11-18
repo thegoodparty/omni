@@ -1,3 +1,4 @@
+import { isEqual } from 'es-toolkit'
 import { z } from 'zod'
 import { PrismaService } from '@/prisma/prisma.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
@@ -61,6 +62,20 @@ const syncCampaignToHubspot = async (
   await get(CrmCampaignsService).trackCampaign(row.id)
 }
 
+// getStatus stamps data.lastVisited (and updated_at) on every dashboard
+// poll. HubSpot publishes neither, so a write that changed nothing else is
+// not worth a sync.
+const onlyVisitStamped = (
+  previous: ChangeRow<'Campaign'>,
+  next: ChangeRow<'Campaign'>,
+): boolean => {
+  const { updatedAt: _a, data: previousData, ...previousRest } = previous
+  const { updatedAt: _b, data: nextData, ...nextRest } = next
+  const { lastVisited: _c, ...previousOther } = previousData ?? {}
+  const { lastVisited: _d, ...nextOther } = nextData ?? {}
+  return isEqual(previousRest, nextRest) && isEqual(previousOther, nextOther)
+}
+
 // Every change handler gp-api runs, keyed by the pg-boss queue the relay
 // sends each change to. The trigger generator and the relay both read this:
 // it is the one place that decides what gets captured. A table appears once
@@ -76,7 +91,10 @@ export const CHANGES = {
     concurrency: 2,
     // Re-reading the campaign makes a retry the same as the next update.
     onInsert: (row, { get }) => syncCampaignToHubspot(row, get),
-    onUpdate: (_previous, next, { get }) => syncCampaignToHubspot(next, get),
+    onUpdate: (previous, next, { get }) =>
+      onlyVisitStamped(previous, next)
+        ? Promise.resolve()
+        : syncCampaignToHubspot(next, get),
   }),
 }
 

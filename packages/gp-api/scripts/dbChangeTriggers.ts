@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { capturedTables } from '@/jobs/changes.registry'
