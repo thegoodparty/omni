@@ -57,6 +57,7 @@ const CHANNEL_ICONS: Record<
   doorKnocking: MapPinIcon,
   socialMedia: MegaphoneIcon,
   directMail: MailIcon,
+  email: MailIcon,
   event: CalendarIcon,
   awareness: CalendarDaysIcon,
   general: ClipboardListIcon,

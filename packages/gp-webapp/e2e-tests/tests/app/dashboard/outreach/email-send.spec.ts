@@ -265,11 +265,10 @@ test.describe('Email send — mock pipeline', () => {
       timeout: 30_000,
     })
 
-    // The goal picked on "What do you want to do?" rides on both events. The
-    // email flow fires neither yet, so these report as missing in shadow mode.
-    // No `medium` here: the analytics channel vocabulary (TaskChannel) has no
-    // email value yet, and choosing one is part of instrumenting this flow.
-    const choice = { purpose: 'introduce_myself' }
+    // The goal picked on "What do you want to do?" rides on both events:
+    // Created on the look step's first save, Completed once confirm took the
+    // card. They count the send toward Win activation.
+    const choice = { medium: 'email', purpose: 'introduce_myself' }
     await analytics.expectEvent('Outreach - Campaign Created', choice)
     await analytics.expectEvent('Outreach - Campaign Completed', choice)
 
