@@ -7,8 +7,10 @@ hands the result to the publisher, which opens the PR. Design: the Universal
 Judge Case Iteration TDD; decision record:
 `docs/adr/2026-11-16-case-scout-reader-in-gp-api.md`.
 
-**On in dev only.** Nothing runs unless `CASE_SCOUT_ENABLED=true`, which
-only dev sets; prod and previews ship it `false`.
+**On in dev and prod.** Nothing runs unless `CASE_SCOUT_ENABLED=true`;
+previews ship it `false`. Prod's publisher is a dry run (a Slack note to
+#product-chats-digest, no PR) until gp-ai's `CASE_SCOUT_OPEN_PRS` is set on
+the prod Lambda.
 
 **The publisher is not here, on purpose.** gp-api reads transcripts, so it
 must never hold the GitHub App key. It writes the night's files to the scout's
@@ -74,7 +76,8 @@ Change both sides together.
 ## Spend
 
 A flat $0.75 per call, an estimate about 7 times the real price, against
-`CASE_SCOUT_SPEND_CAP_USD` (default $50). The cap reads the night's running
+`CASE_SCOUT_SPEND_CAP_USD` ($50 in dev, $65 in prod, about $9 of real
+spend). The cap reads the night's running
 total from `scores/` before each score call, so with four score jobs in flight
 the score stage can pass the cap by up to 4 calls ($3.00); drafting is
 sequential and passes it by at most one. A capped session is never marked

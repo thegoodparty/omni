@@ -810,18 +810,26 @@ jwIDAQAB
         dev: 'robocall-free-offer-2026-11',
         prod: 'robocall-free-offer-2026-11',
       }),
-      // The nightly case scout (src/caseScout/AGENTS.md). On in dev, where
-      // the publisher never opens a PR; prod waits on a graded dev week. The
-      // bucket and the publisher Lambda belong to gp-ai's case-scout module;
-      // gp-api only reads, writes and invokes them.
+      // The nightly case scout (src/caseScout/AGENTS.md). The publisher
+      // never opens a PR in dev, and in prod only once gp-ai's
+      // CASE_SCOUT_OPEN_PRS is set. The bucket and the publisher Lambda
+      // belong to gp-ai's case-scout module; gp-api only reads, writes and
+      // invokes them.
       CASE_SCOUT_ENABLED: select({
         preview: 'false',
         dev: 'true',
-        prod: 'false',
+        prod: 'true',
       }),
       CASE_SCOUT_BUCKET: caseScoutName,
       CASE_SCOUT_LAMBDA_FUNCTION_NAME: caseScoutName,
-      CASE_SCOUT_SPEND_CAP_USD: '50',
+      // The spend estimate charges a flat $0.75 a call, about 7 times the
+      // real price, so prod's $65 is about $9 of real spend a night: high
+      // enough that the 75-session cap is the usual limit.
+      CASE_SCOUT_SPEND_CAP_USD: select({
+        preview: '50',
+        dev: '50',
+        prod: '65',
+      }),
       CASE_SCOUT_SESSION_CAP: '75',
       // Noisy-case proposals read the judge's sweep records. Dev only: dev's
       // task already reads its own agent-artifacts bucket, and prod reading

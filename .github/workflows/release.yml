@@ -1251,6 +1251,9 @@ jobs:
       - name: apply prod/alert-filter
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
+      - name: apply prod/case-scout
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/case-scout
 
       - wait-all:
 
@@ -1301,6 +1304,9 @@ jobs:
       - name: reverify prod/alert-filter
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter
+      - name: reverify prod/case-scout
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/case-scout
       - name: reverify prod/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/shared-infra
