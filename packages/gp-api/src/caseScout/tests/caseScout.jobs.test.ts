@@ -379,9 +379,7 @@ describe('caseScoutNightly', () => {
     )
     expect(publishCalls).toEqual([RUN_ID])
 
-    // Both claims, so the Python path cannot run this night too.
     expect(bucketJson(`claims/${RUN_ID}`)).toBeDefined()
-    expect(bucketJson(`claims/${RUN_ID}.reader`)).toBeDefined()
     // The out-of-scope ordinance session is never sent to the model.
     expect(transcripts.map(sessionIdIn).sort()).toEqual([
       'conv-golden-a:msg-a1',
@@ -406,7 +404,7 @@ describe('caseScoutNightly', () => {
     expect(transcripts.join('\n')).not.toContain('@example.com')
   })
 
-  it('stands down when the Python path already claimed the night', async () => {
+  it('stands down when someone else already claimed the night', async () => {
     await seedGoldenNight()
     objects.set(`${BUCKET}/claims/${RUN_ID}`, '{}')
 

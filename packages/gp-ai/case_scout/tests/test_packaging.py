@@ -4,9 +4,8 @@ Mirrors alert_filter/tests/test_packaging.py's own reasoning exactly: the zip
 is assembled in infrastructure/modules/case-scout/main.tf from a fileset
 rather than a hand-written list, so these tests check that the glob the
 module uses still covers everything the handler imports — a module missing
-from the archive is invisible until the Lambda is invoked, which for `start`
-is the nightly nothing-waiting-to-retry trigger (GitHub sends it no data), so
-the failure would surface as a silent no-op scout rather than a loud one.
+from the archive is invisible until gp-api invokes the Lambda at the end of
+a night.
 """
 
 import ast
@@ -62,15 +61,10 @@ class TestTheArchiveCoversWhatTheHandlerNeeds:
 
 
 class TestWhatMustNotShip:
-    # The `*.py` glob is top-level only, which is what keeps tests/, lambda/
-    # and reader/ out without an exclude list.
+    # The `*.py` glob is top-level only, which is what keeps tests/ and
+    # lambda/ out without an exclude list.
     def test_the_tests_are_not_in_the_artifact(self):
         assert not any(p.startswith("case_scout/tests") for p in PACKAGED)
-
-    def test_the_reader_is_not_in_the_lambda_artifact(self):
-        # The Reader runs as its own Fargate container image, built from the
-        # same case_scout source but via case_scout/Dockerfile, not this zip.
-        assert not any(p.startswith("case_scout/reader") for p in PACKAGED)
 
     def test_the_handler_source_is_not_shipped_twice(self):
         assert "case_scout/lambda" not in PACKAGED

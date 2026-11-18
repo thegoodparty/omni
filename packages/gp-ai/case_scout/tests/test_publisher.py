@@ -2,9 +2,7 @@
 Publisher: PR, Slack note, marker advance, dry-run mode, the 7-day
 stale-PR sweep, and the merged/rejected outcome reconcile. Every test here
 runs against FakeGitHubClient and a fake Slack poster — no real network
-call, same convention as every other case_scout test
-(reader/messages.py's FakeCaseScoutMessageReader, reader/case_lists.py's
-FakeChatCaseListReader).
+call.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -23,8 +21,6 @@ from case_scout.publisher import (
     run_publish,
     slack_channel_for_environment,
 )
-from case_scout.reader.cap import trailing_merge_share
-from case_scout.reader.ledger import find_rejection, parse_ledger_lines
 
 from .conftest import TEST_BUCKET
 
@@ -377,9 +373,7 @@ class TestStaleCloseSweep:
         assert len(stale_lines) == 1
         assert stale_lines[0]["caseId"] == "old-case"
         assert stale_lines[0]["prNumber"] == 42
-
-        entries = parse_ledger_lines(lines)
-        assert find_rejection(entries, "conv-x", "chief_of_staff", "", NOW) is None
+        assert not [line for line in lines if line["outcome"] == "rejected"]
 
     def test_dev_never_runs_the_stale_close_sweep(self, s3_bucket):
         store = _store(s3_bucket)
@@ -570,7 +564,7 @@ RECONCILE_ALERT = "case scout: couldn't record PR outcomes"
 
 
 class TestPrOutcomeReconcile:
-    def test_a_merged_pr_records_merged_for_each_case_and_moves_the_cap(self, s3_bucket):
+    def test_a_merged_pr_records_merged_for_each_case(self, s3_bucket):
         store = _store(s3_bucket)
         for i, case_id in enumerate(["case-a", "case-b", "case-c"]):
             store.append_ledger_line("2026-11", _proposed_line("2026-11-01", case_id, conversation_id=f"conv-{i}"))
@@ -588,8 +582,6 @@ class TestPrOutcomeReconcile:
             "createdAt": NOW.isoformat(),
             "mergedAt": "2026-11-03T15:00:00Z",
         }
-        entries = parse_ledger_lines(store.read_ledger_lines("2026-11"))
-        assert trailing_merge_share(entries, NOW) == 1.0
 
     def test_a_pr_closed_unmerged_records_rejected_and_suppresses_the_failure(self, s3_bucket):
         store = _store(s3_bucket)
@@ -604,10 +596,8 @@ class TestPrOutcomeReconcile:
         assert rejected[0]["closedAt"] == "2026-11-02T10:00:00Z"
         assert rejected[0]["prNumber"] == 71
         assert "mergedAt" not in rejected[0]
-        entries = parse_ledger_lines(store.read_ledger_lines("2026-11"))
-        rejection = find_rejection(entries, "conv-1", "chief_of_staff", "gave a wrong polling rule", NOW)
-        assert rejection is not None
-        assert rejection.case_id == "case-a"
+        assert rejected[0]["caseId"] == "case-a"
+        assert rejected[0]["conversationId"] == "conv-1"
 
     def test_the_outcome_lands_in_the_month_it_was_recorded(self, s3_bucket):
         # The Reader loads only the months its 30-day window touches, so a

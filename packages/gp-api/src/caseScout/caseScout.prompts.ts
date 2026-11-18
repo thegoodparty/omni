@@ -1,7 +1,5 @@
-// Word for word the prompts the Python reader sends
-// (packages/gp-ai/case_scout/reader), which the quality bench graded. A change
-// here is a prompt change: run the bench before and after
-// (packages/gp-ai/case_scout/bench/README.md).
+// The quality bench graded these prompts. A change here is a prompt change:
+// run the bench before and after (src/chats/evals/caseScoutBench/README.md).
 
 export const SCORING_MODEL = 'claude-opus-4-7'
 

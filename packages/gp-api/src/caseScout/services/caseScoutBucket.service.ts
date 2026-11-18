@@ -141,28 +141,16 @@ export class CaseScoutBucketService {
     )
   }
 
-  // claims/<runDate> is the Lambda's night claim and claims/<runDate>.reader
-  // the Python reader's; taking both keeps the old path from running a night
-  // this one claimed. The body says who claimed it, so a retry of our own
+  // One run a night. The body says who claimed it, so a retry of our own
   // nightly run can resume instead of finding the night taken.
   async claimNight(runId: string): Promise<'claimed' | 'ours' | 'taken'> {
     const bucket = caseScoutBucketName()
     const body = JSON.stringify({ claimedBy: 'gp-api' })
-    const nightKey = `claims/${runId}`
-    const readerKey = `claims/${runId}.reader`
-    const wonNight = await this.putText(bucket, nightKey, body, {
-      ifAbsent: true,
-    })
-    if (!wonNight && (await this.getText(bucket, nightKey)) !== body) {
-      return 'taken'
+    const key = `claims/${runId}`
+    if (await this.putText(bucket, key, body, { ifAbsent: true })) {
+      return 'claimed'
     }
-    const wonReader = await this.putText(bucket, readerKey, body, {
-      ifAbsent: true,
-    })
-    if (!wonReader && (await this.getText(bucket, readerKey)) !== body) {
-      return 'taken'
-    }
-    return wonNight ? 'claimed' : 'ours'
+    return (await this.getText(bucket, key)) === body ? 'ours' : 'taken'
   }
 
   async readMarker(): Promise<Marker> {

@@ -51,40 +51,6 @@ class TestMarker:
             )
 
 
-class TestClaimRun:
-    def test_first_claim_succeeds(self, s3_bucket):
-        store = CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)
-
-        assert store.claim_run("2026-11-05") is True
-        assert store.is_claimed("2026-11-05") is True
-
-    def test_second_claim_for_the_same_night_fails(self, s3_bucket):
-        store = CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)
-        store.claim_run("2026-11-05")
-
-        assert store.claim_run("2026-11-05") is False
-
-    def test_different_nights_claim_independently(self, s3_bucket):
-        store = CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)
-        store.claim_run("2026-11-05")
-
-        assert store.claim_run("2026-11-06") is True
-
-
-class TestClaimReader:
-    def test_the_reader_claim_is_separate_from_the_night_claim(self, s3_bucket):
-        store = CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)
-        store.claim_run("2026-11-05")
-
-        assert store.claim_reader("2026-11-05") is True
-
-    def test_a_second_reader_for_the_same_night_fails(self, s3_bucket):
-        store = CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)
-        store.claim_reader("2026-11-05")
-
-        assert store.claim_reader("2026-11-05") is False
-
-
 class TestLedger:
     def test_append_creates_the_file(self, s3_bucket):
         store = CaseScoutBucket(TEST_BUCKET, s3_client=s3_bucket)

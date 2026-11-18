@@ -1,5 +1,4 @@
-"""The nightly case scout: turns real production chat failures into fictional
-judge cases. See the TDD ("Universal Judge Case Iteration", M1 "Discover")
-for the full design; this package is the deployable skeleton the Reader,
-scoring, drafting, gate and Publisher stories build on.
+"""The nightly case scout's Publisher. gp-api reads the night's chats and
+drafts fictional judge cases (packages/gp-api/src/caseScout); this package is
+the Lambda that opens the PR, because only it holds the GitHub App key.
 """
