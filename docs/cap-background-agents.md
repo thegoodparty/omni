@@ -243,7 +243,8 @@ dormant and dispatches nothing.
   `onExperimentRunCompleted` re-reads S3, validates, **verifies the artifact's
   `organization_slug` and `generated_for_run_id` match the run** (anti-cross-
   contamination), then upserts. `trending_issues` can instead run on gp-api's
-  own agents (`AGENTS_ON_GP_API`, off by default; `src/agents/AGENTS.md`).
+  own agents (`AGENTS_ON_GP_API`, set in dev and prod, unset in preview;
+  `src/agents/AGENTS.md`).
 - **Campaign strategy** (`src/campaignStrategy/`) — experiments `opposition_research`
   - `opportunities_and_challenges`, persisted section by section.
 
