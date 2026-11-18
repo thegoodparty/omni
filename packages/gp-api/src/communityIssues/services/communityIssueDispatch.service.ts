@@ -11,6 +11,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { differenceInCalendarDays } from 'date-fns'
 import {
+  AgentRunStatus,
   ElectedOffice,
   ExperimentRunStatus,
   Prisma,
@@ -99,8 +100,9 @@ export class CommunityIssueDispatchService extends createPrismaBase(
    * not blocking: the first attempt did not succeed and nothing else
    * re-dispatches it (crons are flagged off at launch; a dead run is only
    * marked FAILED by the gp-ai ECS task-reaper, which does not
-   * re-dispatch). Blocks on QUEUED, RUNNING, AWAITING_RESUME, and
-   * COMPLETED to avoid spawning a duplicate live run.
+   * re-dispatch). Blocks on a live or completed run: QUEUED, RUNNING,
+   * AWAITING_RESUME and COMPLETED on the PMF Engine, or queued, running and
+   * completed as an AgentRun.
    */
   async onElectedOfficeCreated(electedOffice: ElectedOffice): Promise<void> {
     if (!isAutomationEnabled()) {
@@ -115,21 +117,40 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     if (!ctx) return
 
     for (const experimentType of EXPERIMENT_TYPES) {
-      const existing = await this.client.experimentRun.findFirst({
-        where: {
-          organizationSlug: electedOffice.organizationSlug,
-          experimentType,
-          status: {
-            in: [
-              ExperimentRunStatus.QUEUED,
-              ExperimentRunStatus.RUNNING,
-              ExperimentRunStatus.AWAITING_RESUME,
-              ExperimentRunStatus.COMPLETED,
-            ],
-          },
-        },
-        select: { runId: true },
-      })
+      // The engine that will run it is the one whose runs answer "already
+      // ran": gp-api's own agents record AgentRun, the PMF Engine
+      // ExperimentRun. A superseded AgentRun is left out because its
+      // replacement is created with it, so the replacement is the row to find.
+      const existing = runsOnGpApi(experimentType)
+        ? await this.client.agentRun.findFirst({
+            where: {
+              organizationSlug: electedOffice.organizationSlug,
+              agentName: experimentType,
+              status: {
+                in: [
+                  AgentRunStatus.queued,
+                  AgentRunStatus.running,
+                  AgentRunStatus.completed,
+                ],
+              },
+            },
+            select: { id: true },
+          })
+        : await this.client.experimentRun.findFirst({
+            where: {
+              organizationSlug: electedOffice.organizationSlug,
+              experimentType,
+              status: {
+                in: [
+                  ExperimentRunStatus.QUEUED,
+                  ExperimentRunStatus.RUNNING,
+                  ExperimentRunStatus.AWAITING_RESUME,
+                  ExperimentRunStatus.COMPLETED,
+                ],
+              },
+            },
+            select: { runId: true },
+          })
       if (existing) {
         this.logger.info(
           {
@@ -264,23 +285,36 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       freshnessWindowDays,
     }: { skipActivityGate?: boolean; freshnessWindowDays?: number } = {},
   ): Promise<boolean> {
-    const inFlight = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug: orgSlug,
-        experimentType,
-        status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-          ],
-        },
-      },
-      select: { runId: true },
-    })
-    if (inFlight) {
+    const inFlightRunId = runsOnGpApi(experimentType)
+      ? (
+          await this.client.agentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              agentName: experimentType,
+              status: { in: [AgentRunStatus.queued, AgentRunStatus.running] },
+            },
+            select: { id: true },
+          })
+        )?.id
+      : (
+          await this.client.experimentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              experimentType,
+              status: {
+                in: [
+                  ExperimentRunStatus.QUEUED,
+                  ExperimentRunStatus.RUNNING,
+                  ExperimentRunStatus.AWAITING_RESUME,
+                ],
+              },
+            },
+            select: { runId: true },
+          })
+        )?.runId
+    if (inFlightRunId) {
       this.logger.info(
-        { orgSlug, experimentType, runId: inFlight.runId },
+        { orgSlug, experimentType, runId: inFlightRunId },
         'dispatchTypeForOrg: skipping org with in-flight run',
       )
       return false
@@ -291,15 +325,25 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     // lastVisited, so "issues are still fresh" and "user is still active" stay
     // one concept. Cron/admin/staff paths omit the window and never skip here.
     if (freshnessWindowDays !== undefined) {
-      const lastCompleted = await this.client.experimentRun.findFirst({
-        where: {
-          organizationSlug: orgSlug,
-          experimentType,
-          status: ExperimentRunStatus.COMPLETED,
-        },
-        orderBy: { updatedAt: Prisma.SortOrder.desc },
-        select: { updatedAt: true },
-      })
+      const lastCompleted = runsOnGpApi(experimentType)
+        ? await this.client.agentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              agentName: experimentType,
+              status: AgentRunStatus.completed,
+            },
+            orderBy: { updatedAt: Prisma.SortOrder.desc },
+            select: { updatedAt: true },
+          })
+        : await this.client.experimentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              experimentType,
+              status: ExperimentRunStatus.COMPLETED,
+            },
+            orderBy: { updatedAt: Prisma.SortOrder.desc },
+            select: { updatedAt: true },
+          })
       if (
         lastCompleted &&
         differenceInCalendarDays(new Date(), lastCompleted.updatedAt) <=
@@ -328,8 +372,9 @@ export class CommunityIssueDispatchService extends createPrismaBase(
   }
 
   // The engine switch (runsOnGpApi): gp-api's own agent, or a PMF Engine
-  // dispatch. Either way the run is an ExperimentRun of this experiment type,
-  // so the gates above read both engines' runs alike.
+  // dispatch. The run lands in the engine's own table, an AgentRun named by
+  // agentName or an ExperimentRun by experimentType, which is the table each
+  // gate above queries for this type.
   private async startRun(
     organizationSlug: string,
     experimentType: CommunityIssueExperimentType,

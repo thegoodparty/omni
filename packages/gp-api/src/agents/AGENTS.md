@@ -85,10 +85,13 @@ values, never throws, so one bad URL does not end a run.
 
 `trending_issues` is the template:
 
-1. Register it in `AGENTS` under its experiment id, so a reader that already
-   queries the PMF Engine's `ExperimentRun` rows of that `experimentType` can
-   be pointed at `AgentRun` rows of that `agentName` (see
-   `communityIssueRead.service.ts` for the one reader that has been).
+1. Register it in `AGENTS` under its experiment id, so every reader and gate
+   that queries the PMF Engine's `ExperimentRun` rows of that `experimentType`
+   can be pointed at `AgentRun` rows of that `agentName` (see
+   `communityIssueRead.service.ts` and
+   `communityIssueDispatch.service.ts` for the ones that have been). A gate
+   left on the old table is a duplicate-dispatch bug: it sees no runs and lets
+   the type run again.
 2. The prompt is the experiment's `instruction.md` with the runtime parts
    swapped: input in the first message, our tools, `submitOutput` instead of
    the file and validator. Input and output schemas come from the manifest;
