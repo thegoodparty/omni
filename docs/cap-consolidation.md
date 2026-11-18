@@ -2,8 +2,9 @@
 
 The plan for moving every in-product agent into gp-api, on one engine.
 ClickUp ticket 17tnw2b5rd0, "Consolidate In-Product Agent Architecture".
-Status: in progress. Only the `AgentMessage` table is on main; no agent runs
-on the new engine yet. Until an agent moves, it runs as
+Status: in progress. The core, `AgentMessage` and `trending_issues` are on
+main; `trending_issues` runs on gp-api in dev only. Until an agent moves, it
+runs as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
@@ -57,24 +58,50 @@ as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
 ## Migration plan
 
-1. **Core.** The engine above in gp-api, with no agent on it yet.
-2. **Chat onto `AgentMessage`, every scope at once.** Chat writes both
-   tables, a backfill converts existing conversations, a parity check
-   compares them, and reads move behind the `chat-agent-message` flag. Then
-   chat stops writing `ChatMessage`, and `ChatMessage` and
-   `ChatMessageSegment` are dropped.
-3. **Community issues first** (`trending_issues`, then
-   `top_community_issues`) as the template for every later agent: the
-   definition, the smallest web tool set it needs, the judge's in-process
-   arm for it, and a per-agent switch in gp-api that sends dispatch to the
-   old engine or the new one, default old.
-4. **One agent at a time.** An agent's switch flips only after the universal
-   judge says the new engine is the same or better, with both sides reading
-   the same recorded pages. Rollback is the switch.
-5. **Meeting briefings later.**
-6. **Teardown** once every switch points at gp-api: delete the SQS queue,
+In this order. A step starts when the one before it is done, and done means
+successful production traffic, not a merged PR.
+
+1. **`trending_issues` live in prod.** The template for every later agent:
+   the definition, its web tools, the judge's in-process arm, and the
+   `AGENTS_ON_GP_API` switch. The switch is set per environment in
+   `packages/gp-api/deploy/index.ts`, dev first. Done when prod runs
+   complete, land on the dashboard, never re-dispatch, never dead-letter, and
+   show in Grafana Agent Observability.
+2. **Every chat agent on `AgentMessage` in prod.** Chat writes both tables,
+   a backfill converts existing conversations, a parity check compares them,
+   and reads move behind the `chat-agent-message` flag. Then chat writes only
+   `AgentMessage`, with the client supplying each user message's id (a UUID,
+   so a retry is caught by the primary key), and `ChatMessage` and
+   `ChatMessageSegment` are dropped in a later deploy. Done when all five
+   scopes serve prod traffic from `AgentMessage`, checked in Grafana and by
+   one judge run with the flag on.
+3. **The remaining background agents, in waves.** Each agent is one PR: its
+   definition, its readers moved from `ExperimentRun` to `AgentRun`, its judge
+   in-process arm, and its `qa/` manifest deleted. Its switch flips only after
+   the universal judge says same or better. Rollback is the switch.
+   - **Wave 1, web tools only:** `race_opponent_summary`,
+     `opposition_research`, `race_opponent_collection`, `self_research`,
+     `meeting_schedule`. The opponent chain (collection, summary, actions)
+     flips together.
+   - **Wave 2, needs a Databricks tool** (a table allowlist and a row cap per
+     agent, built first): `race_opponent_actions`, `opponent_research`,
+     `top_community_issues`, `campaign_tracker_tasks`.
+   - **Wave 3, its own design each:** `find_existing_ordinances` (PDF
+     reading, the code-capture files, the heaviest traffic),
+     `meeting_briefing` (document reading and search, uploaded agendas),
+     `compliance_setup` (buys domains and submits to Peerly, so it must be
+     idempotent before it moves; last).
+   - **Delete, not migrate:** `district_issue_pulse` and
+     `district_issue_snapshot` (nothing dispatches them), and every `qa/`
+     checker.
+4. **Teardown** once every switch points at gp-api: delete the SQS queue,
    dispatch Lambdas, DynamoDB job table, Fargate runner, broker, S3
-   manifests, the Python agent packages and `ExperimentRun`.
+   manifests, the Python agent packages, `ExperimentRun` and its readers, and
+   the leftover price tables.
+5. **Docs.** Every PR keeps the docs it touches current. Last, one pass
+   deletes this file and the old-engine docs and rewrites the agent docs to
+   describe the system as it is. The repo should end with less agent
+   documentation than it started with.
 
 ## Deferred
 
