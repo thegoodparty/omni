@@ -3,8 +3,9 @@
 The plan for moving every in-product agent into gp-api, on one engine.
 ClickUp ticket 17tnw2b5rd0, "Consolidate In-Product Agent Architecture".
 Status: in progress. The core, `AgentMessage` and `trending_issues` are on
-main; every agent, `trending_issues` included, still runs on the PMF Engine in
-every environment. Until an agent moves, it runs as
+main; `trending_issues` runs on gp-api's own agents in dev and prod, and
+preview still sends it to the PMF Engine. Every other agent still runs on the
+PMF Engine in every environment. Until an agent moves, it runs as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
@@ -67,9 +68,9 @@ successful production traffic, not a merged PR.
    the task definition, not a secret: `environmentVariables` in
    `packages/gp-api/deploy/index.ts` sets it per environment, so the flip is
    one reviewed line. `runsOnGpApi` reads it, and unset means the PMF Engine.
-   Dev's value lands with #3871. Done when prod runs
-   complete, land on the dashboard, never re-dispatch, never dead-letter, and
-   show in Grafana Agent Observability.
+   Dev's value landed with #3871, prod's with #3875, and preview stays unset.
+   Done when prod runs complete, land on the dashboard, never re-dispatch,
+   never dead-letter, and show in Grafana Agent Observability.
 2. **Every chat agent on `AgentMessage` in prod.** Chat writes both tables,
    a backfill converts existing conversations, a parity check compares them,
    and reads move behind the `chat-agent-message` flag. Then chat writes only

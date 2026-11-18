@@ -202,6 +202,8 @@ real `ANTHROPIC_API_KEY`, locally included.
   crons. So a new dev office dispatches nothing. Use the staff buttons on the
   Serve Community Issues page (`POST /self-dispatch`, `@goodparty.org`
   login), `POST /dispatch-if-needed`, or `POST /dispatch`.
+- **Prod:** yes, on real traffic. `MEETINGS_AUTOMATION_ENABLED` is `true`
+  there, so a new office and the daily crons dispatch without anyone asking.
 
 ## Test command
 
