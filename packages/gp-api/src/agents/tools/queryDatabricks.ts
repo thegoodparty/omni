@@ -7,6 +7,10 @@ import {
 import { isRecord } from '@/llm/tools/util/isRecord.util'
 import { parseSingleSelect } from '@/llm/tools/util/sqlAst.util'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import {
+  PEOPLE_DBX_CATALOG,
+  PEOPLE_DBX_SCHEMA,
+} from '@/peopleDb/databricks/peopleDbx.config'
 import { PeopleDbxStatementClient } from '@/peopleDb/databricks/peopleDbxStatement.client'
 import { defineTool, type ToolContext } from './tool'
 
@@ -91,16 +95,27 @@ const tableRef = (entry: Record<string, unknown>): string =>
     .filter(Boolean)
     .join('.')
 
-// The broker's rule, kept: an exact match, or the reference is a proper
-// suffix of an allowed name on a dot boundary (`dbt.t`, and `t` for
-// `catalog.dbt.t`). A spoofed qualifier (`evil.public.t`) is a suffix of
-// nothing and still fails.
-const isAllowedTable = (ref: string, tables: string[]): boolean =>
-  tables.some((allowed) => {
-    const name = allowed.toLowerCase()
-    const reference = ref.toLowerCase()
-    return name === reference || name.endsWith(`.${reference}`)
-  })
+// Every reference must name the same catalog and schema the allowlist does. The
+// statement client pins the session's default to `goodparty_data_catalog`.
+// `mart_gp_api`, so a bare or partly-qualified name resolves SOMEWHERE ELSE
+// than the table the agent was granted — the mart rather than the `dbt` table
+// the manifest names. So a reference matches only when its catalog, schema and
+// name all match, with any missing leading part taken from the default the
+// client sets. A spoofed qualifier (`evil.public.t`) matches nothing.
+const DEFAULT_CATALOG = PEOPLE_DBX_CATALOG
+const DEFAULT_SCHEMA = PEOPLE_DBX_SCHEMA
+
+const resolvedRef = (ref: string): string => {
+  const parts = ref.split('.')
+  if (parts.length >= 3) return parts.join('.')
+  if (parts.length === 2) return [DEFAULT_CATALOG, ...parts].join('.')
+  return [DEFAULT_CATALOG, DEFAULT_SCHEMA, ...parts].join('.')
+}
+
+const isAllowedTable = (ref: string, tables: string[]): boolean => {
+  const resolved = resolvedRef(ref).toLowerCase()
+  return tables.some((allowed) => allowed.toLowerCase() === resolved)
+}
 
 const eachNode = (
   node: unknown,

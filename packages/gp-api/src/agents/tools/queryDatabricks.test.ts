@@ -90,12 +90,13 @@ describe('queryDatabricks', () => {
     expect(query).toHaveBeenCalledTimes(1)
   })
 
-  it('accepts a bare table name and a schema-qualified one', async () => {
+  it('accepts the allowlisted name however it is qualified', async () => {
     query.mockResolvedValue({ columns: ['n'], rows: [['1']] })
 
     for (const ref of [
+      TABLE,
       'dbt.int__l2_nationwide_uniform_w_haystaq',
-      'int__l2_nationwide_uniform_w_haystaq',
+      '`goodparty_data_catalog`.`dbt`.`int__l2_nationwide_uniform_w_haystaq`',
     ]) {
       await expect(
         runs(
@@ -103,7 +104,21 @@ describe('queryDatabricks', () => {
         ),
       ).resolves.toMatchObject({ ok: true })
     }
-    expect(query).toHaveBeenCalledTimes(2)
+    expect(query).toHaveBeenCalledTimes(3)
+  })
+
+  // The statement client pins the session to goodparty_data_catalog.mart_gp_api,
+  // so a bare name resolves to the mart, not to the dbt table the manifest
+  // granted. Accepting it would read a table the agent was not given.
+  it('refuses a bare table name, which resolves to a different schema', async () => {
+    const result = await runs(
+      `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
+       WHERE Residence_Addresses_State = 'IL'`,
+    )
+
+    expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+    expect(String(result.detail)).toContain('is not an allowed table')
+    expect(query).not.toHaveBeenCalled()
   })
 
   it('refuses a table the agent was not granted', async () => {

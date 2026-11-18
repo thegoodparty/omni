@@ -109,9 +109,12 @@ tools: {
   non-recursive CTE cannot see itself, and a reference outside its WITH is the
   real table), and there is no Spark binder here to resolve that. Use a derived
   table in `FROM`, which has no name to resolve.
-- **The allowlist is the manifest's.** A table reference must match
-  `scope.allowed_tables` exactly, or be a dot-boundary suffix of one, so
-  `dbt.<t>` and bare `<t>` work and a spoofed `evil.public.<t>` does not.
+- **The allowlist is the manifest's.** A table reference must resolve to exactly
+  the allowed name — catalog, schema and all. A bare or partly-qualified name
+  resolves against the statement client's pinned default
+  (`goodparty_data_catalog.mart_gp_api`), which is a different table from the
+  `dbt` one the manifest grants, so it is refused rather than accepted as
+  shorthand; a spoofed `evil.public.<t>` matches nothing.
 - **One relation per SELECT.** `assertScope` proves the filter over the WHERE,
   and a second relation would let a predicate qualified to it stand in as proof
   for the table (`JOIN (SELECT 'IL' AS Residence_Addresses_State) d … WHERE
@@ -123,9 +126,11 @@ tools: {
   `communityIssueDispatch.service.ts` builds a run's `state` and `l2_*` params
   from. Every SELECT that reads an allowed table must prove its own
   `Residence_Addresses_State = '<state>'` (and `'<L2 column>' = '<district>'`
-  when the office has one) in its WHERE. A query with no filter, another
-  state's, or an OR that steps around it is rejected with the clause to add. An
-  org with no jurisdiction gets `no_scope` and no query runs.
+  when the office has one) in its WHERE, and that column must be unqualified or
+  qualified to that table's own alias — a predicate belonging to another
+  relation is not proof. A query with no filter, another state's, one qualified
+  elsewhere, or an OR that steps around it is rejected with the clause to add.
+  An org with no jurisdiction gets `no_scope` and no query runs.
 - **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
   reads a double-quoted identifier as a string), so the model writes the filter
   itself and the tool proves it rather than splicing SQL.
