@@ -38,6 +38,7 @@ const seedBody = () => ({
       talkingPoints: [
         { text: 'Housing supply follows zoning', why: 'Ties to the backlog' },
         { text: 'Phase the parking minimums', why: 'Softens the transition' },
+        { text: 'Commit to a one-year review', why: 'Answers the skeptics' },
       ],
     },
     {
