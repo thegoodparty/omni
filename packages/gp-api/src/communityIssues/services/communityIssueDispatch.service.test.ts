@@ -1,4 +1,10 @@
-import { AgentRunStatus, ExperimentRunStatus } from '../../generated/prisma'
+import {
+  AgentRunStatus,
+  CommunityIssueCategory,
+  CommunityIssueList,
+  CommunityIssuePriority,
+  ExperimentRunStatus,
+} from '../../generated/prisma'
 import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -949,6 +955,121 @@ describe('the engine switch — gates read the runs of the engine that will run 
       WHERE id = ${run.id}
     `
     mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+    expect(result).toEqual({ dispatched: 1, skipped: 1 })
+  })
+})
+
+describe('the CommunityIssue cutover while trending_issues has no AgentRun', () => {
+  beforeEach(() => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'trending_issues')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  const seedTrendingRows = async (
+    organizationSlug: string,
+    daysAgo: number,
+  ) => {
+    const row = await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug,
+        list: CommunityIssueList.trending,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
+        title: 'Road Maintenance',
+        summary: 'Roads need fixing.',
+        rank: 1,
+      },
+    })
+    // @updatedAt is Prisma-managed, so backdate the ingest via raw SQL.
+    await service.prisma.$executeRaw`
+      UPDATE community_issue
+      SET updated_at = ${subDays(new Date(), daysAgo)}
+      WHERE id = ${row.id}
+    `
+    return service.prisma.communityIssue.findFirstOrThrow({
+      where: { id: row.id },
+    })
+  }
+
+  const seedOrgWithOffice = async (orgSlug: string) => {
+    await seedOrg(orgSlug)
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+  }
+
+  it('does not re-dispatch an org whose trending rows were refreshed yesterday', async () => {
+    const orgSlug = `ci-cutover-fresh-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedTrendingRows(orgSlug, 1)
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+    expect(result).toEqual({ dispatched: 1, skipped: 1 })
+  })
+
+  it('re-dispatches an org whose trending rows are older than the window', async () => {
+    const orgSlug = `ci-cutover-stale-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedTrendingRows(orgSlug, INACTIVITY_THRESHOLD_DAYS + 10)
+    mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ dispatched: 2, skipped: 0 })
+  })
+
+  it('dispatches an org with no trending rows at all', async () => {
+    const orgSlug = `ci-cutover-norows-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ dispatched: 2, skipped: 0 })
+  })
+
+  it('lets a completed AgentRun decide once the org has one, ignoring stale rows', async () => {
+    const orgSlug = `ci-cutover-agentrun-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedTrendingRows(orgSlug, INACTIVITY_THRESHOLD_DAYS + 10)
+    const run = await seedAgentRun(orgSlug, AgentRunStatus.completed)
+    await service.prisma.$executeRaw`
+      UPDATE agent_run
+      SET updated_at = ${subDays(new Date(), 1)}
+      WHERE id = ${run.id}
+    `
     const dispatchSpy = mockDispatchRun()
     const agentsSpy = mockAgentsRun()
 
