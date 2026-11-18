@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import {
+  assertAggregateSelectShape,
+  assertRowCountShape,
   containsWriteNode,
+  findPeopleCountColumns,
+  findRowCountColumn,
   mandatoryValuesForColumn,
+  type ScrubResult,
+  scrubResults,
   SqlRejected,
 } from '@/llm/tools/constituentSql.validator'
 import { isRecord } from '@/llm/tools/util/isRecord.util'
@@ -20,6 +26,7 @@ import { defineTool, type ToolContext } from './tool'
 const STATE_COLUMN = 'Residence_Addresses_State'
 
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000
+const DEFAULT_MIN_CELL_SIZE = 100
 const MAX_SQL_CHARS = 10_000
 const MAX_ERROR_CHARS = 400
 const L2_COLUMN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -41,6 +48,15 @@ export type DatabricksToolOptions = {
   tables: string[]
   // The manifest's scope.max_rows. Results are cut here.
   maxRows: number
+  // The columns the query may GROUP BY and filter on, by name. The whole set
+  // is visible to the model in the tool description, so it is the advertised
+  // menu: coarse dimensions only, never a row identifier. Anything else is
+  // rejected, which is what stops a query slicing the file down to one person
+  // per row.
+  dimensions?: string[]
+  // Cells smaller than this are dropped, the same anti-differencing floor the
+  // constituent-data tools hold (CONSTITUENT_MIN_CELL_SIZE).
+  minCellSize?: number
   // Where the run's state and district come from. Null means the org has no
   // jurisdiction to scope to, and every query is refused rather than run
   // unscoped.
@@ -225,6 +241,27 @@ const qualifiedElsewhere = (
   )
 }
 
+// Aggregate-only, with the shape the constituent-data tools' validator enforces:
+// every select item is an allowlisted aggregate, a literal, or a column in GROUP
+// BY, every GROUP BY column is an approved dimension, and the SELECT carries a
+// bare COUNT(*) for the cell-size floor. A UNION branch and a derived table are
+// each their own SELECT with their own FROM, so each one is checked: an
+// aggregate in the wrong branch would land in the COUNT(*) column the floor
+// reads, and a nested read that carried no COUNT(*) would hand back a group
+// size nothing checks.
+const assertAggregateOnly = (
+  select: Record<string, unknown>,
+  readsTable: boolean,
+  dimensions: string[],
+): void => {
+  assertAggregateSelectShape(select, {
+    allowedGroupBy: new Set(dimensions),
+  })
+  // Only a SELECT that reads the data needs a group size. A derived table of
+  // literals reads nothing and has no cell to floor.
+  if (readsTable) assertRowCountShape(select)
+}
+
 // A comment or a backslash is the one kind of construct whose meaning is
 // decided purely by the parser's lexical rules, and the parser here is not the
 // one that runs the statement: Spark's escaping and its block-comment nesting
@@ -254,6 +291,7 @@ const assertAllowedQuery = (
   sql: string,
   tables: string[],
   scope: DatabricksScope,
+  dimensions: string[],
 ): void => {
   assertPlainSql(sql)
   const parsed = parseSingleSelect(sql)
@@ -310,6 +348,7 @@ const assertAllowedQuery = (
           ? entry.as
           : (ref.split('.').pop() ?? ref)
     }
+    assertAggregateOnly(select, read !== null, dimensions)
     if (read === null || alias === null) continue
     // The filter proof is over the WHERE, and a second relation in FROM would
     // let a predicate qualified to it stand in as proof for this table, which
@@ -355,8 +394,11 @@ const rejectedOnAbort = (signal: AbortSignal): Promise<never> =>
 export const databricksTool = (options: DatabricksToolOptions) => {
   const statementTimeoutMs =
     options.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS
+  const minCellSize = options.minCellSize ?? DEFAULT_MIN_CELL_SIZE
+  const dimensions = options.dimensions ?? []
+  const groupable = dimensions.join(', ') || '(none)'
   return defineTool({
-    description: `Run one read-only SELECT over internal modeled constituent data (${options.tables.join(', ')}) and get back its columns and at most ${options.maxRows} rows. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no DDL, no writes.`,
+    description: `Run one aggregate SELECT over internal modeled constituent data (${options.tables.join(', ')}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and only these columns may be grouped or filtered on: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no DDL, no writes.`,
     input: queryInput,
     execute: async ({ sql }, ctx) => {
       const scope = await options.scope(ctx)
@@ -368,7 +410,7 @@ export const databricksTool = (options: DatabricksToolOptions) => {
         }
       }
       try {
-        assertAllowedQuery(sql, options.tables, scope)
+        assertAllowedQuery(sql, options.tables, scope, dimensions)
       } catch (error) {
         return { ok: false, reason: 'rejected', detail: brief(error) }
       }
@@ -409,15 +451,41 @@ export const databricksTool = (options: DatabricksToolOptions) => {
         return { ok: false, reason: 'query_failed', detail: brief(error) }
       }
 
-      const truncated = result.rows.length > options.maxRows
-      const rows = truncated
-        ? result.rows.slice(0, options.maxRows)
-        : result.rows
+      let scrubbed: ScrubResult
+      try {
+        scrubbed = scrubResults(
+          result.rows.map((row) => {
+            const keyed: Record<string, string | null> = {}
+            result.columns.forEach((column, index) => {
+              keyed[column] = row[index] ?? null
+            })
+            return keyed
+          }),
+          {
+            minCellSize,
+            rowCountColumn: findRowCountColumn(sql, result.columns),
+            peopleCountColumns: findPeopleCountColumns(sql, result.columns),
+          },
+        )
+      } catch (error) {
+        // The floor reads the COUNT(*) the validation required, so this only
+        // fires if the warehouse answered with a shape the query did not ask
+        // for, and then there is no safe row to return.
+        return { ok: false, reason: 'rejected', detail: brief(error) }
+      }
+
+      // Truncation is measured on the rows that survived the floor: a group
+      // dropped for being too small was never a result to cut.
+      const truncated = scrubbed.kept.length > options.maxRows
+      const rows = scrubbed.kept
+        .slice(0, options.maxRows)
+        .map((row) => result.columns.map((column) => row[column] ?? null))
       return {
         ok: true,
         columns: result.columns,
         rows,
         rowCount: rows.length,
+        suppressed: scrubbed.suppressed,
         truncated,
       }
     },

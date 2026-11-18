@@ -22,7 +22,7 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 | `tools/checkLink.ts`        | HEAD status and final URL                                                                        |
 | `tools/agentWeb.service.ts` | Plain HTTP behind the private-address guard, on every redirect hop                               |
 | `tools/judgeReplay.ts`      | Serves the judge's recorded pages to a judge run                                                 |
-| `tools/queryDatabricks.ts`  | `databricksTool({ tables, maxRows, scope })`: one scoped read-only SELECT off the manifest scope |
+| `tools/queryDatabricks.ts`  | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
 
 Agents live with their product: `trending_issues` is
 `src/communityIssues/trendingIssuesAgent/`.
@@ -94,10 +94,38 @@ tools: {
   queryDatabricks: databricksTool({
     tables: ['goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq'],
     maxRows: 50_000,
+    dimensions: ['City_Ward', 'Voters_Active'],
     scope: orgDatabricksScope,
   }),
 }
 ```
+
+- **Aggregate-only, on the constituent-data tool's rules.** The chat tools
+  (`query_constituent_data`, `district_insights`) hold model-written voter SQL to
+  `validateConstituentSql`; this tool runs the same shape checks per SELECT, from
+  the same functions. Every select item is an allowlisted aggregate
+  (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `APPROX_COUNT_DISTINCT`), a literal, or a
+  GROUP BY column; `SELECT *`, `DISTINCT`, window functions, a scalar function,
+  `COUNT(DISTINCT …)` and an aggregate wrapped in arithmetic are all refused. The
+  broker never enforced any of this, so a query here could otherwise have
+  selected `LALVOTERID` and its `hs_*` scores 50,000 rows deep.
+- **`dimensions` is the groupable-column allowlist.** A GROUP BY may name only
+  these, and `assertAggregateSelectShape` accepts a bare column only when it is
+  in that same set, so a row identifier (`LALVOTERID`) can be neither selected nor
+  grouped. An agent lists the coarse dimensions it reasons about — the L2 district
+  columns, `Voters_Active` — and nothing row-level.
+- **A COUNT(*) and a cell-size floor.** Every SELECT that reads the table must
+  carry a bare, unfiltered `COUNT(*)`, and `scrubResults` drops each result row
+  whose `COUNT(*)` is below `minCellSize` (default 100, the
+  `CONSTITUENT_MIN_CELL_SIZE` the chat tools use) and nulls any other count-like
+  value below it. The floor also contains a predicate on an identifier: a query
+  that adds `LALVOTERID = '…'` returns a group of one, and a group of one is
+  dropped. `suppressed` reports how many rows the floor removed.
+- **Every SELECT, not just the outer one.** The shape check and the floor's
+  `COUNT(*)` run on each SELECT the walk finds — the outer query, each UNION
+  branch, each derived table — because a row read in a branch is exactly what the
+  outer aggregate hides. A statement with a CTE is refused before that (see
+  below).
 
 - **One read-only SELECT, parsed.** Not a regex: the statement goes through
   `parseSingleSelect`, every SELECT at any depth is walked (the outer one, each

@@ -699,6 +699,75 @@ const validateSelectList = (columns: unknown, groupBy: Set<string>): void => {
   }
 }
 
+export interface AggregateSelectShape {
+  // The only columns a GROUP BY may name, and so the only bare columns a select
+  // item can return. A row identifier is never in this set, so no SELECT can
+  // hand one back either way.
+  allowedGroupBy: Set<string>
+}
+
+// The shape every SELECT must have before its result can reach a model: no
+// DISTINCT, no window function, every select item an allowlisted aggregate or a
+// literal or a GROUP BY column, and every GROUP BY column an approved dimension
+// — so a row identifier is never handed back, selected or grouped. One SELECT
+// here, so a caller that walks nested SELECTs (a derived table, a UNION branch)
+// checks each one against its own nodes.
+export const assertAggregateSelectShape = (
+  stmt: Record<string, unknown>,
+  shape: AggregateSelectShape,
+): void => {
+  const distinct = stmt.distinct
+  if (isRecord(distinct) && distinct.type === 'DISTINCT') {
+    throw new SqlRejected('SELECT DISTINCT is not allowed (enumeration)')
+  }
+
+  if (containsWindowNode(stmt)) {
+    throw new SqlRejected('window functions are not allowed')
+  }
+
+  const groupBy = groupByColumns(stmt.groupby)
+  validateSelectList(stmt.columns, groupBy)
+
+  const allowed = new Set(
+    [...shape.allowedGroupBy].map((column) => normalizeColumn(column)),
+  )
+  const allowedList = [...shape.allowedGroupBy].join(', ') || '(none)'
+  for (const column of groupBy) {
+    if (!allowed.has(column)) {
+      throw new SqlRejected(
+        `GROUP BY column not in the coarse dimension allowlist: ${column}. Allowed: ${allowedList}`,
+      )
+    }
+  }
+}
+
+// The group size the cell-size floor reads, present exactly once and named like
+// nothing else, so a result row cannot carry a value in its place.
+export const assertRowCountShape = (stmt: Record<string, unknown>): void => {
+  if (
+    !Array.isArray(stmt.columns) ||
+    !stmt.columns.some((col: unknown) => isRecord(col) && isRowCount(col.expr))
+  ) {
+    throw new SqlRejected(
+      'every query must include COUNT(*) so cell sizes can be enforced',
+    )
+  }
+
+  // A result row is an object keyed by column name, so a second column with
+  // the COUNT(*)'s name would overwrite the count the floor reads.
+  const names = stmt.columns.flatMap((col: unknown) => {
+    if (!isRecord(col)) return []
+    if (typeof col.as === 'string' && col.as.length > 0) {
+      return [normalizeColumn(stripQuotes(col.as))]
+    }
+    const name = collectColumnNode(col.expr)
+    return name === null ? [] : [normalizeColumn(name)]
+  })
+  if (new Set(names).size !== names.length) {
+    throw new SqlRejected('give every select item a different name')
+  }
+}
+
 export interface ConstituentSqlScope {
   allowedTables: Set<string>
   // Coarse dimensions the agent may reference anywhere (SELECT/GROUP BY/WHERE).
@@ -732,13 +801,15 @@ export const validateConstituentSql = (
   }
   const stmt = parsed.stmt
 
-  const distinct = stmt.distinct
-  if (isRecord(distinct) && distinct.type === 'DISTINCT') {
-    throw new SqlRejected('SELECT DISTINCT is not allowed (enumeration)')
-  }
-
-  if (containsWindowNode(stmt)) {
-    throw new SqlRejected('window functions are not allowed')
+  // The forbidden check runs first so its party-specific message wins over the
+  // generic dimension one for the same column.
+  const referencedColumns = new Set<string>()
+  collectAllColumns(stmt, referencedColumns)
+  const forbidden = new Set([...scope.forbiddenColumns].map(normalizeColumn))
+  for (const raw of referencedColumns) {
+    if (forbidden.has(normalizeColumn(raw))) {
+      throw new SqlRejected(`forbidden column referenced: ${raw}`)
+    }
   }
 
   if (containsNestedSelect(stmt, true)) {
@@ -747,8 +818,12 @@ export const validateConstituentSql = (
     )
   }
 
-  const groupBy = groupByColumns(stmt.groupby)
-  validateSelectList(stmt.columns, groupBy)
+  assertAggregateSelectShape(stmt, {
+    allowedGroupBy: new Set([
+      ...scope.allowedDimensions,
+      ...scope.mandatoryFilters.map((filter) => filter.column),
+    ]),
+  })
 
   // Base guards (after the shape checks): invisible chars, single SELECT,
   // write-node recursion, table allowlist, GROUP-BY-or-aggregate shape, and the
@@ -762,50 +837,21 @@ export const validateConstituentSql = (
     skipSelectShapeCheck: true,
   })
 
-  const referencedColumns = new Set<string>()
-  collectAllColumns(stmt, referencedColumns)
-
-  const forbidden = new Set([...scope.forbiddenColumns].map(normalizeColumn))
   const allowedDims = new Set([...scope.allowedDimensions].map(normalizeColumn))
   const mandatoryCols = new Set(
     scope.mandatoryFilters.map((f) => normalizeColumn(f.column)),
   )
 
   for (const raw of referencedColumns) {
-    const col = normalizeColumn(raw)
-    if (forbidden.has(col)) {
-      throw new SqlRejected(`forbidden column referenced: ${raw}`)
-    }
     // Mandatory (server-bound) columns are always permitted; otherwise every
     // referenced column must be an approved coarse dimension.
-    if (mandatoryCols.has(col)) continue
-    if (!allowedDims.has(col)) {
+    if (mandatoryCols.has(normalizeColumn(raw))) continue
+    if (!allowedDims.has(normalizeColumn(raw))) {
       throw new SqlRejected(`column not in coarse dimension allowlist: ${raw}`)
     }
   }
 
-  if (
-    !Array.isArray(stmt.columns) ||
-    !stmt.columns.some((col: unknown) => isRecord(col) && isRowCount(col.expr))
-  ) {
-    throw new SqlRejected(
-      'every query must include COUNT(*) so cell sizes can be enforced',
-    )
-  }
-
-  // A result row is an object keyed by column name, so a second column with
-  // the COUNT(*)'s name would overwrite the count the floor reads.
-  const names = stmt.columns.flatMap((col: unknown) => {
-    if (!isRecord(col)) return []
-    if (typeof col.as === 'string' && col.as.length > 0) {
-      return [normalizeColumn(stripQuotes(col.as))]
-    }
-    const name = collectColumnNode(col.expr)
-    return name === null ? [] : [normalizeColumn(name)]
-  })
-  if (new Set(names).size !== names.length) {
-    throw new SqlRejected('give every select item a different name')
-  }
+  assertRowCountShape(stmt)
 
   return sql
 }

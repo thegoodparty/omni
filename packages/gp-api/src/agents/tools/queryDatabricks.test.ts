@@ -38,6 +38,7 @@ const SCOPE: DatabricksScope = { state: 'IL' }
 const tool = databricksTool({
   tables: [TABLE],
   maxRows: 2,
+  dimensions: ['title', 'hs_violent_crime_worried'],
   scope: async () => SCOPE,
 })
 
@@ -51,7 +52,7 @@ const ctx = (overrides: Partial<ToolContext> = {}): ToolContext => ({
 })
 
 const rows = (count: number): string[][] =>
-  Array.from({ length: count }, (_, i) => [`issue-${i}`, String(i)])
+  Array.from({ length: count }, (_, i) => [`issue-${i}`, String(500 + i)])
 
 let query: Mock<PeopleDbxStatementClient['query']>
 
@@ -71,7 +72,7 @@ describe('queryDatabricks', () => {
   const runs = (sql: string) =>
     tool.execute({ sql }, ctx()) as Promise<Record<string, unknown>>
 
-  it('runs one scoped SELECT and returns its columns and rows', async () => {
+  it('runs one scoped aggregate SELECT and returns its columns and rows', async () => {
     query.mockResolvedValue({ columns: ['title', 'n'], rows: rows(2) })
 
     await expect(
@@ -85,6 +86,7 @@ describe('queryDatabricks', () => {
       columns: ['title', 'n'],
       rows: rows(2),
       rowCount: 2,
+      suppressed: 0,
       truncated: false,
     })
     expect(query).toHaveBeenCalledTimes(1)
@@ -250,17 +252,18 @@ describe('queryDatabricks', () => {
     expect(query).not.toHaveBeenCalled()
   })
 
-  // A derived table with no table of its own reads nothing, so it is fine — as
-  // long as it is the only thing in FROM alongside the table's own SELECT.
-  it('accepts a scoped read with a scalar subquery that reads the table scoped', async () => {
-    query.mockResolvedValue({ columns: ['n'], rows: [['1']] })
+  // A derived table reads nothing of its own, so it is fine — as long as it is
+  // the only thing in FROM alongside the table's own SELECT. A scalar subquery
+  // in the select list is not: it is neither an aggregate nor a GROUP BY column.
+  it('refuses a scalar subquery in the select list', async () => {
+    const result = await runs(
+      `SELECT (SELECT MAX(title) FROM ${TABLE} WHERE Residence_Addresses_State = 'IL') AS m
+       FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+    )
 
-    await expect(
-      runs(
-        `SELECT (SELECT MAX(title) FROM ${TABLE} WHERE Residence_Addresses_State = 'IL') AS m
-         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
-      ),
-    ).resolves.toMatchObject({ ok: true })
+    expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+    expect(String(result.detail)).toContain('aggregate')
+    expect(query).not.toHaveBeenCalled()
   })
 
   // The qualifier has to be this table's own alias. A correlated subquery can
@@ -476,7 +479,8 @@ describe('queryDatabricks', () => {
     query.mockResolvedValue({ columns: ['title', 'n'], rows: rows(3) })
 
     const result = await runs(
-      `SELECT title, COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+      `SELECT title, COUNT(*) AS n FROM ${TABLE}
+       WHERE Residence_Addresses_State = 'IL' GROUP BY title`,
     )
 
     expect(result).toMatchObject({
@@ -494,10 +498,213 @@ describe('queryDatabricks', () => {
     query.mockResolvedValue({ columns: ['title', 'n'], rows: rows(2) })
 
     const result = await runs(
-      `SELECT title, COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+      `SELECT title, COUNT(*) AS n FROM ${TABLE}
+       WHERE Residence_Addresses_State = 'IL' GROUP BY title`,
     )
 
     expect(result).toMatchObject({ ok: true, rowCount: 2, truncated: false })
+  })
+
+  // The constituent-data tool's shape, which the broker never enforced here: a
+  // query over voter data returns aggregates, never a row per person.
+  describe('aggregate-only and cell-size rules', () => {
+    const counted = `SELECT title, COUNT(*) AS n FROM ${TABLE}
+      WHERE Residence_Addresses_State = 'IL' GROUP BY title`
+
+    it('refuses a row-level SELECT', async () => {
+      const result = await runs(
+        `SELECT title, hs_violent_crime_worried FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL'`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain('aggregate')
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('refuses LALVOTERID, selected or grouped by', async () => {
+      for (const sql of [
+        `SELECT LALVOTERID, COUNT(*) AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL' GROUP BY LALVOTERID`,
+        `SELECT COUNT(*) AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL' GROUP BY LALVOTERID`,
+      ]) {
+        const result = await runs(sql)
+
+        expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+        expect(String(result.detail)).toMatch(/lalvoterid/i)
+      }
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    // A row identifier in the WHERE is a predicate, not a select item, so it is
+    // the cell-size floor that contains it: the one person it isolates is a
+    // group of one, and a group of one never reaches the model.
+    it('drops a row the WHERE isolates by its identifier', async () => {
+      query.mockResolvedValue({
+        columns: ['n', 'avg_score'],
+        rows: [['1', '63.0']],
+      })
+
+      await expect(
+        runs(
+          `SELECT COUNT(*) AS n, AVG(hs_violent_crime_worried) AS avg_score
+           FROM ${TABLE}
+           WHERE Residence_Addresses_State = 'IL' AND LALVOTERID = 'abc'`,
+        ),
+      ).resolves.toEqual({
+        ok: true,
+        columns: ['n', 'avg_score'],
+        rows: [],
+        rowCount: 0,
+        suppressed: 1,
+        truncated: false,
+      })
+    })
+
+    it('refuses an aggregate query with no COUNT(*)', async () => {
+      const result = await runs(
+        `SELECT title, AVG(hs_violent_crime_worried) AS avg_score FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL' GROUP BY title`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain('COUNT(*)')
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('refuses COUNT(DISTINCT)', async () => {
+      const result = await runs(
+        `SELECT COUNT(DISTINCT title) AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL'`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain('DISTINCT')
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('refuses a GROUP BY column that is not an allowed dimension', async () => {
+      const result = await runs(
+        `SELECT hs_other AS x, COUNT(*) AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL' GROUP BY hs_other`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain('coarse dimension allowlist')
+    })
+
+    // A derived table is its own SELECT, and a row read there is exactly the
+    // read the outer aggregate would otherwise hide.
+    it.each([
+      [
+        'a derived table',
+        `SELECT MAX(x.title) AS t, COUNT(*) AS n FROM (
+           SELECT title FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'
+         ) x`,
+      ],
+      [
+        'a UNION branch',
+        `${counted} UNION ALL
+         SELECT title, hs_violent_crime_worried AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL'`,
+      ],
+      [
+        'a CTE',
+        `WITH rows AS (
+           SELECT title FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'
+         )
+         SELECT title, COUNT(*) AS n FROM rows GROUP BY title`,
+      ],
+    ])('refuses a row-level read hidden in %s', async (_label, sql) => {
+      const result = await runs(sql)
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    // The lean query an agent actually writes: bare aggregates and the COUNT(*)
+    // the floor reads, with the office's own filters.
+    it('accepts a batched AVG and coverage COUNT with COUNT(*)', async () => {
+      query.mockResolvedValue({
+        columns: ['n', 'avg_crime', 'cov_crime', 'avg_transit', 'cov_transit'],
+        rows: [['4820', '61.4', '4790', '48.2', '4790']],
+      })
+
+      await expect(
+        runs(
+          `SELECT COUNT(*) AS n,
+             AVG(hs_violent_crime_worried) AS avg_crime,
+             COUNT(hs_violent_crime_worried) AS cov_crime,
+             AVG(hs_infrastructure_funding_fund_more) AS avg_transit,
+             COUNT(hs_infrastructure_funding_fund_more) AS cov_transit
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        ),
+      ).resolves.toMatchObject({ ok: true, rowCount: 1, suppressed: 0 })
+    })
+
+    it('drops a group whose COUNT(*) is under the floor', async () => {
+      query.mockResolvedValue({
+        columns: ['title', 'n'],
+        rows: [
+          ['issue-a', '99'],
+          ['issue-b', '100'],
+          ['issue-c', '40'],
+        ],
+      })
+
+      await expect(runs(counted)).resolves.toEqual({
+        ok: true,
+        columns: ['title', 'n'],
+        rows: [['issue-b', '100']],
+        rowCount: 1,
+        suppressed: 2,
+        truncated: false,
+      })
+    })
+
+    it('masks a secondary count under the floor and keeps the row', async () => {
+      query.mockResolvedValue({
+        columns: ['title', 'n', 'cov'],
+        rows: [['issue-a', '900', '12']],
+      })
+
+      await expect(
+        runs(
+          `SELECT title, COUNT(*) AS n, COUNT(hs_violent_crime_worried) AS cov
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL' GROUP BY title`,
+        ),
+      ).resolves.toMatchObject({
+        ok: true,
+        rows: [['issue-a', '900', null]],
+        suppressed: 0,
+      })
+    })
+
+    it('holds the floor at a minCellSize the agent sets', async () => {
+      const strict = databricksTool({
+        tables: [TABLE],
+        maxRows: 10,
+        dimensions: ['title'],
+        minCellSize: 500,
+        scope: async () => SCOPE,
+      })
+      query.mockResolvedValue({
+        columns: ['title', 'n'],
+        rows: [
+          ['issue-a', '499'],
+          ['issue-b', '500'],
+        ],
+      })
+
+      await expect(
+        strict.execute({ sql: counted }, ctx()),
+      ).resolves.toMatchObject({
+        ok: true,
+        rows: [['issue-b', '500']],
+        suppressed: 1,
+      })
+    })
   })
 
   it('gives up at its own statement ceiling and cancels the query', async () => {
@@ -681,6 +888,7 @@ describe('queryDatabricks on a run', () => {
   const testTool = databricksTool({
     tables: [TABLE],
     maxRows: 2,
+    dimensions: ['title'],
     scope: async () => SCOPE,
   })
 
@@ -719,7 +927,8 @@ describe('queryDatabricks on a run', () => {
           toolCallId: 'call-good',
           toolName: 'queryDatabricks',
           input: JSON.stringify({
-            sql: `SELECT title, COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+            sql: `SELECT title, COUNT(*) AS n FROM ${TABLE}
+                  WHERE Residence_Addresses_State = 'IL' GROUP BY title`,
           }),
         }
       }
