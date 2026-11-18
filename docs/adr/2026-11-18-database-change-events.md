@@ -60,6 +60,49 @@ nothing behind because its outbox row rolls back with it.
   only the latest state of a row, and needs an indexed column every table
   would have to have.
 
+## Hardening
+
+The first version captured correctly and failed silently. Five things were
+added after it shipped, each closing a way the pipeline could stop without
+telling anyone:
+
+- **A health check with its own alert.** Nothing watched the capture side: a
+  missing or disabled trigger, or the kill switch left off, writes nothing, so
+  it leaves no backlog, no log line and no dead letter for the existing job
+  alerts to see. `DbChangeHealthService` runs from a pg-boss schedule every
+  five minutes and logs one error line per broken invariant — exactly one
+  enabled capture trigger per captured table and operation and none anywhere
+  else, the config and relay rows present, no unsent row older than five
+  minutes — and `db-change-health-check-failed` pages on those lines.
+- **A record of the gaps.** `db_change_gap` gets a row when the kill switch
+  flips (both directions, from a trigger on `db_change_config`) and when a
+  transaction calls `skipChangeEvents`. Capture stopped is not the same as
+  capture caught up, and the writes made while it was off are gone; the gap
+  row is what lets a handler's missing writes be explained afterwards.
+- **A transaction-scoped skip.** The skip flag carries the setting
+  transaction's `txid_current()`, and the trigger skips only when
+  `current_setting` matches it. PostgreSQL cannot distinguish a `SET LOCAL`
+  from a session `SET`, so a flag spelled `'on'` was also honoured when it
+  leaked onto a pooled connection, silently uncapturing every write that
+  connection served afterwards.
+- **An update that changes nothing is not captured.** The update trigger
+  carries `WHEN (OLD.* IS DISTINCT FROM NEW.*)`. A generated trigger can only
+  carry one `WHEN`, and `INSERT` has no `OLD`, so triggers are emitted one per
+  operation rather than one per table.
+- **Cleanup respects queued work.** The retention sweep deletes a relayed row
+  only when no job in a change queue in state `created`, `retry` or `active`
+  names it. A job can outlive its row — waiting behind a slow group, retrying
+  with the backoff capped, or redriven from a dead letter days later — and a
+  handler whose row is gone cannot resync. `dispatchChange` logs an error when
+  the row is gone rather than returning quietly, because that is the one
+  failure in this pipeline with no other signal.
+
+The handler contract that makes all of this tolerable is in `src/jobs/AGENTS.md`
+§ Change handlers: a handler reads the row as it is now and makes downstream
+state match, so it is idempotent and late re-delivery is harmless. A job that
+needs every event exactly once, in order, is not a change handler and should be
+an explicit job sent by the writer.
+
 ## Revisit if
 
 The relay cannot keep a backlog down, a handler needs the WAL's exact

@@ -19,6 +19,12 @@ const MIGRATION_SUFFIX = '_db_change_triggers'
 // The primary key's columns reach the trigger as arguments, so row_key names
 // them without a per-table function. RETURN NULL: an AFTER trigger's return
 // value is ignored, and nothing here rewrites the row.
+//
+// The skip flag is a transaction id, not 'on'. A GUC cannot say whether it was
+// set with SET LOCAL or plain SET, so 'on' would also honour a SET that leaked
+// onto a pooled connection and quietly stop capturing every write that
+// connection serves. skipChangeEvents() sets it to txid_current()::text, which
+// only matches inside the transaction that set it.
 const FUNCTION = `CREATE OR REPLACE FUNCTION db_change_capture()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -26,7 +32,7 @@ AS $$
 DECLARE
   capture_enabled boolean;
 BEGIN
-  IF current_setting('app.skip_change_events', true) = 'on' THEN
+  IF current_setting('app.skip_change_events', true) = txid_current()::text THEN
     RETURN NULL;
   END IF;
 
@@ -55,24 +61,43 @@ END;
 $$;
 `
 
+const OPERATIONS = ['insert', 'update', 'delete'] as const
+
+const triggerName = (table: string, operation: string): string =>
+  `${table}_db_change_${operation}`
+
+// One trigger per operation, not one trigger carrying several events: an
+// UPDATE that changes nothing is a write no handler needs to see, and only
+// `WHEN` can drop it. `WHEN` cannot see OLD on an INSERT, so the events cannot
+// share a trigger.
+//
+// Every name this script could have created is dropped first, including the
+// plain `<table>_db_change` the first version used and the operations the
+// registry no longer listens to: a table that lost its last delete handler
+// would otherwise keep writing rows for it.
 const triggerSql = (
   table: string,
   operations: string[],
   primaryKey: string[],
 ): string => {
-  const name = `${table}_db_change`
-  const events = operations
-    .map((operation) => operation.toUpperCase())
-    .join(' OR ')
   const args = primaryKey.map((column) => `'${column}'`).join(', ')
-  return `DROP TRIGGER IF EXISTS "${name}" ON "${table}";
-CREATE TRIGGER "${name}" AFTER ${events} ON "${table}"
-  FOR EACH ROW EXECUTE FUNCTION db_change_capture(${args});`
+  const drops = [
+    `"${table}_db_change"`,
+    ...OPERATIONS.map((operation) => `"${triggerName(table, operation)}"`),
+  ].map((name) => `DROP TRIGGER IF EXISTS ${name} ON "${table}";`)
+  const creates = operations.map((operation) => {
+    const uppercase = operation.toUpperCase()
+    const when =
+      operation === 'update' ? '\n  WHEN (OLD.* IS DISTINCT FROM NEW.*)' : ''
+    return `CREATE TRIGGER "${triggerName(table, operation)}" AFTER ${uppercase} ON "${table}"
+  FOR EACH ROW${when} EXECUTE FUNCTION db_change_capture(${args});`
+  })
+  return [...drops, ...creates].join('\n')
 }
 
 // A table whose last handler was removed keeps the trigger it had, which would
-// go on writing rows nothing reads. Triggers are named `<table>_db_change` by
-// triggerSql above, and only this script creates that name.
+// go on writing rows nothing reads. Triggers are named `<table>_db_change_<op>`
+// by triggerSql above, and only this script creates that name.
 const dropRemovedTriggers = (tables: string[]): string => `DO $$
 DECLARE
   stale record;
@@ -84,7 +109,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public'
       AND NOT t.tgisinternal
-      AND t.tgname LIKE '%\\_db\\_change'
+      AND t.tgname LIKE '%\\_db\\_change%'
       AND c.relname <> ALL (ARRAY[${tables.map((t) => `'${t}'`).join(', ')}]::text[])
   LOOP
     EXECUTE format('DROP TRIGGER %I ON %I', stale.trg, stale.tbl);

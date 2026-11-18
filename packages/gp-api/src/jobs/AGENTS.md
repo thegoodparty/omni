@@ -191,11 +191,42 @@ migrated triggers disagree, so nothing reaches a handler until both are in.
   `created_at` as a `Date` and database column names already mapped to field
   names.
 - Only the operations some entry on the table listens to are captured: a
-  table with no `onDelete` gets no delete trigger.
+  table with no `onDelete` gets no delete trigger. The generator emits one
+  trigger per operation, named `<table>_db_change_<op>`, because the update
+  one carries a `WHEN` clause that `INSERT` cannot (`§ What to expect from
+it`). The migration drops every name the generator has ever used, so
+  re-running it after a handler is removed cleans up after itself.
 - Several entries may share a table. They run in the order listed, each in
   its own queue, and each sees one row's writes in order.
 - `alertAfterWaitingMinutes`, `timeoutMinutes`, `attempts`, `concurrency` and
   `maxConcurrent` mean what they mean on a job.
+
+### A handler syncs current state, and is idempotent
+
+A handler is not given a stream of events. It is given a reason to go and look
+at a record: the change row says which record and which operation, and the
+handler's job is to read the row as it is NOW and make everything downstream
+match. That contract is not a style preference, it is what makes this pipeline
+safe:
+
+- A handler may run twice for one write, and pg-boss guarantees nothing about
+  how many times.
+- **A dead letter behaves like an SQS FIFO group, not like a lost message.**
+  The group moves on about two minutes after the failure, and the next change
+  of that row runs. Redriving the dead letter later puts the job back at the
+  BACK of its group, behind every change that happened since — so it runs
+  against a record that has moved on, and anything it does from the payload's
+  snapshot is stale.
+- Because of that, "pick up where the payload left off" is always wrong. A
+  handler that reads the current row and writes the current correct answer gets
+  the right result whether it runs first, second, twice, or days late.
+
+**A handler that needs every event exactly once, in order, must not be one.**
+Send an explicit job from the code that makes the write (or fan out from a
+schedule that reads the rows), so the payload carries what happened and the
+queue's own retries own the delivery. Change capture is for "something about
+this row changed, go re-derive what depends on it"; it is deliberately a poor
+fit for an audit trail, a counter, or anything else order-sensitive.
 
 ### What to expect from it
 
@@ -227,9 +258,38 @@ migrated triggers disagree, so nothing reaches a handler until both are in.
   changes to one campaign took about 4.5 minutes to handle. A backfill or
   loop that rewrites one row many times should use `skipChangeEvents`.
 - **Backfills skip it.** In the transaction that does one, call
-  `skipChangeEvents(tx)` (`src/dbChanges/skipChangeEvents.ts`); it is
-  `SET LOCAL app.skip_change_events = 'on'`, so it ends with the
-  transaction.
+  `skipChangeEvents(tx, 'reason')` (`src/dbChanges/skipChangeEvents.ts`). It
+  takes a caller label, writes a `db_change_gap` row recording the skip, and
+  turns capture off for the rest of the transaction only.
+- **A skipped write is recorded, never silently dropped.** `db_change_gap`
+  is one row per gap in capture, with a `kind` and a `detail` JSONB. `kind =
+'skip'` is a transaction that called `skipChangeEvents`, with the caller's
+  label — so "why did the handler never see this row?" has an answer. `kind =
+'config'` is the kill switch flipping, in either direction, written by a
+  trigger on `db_change_config`; it is the only trace a `UPDATE
+db_change_config SET enabled = false` leaves, since capture and everything
+  downstream of it go quiet with it. Nothing reads the table in code; it is
+  there to explain a gap afterwards:
+
+  ```sql
+  SELECT at, kind, detail FROM db_change_gap ORDER BY at DESC LIMIT 50;
+  ```
+
+- **The skip flag is transaction-scoped, and a stray one is ignored.** It is
+  `set_config('app.skip_change_events', txid_current()::text, true)`, and the
+  trigger skips only when `current_setting` equals `txid_current()::text`.
+  PostgreSQL cannot tell a `SET LOCAL` from a session `SET`, so a flag spelled
+  `'on'` would also be honoured when it leaked onto a pooled connection — and
+  then every write that connection served, for as long as it lived, would go
+  uncaptured with no error anywhere. The transaction id can only match inside
+  the transaction that set it.
+- **An `UPDATE` that changes nothing is not captured.** Each table's triggers
+  are one per operation, and the update one carries `WHEN (OLD.* IS DISTINCT
+FROM NEW.*)`, so a statement that writes every column back unchanged — the
+  bulk "update all these ids the same way" shape — writes no outbox row and
+  wakes no handler. This compares the whole row, so a table with `@updatedAt`
+  still captures an update that only sets `updated_at`, which is correct: the
+  row did change.
 - **The kill switch** is the single row in `db_change_config`. With
   `enabled = false` the trigger returns before writing anything, for every
   table at once, without dropping a trigger:
@@ -246,7 +306,8 @@ migrated triggers disagree, so nothing reaches a handler until both are in.
   inserts the config row, and drives the relay with
   `service.app.get(DbChangeRelayService).relayPass()` before
   `service.jobs.settle()` — the relay's own loop does not run under
-  `NODE_ENV=test`, so an assertion never races a pass.
+  `NODE_ENV=test`, so an assertion never races a pass. The reset empties
+  `db_change_gap` too.
 - **Ordering within a relay batch.** Jobs sent in one transaction all get
   their `created_on` from that transaction's `now()`, so they tie, and
   pg-boss breaks the tie on the job id (a random uuid put one row's writes
@@ -261,7 +322,47 @@ The relay logs one `change batch relayed` line per batch under the
 `DbChangeRelayService` context, with the row count, the tables, the number of
 jobs sent and the oldest row's wait, and a `change outbox backlog` warning
 past five minutes. The cleanup job logs `changes deleted` per batch. A row
-whose handler dead-letters is the `jobs-dead-letter` alert like any other.
+whose handler dead-letters is the `jobs-dead-letter` alert like any other
+(`deploy/components/alerting/job-alerts.ts`) — a change job is a job, so
+nothing extra is needed for it.
+
+Everything above watches rows that made it INTO the outbox. A trigger that is
+missing, disabled or on a table no handler reads any more writes nothing at
+all, and a kill switch left off writes nothing either: no backlog, no log
+line, no dead letter. That is the gap `dbChangeHealth` fills.
+
+- **The check** (`src/dbChanges/dbChangeHealth.service.ts`) runs every five
+  minutes off the hour (the `dbChangeHealth` schedule in `jobs.registry.ts`)
+  and asserts four things, logging one ERROR line per failure and nothing when
+  all four hold:
+  - Every table in the registry has exactly one ENABLED capture trigger per
+    operation it listens to (`pg_trigger.tgenabled = 'O'`), and nothing else
+    has one — no extra operation on a captured table, no table that has been
+    dropped from the registry. It matches on the function, not the trigger
+    name, so a trigger renamed by hand is judged on what it does.
+  - `db_change_config` row 1 exists, with `enabled = true`.
+  - `db_change_relay` row 1 exists.
+  - No `db_change` row has been unsent for more than five minutes. That line
+    also carries `unsent` (the count) and `oldestUnsentSeconds`.
+- **The alert** is `db-change-health-check-failed`
+  (`deploy/components/alerting/db-change-alerts.ts`): an event rule over the
+  error lines from the `DbChangeHealthService` context, held with
+  `keepFiringFor: 30m` so a broken invariant stays one page rather than
+  resolving and re-firing between two five-minute checks. It is provisioned
+  for dev and prod only, like every rule in that file: a preview deploy
+  creates no Grafana resources at all.
+
+**Nothing replays the writes that were missed.** The alert is a "go fix
+capture, then resync what it skipped" page, and `db_change_gap` is what says
+when the gap began.
+
+**A handler whose change row is gone logs an error, not nothing.**
+`dispatchChange` completes the job — no retry brings a row back — but logs
+`change row is gone; nothing to hand the handler` under the `ChangeDispatch`
+context, with the `changeId` and the `table`. The cleanup only deletes a row
+no queued job of a change queue names, so this means something else deleted
+it. No rule pages for that line; a spike in it means the cleanup predicate is
+wrong.
 
 ## Fan-out
 

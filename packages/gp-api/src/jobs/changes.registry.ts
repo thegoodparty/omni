@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common'
 import { isEqual } from 'es-toolkit'
 import { z } from 'zod'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -50,6 +51,8 @@ export type ChangeEntry<M extends ChangeModel = ChangeModel> = {
 export const defineChangeHandler = <M extends ChangeModel>(
   entry: ChangeEntry<M>,
 ): ChangeEntry<M> => entry
+
+const logger = new Logger('ChangeDispatch')
 
 // Only campaigns that already have a HubSpot company. Creating the company
 // stays with the in-request trackCampaign calls until they are removed: two
@@ -172,8 +175,12 @@ export const capturedTables = (): Array<{
   })
 
 // Hands one captured write to one entry's handler for its operation. A job
-// whose change row is gone (the retention sweep deleted it) has nothing to do
-// and is completed: no retry brings a row back.
+// whose change row is gone has nothing to resync from, so it is completed
+// rather than retried: no retry brings a row back. It is logged as an error
+// because it should not happen — cleanup leaves a row while a job of any state
+// created, retry or active still names it (src/dbChanges/dbChangeCleanup.service.ts)
+// — and a handler that silently stopped running is the one failure this whole
+// pipeline has no other signal for.
 export const dispatchChange = async <M extends ChangeModel>(
   entry: ChangeEntry<M>,
   changeId: bigint,
@@ -182,7 +189,13 @@ export const dispatchChange = async <M extends ChangeModel>(
   const change = await get(PrismaService).dbChange.findUnique({
     where: { id: changeId },
   })
-  if (!change) return
+  if (!change) {
+    logger.error(
+      { changeId: changeId.toString(), table: modelTable(entry.model).table },
+      'change row is gone; nothing to hand the handler',
+    )
+    return
+  }
   const context: ChangeContext = { changeId, get }
   const row = (value: unknown) => changeRow(entry.model, value)
   if (change.op === 'insert' && entry.onInsert) {

@@ -81,6 +81,7 @@ import { CaseScoutDraftService } from '@/caseScout/services/caseScoutDraft.servi
 import { CaseScoutNightlyService } from '@/caseScout/services/caseScoutNightly.service'
 import { CaseScoutScoreService } from '@/caseScout/services/caseScoutScore.service'
 import { DbChangeCleanupService } from '@/dbChanges/dbChangeCleanup.service'
+import { DbChangeHealthService } from '@/dbChanges/dbChangeHealth.service'
 import { CHANGE_JOBS } from './changes.registry'
 import { AgentsService } from '@/agents/agents.service'
 import { AgentRunReplaySchema } from '@/agents/tools/judgeReplay'
@@ -1409,6 +1410,21 @@ export const SCHEDULES = {
     // the job is aborted (a deploy) or the batches run out, so this only ends
     // one hung on the database.
     timeoutMinutes: 10,
+  }),
+  // Every five minutes, off the hour: checks the invariants nothing else can
+  // see and logs one error line per failure, which
+  // `db-change-health-check-failed` pages on
+  // (deploy/components/alerting/db-change-alerts.ts). A missing or disabled
+  // trigger, or a kill switch left off, captures nothing, so it leaves no
+  // backlog, no log line and no dead letter behind it.
+  dbChangeHealth: defineSchedule({
+    cron: '4-59/5 * * * *',
+    worker: (_job, { get }) => get(DbChangeHealthService).check(),
+    // The check reads a few hundred rows of catalogue and one count. Five
+    // minutes of a run waiting means the queue is stuck, not that this is
+    // slow, and the check missing a few runs is exactly what it watches for.
+    alertAfterWaitingMinutes: 15,
+    timeoutMinutes: 5,
   }),
 }
 

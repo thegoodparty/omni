@@ -14,6 +14,10 @@ type Trigger = { table: string; events: string[]; args: string[] }
 // the arguments are the primary key columns triggerSql passes by name, which
 // only the trigger's own definition text gives back readably (tgargs is
 // bytea).
+//
+// One trigger per operation, so a table's arrive as several rows and are
+// folded back into one entry: what the registry says is "this table, these
+// operations", and how the generator splits them is its business.
 const deployedTriggers = async (): Promise<Trigger[]> => {
   const rows = await service.prisma.$queryRaw<
     Array<{ table: string; tgtype: number; definition: string }>
@@ -25,16 +29,31 @@ const deployedTriggers = async (): Promise<Trigger[]> => {
     WHERE n.nspname = 'public'
       AND NOT t.tgisinternal
       AND t.tgfoid = 'db_change_capture'::regproc
-    ORDER BY c.relname
+    ORDER BY c.relname, t.tgname
   `
-  return rows.map((row) => ({
-    table: row.table,
-    events: [
-      row.tgtype & 4 ? 'insert' : null,
-      row.tgtype & 16 ? 'update' : null,
-      row.tgtype & 8 ? 'delete' : null,
-    ].filter((event): event is string => event !== null),
-    args: [...row.definition.matchAll(/'([^']*)'/g)].map((match) => match[1]!),
+  const byTable = new Map<string, Trigger>()
+  for (const row of rows) {
+    const found = byTable.get(row.table) ?? {
+      table: row.table,
+      events: [],
+      args: [...row.definition.matchAll(/'([^']*)'/g)].map((m) => m[1]!),
+    }
+    for (const [bit, event] of [
+      [4, 'insert'],
+      [16, 'update'],
+      [8, 'delete'],
+    ] as const) {
+      if (row.tgtype & bit && !found.events.includes(event)) {
+        found.events.push(event)
+      }
+    }
+    byTable.set(row.table, found)
+  }
+  return [...byTable.values()].map((trigger) => ({
+    ...trigger,
+    events: (['insert', 'update', 'delete'] as const).filter((op) =>
+      trigger.events.includes(op),
+    ),
   }))
 }
 
