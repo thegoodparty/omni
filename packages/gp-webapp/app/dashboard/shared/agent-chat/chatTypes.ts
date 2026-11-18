@@ -110,7 +110,7 @@ export interface ChatClient {
   streamMessage(args: {
     conversationId: string
     content: string
-    clientMessageId?: string
+    id?: string
     attachmentIds?: string[]
     signal?: AbortSignal
   }): AsyncIterable<ChatStreamEvent>

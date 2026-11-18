@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import {
+  AgentMessageRole,
   ChatMessageRole,
   ChatMessageSegmentKind,
   ChatScope,
@@ -364,6 +366,153 @@ describe('GeneralChatsController (integration)', () => {
     })
   })
 
+  describe('user message id', () => {
+    const userMessageIdOf = (rows: { role: string; id: string }[]) =>
+      rows.find((r) => r.role === 'user')?.id
+
+    // These exercise the store's own id logic, so they run the real stream
+    // rather than the suite's stub.
+    beforeEach(() => {
+      vi.mocked(chatStream.stream).mockRestore()
+    })
+
+    const sendWithId = async (
+      conversationId: string,
+      body: Record<string, unknown>,
+      requestHeaders = headers,
+    ) =>
+      service.client.post(
+        `/v1/chats/${conversationId}/messages?scope=${COS_SCOPE}`,
+        body,
+        requestHeaders,
+      )
+
+    const createConversation = async (): Promise<string> => {
+      const created = await service.client.post(
+        '/v1/chats',
+        { scope: COS_SCOPE },
+        headers,
+      )
+      return created.data.conversationId as string
+    }
+
+    const seedRetryableTurn = async (): Promise<{
+      conversationId: string
+      id: string
+    }> => {
+      const conversationId = await createConversation()
+      const id = randomUUID()
+      await chatStore.appendUserMessageIfAlive({
+        conversationId,
+        ownerUserId: service.user.id,
+        content: 'first delivery',
+        id,
+      })
+      await chatStore.appendMessage({
+        conversationId,
+        role: ChatMessageRole.assistant,
+        content: 'the stored reply',
+      })
+      return { conversationId, id }
+    }
+
+    it('stores the user turn under the id the client sent', async () => {
+      const conversationId = await createConversation()
+      const id = randomUUID()
+
+      await sendWithId(conversationId, { content: 'hello', id })
+
+      const rows = await service.prisma.agentMessage.findMany({
+        where: { conversationId },
+      })
+      expect(userMessageIdOf(rows)).toBe(id)
+    })
+
+    it('answers a retry from the stored turn instead of running it again', async () => {
+      const { conversationId, id } = await seedRetryableTurn()
+      const llm = service.app.get(LlmService)
+      const call = vi.spyOn(llm, 'streamChatCompletion')
+
+      const retried = await sendWithId(conversationId, { content: 'again', id })
+
+      expect(call).not.toHaveBeenCalled()
+      expect(String(retried.data)).toContain('the stored reply')
+      const rows = await service.prisma.agentMessage.findMany({
+        where: { conversationId },
+      })
+      expect(rows.filter((r) => r.role === AgentMessageRole.user)).toHaveLength(
+        1,
+      )
+    })
+
+    it('takes the old clientMessageId name as the same id', async () => {
+      const { conversationId, id } = await seedRetryableTurn()
+
+      const retried = await sendWithId(conversationId, {
+        content: 'again',
+        clientMessageId: id,
+      })
+
+      expect(String(retried.data)).toContain('the stored reply')
+    })
+
+    it('409s an id already used by another conversation', async () => {
+      const { id } = await seedRetryableTurn()
+      const other = await createConversation()
+
+      const res = await sendWithId(other, { content: 'hello', id })
+
+      expect(res.status).toBe(HttpStatus.CONFLICT)
+      expect(String(res.data)).not.toContain('first delivery')
+    })
+
+    it('409s an id already used by another owner', async () => {
+      // Another user's turn holds the id; the caller sends it in their own
+      // conversation. The answer must not describe the row that holds it.
+      const otherUser = await service.prisma.user.create({
+        data: {
+          email: `other-${randomUUID()}@example.com`,
+          firstName: 'Other',
+          lastName: 'Person',
+        },
+      })
+      const theirConversation = await service.prisma.chatConversation.create({
+        data: {
+          ownerUserId: otherUser.id,
+          scope: COS_SCOPE,
+          organizationSlug: fixtures.slug,
+        },
+      })
+      const id = randomUUID()
+      await service.prisma.agentMessage.create({
+        data: {
+          id,
+          conversationId: theirConversation.id,
+          index: 0,
+          role: AgentMessageRole.user,
+          parts: [{ type: 'text', text: 'their private question' }],
+        },
+      })
+      const mine = await createConversation()
+
+      const res = await sendWithId(mine, { content: 'hello', id })
+
+      expect(res.status).toBe(HttpStatus.CONFLICT)
+      expect(String(res.data)).not.toContain('their private question')
+    })
+
+    it('400s a message id that is not a UUID', async () => {
+      const conversationId = await createConversation()
+
+      const res = await sendWithId(conversationId, {
+        content: 'hello',
+        id: 'uuid-1',
+      })
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    })
+  })
+
   describe('message feedback', () => {
     const startThread = async (): Promise<{
       conversationId: string
@@ -504,6 +653,43 @@ describe('GeneralChatsController (integration)', () => {
         headers,
       )
       expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+
+    it('updates a rating that was stored before agentMessageId was written', async () => {
+      const { conversationId, assistantMessageId } = await startThread()
+      // The previous deploy's state: it wrote a ChatMessage row too, and rated
+      // by that. agentMessageId is still null on the rating.
+      await service.prisma.chatMessage.create({
+        data: {
+          id: assistantMessageId,
+          conversationId,
+          role: ChatMessageRole.assistant,
+          content: 'Three items, two of them zoning.',
+        },
+      })
+      await service.prisma.chatMessageFeedback.create({
+        data: {
+          conversationId,
+          chatMessageId: assistantMessageId,
+          submitterUserId: service.user.id,
+          feedback: 'negative',
+          comment: 'Left on the old deploy.',
+        },
+      })
+
+      const res = await service.client.put(
+        `/v1/chats/${conversationId}/messages/${assistantMessageId}/feedback?scope=${COS_SCOPE}`,
+        { feedback: 'positive' },
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.feedback).toBe('positive')
+
+      const rows = await service.prisma.chatMessageFeedback.findMany({
+        where: { conversationId, chatMessageId: assistantMessageId },
+      })
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.agentMessageId).toBe(assistantMessageId)
     })
 
     it('retracting a rating that was never left still succeeds', async () => {
@@ -658,8 +844,8 @@ describe('GeneralChatsController (integration)', () => {
       const body = await send(conversationId, COS_SCOPE, headers)
       expect(body).toContain('"type":"done"')
 
-      const assistant = await service.prisma.chatMessage.findFirst({
-        where: { conversationId, role: ChatMessageRole.assistant },
+      const assistant = await service.prisma.agentMessage.findFirst({
+        where: { conversationId, role: AgentMessageRole.assistant },
       })
       expect(assistant).toMatchObject({
         model: 'claude-sonnet-4-6',
@@ -739,10 +925,16 @@ describe('GeneralChatsController (integration)', () => {
 
       await send(conversationId, COS_SCOPE, headers)
 
-      const assistant = await service.prisma.chatMessage.findFirst({
-        where: { conversationId, role: ChatMessageRole.assistant },
+      const assistant = await service.prisma.agentMessage.findFirst({
+        where: { conversationId, role: AgentMessageRole.assistant },
       })
-      expect(assistant?.content).toBe('Partial')
+      expect(assistant?.parts).toEqual([
+        {
+          type: 'text',
+          text: 'Partial',
+          providerOptions: { goodparty: { interrupted: true } },
+        },
+      ])
       expect(assistant?.inputTokens).toBeNull()
       expect(await getUsage(conversationId, COS_SCOPE, headers)).toEqual({
         complete: false,
@@ -760,8 +952,8 @@ describe('GeneralChatsController (integration)', () => {
         ChatScope.campaign_assistant,
         camHeaders,
       )
-      const greeting = await service.prisma.chatMessage.findFirst({
-        where: { conversationId, role: ChatMessageRole.assistant },
+      const greeting = await service.prisma.agentMessage.findFirst({
+        where: { conversationId, role: AgentMessageRole.assistant },
       })
       expect(greeting).toMatchObject({
         model: null,

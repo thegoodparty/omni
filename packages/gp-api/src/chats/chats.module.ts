@@ -4,7 +4,6 @@ import { AwsModule } from '@/vendors/aws/aws.module'
 import { AnalyticsModule } from '@/analytics/analytics.module'
 import { JudgeModule } from '@/judge/judge.module'
 import { ChatAttachmentsService } from './services/chatAttachments.service'
-import { ChatAgentMessageBackfillService } from './services/chatAgentMessageBackfill.service'
 import { ChatMessageFeedbackService } from './services/chatMessageFeedback.prisma'
 import { ChatStoreService } from './services/chatStore.prisma'
 import { ChatStreamService } from './services/chatStream.service'
@@ -16,14 +15,12 @@ import { ChatStreamService } from './services/chatStream.service'
     ChatStoreService,
     ChatStreamService,
     ChatMessageFeedbackService,
-    ChatAgentMessageBackfillService,
   ],
   exports: [
     ChatAttachmentsService,
     ChatStoreService,
     ChatStreamService,
     ChatMessageFeedbackService,
-    ChatAgentMessageBackfillService,
   ],
 })
 export class ChatsModule {}

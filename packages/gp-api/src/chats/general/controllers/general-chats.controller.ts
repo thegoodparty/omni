@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -47,6 +48,10 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
 import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
+import {
+  ChatStoreService,
+  USER_MESSAGE_ID_TAKEN,
+} from '@/chats/services/chatStore.prisma'
 import { summarizeConversationUsage } from '@/chats/services/conversationUsage.util'
 import { GeneralChatsService } from '../services/general-chats.service'
 import {
@@ -107,6 +112,7 @@ export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
     private readonly attachments: ChatAttachmentsService,
+    private readonly chatStore: ChatStoreService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(GeneralChatsController.name)
@@ -160,6 +166,17 @@ export class GeneralChatsController {
       organizationSlug,
     )
 
+    const messageId = body.id ?? body.clientMessageId
+    if (
+      messageId &&
+      !(await this.chatStore.userMessageIdIsAvailable({
+        conversationId,
+        id: messageId,
+      }))
+    ) {
+      throw new ConflictException(USER_MESSAGE_ID_TAKEN)
+    }
+
     const abortController = new AbortController()
     const onClose = () => abortController.abort()
     req.raw.once('close', onClose)
@@ -178,7 +195,7 @@ export class GeneralChatsController {
       organizationSlug,
       userMessage: body.content,
       signal: abortController.signal,
-      ...(body.clientMessageId && { clientMessageId: body.clientMessageId }),
+      ...(messageId && { userMessageId: messageId }),
       ...(body.attachmentIds && { attachmentIds: body.attachmentIds }),
       ...(body.pagePath && { pagePath: body.pagePath }),
     })

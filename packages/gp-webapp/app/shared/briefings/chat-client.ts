@@ -38,13 +38,14 @@ export interface ChatClient {
    * caller should iterate over the async iterable, treating `done` and
    * `error` as terminal.
    *
-   * `clientMessageId` should be a UUID v4 that stays stable across retries
-   * of the same logical send so the backend can dedupe.
+   * `id` should be a UUID v4 that stays stable across retries of the same
+   * logical send: the backend stores the user turn under it, so a retry
+   * replays that turn instead of running it again.
    */
   streamMessage(args: {
     annotationId: string
     content: string
-    clientMessageId?: string
+    id?: string
     signal?: AbortSignal
   }): AsyncIterable<ChatStreamEvent>
 

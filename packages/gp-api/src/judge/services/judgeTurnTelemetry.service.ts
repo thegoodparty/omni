@@ -2,11 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import type { TurnToolEvent } from '@/chats/services/chatStream.service'
-import { FeaturesService } from '@/features/services/features.service'
-import {
-  agentMessagesToChatMessages,
-  CHAT_AGENT_MESSAGE_FLAG,
-} from '@/chats/services/chatAgentMessages.util'
+import { agentMessagesToChatMessages } from '@/chats/services/chatAgentMessages.util'
 import {
   hashPrompt,
   judgeToolNames,
@@ -35,10 +31,6 @@ export interface RecordTurnArgs {
 export class JudgeTurnTelemetryService extends createPrismaBase(
   MODELS.JudgeTurnTelemetry,
 ) {
-  constructor(private readonly features: FeaturesService) {
-    super()
-  }
-
   // Upsert and not create: the compound unique on (conversationId, turnIndex)
   // is what makes a retried turn overwrite its own row instead of filing a
   // second opinion about the same turn.
@@ -102,22 +94,12 @@ export class JudgeTurnTelemetryService extends createPrismaBase(
     const messages =
       messageIds.length === 0
         ? []
-        : (await this.features.isGlobalFeatureEnabled(CHAT_AGENT_MESSAGE_FLAG))
-          ? agentMessagesToChatMessages(
-              await this.client.agentMessage.findMany({
-                where: { conversationId },
-                orderBy: { index: Prisma.SortOrder.asc },
-              }),
-            ).filter((m) => messageIds.includes(m.id))
-          : await this.client.chatMessage.findMany({
-              where: { id: { in: messageIds } },
-              select: {
-                id: true,
-                model: true,
-                inputTokens: true,
-                outputTokens: true,
-              },
-            })
+        : agentMessagesToChatMessages(
+            await this.client.agentMessage.findMany({
+              where: { conversationId },
+              orderBy: { index: Prisma.SortOrder.asc },
+            }),
+          ).filter((m) => messageIds.includes(m.id))
     const usageById = new Map(messages.map((m) => [m.id, m]))
 
     return {

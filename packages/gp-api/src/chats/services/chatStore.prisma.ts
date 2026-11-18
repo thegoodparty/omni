@@ -8,16 +8,16 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   AgentMessageDraft,
   agentMessagesToChatMessages,
-  CHAT_AGENT_MESSAGE_FLAG,
   chatMessageToAgentMessages,
+  isObject,
 } from './chatAgentMessages.util'
 
-type ChatTxClient = Pick<Prisma.TransactionClient, 'chatMessage'>
+// Returned to a client that reused a user message id for a turn that is not
+// its own. Deliberately says nothing about the row that holds the id.
+export const USER_MESSAGE_ID_TAKEN = 'That message id is already in use.'
 
 const agentMessageSelect = {
   id: true,
@@ -34,8 +34,8 @@ const agentMessageSelect = {
 // turn is one row, or a few when the model called tools.
 const AGENT_ROWS_PER_RECENT_MESSAGE = 10
 
-// Every ChatMessage write takes this lock first, so the AgentMessage rows of
-// one conversation are numbered in the order their ChatMessages were written.
+// Every message write takes this lock first, so one conversation's rows are
+// numbered in the order their turns were written.
 const lockConversation = async (
   tx: Prisma.TransactionClient,
   conversationId: string,
@@ -43,44 +43,34 @@ const lockConversation = async (
   await tx.$queryRaw`SELECT id FROM chat_conversation WHERE id = ${conversationId} FOR UPDATE`
 }
 
-// Writes the AgentMessage rows of every ChatMessage in the conversation that
-// has none yet, in ChatMessage order. A ChatMessage's rows are found by id:
-// its user row, or the last assistant row of its turn, reuses the ChatMessage
-// id, so running this again writes nothing. `turn` supplies the rows for the
-// message just written when the turn has its real model messages.
-const syncAgentMessages = async (
+// The rows of one turn, numbered from the conversation's next free index.
+// The caller holds the conversation lock, so nothing else is numbering.
+const nextIndex = async (
   tx: Prisma.TransactionClient,
   conversationId: string,
-  turn?: { chatMessageId: string; drafts: AgentMessageDraft[] },
 ): Promise<number> => {
-  const existing = await tx.agentMessage.findMany({
+  const last = await tx.agentMessage.findFirst({
     where: { conversationId },
-    select: { id: true, index: true },
+    orderBy: { index: Prisma.SortOrder.desc },
+    select: { index: true },
   })
-  const missing = await tx.chatMessage.findMany({
-    where: { conversationId, id: { notIn: existing.map((row) => row.id) } },
-    orderBy: [
-      { createdAt: Prisma.SortOrder.asc },
-      { id: Prisma.SortOrder.asc },
-    ],
-    include: { segments: { orderBy: { ordinal: Prisma.SortOrder.asc } } },
-  })
-  let index = existing.reduce((max, row) => Math.max(max, row.index + 1), 0)
-  let written = 0
-  for (const message of missing) {
-    const drafts =
-      turn?.chatMessageId === message.id
-        ? turn.drafts
-        : chatMessageToAgentMessages(message)
-    if (drafts.length === 0) continue
-    const keyRow = drafts.findLastIndex(
-      (draft) => draft.role !== AgentMessageRole.tool,
-    )
-    await tx.agentMessage.createMany({
-      data: drafts.map((draft, i) => ({
-        ...(i === keyRow && { id: message.id }),
+  return last === null ? 0 : last.index + 1
+}
+
+const insertDrafts = async (
+  tx: Prisma.TransactionClient,
+  conversationId: string,
+  drafts: AgentMessageDraft[],
+  firstIndex: number,
+  createdAt?: Date,
+): Promise<string[]> => {
+  const ids: string[] = []
+  for (const [i, draft] of drafts.entries()) {
+    const row = await tx.agentMessage.create({
+      data: {
+        ...(draft.id !== undefined && { id: draft.id }),
         conversationId,
-        index: index + i,
+        index: firstIndex + i,
         role: draft.role,
         parts: draft.parts,
         model: draft.model ?? null,
@@ -88,13 +78,12 @@ const syncAgentMessages = async (
         outputTokens: draft.outputTokens ?? null,
         cacheReadTokens: draft.cacheReadTokens ?? null,
         cacheWriteTokens: draft.cacheWriteTokens ?? null,
-        createdAt: message.createdAt,
-      })),
+        ...(createdAt !== undefined && { createdAt }),
+      },
     })
-    index += drafts.length
-    written += drafts.length
+    ids.push(row.id)
   }
-  return written
+  return ids
 }
 
 // One ordered display block of an assistant turn (see ChatMessageSegment).
@@ -114,14 +103,6 @@ export type ChatMessageWithSegments = ChatMessage & {
 export class ChatStoreService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  constructor(private readonly features: FeaturesService) {
-    super()
-  }
-
-  readsAgentMessages(): Promise<boolean> {
-    return this.features.isGlobalFeatureEnabled(CHAT_AGENT_MESSAGE_FLAG)
-  }
-
   findConversationByIdAndOwner(id: string, ownerUserId: number) {
     return this.findFirst({
       where: { id, ownerUserId, deletedAt: null },
@@ -131,82 +112,119 @@ export class ChatStoreService extends createPrismaBase(
   async listMessagesByConversation(
     conversationId: string,
   ): Promise<ChatMessageWithSegments[]> {
-    if (await this.readsAgentMessages()) {
-      return agentMessagesToChatMessages(
-        await this.client.agentMessage.findMany({
-          where: { conversationId, conversation: { deletedAt: null } },
-          orderBy: { index: Prisma.SortOrder.asc },
-          select: agentMessageSelect,
-        }),
-      )
-    }
-    return this.client.chatMessage.findMany({
-      where: { conversationId, conversation: { deletedAt: null } },
-      orderBy: { createdAt: Prisma.SortOrder.asc },
-      include: { segments: { orderBy: { ordinal: Prisma.SortOrder.asc } } },
-    })
+    return agentMessagesToChatMessages(
+      await this.client.agentMessage.findMany({
+        where: { conversationId, conversation: { deletedAt: null } },
+        orderBy: { index: Prisma.SortOrder.asc },
+        select: agentMessageSelect,
+      }),
+    )
   }
 
   async listRecentMessagesByConversation(
     conversationId: string,
     limit: number,
   ): Promise<ChatMessageWithSegments[]> {
-    if (await this.readsAgentMessages()) {
-      const take = limit * AGENT_ROWS_PER_RECENT_MESSAGE
-      const rows = await this.client.agentMessage.findMany({
-        where: { conversationId, conversation: { deletedAt: null } },
-        orderBy: { index: Prisma.SortOrder.desc },
-        take,
-        select: agentMessageSelect,
-      })
-      const messages = agentMessagesToChatMessages(rows.reverse())
-      // A full page may start partway into a turn; that message is dropped.
-      return (rows.length === take ? messages.slice(1) : messages).slice(-limit)
-    }
-    const rows = await this.client.chatMessage.findMany({
+    const take = limit * AGENT_ROWS_PER_RECENT_MESSAGE
+    const rows = await this.client.agentMessage.findMany({
       where: { conversationId, conversation: { deletedAt: null } },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-      take: limit,
-      include: { segments: { orderBy: { ordinal: Prisma.SortOrder.asc } } },
+      orderBy: { index: Prisma.SortOrder.desc },
+      take,
+      select: agentMessageSelect,
     })
-    return rows.reverse()
+    const messages = agentMessagesToChatMessages(rows.reverse())
+    // A full page may start partway into a turn; that message is dropped.
+    return (rows.length === take ? messages.slice(1) : messages).slice(-limit)
   }
 
   async appendMessage(args: {
     conversationId: string
     role: ChatMessageRole
     content: string
-    clientMessageId?: string
     segments?: PersistedSegment[]
     inputTokens?: number
     outputTokens?: number
     // The turn's real AgentMessage rows; without them the message is stored
-    // the way the backfill stores it.
+    // as its own single row.
     agentMessages?: AgentMessageDraft[]
+    // A reply cut off mid-stream. Its last text part carries the mark, so a
+    // retry of the same send runs the turn again instead of replaying it.
+    interrupted?: boolean
   }): Promise<ChatMessage> {
-    const { agentMessages, ...chatArgs } = args
+    const built =
+      args.agentMessages ??
+      chatMessageToAgentMessages({
+        role: args.role,
+        content: args.content,
+        model: null,
+        inputTokens: args.inputTokens ?? null,
+        outputTokens: args.outputTokens ?? null,
+        segments: (args.segments ?? []).map((s, i) => ({
+          id: `${args.conversationId}:${i}`,
+          chatMessageId: args.conversationId,
+          ordinal: i,
+          kind: s.kind,
+          text: s.text ?? null,
+          toolName: s.toolName ?? null,
+          toolCallId: s.toolCallId ?? null,
+          payload: s.payload ?? null,
+        })),
+      })
+    const drafts = args.interrupted
+      ? built.map((draft) => {
+          if (draft.role !== AgentMessageRole.assistant) return draft
+          const lastText = draft.parts.findLastIndex(
+            (part) => isObject(part) && part['type'] === 'text',
+          )
+          return {
+            ...draft,
+            parts: draft.parts.map((part, i) =>
+              i === lastText && isObject(part)
+                ? {
+                    ...part,
+                    providerOptions: { goodparty: { interrupted: true } },
+                  }
+                : part,
+            ),
+          }
+        })
+      : built
     return this.client.$transaction(async (tx) => {
       await lockConversation(tx, args.conversationId)
-      const message = await appendMessageIdempotent(tx, chatArgs)
-      await syncAgentMessages(
+      const ids = await insertDrafts(
         tx,
         args.conversationId,
-        agentMessages && { chatMessageId: message.id, drafts: agentMessages },
+        drafts,
+        await nextIndex(tx, args.conversationId),
       )
-      return message
+      // A turn whose last step was empty ends on its tool row; the reply is
+      // keyed by its last assistant row.
+      const replyIndex = drafts.findLastIndex(
+        (draft) => draft.role !== AgentMessageRole.tool,
+      )
+      return (await this.readOne(tx, ids[replyIndex]!))!
     })
   }
 
-  // Backfill: writes AgentMessage rows for every ChatMessage of the
-  // conversation that has none. Safe to run any number of times.
-  syncConversationAgentMessages(conversationId: string): Promise<number> {
-    return this.client.$transaction(
-      async (tx) => {
-        await lockConversation(tx, conversationId)
-        return syncAgentMessages(tx, conversationId)
-      },
-      { timeout: 60_000 },
+  // The message a write just produced, read inside the same transaction so it
+  // sees the uncommitted rows.
+  private async readOne(
+    db: Prisma.TransactionClient,
+    messageId: string,
+  ): Promise<ChatMessage | null> {
+    const key = await db.agentMessage.findFirst({
+      where: { id: messageId },
+      select: { conversationId: true },
+    })
+    if (!key?.conversationId) return null
+    const messages = agentMessagesToChatMessages(
+      await db.agentMessage.findMany({
+        where: { conversationId: key.conversationId },
+        orderBy: { index: Prisma.SortOrder.asc },
+        select: agentMessageSelect,
+      }),
     )
+    return messages.find((m) => m.id === messageId) ?? null
   }
 
   // A turn whose AgentMessage rows came from its model messages already
@@ -222,22 +240,16 @@ export class ChatStoreService extends createPrismaBase(
     },
   ): Promise<void> {
     const { model, inputTokens, outputTokens } = usage
-    await this.client.$transaction([
-      this.client.chatMessage.update({
-        where: { id: messageId },
-        data: { model, inputTokens, outputTokens },
-      }),
-      this.client.agentMessage.updateMany({
-        where: { id: messageId, model: null },
-        data: {
-          model,
-          inputTokens,
-          outputTokens,
-          cacheReadTokens: usage.cacheReadTokens ?? null,
-          cacheWriteTokens: usage.cacheWriteTokens ?? null,
-        },
-      }),
-    ])
+    await this.client.agentMessage.updateMany({
+      where: { id: messageId, model: null },
+      data: {
+        model,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens: usage.cacheReadTokens ?? null,
+        cacheWriteTokens: usage.cacheWriteTokens ?? null,
+      },
+    })
   }
 
   async softDeleteConversation(id: string, ownerUserId: number): Promise<void> {
@@ -253,13 +265,38 @@ export class ChatStoreService extends createPrismaBase(
     })
   }
 
-  appendUserMessageIfAlive(args: {
+  // Whether this id is free, or already this conversation's own user turn.
+  // Checked before a stream opens its response, so a conflict can still be an
+  // HTTP 409 rather than an error frame inside a 200.
+  async userMessageIdIsAvailable(args: {
+    conversationId: string
+    id: string
+  }): Promise<boolean> {
+    const existing = await this.client.agentMessage.findFirst({
+      where: { id: args.id },
+      select: { conversationId: true, role: true },
+    })
+    if (!existing) return true
+    return (
+      existing.conversationId === args.conversationId &&
+      existing.role === AgentMessageRole.user
+    )
+  }
+
+  // Writes the user turn under the id the client chose, so a second delivery
+  // of the same send finds that id taken rather than running the turn twice.
+  //
+  // The insert is the dedupe: the id is the primary key, so a retry loses the
+  // race instead of needing a column to check against. Null means the
+  // conversation is gone. `replayed` means this id was already this
+  // conversation's user turn, so the caller must not run the turn again.
+  async appendUserMessageIfAlive(args: {
     conversationId: string
     ownerUserId: number
     content: string
-    clientMessageId?: string
-  }): Promise<ChatMessage | null> {
-    const { conversationId, ownerUserId, content, clientMessageId } = args
+    id?: string
+  }): Promise<{ message: ChatMessage; replayed: boolean } | null> {
+    const { conversationId, ownerUserId, content, id } = args
     return this.client.$transaction(async (tx) => {
       const alive = await tx.chatConversation.findFirst({
         where: { id: conversationId, ownerUserId, deletedAt: null },
@@ -267,112 +304,82 @@ export class ChatStoreService extends createPrismaBase(
       })
       if (!alive) return null
       await lockConversation(tx, conversationId)
-      const message = await appendMessageIdempotent(tx, {
+      if (id !== undefined) {
+        const existing = await tx.agentMessage.findFirst({
+          where: { id },
+          select: { conversationId: true, role: true },
+        })
+        if (existing) {
+          if (
+            existing.conversationId !== conversationId ||
+            existing.role !== AgentMessageRole.user
+          ) {
+            throw new ConflictException(USER_MESSAGE_ID_TAKEN)
+          }
+          return { message: (await this.readOne(tx, id))!, replayed: true }
+        }
+      }
+      const [created] = await insertDrafts(
+        tx,
         conversationId,
-        role: ChatMessageRole.user,
-        content,
-        ...(clientMessageId !== undefined && { clientMessageId }),
-      })
-      await syncAgentMessages(tx, conversationId)
-      return message
+        [
+          {
+            ...(id !== undefined && { id }),
+            role: AgentMessageRole.user,
+            parts: [{ type: 'text', text: content }],
+          },
+        ],
+        await nextIndex(tx, conversationId),
+      )
+      return { message: (await this.readOne(tx, created!))!, replayed: false }
     })
   }
-}
 
-const appendMessageIdempotent = async (
-  db: ChatTxClient,
-  args: {
+  // The stored reply to a user turn in the caller's own conversation: the
+  // assistant rows that follow it, read back as the one message the client
+  // saw. Null when the turn has none or was cut off mid-stream, so the caller
+  // finishes the turn instead of replaying nothing or a partial reply.
+  async replayedReplyTo(args: {
+    userMessageId: string
     conversationId: string
-    role: ChatMessageRole
-    content: string
-    clientMessageId?: string
-    segments?: PersistedSegment[]
-    inputTokens?: number
-    outputTokens?: number
-  },
-): Promise<ChatMessage> => {
-  const {
-    conversationId,
-    role,
-    content,
-    clientMessageId,
-    segments,
-    inputTokens,
-    outputTokens,
-  } = args
-  // Segments only ride on the server-internal (no clientMessageId) assistant
-  // write; user messages never carry them.
-  if (clientMessageId === undefined) {
-    return db.chatMessage.create({
-      data: {
-        conversationId,
-        role,
-        content,
-        inputTokens,
-        outputTokens,
-        ...(segments && segments.length > 0
-          ? {
-              segments: {
-                create: segments.map((s, i) => ({
-                  ordinal: i,
-                  kind: s.kind,
-                  text: s.text ?? null,
-                  toolName: s.toolName ?? null,
-                  toolCallId: s.toolCallId ?? null,
-                  ...(s.payload != null && { payload: s.payload }),
-                })),
-              },
-            }
-          : {}),
+    ownerUserId: number
+  }): Promise<ChatMessage | null> {
+    const userRow = await this.client.agentMessage.findFirst({
+      where: {
+        id: args.userMessageId,
+        conversationId: args.conversationId,
+        role: AgentMessageRole.user,
+        conversation: { ownerUserId: args.ownerUserId, deletedAt: null },
       },
+      select: { conversationId: true, index: true },
     })
-  }
-  const existing = await db.chatMessage.findFirst({
-    where: { conversationId, clientMessageId },
-  })
-  if (existing) {
-    if (existing.role !== role || existing.content !== content) {
-      throw new ConflictException(
-        'clientMessageId reused with different payload',
-      )
-    }
-    return existing
-  }
-  return createOrReturnRaced(db, {
-    conversationId,
-    role,
-    content,
-    clientMessageId,
-    inputTokens,
-    outputTokens,
-  })
-}
-
-const createOrReturnRaced = async (
-  db: ChatTxClient,
-  args: {
-    conversationId: string
-    role: ChatMessageRole
-    content: string
-    clientMessageId: string
-    inputTokens?: number
-    outputTokens?: number
-  },
-): Promise<ChatMessage> => {
-  const { conversationId, role, content, clientMessageId } = args
-  try {
-    return await db.chatMessage.create({ data: args })
-  } catch (err) {
-    if (!isUniqueConstraintError(err)) throw err
-    const raced = await db.chatMessage.findFirst({
-      where: { conversationId, clientMessageId },
+    if (!userRow?.conversationId) return null
+    const following = await this.client.agentMessage.findMany({
+      where: {
+        conversationId: userRow.conversationId,
+        index: { gt: userRow.index },
+      },
+      orderBy: { index: Prisma.SortOrder.asc },
+      select: agentMessageSelect,
     })
-    if (!raced) throw err
-    if (raced.role !== role || raced.content !== content) {
-      throw new ConflictException(
-        'clientMessageId reused with different payload',
-      )
-    }
-    return raced
+    const nextUser = following.findIndex(
+      (row) => row.role === AgentMessageRole.user,
+    )
+    const turn = nextUser === -1 ? following : following.slice(0, nextUser)
+    if (turn.length === 0) return null
+    const interrupted = turn.some(
+      (row) =>
+        Array.isArray(row.parts) &&
+        row.parts.some((part) => {
+          if (!isObject(part)) return false
+          const options = part['providerOptions']
+          if (!isObject(options)) return false
+          const goodparty = options['goodparty']
+          return isObject(goodparty) && goodparty['interrupted'] === true
+        }),
+    )
+    if (interrupted) return null
+    const reply = agentMessagesToChatMessages(turn).at(-1)
+    return reply?.role === ChatMessageRole.assistant ? reply : null
   }
 }

@@ -447,26 +447,20 @@ export const inProcessChatRuntime = (
 
   readAssistantText: async ({ assistantMessageId }) => {
     const store = service.app.get(ChatStoreService)
-    if (await store.readsAgentMessages()) {
-      const keyRow = await service.prisma.agentMessage.findFirst({
-        where: { id: assistantMessageId },
-        select: { conversationId: true },
-      })
-      if (!keyRow?.conversationId) return null
-      const messages = await store.listMessagesByConversation(
-        keyRow.conversationId,
-      )
-      return (
-        messages.find(
-          (m) =>
-            m.id === assistantMessageId && m.role === ChatMessageRole.assistant,
-        )?.content ?? null
-      )
-    }
-    const row = await service.prisma.chatMessage.findFirst({
-      where: { id: assistantMessageId, role: ChatMessageRole.assistant },
+    const keyRow = await service.prisma.agentMessage.findFirst({
+      where: { id: assistantMessageId },
+      select: { conversationId: true },
     })
-    return row?.content ?? null
+    if (!keyRow?.conversationId) return null
+    const messages = await store.listMessagesByConversation(
+      keyRow.conversationId,
+    )
+    return (
+      messages.find(
+        (m) =>
+          m.id === assistantMessageId && m.role === ChatMessageRole.assistant,
+      )?.content ?? null
+    )
   },
 
   // Both patches are process-global for as long as they are installed, and

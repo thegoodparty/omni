@@ -1,6 +1,6 @@
 ---
 title: Chat moves to AgentMessage behind one global flag, then ChatMessage is dropped
-status: active
+status: superseded
 decided_by: [swain]
 date: 2026-11-17
 code: ['#3862']
@@ -9,7 +9,7 @@ scope:
   - packages/gp-api/prisma/schema/chatMessage*.prisma
   - packages/gp-api/prisma/schema/agentMessage.prisma
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-18-chat-user-message-id-is-the-row-id.md
 ---
 
 # Chat moves to AgentMessage behind one global flag, then ChatMessage is dropped

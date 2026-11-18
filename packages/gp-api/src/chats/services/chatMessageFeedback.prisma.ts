@@ -3,12 +3,9 @@ import {
   AgentMessageRole,
   ChatFeedbackKind,
   ChatMessageFeedback,
-  ChatMessageRole,
 } from '../../generated/prisma'
 import type { ChatMessageFeedback as ChatMessageFeedbackDTO } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { FeaturesService } from '@/features/services/features.service'
-import { CHAT_AGENT_MESSAGE_FLAG } from './chatAgentMessages.util'
 
 // `comment` carries three states on the wire, matching the artifact-feedback
 // service: `undefined` leaves the stored note alone (a re-vote without
@@ -24,7 +21,7 @@ export type SetChatMessageFeedbackArgs = {
 const toDTO = (row: ChatMessageFeedback): ChatMessageFeedbackDTO => ({
   id: row.id,
   conversationId: row.conversationId,
-  messageId: row.chatMessageId,
+  messageId: row.agentMessageId ?? row.chatMessageId ?? '',
   feedback: row.feedback,
   comment: row.comment,
   createdAt: row.createdAt,
@@ -35,10 +32,6 @@ const toDTO = (row: ChatMessageFeedback): ChatMessageFeedbackDTO => ({
 export class ChatMessageFeedbackService extends createPrismaBase(
   MODELS.ChatMessageFeedback,
 ) {
-  constructor(private readonly features: FeaturesService) {
-    super()
-  }
-
   // Ratings the caller left on one thread, keyed by message id, so a replayed
   // transcript restores its own action-bar state. Scoped to the caller: one
   // user never sees another's rating.
@@ -49,7 +42,12 @@ export class ChatMessageFeedbackService extends createPrismaBase(
     const rows = await this.findMany({
       where: { conversationId, submitterUserId: userId },
     })
-    return new Map(rows.map((row) => [row.chatMessageId, row]))
+    return new Map(
+      rows.flatMap((row) => {
+        const id = row.agentMessageId ?? row.chatMessageId
+        return id === null ? [] : [[id, row] as const]
+      }),
+    )
   }
 
   async setForMessage(
@@ -61,22 +59,30 @@ export class ChatMessageFeedbackService extends createPrismaBase(
     const commentPatch: { comment?: string | null } =
       comment === undefined ? {} : { comment }
 
-    const row = await this.model.upsert({
+    // Upsert on the AgentMessage key. ChatMessage id and AgentMessage id are
+    // the same string for every rated turn, so a rating written by the
+    // previous deploy (which keys on chatMessageId) is found and updated here
+    // rather than duplicated.
+    const existing = await this.model.findFirst({
       where: {
-        submitterUserId_chatMessageId: {
-          submitterUserId: userId,
-          chatMessageId: messageId,
-        },
-      },
-      create: {
-        conversationId,
-        chatMessageId: messageId,
         submitterUserId: userId,
-        feedback,
-        ...commentPatch,
+        OR: [{ agentMessageId: messageId }, { chatMessageId: messageId }],
       },
-      update: { feedback, ...commentPatch },
     })
+    const row = existing
+      ? await this.model.update({
+          where: { id: existing.id },
+          data: { agentMessageId: messageId, feedback, ...commentPatch },
+        })
+      : await this.model.create({
+          data: {
+            conversationId,
+            agentMessageId: messageId,
+            submitterUserId: userId,
+            feedback,
+            ...commentPatch,
+          },
+        })
     return toDTO(row)
   }
 
@@ -93,8 +99,8 @@ export class ChatMessageFeedbackService extends createPrismaBase(
     await this.model.deleteMany({
       where: {
         conversationId,
-        chatMessageId: messageId,
         submitterUserId: userId,
+        OR: [{ agentMessageId: messageId }, { chatMessageId: messageId }],
       },
     })
   }
@@ -108,25 +114,14 @@ export class ChatMessageFeedbackService extends createPrismaBase(
   ): Promise<void> {
     // A turn's last AgentMessage row carries its ChatMessage id, so the same
     // id rates either way.
-    const message = (await this.features.isGlobalFeatureEnabled(
-      CHAT_AGENT_MESSAGE_FLAG,
-    ))
-      ? await this.client.agentMessage.findFirst({
-          where: {
-            id: messageId,
-            conversationId,
-            role: AgentMessageRole.assistant,
-          },
-          select: { id: true },
-        })
-      : await this.client.chatMessage.findFirst({
-          where: {
-            id: messageId,
-            conversationId,
-            role: ChatMessageRole.assistant,
-          },
-          select: { id: true },
-        })
+    const message = await this.client.agentMessage.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+        role: AgentMessageRole.assistant,
+      },
+      select: { id: true },
+    })
     if (!message) {
       throw new NotFoundException('Message not found')
     }

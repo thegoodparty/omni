@@ -1,4 +1,5 @@
 import type { ModelMessage } from 'ai'
+import { v5 } from 'uuid'
 import { z } from 'zod'
 import { isToolRefusal } from '@goodparty_org/contracts'
 import {
@@ -15,11 +16,18 @@ import type {
   PersistedSegment,
 } from './chatStore.prisma'
 
-// While on, every chat reader reads AgentMessage instead of ChatMessage. Both
-// are written either way, so flipping it back is the rollback.
-export const CHAT_AGENT_MESSAGE_FLAG = 'chat-agent-message'
+// A canned reply's id, derived from the user turn it answers, so a retry of
+// the same send derives the same id and the primary key dedupes it.
+const CANNED_REPLY_NAMESPACE = '2b0d3f8e-5c1a-4f6b-9d7e-8a3c5b1f4e2d'
+
+export const cannedReplyId = (userMessageId: string): string =>
+  v5(userMessageId, CANNED_REPLY_NAMESPACE)
 
 export type AgentMessageDraft = {
+  // Set only by a caller that must own the id: a user turn keyed by the id the
+  // client sent, and the canned reply derived from it. Everything else lets
+  // the database assign uuid(7).
+  id?: string
   role: AgentMessageRole
   parts: Prisma.JsonValue[]
   model?: string | null
@@ -67,7 +75,7 @@ const JsonSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
 const toJson = (value: unknown): Prisma.JsonValue =>
   JsonSchema.parse(JSON.parse(JSON.stringify(value ?? null)))
 
-const isObject = (value: unknown): value is JsonObject =>
+export const isObject = (value: unknown): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 // The AI SDK has no citation part, so a citation rides as an empty text part
@@ -350,25 +358,24 @@ export const turnToAgentMessages = (args: {
   if (assistants.length === 0) return null
   if (assistants.length !== args.stepUsages.length) return null
 
-  const clientCallIds = assistants.map(
-    (m) =>
-      new Set(
-        toolCallParts(m)
-          .filter((part) => part['providerExecuted'] !== true)
-          .map((part) => String(part['toolCallId'])),
-      ),
+  // Provider-executed calls (Anthropic web search) count as a step's calls
+  // too: the step that made one ends only after it, even though its result
+  // can arrive at the start of the next step's message.
+  const callIds = assistants.map(
+    (m) => new Set(toolCallParts(m).map((part) => String(part['toolCallId']))),
   )
   const placed = assistants.map((): Prisma.JsonValue[] => [])
-  const pending = new Set(clientCallIds[0])
+  const placedResultIds = new Set<string>()
+  const pending = new Set(callIds[0])
   let step = 0
   for (const segment of segments) {
     while (
-      clientCallIds[step]!.size > 0 &&
+      callIds[step]!.size > 0 &&
       pending.size === 0 &&
       step + 1 < assistants.length
     ) {
       step += 1
-      for (const id of clientCallIds[step]!) pending.add(id)
+      for (const id of callIds[step]!) pending.add(id)
     }
     if (segment.kind !== ChatMessageSegmentKind.tool) {
       placed[step]!.push(segmentToPart(segment))
@@ -388,10 +395,21 @@ export const turnToAgentMessages = (args: {
           part['type'] === 'tool-result' &&
           part['toolCallId'] === segment.toolCallId,
       )
-      if (result) placed[step]!.push(toJson(result))
+      if (result) {
+        placed[step]!.push(toJson(result))
+        placedResultIds.add(String(segment.toolCallId))
+      }
     }
     pending.delete(String(segment.toolCallId))
   }
+  assistants.forEach((message, index) => {
+    const carried = contentParts(message).filter(
+      (part) =>
+        part['type'] === 'tool-result' &&
+        !placedResultIds.has(String(part['toolCallId'])),
+    )
+    placed[index]!.unshift(...carried.map(toJson))
+  })
   const streamedCallIds = new Set(
     segments
       .filter((s) => s.kind === ChatMessageSegmentKind.tool)

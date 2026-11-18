@@ -3,8 +3,10 @@ import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { ConflictException } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { ChatMessageRole } from '../../generated/prisma'
-import { FeaturesService } from '@/features/services/features.service'
+import { AgentMessageRole, ChatMessageRole } from '../../generated/prisma'
+import { randomUUID } from 'node:crypto'
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 import { ChatStoreService } from './chatStore.prisma'
 
 const service = useTestService()
@@ -29,7 +31,7 @@ describe('ChatStoreService', () => {
 
   beforeEach(() => {
     const prisma = service.app.get(PrismaService)
-    store = new ChatStoreService(service.app.get(FeaturesService))
+    store = new ChatStoreService()
     Object.defineProperty(store, '_prisma', {
       get: () => prisma,
       configurable: true,
@@ -133,36 +135,20 @@ describe('ChatStoreService', () => {
   })
 
   describe('listMessagesByConversation', () => {
-    it('returns messages ordered by createdAt ASC', async () => {
+    it('returns messages in index order', async () => {
       const convo = await createConversation(service.user.id)
-      const earliest = new Date('2026-01-01T00:00:00Z')
-      const middle = new Date('2026-01-02T00:00:00Z')
-      const latest = new Date('2026-01-03T00:00:00Z')
 
-      await service.prisma.chatMessage.create({
-        data: {
+      for (const [role, content] of [
+        [ChatMessageRole.user, 'earliest'],
+        [ChatMessageRole.assistant, 'middle'],
+        [ChatMessageRole.user, 'latest'],
+      ] as const) {
+        await store.appendMessage({
           conversationId: convo.id,
-          role: ChatMessageRole.assistant,
-          content: 'middle',
-          createdAt: middle,
-        },
-      })
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'latest',
-          createdAt: latest,
-        },
-      })
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'earliest',
-          createdAt: earliest,
-        },
-      })
+          role,
+          content,
+        })
+      }
 
       const messages = await store.listMessagesByConversation(convo.id)
 
@@ -189,12 +175,10 @@ describe('ChatStoreService', () => {
 
     it('returns an empty array when the conversation is soft-deleted', async () => {
       const convo = await createConversation(service.user.id)
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'secret',
-        },
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.user,
+        content: 'secret',
       })
       await service.prisma.chatConversation.update({
         where: { id: convo.id },
@@ -211,15 +195,10 @@ describe('ChatStoreService', () => {
     it('returns at most limit messages ordered ASC (most recent slice)', async () => {
       const convo = await createConversation(service.user.id)
       for (let i = 0; i < 10; i++) {
-        await service.prisma.chatMessage.create({
-          data: {
-            conversationId: convo.id,
-            role: ChatMessageRole.user,
-            content: `msg-${i}`,
-            createdAt: new Date(
-              `2026-01-${(i + 1).toString().padStart(2, '0')}T00:00:00Z`,
-            ),
-          },
+        await store.appendMessage({
+          conversationId: convo.id,
+          role: ChatMessageRole.user,
+          content: `msg-${i}`,
         })
       }
 
@@ -234,12 +213,10 @@ describe('ChatStoreService', () => {
 
     it('returns all messages when count is less than limit', async () => {
       const convo = await createConversation(service.user.id)
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'only',
-        },
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.user,
+        content: 'only',
       })
 
       const messages = await store.listRecentMessagesByConversation(
@@ -253,12 +230,10 @@ describe('ChatStoreService', () => {
 
     it('returns empty when the conversation is soft-deleted', async () => {
       const convo = await createConversation(service.user.id)
-      await service.prisma.chatMessage.create({
-        data: {
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'secret',
-        },
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.user,
+        content: 'secret',
       })
       await service.prisma.chatConversation.update({
         where: { id: convo.id },
@@ -290,11 +265,11 @@ describe('ChatStoreService', () => {
       expect(created.content).toBe(content)
       expect(created.createdAt).toBeInstanceOf(Date)
 
-      const persisted = await service.prisma.chatMessage.findUniqueOrThrow({
+      const persisted = await service.prisma.agentMessage.findUniqueOrThrow({
         where: { id: created.id },
       })
-      expect(persisted.content).toBe(content)
-      expect(persisted.role).toBe(ChatMessageRole.user)
+      expect(persisted.parts).toEqual([{ type: 'text', text: content }])
+      expect(persisted.role).toBe(AgentMessageRole.user)
     })
 
     it('throws a Prisma error when conversationId does not exist', async () => {
@@ -307,94 +282,19 @@ describe('ChatStoreService', () => {
       ).rejects.toThrow()
     })
 
-    it('stores clientMessageId when provided', async () => {
+    it('lets the database assign an id when the caller has none', async () => {
       const convo = await createConversation(service.user.id)
 
       const created = await store.appendMessage({
         conversationId: convo.id,
         role: ChatMessageRole.user,
         content: 'hi',
-        clientMessageId: 'cid-1',
       })
 
-      const persisted = await service.prisma.chatMessage.findUniqueOrThrow({
-        where: { id: created.id },
-      })
-      expect(persisted.clientMessageId).toBe('cid-1')
+      expect(created.id).toMatch(UUID)
     })
 
-    it('returns the existing row when called twice with the same clientMessageId AND payload', async () => {
-      const convo = await createConversation(service.user.id)
-
-      const first = await store.appendMessage({
-        conversationId: convo.id,
-        role: ChatMessageRole.user,
-        content: 'hi',
-        clientMessageId: 'dupe-1',
-      })
-
-      const second = await store.appendMessage({
-        conversationId: convo.id,
-        role: ChatMessageRole.user,
-        content: 'hi',
-        clientMessageId: 'dupe-1',
-      })
-
-      expect(second.id).toBe(first.id)
-      expect(second.content).toBe('hi')
-
-      const count = await service.prisma.chatMessage.count({
-        where: { conversationId: convo.id, clientMessageId: 'dupe-1' },
-      })
-      expect(count).toBe(1)
-    })
-
-    it('throws ConflictException when clientMessageId is reused with different content', async () => {
-      const convo = await createConversation(service.user.id)
-
-      await store.appendMessage({
-        conversationId: convo.id,
-        role: ChatMessageRole.user,
-        content: 'hello',
-        clientMessageId: 'mismatch-1',
-      })
-
-      await expect(
-        store.appendMessage({
-          conversationId: convo.id,
-          role: ChatMessageRole.user,
-          content: 'goodbye',
-          clientMessageId: 'mismatch-1',
-        }),
-      ).rejects.toBeInstanceOf(ConflictException)
-
-      const count = await service.prisma.chatMessage.count({
-        where: { conversationId: convo.id, clientMessageId: 'mismatch-1' },
-      })
-      expect(count).toBe(1)
-    })
-
-    it('throws ConflictException when clientMessageId is reused with a different role', async () => {
-      const convo = await createConversation(service.user.id)
-
-      await store.appendMessage({
-        conversationId: convo.id,
-        role: ChatMessageRole.user,
-        content: 'same',
-        clientMessageId: 'role-mismatch',
-      })
-
-      await expect(
-        store.appendMessage({
-          conversationId: convo.id,
-          role: ChatMessageRole.assistant,
-          content: 'same',
-          clientMessageId: 'role-mismatch',
-        }),
-      ).rejects.toBeInstanceOf(ConflictException)
-    })
-
-    it('allows independent rows when clientMessageId is null on both', async () => {
+    it('gives each row its own id', async () => {
       const convo = await createConversation(service.user.id)
 
       const first = await store.appendMessage({
@@ -465,22 +365,108 @@ describe('ChatStoreService', () => {
   })
 
   describe('appendUserMessageIfAlive', () => {
-    it('returns persisted message when conversation is alive', async () => {
+    const countTurns = (conversationId: string) =>
+      service.prisma.agentMessage.count({ where: { conversationId } })
+
+    it('writes the user turn under the id the client sent', async () => {
       const convo = await createConversation(service.user.id)
+      const id = randomUUID()
 
       const result = await store.appendUserMessageIfAlive({
         conversationId: convo.id,
         ownerUserId: service.user.id,
         content: 'hello',
+        id,
       })
 
-      expect(result).not.toBeNull()
-      expect(result?.role).toBe(ChatMessageRole.user)
-      expect(result?.content).toBe('hello')
-      const persisted = await service.prisma.chatMessage.findMany({
-        where: { conversationId: convo.id },
+      expect(result?.replayed).toBe(false)
+      expect(result?.message.id).toBe(id)
+      expect(result?.message.role).toBe(ChatMessageRole.user)
+      expect(result?.message.content).toBe('hello')
+      expect(await countTurns(convo.id)).toBe(1)
+    })
+
+    it('reports a retry of the same send instead of writing a second turn', async () => {
+      const convo = await createConversation(service.user.id)
+      const id = randomUUID()
+      const send = () =>
+        store.appendUserMessageIfAlive({
+          conversationId: convo.id,
+          ownerUserId: service.user.id,
+          content: 'hello',
+          id,
+        })
+
+      const first = await send()
+      const second = await send()
+
+      expect(first?.replayed).toBe(false)
+      expect(second?.replayed).toBe(true)
+      expect(second?.message.id).toBe(id)
+      expect(await countTurns(convo.id)).toBe(1)
+    })
+
+    it('refuses an id already used by another conversation', async () => {
+      const mine = await createConversation(service.user.id)
+      const theirs = await createConversation(service.user.id)
+      const id = randomUUID()
+      await store.appendUserMessageIfAlive({
+        conversationId: theirs.id,
+        ownerUserId: service.user.id,
+        content: 'theirs',
+        id,
       })
-      expect(persisted).toHaveLength(1)
+
+      await expect(
+        store.appendUserMessageIfAlive({
+          conversationId: mine.id,
+          ownerUserId: service.user.id,
+          content: 'mine',
+          id,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException)
+      expect(await countTurns(mine.id)).toBe(0)
+    })
+
+    it('refuses an id already used by another owner', async () => {
+      const other = await createOtherUser()
+      const theirs = await createConversation(other.id)
+      const mine = await createConversation(service.user.id)
+      const id = randomUUID()
+      await store.appendUserMessageIfAlive({
+        conversationId: theirs.id,
+        ownerUserId: other.id,
+        content: 'theirs',
+        id,
+      })
+
+      await expect(
+        store.appendUserMessageIfAlive({
+          conversationId: mine.id,
+          ownerUserId: service.user.id,
+          content: 'mine',
+          id,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException)
+      expect(await countTurns(mine.id)).toBe(0)
+    })
+
+    it('refuses an id already used by an assistant row', async () => {
+      const convo = await createConversation(service.user.id)
+      const assistant = await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.assistant,
+        content: 'a reply',
+      })
+
+      await expect(
+        store.appendUserMessageIfAlive({
+          conversationId: convo.id,
+          ownerUserId: service.user.id,
+          content: 'hi',
+          id: assistant.id,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException)
     })
 
     it('returns null and does not persist when conversation is soft-deleted', async () => {
@@ -497,10 +483,7 @@ describe('ChatStoreService', () => {
       })
 
       expect(result).toBeNull()
-      const persisted = await service.prisma.chatMessage.findMany({
-        where: { conversationId: convo.id },
-      })
-      expect(persisted).toHaveLength(0)
+      expect(await countTurns(convo.id)).toBe(0)
     })
 
     it('returns null when ownerUserId does not match', async () => {
@@ -514,10 +497,7 @@ describe('ChatStoreService', () => {
       })
 
       expect(result).toBeNull()
-      const persisted = await service.prisma.chatMessage.findMany({
-        where: { conversationId: convo.id },
-      })
-      expect(persisted).toHaveLength(0)
+      expect(await countTurns(convo.id)).toBe(0)
     })
 
     it('returns null when conversation does not exist', async () => {
@@ -529,29 +509,137 @@ describe('ChatStoreService', () => {
 
       expect(result).toBeNull()
     })
+  })
 
-    it('is idempotent when clientMessageId is reused with the same payload', async () => {
+  describe('replayedReplyTo', () => {
+    it('returns the reply stored after the user turn', async () => {
       const convo = await createConversation(service.user.id)
-
-      const first = await store.appendUserMessageIfAlive({
+      const id = randomUUID()
+      await store.appendUserMessageIfAlive({
         conversationId: convo.id,
         ownerUserId: service.user.id,
-        content: 'hi',
-        clientMessageId: 'cid-x',
+        content: 'question',
+        id,
       })
-      const second = await store.appendUserMessageIfAlive({
+      const reply = await store.appendMessage({
         conversationId: convo.id,
-        ownerUserId: service.user.id,
-        content: 'hi',
-        clientMessageId: 'cid-x',
+        role: ChatMessageRole.assistant,
+        content: 'answer',
       })
 
-      expect(first).not.toBeNull()
-      expect(second?.id).toBe(first?.id)
-      const persisted = await service.prisma.chatMessage.findMany({
-        where: { conversationId: convo.id },
+      const replayed = await store.replayedReplyTo({
+        userMessageId: id,
+        conversationId: convo.id,
+        ownerUserId: service.user.id,
       })
-      expect(persisted).toHaveLength(1)
+
+      expect(replayed?.id).toBe(reply.id)
+      expect(replayed?.content).toBe('answer')
+    })
+
+    it('returns null when the turn has no reply yet', async () => {
+      const convo = await createConversation(service.user.id)
+      const id = randomUUID()
+      await store.appendUserMessageIfAlive({
+        conversationId: convo.id,
+        ownerUserId: service.user.id,
+        content: 'question',
+        id,
+      })
+
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: id,
+          conversationId: convo.id,
+          ownerUserId: service.user.id,
+        }),
+      ).toBeNull()
+    })
+
+    it('does not reach into the next turn', async () => {
+      const convo = await createConversation(service.user.id)
+      const first = randomUUID()
+      await store.appendUserMessageIfAlive({
+        conversationId: convo.id,
+        ownerUserId: service.user.id,
+        content: 'first',
+        id: first,
+      })
+      await store.appendUserMessageIfAlive({
+        conversationId: convo.id,
+        ownerUserId: service.user.id,
+        content: 'second',
+      })
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.assistant,
+        content: 'answer',
+      })
+
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: first,
+          conversationId: convo.id,
+          ownerUserId: service.user.id,
+        }),
+      ).toBeNull()
+    })
+    it('does not replay a turn from another conversation or owner', async () => {
+      const convo = await createConversation(service.user.id)
+      const id = randomUUID()
+      await store.appendUserMessageIfAlive({
+        conversationId: convo.id,
+        ownerUserId: service.user.id,
+        content: 'question',
+        id,
+      })
+      await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.assistant,
+        content: 'answer',
+      })
+      const otherConvo = await createConversation(service.user.id)
+
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: id,
+          conversationId: otherConvo.id,
+          ownerUserId: service.user.id,
+        }),
+      ).toBeNull()
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: id,
+          conversationId: convo.id,
+          ownerUserId: service.user.id + 1,
+        }),
+      ).toBeNull()
+    })
+
+    it('does not replay a reply that was cut off mid-stream', async () => {
+      const convo = await createConversation(service.user.id)
+      const id = randomUUID()
+      await store.appendUserMessageIfAlive({
+        conversationId: convo.id,
+        ownerUserId: service.user.id,
+        content: 'question',
+        id,
+      })
+      const partial = await store.appendMessage({
+        conversationId: convo.id,
+        role: ChatMessageRole.assistant,
+        content: 'half an ans',
+        interrupted: true,
+      })
+
+      expect(partial.content).toBe('half an ans')
+      expect(
+        await store.replayedReplyTo({
+          userMessageId: id,
+          conversationId: convo.id,
+          ownerUserId: service.user.id,
+        }),
+      ).toBeNull()
     })
   })
 

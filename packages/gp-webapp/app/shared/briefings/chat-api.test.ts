@@ -172,7 +172,7 @@ describe('chatApi.streamMessage', () => {
       chatApi.streamMessage({
         annotationId: 'ann_abc',
         content: 'tell me',
-        clientMessageId: 'uuid-1',
+        id: '3f1b7c2e-5a44-4b9e-9f1a-2c6d8e0b7a51',
       }),
     )
 
@@ -188,7 +188,7 @@ describe('chatApi.streamMessage', () => {
     expect(init.credentials).toBe('include')
     expect(JSON.parse(init.body as string)).toEqual({
       content: 'tell me',
-      clientMessageId: 'uuid-1',
+      id: '3f1b7c2e-5a44-4b9e-9f1a-2c6d8e0b7a51',
     })
   })
 

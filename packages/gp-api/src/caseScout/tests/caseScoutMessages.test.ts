@@ -1,6 +1,6 @@
 import { parseISO } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ChatMessageRole, ChatScope } from '@/generated/prisma'
+import { AgentMessageRole, ChatScope } from '@/generated/prisma'
 import { DistrictsService } from '@/electionDb/districts/districts.service'
 import { PositionsService } from '@/electionDb/positions/positions.service'
 import { useTestService } from '@/test-service'
@@ -22,12 +22,13 @@ const seedChat = async (email: string, scope = ChatScope.chief_of_staff) => {
   const conversation = await service.prisma.chatConversation.create({
     data: { id: `conv-read-${counter}`, ownerUserId: owner.id, scope },
   })
-  await service.prisma.chatMessage.create({
+  await service.prisma.agentMessage.create({
     data: {
       id: `msg-read-${counter}`,
       conversationId: conversation.id,
-      role: ChatMessageRole.user,
-      content: 'A question.',
+      index: 0,
+      role: AgentMessageRole.user,
+      parts: [{ type: 'text', text: 'A question.' }],
       createdAt: parseISO('2026-11-15T12:00:00.000Z'),
     },
   })
@@ -116,12 +117,13 @@ describe('CaseScoutMessagesService', () => {
         organizationSlug: 'deny-org',
       },
     })
-    await service.prisma.chatMessage.create({
+    await service.prisma.agentMessage.create({
       data: {
         id: 'msg-deny',
         conversationId: 'conv-deny',
-        role: ChatMessageRole.user,
-        content: 'A question.',
+        index: 0,
+        role: AgentMessageRole.user,
+        parts: [{ type: 'text', text: 'A question.' }],
       },
     })
     const positions = vi
