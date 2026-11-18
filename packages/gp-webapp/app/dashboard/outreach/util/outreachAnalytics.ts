@@ -23,6 +23,7 @@ const OUTREACH_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
   nativePhoneBanking: 'phoneBanking',
   socialMedia: 'socialMedia',
   directMail: 'directMail',
+  email: 'email',
   events: 'event',
   // The flow shell, the audience hook and the gate each named the channels
   // themselves before this vocabulary existed, so a text send had four

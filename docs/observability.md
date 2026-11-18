@@ -185,8 +185,10 @@ https://goodparty.grafana.net/a/grafana-agento11y-app
 Every chat turn's model calls and tool calls appear as generations in Agent
 Observability, grouped by conversation and labelled with the chat scope the
 caller declares (`chief_of_staff`, `campaign_assistant`, `ordinance_flow`,
-`priority_flow`), or `chat` when it declares none — briefing chat's own
-annotation route passes no scope. Its **Conversations** view answers what a
+`priority_flow`), or `chat` when it declares none. Briefing chat declares no
+scope (scope also decides attachment injection and which product a citation is
+attributed to), so its route names its agent on the turn instead and appears as
+`briefing_annotation`. Its **Conversations** view answers what a
 single turn did — which tools ran, in what order, what each model call cost —
 without a Tempo query.
 

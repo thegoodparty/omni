@@ -70,3 +70,126 @@ output "bucket_name" {
   value       = module.case_scout.bucket_name
   description = "S3 bucket holding the scout's bundles/ledger/marker"
 }
+
+# The Python reader's resources, dropped from the module when the reader moved
+# into gp-api. Forgotten rather than destroyed: the release train refuses any
+# plan that deletes (scripts/ci-apply-root.sh), and these sit idle and cost
+# nothing, so they stay in AWS until someone deletes them by hand.
+removed {
+  from = module.case_scout.aws_iam_role_policy.lambda_ecs_run_task
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_cloudwatch_log_group.reader
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role.reader_task_execution
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy_attachment.reader_task_execution
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.reader_task_execution_secrets
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role.reader_task
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.reader_task_bucket
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.reader_task_judge_records_readonly
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.reader_task_secrets
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.reader_task_invoke_publish
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.reader_task_sns_publish
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.reader_task_cloudwatch_logs
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_security_group.reader_tasks
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_ecs_cluster.reader
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_ecs_task_definition.reader
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_cloudwatch_event_rule.reader_task_failed
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_cloudwatch_event_target.reader_task_failed_to_sns
+  lifecycle {
+    destroy = false
+  }
+}

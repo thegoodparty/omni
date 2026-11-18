@@ -144,6 +144,12 @@ export interface StreamArgs {
   // scopes, so the caller supplies a scope-specific name (e.g.
   // 'ordinance_flow-chat-stream'); falls back to a generic name if unset.
   traceName?: string
+  // The agent this turn is filed under in Grafana Agent Observability
+  // (gen_ai.agent.name). Falls back to the scope, then to 'chat'. Set it for a
+  // route that passes no scope but is still its own agent there: briefing chat
+  // cannot pass one, because scope also decides attachment injection and the
+  // citation analytics event.
+  agentName?: string
   // Optional post-generation hook. On a clean finish, given the full assembled
   // text and the turn's tool events, returns a line to append (a guardrail
   // backstop line) or null. Streamed as the final text chunk and included in
@@ -882,7 +888,7 @@ export class ChatStreamService {
         ...(args.signal && { abortSignal: args.signal }),
         agentTrace: {
           conversationId: args.conversationId,
-          agentName: args.scope ?? 'chat',
+          agentName: args.agentName ?? args.scope ?? 'chat',
         },
         onStreamError: (err) => {
           streamError = err

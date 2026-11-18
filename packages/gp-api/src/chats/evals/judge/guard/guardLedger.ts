@@ -1,4 +1,4 @@
-import { format, parseISO, subMonths } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
 
 // One line per guard sweep, appended by the judge.yml run the guard starts
@@ -115,14 +115,24 @@ export const parseLedgerLines = (
     .filter((line) => line !== '')
     .map((line) => parseLine(where, line))
 
+// The month key names an object every guard run reads and writes, so it is
+// the timestamp's own month in UTC and never the machine's: formatted in
+// local time, a UTC timestamp early in a month names the previous one in any
+// zone west of UTC and the ledger line lands in a file the next read misses.
 export const monthKeyOf = (iso: string): string =>
-  format(parseISO(iso), 'yyyy-MM')
+  formatInTimeZone(iso, 'UTC', 'yyyy-MM')
 
 // This month plus the `count - 1` before it, newest first. Two is enough for
 // the one case that crosses a boundary (a PR open across a month-end); the
-// cap check and `judge spend` both pass however many they need.
+// cap check and `judge spend` both pass however many they need. Stepped in
+// UTC like monthKeyOf, so the list always names the month a write landed in.
 export const recentMonthKeys = (now: Date, count: number): string[] =>
-  Array.from({ length: count }, (_, i) => format(subMonths(now, i), 'yyyy-MM'))
+  Array.from({ length: count }, (_, i) => {
+    const monthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1),
+    )
+    return monthKeyOf(monthStart.toISOString())
+  })
 
 // Every ledger line for this PR counts toward its spend, whatever its
 // status: a cancelled sweep already spent on the runs it captured before the

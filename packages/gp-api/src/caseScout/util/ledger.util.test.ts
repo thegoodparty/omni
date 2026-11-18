@@ -121,12 +121,38 @@ describe('the nightly cap', () => {
     expect(nightlyCapForMergeShare(0.1)).toBe(1)
   })
 
-  it('counts a merge recorded after the proposal window', () => {
+  it('counts a ruling recorded after the proposal window', () => {
     const proposals = ['a', 'b', 'c'].map((caseId) => entry({ caseId }))
-    const merged = entry({ caseId: 'a', outcome: 'merged' })
+    const merged = entry({ caseId: 'a', outcome: 'merged', createdAt: NOW })
+    const rejected = ['b', 'c'].map((caseId) =>
+      entry({ caseId, outcome: 'rejected', createdAt: NOW }),
+    )
     const outside = entry({ caseId: 'd', createdAt: subDays(NOW, 20) })
+    const outsideMerged = entry({
+      caseId: 'd',
+      outcome: 'merged',
+      createdAt: NOW,
+    })
     expect(
-      trailingMergeShare([...proposals, merged, outside], NOW),
+      trailingMergeShare(
+        [...proposals, merged, ...rejected, outside, outsideMerged],
+        NOW,
+      ),
     ).toBeCloseTo(1 / 3)
+  })
+
+  it('leaves out proposals nobody has ruled on', () => {
+    const unruled = ['a', 'b', 'c', 'd'].map((caseId) => entry({ caseId }))
+    expect(trailingMergeShare(unruled, NOW)).toBeUndefined()
+
+    const ruled = ['e', 'f', 'g'].map((caseId) => entry({ caseId }))
+    const outcomes = [
+      entry({ caseId: 'e', outcome: 'merged' }),
+      entry({ caseId: 'f', outcome: 'merged' }),
+      entry({ caseId: 'g', outcome: 'rejected' }),
+    ]
+    expect(
+      trailingMergeShare([...unruled, ...ruled, ...outcomes], NOW),
+    ).toBeCloseTo(2 / 3)
   })
 })

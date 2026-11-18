@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common'
-import { ChatMessage } from '../../../generated/prisma'
+import { ChatMessage, ChatScope } from '../../../generated/prisma'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import {
   ChatStreamChunk,
@@ -90,6 +90,7 @@ export class BriefingChatsService {
         userMessage: args.userMessage,
         models: self.handler.models,
         traceName: self.handler.traceName,
+        agentName: ChatScope.briefing_annotation,
         ...(args.signal && { signal: args.signal }),
         ...(args.userMessageId && { userMessageId: args.userMessageId }),
         ...(finalizing && {

@@ -305,7 +305,9 @@ jobs:
       # spent and ended at $51.99). Cancel it here and wait for it to finish:
       # its `if: always()` ledger step publishes the new total before this
       # step reads it. Only guard sweeps, which the workflow token
-      # dispatches; a person's own `/judge` run is left alone.
+      # dispatches; a person's own `/judge` run is left alone. The lookup is
+      # best-effort: if it fails, the step still reads the relay, because a
+      # missing `cents` output prices the PR at $0 and the cap fails open.
       - name: Fetch this PR's guard spend so far
         id: spend_so_far
         continue-on-error: true
@@ -321,7 +323,10 @@ jobs:
               | select(.status != \"completed\"
                 and .display_title == \"Universal Judge request: PR #$PR_NUMBER\"
                 and .triggering_actor.login == \"github-actions[bot]\")
-              | .id] | .[]")"
+              | .id] | .[]")" || {
+            echo "::warning::could not list this PR's in-flight guard sweeps; reading its spend without settling them"
+            inflight=""
+          }
           for id in $inflight; do
             echo "::notice::cancelling superseded guard sweep $id before reading this PR's spend"
             gh run cancel "$id" || true

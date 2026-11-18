@@ -570,26 +570,27 @@ describe('caseScoutDraft', () => {
   })
 
   it.each([
-    ['dev', { proposed: 3, capped: 1 }],
-    ['prod', { proposed: 1, capped: 3 }],
+    ['no ruling yet', [], { proposed: 3, capped: 1 }],
+    ['three rejections', ['rejected'], { proposed: 1, capped: 3 }],
   ])(
-    'reads the merge share for the cap only in prod (%s)',
-    async (environment, counts) => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', environment)
+    'moves the cap only on proposals someone ruled on (%s)',
+    async (_label, rulings, counts) => {
       await seedSessions([3, 3, 3, 3])
       const earlier = parseISO('2026-11-10T09:30:00.000Z').toISOString()
-      const unmerged = ['a', 'b', 'c'].map((id) => ({
-        runId: '2026-11-10',
-        conversationId: `conv-old-${id}`,
-        agentId: 'chief_of_staff',
-        outcome: 'proposed',
-        caseId: `old-${id}`,
-        failureSummary: `old failure ${id}`,
-        createdAt: earlier,
-      }))
+      const lines = ['a', 'b', 'c'].flatMap((id) =>
+        ['proposed', ...rulings].map((outcome) => ({
+          runId: '2026-11-10',
+          conversationId: `conv-old-${id}`,
+          agentId: 'chief_of_staff',
+          outcome,
+          caseId: `old-${id}`,
+          failureSummary: `old failure ${id}`,
+          createdAt: earlier,
+        })),
+      )
       objects.set(
         `${BUCKET}/ledger/2026-11.jsonl`,
-        unmerged.map((line) => JSON.stringify(line)).join('\n') + '\n',
+        lines.map((line) => JSON.stringify(line)).join('\n') + '\n',
       )
       draftFor = (sessionId) =>
         newCase(`case-${sessionId.split(':')[1]}`, `failure ${sessionId}`)
