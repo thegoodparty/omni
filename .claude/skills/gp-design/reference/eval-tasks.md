@@ -1,7 +1,7 @@
 # Eval tasks
 
-A fixed set of tasks to rerun after any change to `gp-design` or
-`ux-review-options` (its text, templates, CSS or scripts). The same tasks every
+A fixed set of tasks to rerun after any change to `gp-design` (its text,
+templates or scripts). The same tasks every
 time, so a change shows up as a difference between two runs, not as a new
 task's quirks.
 
@@ -24,8 +24,8 @@ Run each as a full `gp-design` run in its own scratch folder,
    - "Send a test to myself" is on the editor screen and on the ready-to-send
      (review) step.
    - Text inside the email is left-aligned by default.
-   - Phone and desktop are both full clickable flows (`?view=phone` and
-     `?view=desktop`).
+   - The flow clicks through in the phone frame and in Desktop preview at
+     1280 (`?view=desktop`).
 2. **Win Pro upgrade.** One design: the Pro upgrade screen a Win candidate
    reaches from the upgrade banner on the dashboard.
 3. **Serve meeting briefing.** One design: the screen where an elected
@@ -38,8 +38,9 @@ A task passes when all three hold:
 
 - `scripts/check.py` with no flag prints `ok` (or with `--skip-build-shape`
   when the run wrote `no-build-shape.txt`).
-- The senior design review (`senior-review.md`) returns no Do in list A
-  after the fixes.
+- Every Do in the senior design review's list A (`senior-review.md`) is
+  fixed or listed under Decisions needed, as counted by the check after the
+  fixes (`senior-review.md`, "What to do with the findings" step 3).
 - Every clause of the direction is delivered on the page, or listed in
   `#<x>-drops` or "Decisions needed". Tasks 2 to 4 have no direction: the
   ticket or the one-line ask stands in for it.
