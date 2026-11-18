@@ -2,6 +2,7 @@ import { ControllerName } from '../../src/generated/route-types'
 import { Alert } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 import { jobAlerts } from './alerting/job-alerts'
+import { dbChangeAlerts } from './alerting/db-change-alerts'
 import { sesReputationAlerts } from './alerting/ses-reputation-alerts'
 import { vendorDriftAlerts } from './alerting/vendor-drift-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
@@ -666,6 +667,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   ...vendorDriftAlerts,
   ...sesReputationAlerts,
   ...jobAlerts,
+  ...dbChangeAlerts,
   {
     slug: 'clerk-dev-user-cap-headroom',
     name: '[Ops] Clerk dev instance is nearing its user cap',
