@@ -15,6 +15,10 @@ from the design system and pass the checks), review (the senior design
 review), fix (apply its findings), present (hand it back per §4). Pattern
 research across other products is a separate skill, not part of this one.
 
+Prototypes draw with the real styleguide components, never a hand copy of
+them. Why, and what not to bring back:
+`docs/adr/2026-11-17-gp-design-draws-with-real-styleguide-components.md`.
+
 ## The rules come from the repo
 
 Read these before designing, every time. Never restate a rule here; point to the
