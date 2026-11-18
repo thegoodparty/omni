@@ -3,7 +3,7 @@ title: Pro fulfilment has two webhook arms, and the subscription carries its own
 status: active
 decided_by: [agent]
 date: 2026-11-18
-code: ['#0']
+code: ['#3876']
 scope:
   - packages/gp-api/src/payments/**
   - packages/gp-api/src/vendors/stripe/**
