@@ -135,6 +135,11 @@ export function useStreamingTurn(
   // persisted history. A new send supersedes a settling turn (aborts its
   // background poll and starts) rather than being dropped by the guard above.
   const settlingRef = useRef(false)
+  // The settling turn's reply, built from what streamed. A follow-up send that
+  // supersedes the turn before it commits keeps this in the transcript; without
+  // it the reply vanishes, since the superseded turn never swaps in history and
+  // the new send clears the live render.
+  const settlingTurnRef = useRef<ChatMessageDto | null>(null)
   // The in-flight turn's controller, so unmount can free the stream. Without
   // this a surface that unmounts mid-turn (a drawer closing, a step swapping)
   // leaves the fetch running until the server finishes; a hung stream leaks
@@ -192,7 +197,16 @@ export function useStreamingTurn(
       if (sendingRef.current) {
         if (!settlingRef.current) return
         abortRef.current?.abort()
+        const superseded = settlingTurnRef.current
+        if (superseded) {
+          setMessages((prev) =>
+            prev.some((m) => m.id === superseded.id)
+              ? prev
+              : [...prev, superseded],
+          )
+        }
       }
+      settlingTurnRef.current = null
       const chatApi = apiRef.current
       const scope = handlersRef.current
       sendingRef.current = true
@@ -410,6 +424,18 @@ export function useStreamingTurn(
           // blanks while we poll; `sendingRef` stays set until this turn settles.
           if (canReconcile()) setSending(false)
           settlingRef.current = true
+          const localTurn: ChatMessageDto = {
+            id: doneMessageId ?? `local-${crypto.randomUUID()}`,
+            conversationId,
+            role: 'assistant',
+            content: persisted.reduce(
+              (acc, s) => (s.kind === 'text' ? acc + (s.text ?? '') : acc),
+              '',
+            ),
+            createdAt: new Date().toISOString(),
+            segments: persisted,
+          }
+          if (persisted.length > 0) settlingTurnRef.current = localTurn
           // On a clean finish, let the smooth reveal type out the tail before
           // committing, so the last words don't snap in. A supersede/unmount
           // aborts it. On a stall there is nothing left to type out.
@@ -495,22 +521,9 @@ export function useStreamingTurn(
                 // branch below and correctly does not fire it.)
                 if (stalled) scope.onTurnSuccess?.()
               } else {
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: doneMessageId ?? `local-${crypto.randomUUID()}`,
-                    conversationId,
-                    role: 'assistant',
-                    content: persisted.reduce(
-                      (acc, s) =>
-                        s.kind === 'text' ? acc + (s.text ?? '') : acc,
-                      '',
-                    ),
-                    createdAt: new Date().toISOString(),
-                    segments: persisted,
-                  },
-                ])
+                setMessages((prev) => [...prev, localTurn])
               }
+              settlingTurnRef.current = null
               setLiveSegments([])
             }
           }
@@ -532,6 +545,7 @@ export function useStreamingTurn(
         // us and already owns this state.
         if (mountedRef.current && abortRef.current === abortController) {
           abortRef.current = null
+          settlingTurnRef.current = null
           setLiveSegments([])
           scope.onTurnSettle?.()
           settlingRef.current = false
