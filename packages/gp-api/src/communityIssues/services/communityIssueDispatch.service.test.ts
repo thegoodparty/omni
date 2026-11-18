@@ -1,8 +1,15 @@
-import { ExperimentRunStatus } from '../../generated/prisma'
+import {
+  AgentRunStatus,
+  CommunityIssueCategory,
+  CommunityIssueList,
+  CommunityIssuePriority,
+  ExperimentRunStatus,
+} from '../../generated/prisma'
 import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { AgentsService } from '@/agents/agents.service'
 import { useTestService } from '@/test-service'
 // Imported after useTestService: analytics.service sits on a circular import
 // chain (analytics -> users -> campaigns -> analytics) and must not be the
@@ -39,6 +46,23 @@ const mockDispatchRun = () =>
   vi
     .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
     .mockResolvedValue(undefined)
+
+const mockAgentsRun = () =>
+  vi
+    .spyOn(service.app.get(AgentsService), 'run')
+    .mockResolvedValue({ runId: 'stub-run' })
+
+const seedAgentRun = async (organizationSlug: string, status: AgentRunStatus) =>
+  service.prisma.agentRun.create({
+    data: {
+      agentName: 'trending_issues',
+      organizationSlug,
+      status,
+      manifest: {},
+      shapeHash: 'a-shape',
+      input: { organizationSlug },
+    },
+  })
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
@@ -839,6 +863,225 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       expect(dispatchSpy).toHaveBeenCalledTimes(2)
       expect(result).toEqual({ dispatched: 2, skipped: 0 })
     })
+  })
+})
+
+describe('the engine switch — gates read the runs of the engine that will run them', () => {
+  beforeEach(() => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'trending_issues')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it('the signup check skips a type whose completed AgentRun exists', async () => {
+    vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+    const orgSlug = `ci-gpapi-signup-${Date.now()}`
+    await seedOrg(orgSlug)
+    await seedAgentRun(orgSlug, AgentRunStatus.completed)
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const electedOffice = await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    await service.app
+      .get(CommunityIssueDispatchService)
+      .onElectedOfficeCreated(electedOffice)
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    // top_community_issues stays on the PMF Engine and still dispatches.
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+  })
+
+  it('the in-flight check skips a type with a QUEUED AgentRun', async () => {
+    const orgSlug = `ci-gpapi-inflight-${Date.now()}`
+    await seedOrg(orgSlug)
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    await seedAgentRun(orgSlug, AgentRunStatus.queued)
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchForCohort([orgSlug])
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+    expect(result).toEqual({ dispatched: 1, skipped: 1 })
+  })
+
+  it('the in-flight check skips a type with a RUNNING AgentRun', async () => {
+    const orgSlug = `ci-gpapi-running-${Date.now()}`
+    await seedOrg(orgSlug)
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    await seedAgentRun(orgSlug, AgentRunStatus.running)
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchForCohort([orgSlug])
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+  })
+
+  it('the freshness check skips a type whose AgentRun completed inside the window', async () => {
+    const orgSlug = `ci-gpapi-fresh-${Date.now()}`
+    await seedOrg(orgSlug)
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    const run = await seedAgentRun(orgSlug, AgentRunStatus.completed)
+    // @updatedAt is Prisma-managed, so backdate the completion via raw SQL.
+    await service.prisma.$executeRaw`
+      UPDATE agent_run
+      SET updated_at = ${subDays(new Date(), INACTIVITY_THRESHOLD_DAYS - 1)}
+      WHERE id = ${run.id}
+    `
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+    expect(result).toEqual({ dispatched: 1, skipped: 1 })
+  })
+})
+
+describe('the CommunityIssue cutover while trending_issues has no AgentRun', () => {
+  beforeEach(() => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'trending_issues')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  const seedTrendingRows = async (
+    organizationSlug: string,
+    daysAgo: number,
+  ) => {
+    const row = await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug,
+        list: CommunityIssueList.trending,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
+        title: 'Road Maintenance',
+        summary: 'Roads need fixing.',
+        rank: 1,
+      },
+    })
+    // @updatedAt is Prisma-managed, so backdate the ingest via raw SQL.
+    await service.prisma.$executeRaw`
+      UPDATE community_issue
+      SET updated_at = ${subDays(new Date(), daysAgo)}
+      WHERE id = ${row.id}
+    `
+    return service.prisma.communityIssue.findFirstOrThrow({
+      where: { id: row.id },
+    })
+  }
+
+  const seedOrgWithOffice = async (orgSlug: string) => {
+    await seedOrg(orgSlug)
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+  }
+
+  it('does not re-dispatch an org whose trending rows were refreshed yesterday', async () => {
+    const orgSlug = `ci-cutover-fresh-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedTrendingRows(orgSlug, 1)
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+    expect(result).toEqual({ dispatched: 1, skipped: 1 })
+  })
+
+  it('re-dispatches an org whose trending rows are older than the window', async () => {
+    const orgSlug = `ci-cutover-stale-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedTrendingRows(orgSlug, INACTIVITY_THRESHOLD_DAYS + 10)
+    mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ dispatched: 2, skipped: 0 })
+  })
+
+  it('dispatches an org with no trending rows at all', async () => {
+    const orgSlug = `ci-cutover-norows-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ dispatched: 2, skipped: 0 })
+  })
+
+  it('lets a completed AgentRun decide once the org has one, ignoring stale rows', async () => {
+    const orgSlug = `ci-cutover-agentrun-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedTrendingRows(orgSlug, INACTIVITY_THRESHOLD_DAYS + 10)
+    const run = await seedAgentRun(orgSlug, AgentRunStatus.completed)
+    await service.prisma.$executeRaw`
+      UPDATE agent_run
+      SET updated_at = ${subDays(new Date(), 1)}
+      WHERE id = ${run.id}
+    `
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+    expect(result).toEqual({ dispatched: 1, skipped: 1 })
   })
 })
 

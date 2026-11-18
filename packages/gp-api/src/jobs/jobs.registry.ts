@@ -44,6 +44,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { PersonIdReconcileService } from '@/personProfiles/services/person-id-reconcile.service'
 import { ScheduledMessagingService } from '@/scheduled-messaging/scheduled-messaging.service'
 import { VendorMockRecordAuditService } from '@/vendorMocks/vendorMockRecordAudit.service'
+import { ChatAgentMessageBackfillService } from '@/chats/services/chatAgentMessageBackfill.service'
 import { VendorDriftProbeService } from '@/vendors/vendorDriftProbe.service'
 import { PendingTranscriptionService } from '@/constituentFeedback/services/pendingTranscription.service'
 import { SynthesisStaleRunSweepService } from '@/constituentFeedback/services/synthesisStaleRunSweep.service'
@@ -79,6 +80,8 @@ import { RunIdSchema } from '@/caseScout/schemas/caseScoutBucket.schema'
 import { CaseScoutDraftService } from '@/caseScout/services/caseScoutDraft.service'
 import { CaseScoutNightlyService } from '@/caseScout/services/caseScoutNightly.service'
 import { CaseScoutScoreService } from '@/caseScout/services/caseScoutScore.service'
+import { AgentsService } from '@/agents/agents.service'
+import { AgentRunReplaySchema } from '@/agents/tools/judgeReplay'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -314,6 +317,22 @@ export const JOBS = {
     alertAfterWaitingMinutes: 10,
     // Each step's LLM call has its own 4-minute budget.
     timeoutMinutes: 10,
+  }),
+  // One run of a gp-api agent (src/agents). Only AgentsService.run sends it.
+  // A retry continues from the run's last saved step; a deploy stops it
+  // after its current step and it resumes on a new task.
+  agentRun: defineJob({
+    schema: z.object({
+      runId: z.string().min(1),
+      judgeReplay: AgentRunReplaySchema.optional(),
+    }),
+    worker: (job, context) => context.get(AgentsService).execute(job, context),
+    alertAfterWaitingMinutes: 60,
+    timeoutMinutes: 120,
+    attempts: 5,
+    concurrency: 2,
+    // Every agent shares this queue and this one fleet-wide cap.
+    maxConcurrent: 10,
   }),
   // Agent-run dispatchers fanned out by their daily schedules, one office,
   // org, row or campaign each. The agent platform queues the runs themselves.
@@ -802,6 +821,19 @@ export const SCHEDULES = {
   // Monday 04:00 UTC: Sunday evening Central all year (10 PM in winter,
   // 11 PM in summer). Sends one weeklyTasksDigestCampaign job per campaign
   // with a digest for the coming week.
+  // Until ChatMessage is dropped: copies any chat message without
+  // AgentMessage rows (history, and turns written by a task still on the
+  // previous deploy), then logs parity. Idempotent.
+  chatAgentMessageBackfill: defineSchedule({
+    cron: '17 * * * *',
+    worker: async (_job, { get }) => {
+      const service = get(ChatAgentMessageBackfillService)
+      await service.backfill()
+      await service.parity()
+    },
+    alertAfterWaitingMinutes: 120,
+    timeoutMinutes: 30,
+  }),
   weeklyTasksDigest: defineSchedule({
     cron: '0 4 * * 1',
     worker: (_job, { get }) => get(WeeklyTasksDigestService).fanOut(),

@@ -28,6 +28,11 @@ const parseJson = (raw: string): Record<string, unknown> =>
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
   JSON.parse(raw) as Record<string, unknown>
 
+// What ingesting an artifact needs of the run that produced it: the id every
+// issue is stamped with, and the org whose feed and cards it writes. A PMF
+// Engine run and an AgentRun both answer these.
+type GeneratedRun = { runId: string; organizationSlug: string }
+
 // Cap on how many issues per list get flattened into the email event below.
 const MAX_EMAIL_ISSUES = 5
 
@@ -113,6 +118,29 @@ export class CommunityIssueService extends createPrismaBase(
       )
       return
     }
+    await this.ingestArtifact(run, parsed)
+  }
+
+  // The trending_issues agent's onArtifact (src/agents). Its run is an
+  // AgentRun, not an ExperimentRun, but the artifact, the validation and the
+  // upsert are the PMF Engine's. onArtifact can run twice for one run, and the
+  // upsert is one transaction that stamps every issue it writes with the run,
+  // so a run that already has stamped rows is done.
+  async ingestAgentArtifact(
+    run: { runId: string; organizationSlug: string },
+    artifact: unknown,
+  ): Promise<void> {
+    const applied = await this.model.count({
+      where: { lastRefreshedRunId: run.runId },
+    })
+    if (applied > 0) return
+    await this.ingestArtifact(run, artifact)
+  }
+
+  private async ingestArtifact(
+    run: GeneratedRun,
+    parsed: unknown,
+  ): Promise<void> {
     const validation = validateCommunityIssuesArtifact(parsed)
     if (!validation.ok) {
       this.logger.error(
@@ -172,7 +200,7 @@ export class CommunityIssueService extends createPrismaBase(
   // the SQS run-completed message would redeliver and the id-less issues would be
   // re-created as duplicate rows on the already-committed upsert.
   private async syncCardsForCreatedIssues(
-    run: ExperimentRun,
+    run: GeneratedRun,
     summary: CommunityIssueUpsertSummary,
   ): Promise<void> {
     if (summary.wasFirstGenerationForList) return
@@ -203,7 +231,7 @@ export class CommunityIssueService extends createPrismaBase(
   }
 
   private async emitGenerationEvents(
-    run: ExperimentRun,
+    run: GeneratedRun,
     summary: CommunityIssueUpsertSummary,
   ): Promise<void> {
     const office = await this.client.electedOffice.findFirst({
