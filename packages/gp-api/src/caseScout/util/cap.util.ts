@@ -6,8 +6,8 @@ import type { LedgerEntry } from './ledger.util'
 // 15%.
 export const DEFAULT_NIGHTLY_CAP = 3
 export const MERGE_SHARE_TREND_WINDOW_DAYS = 14
-// Below this many proposals in the window there is no trend yet, so one or
-// two outlier cases cannot swing the cap.
+// Below this many settled proposals in the window there is no trend yet, so
+// one or two outlier cases cannot swing the cap.
 export const MIN_SAMPLE_SIZE = 3
 
 export const nightlyCapForMergeShare = (
@@ -20,28 +20,36 @@ export const nightlyCapForMergeShare = (
   return DEFAULT_NIGHTLY_CAP
 }
 
-// A merge is matched by caseId without a window of its own: a case proposed
-// near the window's start may merge after its proposal has left it.
+// Only proposals a person ruled on count: their PR merged or was closed
+// unmerged. Dev and a prod dry run open no PRs, so nothing there settles and
+// the cap stays at its default, and the 7-day auto-close is not a ruling. An
+// outcome is matched by caseId without a window of its own: a case proposed
+// near the window's start may be ruled on after its proposal has left it.
 export const trailingMergeShare = (
   entries: LedgerEntry[],
   now: Date,
 ): number | undefined => {
   const cutoff = subDays(now, MERGE_SHARE_TREND_WINDOW_DAYS)
-  const proposed = entries.filter(
-    (entry) =>
-      entry.outcome === 'proposed' &&
-      entry.createdAt !== undefined &&
-      !isBefore(entry.createdAt, cutoff) &&
-      entry.caseId,
-  )
-  if (proposed.length < MIN_SAMPLE_SIZE) return undefined
   const merged = new Set(
     entries
       .filter((entry) => entry.outcome === 'merged' && entry.caseId)
       .map((entry) => entry.caseId),
   )
+  const rejected = new Set(
+    entries
+      .filter((entry) => entry.outcome === 'rejected' && entry.caseId)
+      .map((entry) => entry.caseId),
+  )
+  const settled = entries.filter(
+    (entry) =>
+      entry.outcome === 'proposed' &&
+      entry.createdAt !== undefined &&
+      !isBefore(entry.createdAt, cutoff) &&
+      entry.caseId &&
+      (merged.has(entry.caseId) || rejected.has(entry.caseId)),
+  )
+  if (settled.length < MIN_SAMPLE_SIZE) return undefined
   return (
-    proposed.filter((entry) => merged.has(entry.caseId)).length /
-    proposed.length
+    settled.filter((entry) => merged.has(entry.caseId)).length / settled.length
   )
 }
