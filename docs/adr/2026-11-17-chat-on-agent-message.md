@@ -26,6 +26,18 @@ merges.
 - An AgentMessage row reuses its ChatMessage's id: a user row, or the last
   assistant row of a turn. That is how the backfill stays idempotent and why
   feedback and judge telemetry ids need no rewrite.
+- The user turn's id is the client's, and it is the row's primary key. Retry
+  idempotency was the one thing ChatMessage held that AgentMessage could not
+  derive, so rather than add a duplicate column the id the client already
+  sends becomes the id of the turn. The insert is then the dedupe: a repeated
+  send collides and replays the stored reply instead of running the turn
+  twice. An id already held by a different turn is a 409 that says nothing
+  about the row holding it. A canned reply's id is
+  UUIDv5(userMessageId), so it dedupes the same way.
+- ChatMessage is dropped in a second PR that merges only after the first is
+  deployed to prod: a deploy keeps the old tasks serving while the new ones
+  boot and migrate, so a drop cannot ship in the same commit as the code that
+  stops using the table.
 - Readers rebuild the same `content` and `segments` from parts, so the API,
   the webapp and the model's replayed history do not change. Tool results are
   stored but not yet replayed.
