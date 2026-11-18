@@ -810,10 +810,15 @@ jwIDAQAB
         dev: 'robocall-free-offer-2026-11',
         prod: 'robocall-free-offer-2026-11',
       }),
-      // The nightly case scout (src/caseScout/AGENTS.md), off everywhere until
-      // a dev night is wanted. The bucket and the publisher Lambda belong to
-      // gp-ai's case-scout module; gp-api only reads, writes and invokes them.
-      CASE_SCOUT_ENABLED: 'false',
+      // The nightly case scout (src/caseScout/AGENTS.md). On in dev, where
+      // the publisher never opens a PR; prod waits on a graded dev week. The
+      // bucket and the publisher Lambda belong to gp-ai's case-scout module;
+      // gp-api only reads, writes and invokes them.
+      CASE_SCOUT_ENABLED: select({
+        preview: 'false',
+        dev: 'true',
+        prod: 'false',
+      }),
       CASE_SCOUT_BUCKET: caseScoutName,
       CASE_SCOUT_LAMBDA_FUNCTION_NAME: caseScoutName,
       CASE_SCOUT_SPEND_CAP_USD: '50',
