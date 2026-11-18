@@ -94,11 +94,21 @@ tools: {
   queryDatabricks: databricksTool({
     tables: ['goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq'],
     maxRows: 50_000,
-    dimensions: ['Voters_Active'],
+    dimensions: ['Active'],
     scope: orgDatabricksScope,
   }),
 }
 ```
+
+`tables` may also be a resolver — `async (ctx) => string[]` — for an agent whose
+table is not fixed by its definition but chosen per run, as the people marts
+are (`PeopleDatasetService` picks `gp_api_voters` or `gp_api_constituents` per
+org). The resolver runs once per query and an empty list refuses every query;
+the description then says "the table named in your input" rather than listing
+one, because a table the run chooses cannot be named at definition time. Put
+the chosen name in the run's input so the model reads it from its first message,
+and have the resolver read it back from the stored `AgentRun.input` by
+`ctx.runId` — never from anything the model sends in a tool call.
 
 - **Aggregate-only, on the constituent-data tool's rules.** The chat tools
   (`query_constituent_data`, `district_insights`) hold model-written voter SQL to
@@ -112,7 +122,7 @@ tools: {
 - **`dimensions` is the groupable-column allowlist.** A GROUP BY may name only
   these, and `assertAggregateSelectShape` accepts a bare column only when it is
   in that same set, so a row identifier (`LALVOTERID`) can be neither selected nor
-  grouped. An agent lists the coarse dimensions it reasons about — `Voters_Active`
+  grouped. An agent lists the coarse dimensions it reasons about — `Active`
   and the like — and nothing row-level. The scope's own jurisdiction columns
   (the state, and the office's L2 district column) are groupable without being
   declared, because their name comes from the run rather than the definition.

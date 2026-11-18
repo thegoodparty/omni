@@ -42,10 +42,13 @@ export type DatabricksScope = {
 }
 
 export type DatabricksToolOptions = {
-  // The agent's manifest scope.allowed_tables, verbatim. This is the whole
-  // grant: a query naming anything else is rejected, so there is no implicit
-  // access to a table an agent did not declare.
-  tables: string[]
+  // The manifest's scope.allowed_tables, verbatim. This is the whole grant: a
+  // query naming anything else is rejected, so there is no implicit access to
+  // a table an agent did not declare. A resolver is for the table that is not
+  // fixed by the definition but chosen per run (which people mart the org
+  // reads); it is called once per query, so the description cannot name the
+  // table and the model reads the allowed name from its run input instead.
+  tables: string[] | ((ctx: ToolContext) => Promise<string[]>)
   // The manifest's scope.max_rows. Results are cut here.
   maxRows: number
   // The columns the query may GROUP BY and filter on, by name. The whole set
@@ -403,8 +406,16 @@ export const databricksTool = (options: DatabricksToolOptions) => {
   const minCellSize = options.minCellSize ?? DEFAULT_MIN_CELL_SIZE
   const dimensions = options.dimensions ?? []
   const groupable = dimensions.join(', ') || '(none)'
+  const tablesFor = async (ctx: ToolContext): Promise<string[]> =>
+    typeof options.tables === 'function' ? options.tables(ctx) : options.tables
+  // A definition-fixed table can be named here. One the run chooses cannot, so
+  // the description sends the model to its input for the name.
+  const tablePhrase =
+    typeof options.tables === 'function'
+      ? 'the table named in your input'
+      : options.tables.join(', ')
   return defineTool({
-    description: `Run one aggregate SELECT over internal modeled constituent data (${options.tables.join(', ')}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and only these columns may be grouped or filtered on: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no DDL, no writes.`,
+    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and only these columns may be grouped or filtered on: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no DDL, no writes.`,
     input: queryInput,
     execute: async ({ sql }, ctx) => {
       const scope = await options.scope(ctx)
@@ -415,8 +426,22 @@ export const databricksTool = (options: DatabricksToolOptions) => {
           detail: 'this organization has no jurisdiction to scope the query to',
         }
       }
+      let tables: string[]
       try {
-        assertAllowedQuery(sql, options.tables, scope, dimensions)
+        tables = await tablesFor(ctx)
+      } catch (error) {
+        return { ok: false, reason: 'rejected', detail: brief(error) }
+      }
+      if (tables.length === 0) {
+        return {
+          ok: false,
+          reason: 'no_scope',
+          detail:
+            'this organization has no people table to read, so no query can run',
+        }
+      }
+      try {
+        assertAllowedQuery(sql, tables, scope, dimensions)
       } catch (error) {
         return { ok: false, reason: 'rejected', detail: brief(error) }
       }

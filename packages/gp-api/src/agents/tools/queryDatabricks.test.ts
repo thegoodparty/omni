@@ -736,6 +736,55 @@ describe('queryDatabricks', () => {
     })
   })
 
+  // The people mart varies by org (PeopleDatasetService), so the grant is a
+  // resolver the run answers rather than a definition-time list.
+  describe('a table the run chooses', () => {
+    const chosen = (tables: string[]) =>
+      databricksTool({
+        tables: async () => tables,
+        maxRows: 10,
+        scope: async () => SCOPE,
+      })
+
+    it('accepts the table the run resolved and refuses the other', async () => {
+      query.mockResolvedValue({ columns: ['n'], rows: [['42']] })
+      const others = 'goodparty_data_catalog.mart_gp_api.gp_api_constituents'
+
+      await expect(
+        chosen([TABLE]).execute(
+          {
+            sql: `SELECT COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+          },
+          ctx(),
+        ),
+      ).resolves.toMatchObject({ ok: true })
+      await expect(
+        chosen([others]).execute(
+          {
+            sql: `SELECT COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+          },
+          ctx(),
+        ),
+      ).resolves.toMatchObject({ ok: false, reason: 'rejected' })
+    })
+
+    it('names the run input for the table instead of listing one', () => {
+      expect(chosen([TABLE]).description).toContain('named in your input')
+    })
+
+    it('refuses every query when the run resolved no table', async () => {
+      const result = await chosen([]).execute(
+        {
+          sql: `SELECT COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        },
+        ctx(),
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'no_scope' })
+      expect(query).not.toHaveBeenCalled()
+    })
+  })
+
   it('gives up at its own statement ceiling and cancels the query', async () => {
     let seen: AbortSignal | undefined
     query.mockImplementation((_statement, options) => {
