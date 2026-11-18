@@ -2,7 +2,7 @@ import { simulateReadableStream } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import type { AgentMessageRow } from './agentMessages'
+import { type AgentMessageRow, toModelMessages } from './agentMessages'
 import {
   type AgentLoopArgs,
   runAgentLoop,
@@ -254,6 +254,75 @@ describe('runAgentLoop', () => {
     await expect(
       runAgentLoop(loopArgs(model, [], { savedSteps: 5, maxSteps: 5 })),
     ).rejects.toThrow('testAgent used its 5 steps without submitting')
+  })
+
+  it("offers the agent's own tools under their names, and resumes from a step that called one", async () => {
+    const offeredNames: string[] = []
+    const model = new MockLanguageModelV3({
+      doStream: async ({ tools }) => {
+        offeredNames.push(...(tools ?? []).map((tool) => tool.name))
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start' as const, warnings: [] },
+              {
+                type: 'tool-call' as const,
+                toolCallId: 'look-1',
+                toolName: 'lookUp',
+                input: JSON.stringify({}),
+              },
+              {
+                type: 'tool-call' as const,
+                toolCallId: 'submit-1',
+                toolName: SUBMIT_TOOL,
+                input: JSON.stringify({
+                  output: { status: 'missing', reason: 'none' },
+                }),
+              },
+              {
+                type: 'finish' as const,
+                finishReason: {
+                  unified: 'tool-calls' as const,
+                  raw: 'tool_use',
+                },
+                usage: {
+                  inputTokens: {
+                    total: 10,
+                    noCache: 10,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                  outputTokens: { total: 10, text: 10, reasoning: undefined },
+                },
+              },
+            ],
+          }),
+        }
+      },
+    })
+    const saved: AgentMessageRow[] = []
+
+    await runAgentLoop(loopArgs(model, saved))
+
+    expect(offeredNames).toContain('lookUp')
+    const resumed = await runAgentLoop(
+      loopArgs(
+        new MockLanguageModelV3({
+          doStream: async () => {
+            throw new Error('no call expected')
+          },
+        }),
+        [],
+        {
+          messages: [
+            { role: 'user', content: '{}' },
+            ...toModelMessages(saved),
+          ],
+          savedSteps: saved.filter((row) => row.role === 'assistant').length,
+        },
+      ),
+    )
+    expect(resumed).toEqual({ status: 'missing', reason: 'none' })
   })
 
   it('saves a nudge as a user row and calls the model again', async () => {

@@ -21,8 +21,9 @@ import {
   agentManifest,
   manifestShapeHash,
 } from './manifest'
+import type { AgentRunReplay } from './tools/judgeReplay'
 
-export type AgentRunJobData = { runId: string }
+export type AgentRunJobData = { runId: string; judgeReplay?: AgentRunReplay }
 
 // The step budget of one run, across every attempt.
 const MAX_STEPS_PER_RUN = 120
@@ -62,8 +63,13 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
     super()
   }
 
-  // The only way to start an agent.
-  async run(name: string, input: unknown): Promise<{ runId: string }> {
+  // The only way to start an agent. judgeReplay is for the Universal
+  // Judge's in-process candidate arm only.
+  async run(
+    name: string,
+    input: unknown,
+    options: { judgeReplay?: AgentRunReplay } = {},
+  ): Promise<{ runId: string }> {
     const definition = definitionOf(name)
     const parsed = definition.input.parse(input)
     const runId = await this.client.$transaction((tx) =>
@@ -72,6 +78,7 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
         organizationSlug: parsed.organizationSlug,
         input: parsed,
         manifest: agentManifest(definition),
+        judgeReplay: options.judgeReplay,
       }),
     )
     return { runId }
@@ -99,7 +106,7 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
       const manifest = agentManifest(definition)
       const shapeHash = manifestShapeHash(manifest)
       if (run.shapeHash !== shapeHash) {
-        await this.supersede(run, manifest)
+        await this.supersede(run, manifest, job.data.judgeReplay)
         return
       }
 
@@ -136,6 +143,7 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
                       job.signal.aborted &&
                       job.signal.reason instanceof JobShutdownError,
                     abortSignal: timedOut.signal,
+                    judgeReplay: job.data.judgeReplay,
                   },
                 )
                 // Inside the span and before onArtifact, so a task that dies
@@ -177,6 +185,7 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
       organizationSlug: string
       input: unknown
       manifest: AgentManifest
+      judgeReplay?: AgentRunReplay
     },
   ): Promise<string> {
     const input = toJson(args.input)
@@ -194,7 +203,11 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
       },
       select: { id: true },
     })
-    await this.jobs.send('agentRun', { runId: id }, { tx })
+    await this.jobs.send(
+      'agentRun',
+      { runId: id, ...(args.judgeReplay && { judgeReplay: args.judgeReplay }) },
+      { tx },
+    )
     return id
   }
 
@@ -204,6 +217,7 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
   private async supersede(
     run: AgentRun,
     manifest: AgentManifest,
+    judgeReplay: AgentRunReplay | undefined,
   ): Promise<void> {
     const shapeHash = manifestShapeHash(manifest)
     const freshId = await this.client.$transaction(async (tx) => {
@@ -216,6 +230,7 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
         organizationSlug: run.organizationSlug,
         input: run.input,
         manifest,
+        judgeReplay,
       })
     })
     this.logger.info(
@@ -246,7 +261,11 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
     definition: AgentDefinition,
     agentModel: AgentModel,
     context: WorkerContext,
-    control: { stopRequested: () => boolean; abortSignal: AbortSignal },
+    control: {
+      stopRequested: () => boolean
+      abortSignal: AbortSignal
+      judgeReplay: AgentRunReplay | undefined
+    },
   ): Promise<unknown> {
     const rows = await this.client.agentMessage.findMany({
       where: { agentRunId: run.id },
@@ -270,6 +289,7 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
         organizationSlug: run.organizationSlug,
         signal: control.abortSignal,
         get: context.get,
+        ...(control.judgeReplay && { judgeReplay: control.judgeReplay }),
       },
       savedSteps,
       maxSteps: MAX_STEPS_PER_RUN,

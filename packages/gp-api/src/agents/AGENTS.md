@@ -6,18 +6,25 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 
 ## Key files
 
-| Path                 | What                                                                   |
-| -------------------- | ---------------------------------------------------------------------- |
-| `agents.registry.ts` | `AGENTS`: every agent by name. The name is the run's `agentName`       |
-| `defineAgent.ts`     | `AgentDefinition` and `defineAgent`                                    |
-| `agents.service.ts`  | `AgentsService.run(name, input)` and the `agentRun` worker             |
-| `aiSdkLoop.ts`       | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget |
-| `manifest.ts`        | The run's manifest (input and output schema) and its `shapeHash`       |
-| `agentMessages.ts`   | `AgentMessage` rows ↔ the AI SDK's messages, both ways                 |
-| `agentRunSpans.ts`   | Grafana Agent Observability attributes and spans (`otel.ts` loads it)  |
-| `agentModels.ts`     | Model id to provider model; tests swap in a mock model here            |
-| `tools/tool.ts`      | `AgentTool`, `defineTool` and `ToolContext`                            |
-| `tools/webSearch.ts` | Brave web search, the one web tool every agent shares                  |
+| Path                        | What                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------ |
+| `agents.registry.ts`        | `AGENTS`: every agent by name. The name is the run's `agentName`                                 |
+| `defineAgent.ts`            | `AgentDefinition` and `defineAgent`                                                              |
+| `agents.service.ts`         | `AgentsService.run(name, input)` and the `agentRun` worker                                       |
+| `aiSdkLoop.ts`              | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget                           |
+| `manifest.ts`               | The run's manifest (input and output schema) and its `shapeHash`                                 |
+| `agentMessages.ts`          | `AgentMessage` rows ↔ the AI SDK's messages, both ways                                           |
+| `agentRunSpans.ts`          | Grafana Agent Observability attributes and spans (`otel.ts` loads it)                            |
+| `agentModels.ts`            | Model id to provider model; tests swap in a mock model here                                      |
+| `tools/tool.ts`             | `AgentTool`, `defineTool` and `ToolContext`                                                      |
+| `tools/webSearch.ts`        | Brave web search: ranked result URLs with titles and snippets                                    |
+| `tools/fetchPage.ts`        | A web page as markdown, 10,000 characters a call (`offset` reads on), and its own published date |
+| `tools/checkLink.ts`        | HEAD status and final URL                                                                        |
+| `tools/agentWeb.service.ts` | Plain HTTP behind the private-address guard, on every redirect hop                               |
+| `tools/judgeReplay.ts`      | Serves the judge's recorded pages to a judge run                                                 |
+
+Agents live with their product: `trending_issues` is
+`src/communityIssues/trendingIssuesAgent/`.
 
 ## Adding an agent
 
@@ -52,6 +59,53 @@ await agentsService.run('myAgent', { organizationSlug, topic })
   resume of the same step, so key a write on `runId + stepKey`),
   `organizationSlug`, `signal` and `get` (any provider, as in a job worker).
 
+## Web tools
+
+`webSearch` is Brave Web Search, the endpoint and `BRAVE_API_KEY` the
+ordinance flow already uses. The key is read at call time, so a missing key
+is a tool result the model can work around rather than a boot failure. It is
+the only search an agent gets: there is no provider-side web search, which
+hands back opaque content the agent could not fetch and therefore could not
+check a claim against. Its results are URLs and snippets only — a candidate
+to read, never a source.
+
+`fetchPage` and `checkLink` go through `AgentWebService`: plain HTTP, no
+browser, 10 MB at most, five redirects, 30 seconds a request start to end. Redirects are followed by hand so
+every hop is checked before it is requested: its URL (http or https, no
+private or loopback IP literal, no `localhost`), and the address its
+hostname resolves to, by `ssrfSafeLookup` when the connection opens.
+`fetchPage` reads HTML and text; a PDF, a Word file or a page that needs
+JavaScript comes back as a failure value. It also returns the page's own
+`published` date, read from `article:published_time` and its kin, then
+`<time datetime>`, then JSON-LD — an agent that has to put a source inside a
+window dates it from the page, never from a search snippet. Failures are
+values, never throws, so one bad URL does not end a run.
+
+## Moving a PMF Engine agent here
+
+`trending_issues` is the template:
+
+1. Register it in `AGENTS` under its experiment id, so every reader and gate
+   that queries the PMF Engine's `ExperimentRun` rows of that `experimentType`
+   can be pointed at `AgentRun` rows of that `agentName` (see
+   `communityIssueRead.service.ts` and
+   `communityIssueDispatch.service.ts` for the ones that have been). A gate
+   left on the old table is a duplicate-dispatch bug: it sees no runs and lets
+   the type run again.
+2. The prompt is the experiment's `instruction.md` with the runtime parts
+   swapped: input in the first message, our tools, `submitOutput` instead of
+   the file and validator. Input and output schemas come from the manifest;
+   leave out fields gp-api knows (the run id) and add them in `onArtifact`.
+3. `onArtifact` calls the code that ingests the PMF Engine's artifact today.
+4. The dispatcher calls `AgentsService.run` when `runsOnGpApi(name)`: the
+   experiment ids in `AGENTS_ON_GP_API`, comma-separated. Unset means the
+   PMF Engine, so the switch flips per environment. Keep the test-user and
+   test-mode check `ExperimentRunsService.dispatchRun` makes; `run` does not
+   make it.
+5. Add it to `IN_PROCESS_AGENTS` in the judge
+   (`src/chats/evals/judge/runners/backgroundInProcess.ts`): its candidate
+   arm then runs on gp-api against the PMF Engine's base arm.
+
 ## How a run works
 
 - `run()` validates the input and, in one transaction, creates the
@@ -74,6 +128,9 @@ await agentsService.run('myAgent', { organizationSlug, topic })
   `superseded` and a fresh run with the same input starts. Prompts, tools and
   models change freely.
 - The step budget is 120 steps per run across all attempts.
+- `run(name, input, { judgeReplay })` is for the judge's candidate arm only.
+  The ticket rides on the `agentRun` job (and onto a superseding run's), and
+  reaches tools as `ctx.judgeReplay`.
 - Ending: `completed` after `onArtifact`, or `failed` with `error` on the last
   attempt. A failure is surfaced by the `agentRun` queue's dead-letter and
   backed-up alerts; there is no separate output-failure metric.
