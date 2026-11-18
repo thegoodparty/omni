@@ -85,3 +85,7 @@ npm run test:coverage -w packages/gp-admin # vitest run --coverage
 ## SMS console: Approve and a passed send day
 
 `components/ApproveDenyActions.tsx` disables Approve when the row's send day is before today in Eastern — gp-api's approve guard refuses that date anyway, so the console must not offer the click. The day is `scheduledLocalDate`, else the Eastern day of `sendAt`; with neither, Approve is disabled too. Deny and Edit date stay live, so the row is still decidable and "set a new date" is one click away. A send dated today keeps Approve live all day: gp-api refuses it once that day's window has closed (21:00 in the send's zone), and `approveSms` returns that refusal as data so the toast shows it.
+
+## Two agent-run pages
+
+`src/app/dashboard/agent-runs/` is the PMF Engine's `ExperimentRun` list (retry included, `write_agent_runs`). `src/app/dashboard/background-agent-runs/` — nav "Agent Run" — is gp-api's own `AgentRun` table (`src/agents`), read-only: staff look, they cannot retry. Its list filters on agent name, status, organization slug and a created range, and its detail page shows status, input, the artifact JSON, the error and the message transcript by role, with each tool call and result collapsed. No cost column anywhere on that page: no cost is stored, only tokens on the assistant rows. The client resource is `AdminBackgroundAgentRunsResource` over gp-api `/admin/background-agent-runs`; the old page's `AdminAgentRunsResource` is untouched, and both go through `read_agent_runs`.
