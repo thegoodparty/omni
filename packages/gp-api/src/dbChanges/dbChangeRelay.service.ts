@@ -142,25 +142,26 @@ export class DbChangeRelayService
     oldestWaitedSeconds: number
     lostLease: boolean
   }> {
-    return this.prisma.$transaction(async (tx) => {
-      // Renews the lease and holds its row lock until this batch commits. A
-      // task taking the lease waits on that lock, so two holders' batches
-      // never overlap and one row's changes are never relayed out of order.
-      const renewed = await tx.$executeRaw`
+    return this.prisma.$transaction(
+      async (tx) => {
+        // Renews the lease and holds its row lock until this batch commits. A
+        // task taking the lease waits on that lock, so two holders' batches
+        // never overlap and one row's changes are never relayed out of order.
+        const renewed = await tx.$executeRaw`
         UPDATE db_change_relay
         SET expires_at = now() + make_interval(secs => ${RELAY_LEASE_SECONDS}::int)
         WHERE id = 1 AND holder = ${this.holder}
       `
-      if (renewed === 0) {
-        return {
-          count: 0,
-          tables: 0,
-          handlers: 0,
-          oldestWaitedSeconds: 0,
-          lostLease: true,
+        if (renewed === 0) {
+          return {
+            count: 0,
+            tables: 0,
+            handlers: 0,
+            oldestWaitedSeconds: 0,
+            lostLease: true,
+          }
         }
-      }
-      const rows = await tx.$queryRaw<Unrelayed[]>`
+        const rows = await tx.$queryRaw<Unrelayed[]>`
         SELECT id, table_name, row_key,
           extract(epoch FROM now() - created_at)::float8 AS waited_seconds
         FROM db_change
@@ -169,41 +170,43 @@ export class DbChangeRelayService
         LIMIT ${RELAY_BATCH_SIZE}
         FOR UPDATE SKIP LOCKED
       `
-      let handlers = 0
-      for (const row of rows) {
-        for (const entry of byTable.get(row.table_name)?.entries ?? []) {
-          await this.jobs.send(
-            entry.name,
-            { changeId: row.id.toString() },
-            {
-              group: changeGroup(row.table_name, row.row_key),
-              id: changeJobId(row.id, entry.index),
-              tx,
-            },
-          )
-          handlers++
+        let handlers = 0
+        for (const row of rows) {
+          for (const entry of byTable.get(row.table_name)?.entries ?? []) {
+            await this.jobs.send(
+              entry.name,
+              { changeId: row.id.toString() },
+              {
+                group: changeGroup(row.table_name, row.row_key),
+                id: changeJobId(row.id, entry.index),
+                tx,
+              },
+            )
+            handlers++
+          }
         }
-      }
-      // Stamped whether or not a handler listens now: the trigger captures
-      // only the operations a table has an entry for, so a row no entry
-      // reads is one whose handler has since been removed, and nothing will
-      // ever read it.
-      if (rows.length > 0) {
-        await tx.$executeRaw`
+        // Stamped whether or not a handler listens now: the trigger captures
+        // only the operations a table has an entry for, so a row no entry
+        // reads is one whose handler has since been removed, and nothing will
+        // ever read it.
+        if (rows.length > 0) {
+          await tx.$executeRaw`
           UPDATE db_change SET relayed_at = now()
           WHERE id = ANY(${rows.map((row) => BigInt(row.id))}::bigint[])
         `
-      }
-      return {
-        count: rows.length,
-        tables: new Set(rows.map((row) => row.table_name)).size,
-        handlers,
-        oldestWaitedSeconds: Math.round(
-          Math.max(0, ...rows.map((row) => Number(row.waited_seconds))),
-        ),
-        lostLease: false,
-      }
-    })
+        }
+        return {
+          count: rows.length,
+          tables: new Set(rows.map((row) => row.table_name)).size,
+          handlers,
+          oldestWaitedSeconds: Math.round(
+            Math.max(0, ...rows.map((row) => Number(row.waited_seconds))),
+          ),
+          lostLease: false,
+        }
+      },
+      { timeout: RELAY_LEASE_SECONDS * 1_000 },
+    )
   }
 
   private async takeLease(): Promise<boolean> {
