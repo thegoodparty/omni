@@ -1,4 +1,4 @@
-import { expect, test } from 'src/fixtures/test'
+import { test } from 'src/fixtures/test'
 import {
   blockSlowScripts,
   NavigationHelper,

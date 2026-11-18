@@ -7,11 +7,8 @@ import { expect, type Locator, type Page } from '@playwright/test'
 // wording: a reply is measured by how much the transcript grew, never by what
 // it says.
 
-const transcriptText = async (conversation: Locator): Promise<string> =>
-  (await conversation.innerText()).replace(/\s+/g, ' ').trim()
-
-const transcriptLength = (conversation: Locator): Promise<number> =>
-  conversation.evaluate((element) => element.innerText.length)
+const transcriptLength = async (conversation: Locator): Promise<number> =>
+  (await conversation.innerText()).length
 
 // A surface that opens with its own turn (an ordinance step's kickoff, a typed
 // greeting) is still writing when its composer first enables. Measure from a
@@ -32,14 +29,16 @@ const settledTranscriptLength = async (
 }
 
 export interface SentTurn {
-  // The tail of the assistant's reply, looked for verbatim after the reload.
-  // That is what proves the reply was read back from the store rather than
-  // re-rendered from live state.
-  replySnippet: string
+  // The transcript length the turn started from — the surface's own opening
+  // text, before the prompt.
+  baseline: number
+  // The transcript length once the reply had settled, live.
+  liveLength: number
 }
 
 // Send one visible message the way a user does, prove the message landed and a
-// substantive reply streamed in, and hand back a snippet of that reply.
+// substantive reply streamed in, and hand back what the transcript looked like
+// before and after.
 export const sendChatTurn = async (args: {
   conversation: Locator
   composer: Locator
@@ -76,28 +75,39 @@ export const sendChatTurn = async (args: {
     })
     .toBeGreaterThan(baseline + prompt.length + 80)
 
-  await settledTranscriptLength(conversation)
-  return { replySnippet: (await transcriptText(conversation)).slice(-60) }
+  return { baseline, liveLength: await settledTranscriptLength(conversation) }
 }
 
 // The history READ path: after the caller has reloaded and reopened the thread
-// the way a user does, both the message and the assistant's own words are still
-// on screen. The conversation was created by the first send, so neither can come
-// from component state — only from the store.
+// the way a user does, both the message and a reply as substantial as the live
+// one are on screen. The conversation was created by the first send, so neither
+// can come from component state — only from the store.
+//
+// The reply is measured, never matched: the model's wording is not reproducible
+// from one page load to the next, and a stored turn renders through the same
+// components either way. Two floors, both inside one poll so a mid-stream read
+// can never be the operand:
+//
+// - the live turn's own growth over the pre-turn baseline, which is what
+//   `sendChatTurn` asserted. A surface that opens with its own turn clears this
+//   from its opening text, so it only rules out an empty reload;
+// - 70% of the live transcript, which is what actually catches a lost reply,
+//   while leaving room for the legitimate differences: the live-only working
+//   row is gone, and a card the turn had not finished by may now be present.
 export const expectTurnSurvivesReload = async (
   conversation: Locator,
   prompt: string,
-  { replySnippet }: SentTurn,
+  { baseline, liveLength }: SentTurn,
 ): Promise<void> => {
   await expect(conversation.getByText(prompt).first()).toBeVisible({
     timeout: 30_000,
   })
   await expect
-    .poll(() => transcriptText(conversation), {
+    .poll(() => transcriptLength(conversation), {
       timeout: 60_000,
       intervals: [1_000],
     })
-    .toContain(replySnippet)
+    .toBeGreaterThan(Math.max(baseline + prompt.length + 80, liveLength * 0.7))
 }
 
 // A turn's structured output, which is the part of a stored turn the read path

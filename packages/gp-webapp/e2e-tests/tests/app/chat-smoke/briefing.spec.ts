@@ -42,7 +42,8 @@ const seedBody = () => ({
     },
     {
       title: 'Street lighting contract renewal',
-      summary: 'Renewal of the three-year LED streetlight maintenance contract.',
+      summary:
+        'Renewal of the three-year LED streetlight maintenance contract.',
     },
   ],
 })
