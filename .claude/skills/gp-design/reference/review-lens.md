@@ -1,7 +1,7 @@
 # Review lens: the questions the page has to answer
 
 These are the questions our head of product asks in every design review. The page
-answers them before anyone has to ask. Use them twice: to write the brief at the
+answers them before anyone has to ask. Use them twice: to write the design summary at the
 top of the page (step 4), and as the checklist for the review round (step 8).
 
 When the ticket, the code or the data can't answer a question, write "Unknown" on

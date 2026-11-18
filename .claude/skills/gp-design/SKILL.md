@@ -10,7 +10,7 @@ decides what to make, sends the work to the right place, and checks the result
 against the docs that own the rules.
 
 Every run goes in this order: prototype (read the task, rules, code and prior
-art, write the brief), design (build the clickable phone and desktop flows
+art, write the design summary), design (build the clickable phone and desktop flows
 from the design system and pass the checks), review (the senior design
 review), fix (apply its findings), present (hand it back per §4). Pattern
 research across other products is a separate skill, not part of this one.
@@ -65,9 +65,11 @@ that helps. A ticket is never required. Use each kind of input for what it is:
   direction. Rebuild it from the design system; every difference goes in
   What changes from today, and every part with no component is a gap.
 - **Examples from other products:** a pattern to borrow, never a look to copy.
-  The brief says what was taken from each and why.
+  The summary says what was taken from each and why.
 - **Findings from another skill** (pattern research, a product brief, an
-  earlier audit): read them before the brief and cite them in it.
+  earlier audit): read them before the summary and cite them in it. The
+  summary is not a product brief: when the ticket has a product brief or
+  one-pager, build on it rather than restating it.
 
 Make one design unless the ask says options, explore or compare, or the
 trigger is a ticket moved to Committed; then make three options. Ask only when
@@ -79,7 +81,7 @@ Ask only what you can't find in the ticket, the code or the docs, in one message
   `data-product="win"`, `"serve"` or `"both"` ("Win and Serve" in
   `reference/wireframe-build.md`). When the
   answer is one product but the code is shared with the other (a component
-  both mount), the brief states what the change does to the other product.
+  both mount), the summary states what the change does to the other product.
 - **Where does the user start?** The screen and the thing they tap.
 
 Never ask the user for the measurement baseline: step 4 of

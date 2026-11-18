@@ -68,7 +68,7 @@ body[data-view] > :not(#gp-view) { display: none; }
 <nav class="page-bar" aria-label="Design">
   <h1>{{TITLE}}</h1>
   <a href="#questions">Questions</a>
-  <a href="#brief-summary">Brief</a>
+  <a href="#brief-summary">Summary</a>
 </nav>
 <!-- One design: data-design="one" tells check.py to check #option-a only. data-product is
      "win", "serve" or "both": the products the task names (gp-design section 1). -->
@@ -120,8 +120,8 @@ body[data-view] > :not(#gp-view) { display: none; }
   </details>
 </section>
 
-<!-- Below the design. Decisions needed stays open; the brief and the trace are collapsed.
-     The brief answers the reviewer's questions before they ask. One or two sentences
+<!-- Below the design. Decisions needed stays open; the summary and the trace are collapsed.
+     The summary answers the reviewer's questions before they ask. One or two sentences
      each. Write "Unknown" rather than guess. See reference/review-lens.md. -->
 <section class="brief" id="brief">
   <!-- Decisions needed: every Unknown, ticket claim the code doesn't match, ADR the
@@ -141,7 +141,7 @@ body[data-view] > :not(#gp-view) { display: none; }
     </details>
   </div>
   <details id="brief-summary">
-    <summary>Brief</summary>
+    <summary>Summary</summary>
     <dl>
       <dt>User</dt><dd id="brief-user">{{BRIEF_USER}}</dd>
       <dt>Problem</dt><dd id="brief-problem">{{BRIEF_PROBLEM}}</dd>

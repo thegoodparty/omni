@@ -384,10 +384,10 @@ text in What changes from today ("Every option must have").
   option's letter (`a-office`) and never repeat within a screen.
 - No recommendation anywhere: no stars, "best", "recommended", ranking or order
   that implies one beyond A, B, C.
-- The design comes first, right under the page bar. The brief (`#brief`)
+- The design comes first, right under the page bar. The design summary (`#brief`)
   follows the options, with `#brief-user`, `#brief-problem`,
   `#brief-solution`, `#brief-data`, `#brief-measure`, `#brief-entry`,
   `#reach`, `#feedback-ask` and `#questions`. One or two sentences each. "Unknown" is a
   valid answer, and each one is also a line in `#questions`. `#questions` holds two
   lists: "Decisions needed", open, and "Rulebook vs code (copied, no action)",
-  collapsed. The rest of the brief and `#reach` are collapsed too.
+  collapsed. The rest of the summary and `#reach` are collapsed too.

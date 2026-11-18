@@ -31,10 +31,10 @@ still cheap to change. Two rules make that review work:
 ## What the artifact holds (and nothing else)
 
 One page, `index.html`: the design first, right under the page bar, in
-three sections, `#option-a`, `#option-b`, `#option-c`; then the brief. No
+three sections, `#option-a`, `#option-b`, `#option-c`; then the design summary. No
 ways-in boards, no flow diagrams, no questions page.
 
-The brief (`#brief`) is short. "Decisions needed" stays open; the rest is
+The design summary (`#brief`) is short. "Decisions needed" stays open; the rest is
 collapsed:
 
 1. The elevator summary, one sentence each: user, problem, solution, data and
@@ -164,7 +164,7 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    without a session the person gives you; with none, go straight to captures
    and code. To see today's screen, in this order: run the local app or dev
    with Playwright, if you can; else use screenshots from an existing capture;
-   else compare against the code only, and say so in the brief and the
+   else compare against the code only, and say so in the summary and the
    post-back. Never sign in by creating a user: no test users, and no
    testing tokens or sign-in tickets that make one. Sign in only with a
    session the person already has and gives you (a Playwright `storageState`
@@ -178,7 +178,9 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    state, not data). Never create, edit or delete anything; reopening an
    existing draft and pressing Back only is fine. Delete any copy of the
    session you made afterwards.
-4. **Write the brief.** Answer the questions in `reference/review-lens.md` from the
+4. **Write the design summary.** It is not a product brief: when the ticket
+   has a product brief or one-pager, read it, build on it and link it rather
+   than restate it. Answer the questions in `reference/review-lens.md` from the
    ticket, the code and, if you have it, Amplitude (device split, baseline). Write
    "Unknown" where you can't answer, never a guess. Every Unknown, every
    conflict between the rulebook and the code, every ticket claim the code
@@ -226,7 +228,7 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    flows with the real components (node and the repo's `node_modules`: run
    `npm ci` in the checkout first) and writes `index.html`.
 7. **Check.** `python3 scripts/check.py --skip-build-shape <work>/page/index.html`
-   catches banned words, dead links, external requests and a missing brief,
+   catches banned words, dead links, external requests and a missing summary,
    open questions list, entry screen, Sends line, appendix, Built from,
    What changes from today or Mutations list, template sample text left on
    the page and a page built from an old flow file. Its flow lint

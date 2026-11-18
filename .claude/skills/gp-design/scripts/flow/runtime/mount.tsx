@@ -121,7 +121,10 @@ const Option = ({
   const label = (p: Product) => (p === 'win' ? 'Win' : 'Serve')
   const x = oid.slice(-1)
   const one = document.querySelector('main[data-design="one"]') !== null
-  const preview = one ? '?view=desktop' : `?view=desktop&option=${x}`
+  // The tab opens the product the switch shows, not the flow's first one.
+  const preview = `?view=desktop${one ? '' : `&option=${x}`}${
+    flow.products && flow.products.length > 1 ? `&product=${product}` : ''
+  }`
   return (
     <ProductContext.Provider value={product}>
       {nodes.head
