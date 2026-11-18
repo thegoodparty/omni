@@ -1,11 +1,13 @@
 import { useTestService } from '@/test-service'
 import { BadGatewayException, HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { subDays } from 'date-fns'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
+  AgentRunStatus,
   CommunityIssueCategory,
   CommunityIssueList,
   CommunityIssuePriority,
@@ -188,6 +190,75 @@ describe('GET /v1/community-issues', () => {
 
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.refresh.status).toBe('failed')
+  })
+})
+
+describe('GET /v1/community-issues — trending refresh on the gp-api engine', () => {
+  beforeEach(() => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'trending_issues')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  const seedAgentRun = (status: AgentRunStatus) =>
+    service.prisma.agentRun.create({
+      data: {
+        agentName: 'trending_issues',
+        organizationSlug: eoOrgSlug,
+        status,
+        manifest: {},
+        shapeHash: 'a-shape',
+        input: { organizationSlug: eoOrgSlug },
+      },
+    })
+
+  const backdateExperimentRun = async (runId: string, daysAgo: number) => {
+    const at = subDays(new Date(), daysAgo)
+    await service.prisma.$executeRaw`
+      UPDATE experiment_run
+      SET updated_at = ${at}
+      WHERE run_id = ${runId}
+    `
+    const run = await service.prisma.experimentRun.findFirstOrThrow({
+      where: { runId },
+    })
+    return run.updatedAt
+  }
+
+  it('reports the completed ExperimentRun when the org has no AgentRun', async () => {
+    await seedIssue({ list: CommunityIssueList.trending })
+    const completed = await seedExperimentRun(
+      'trending_issues',
+      ExperimentRunStatus.COMPLETED,
+    )
+    const lastCompletedAt = await backdateExperimentRun(completed.runId, 1)
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=trending`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('completed')
+    expect(res.data.refresh.lastCompletedAt).toBe(lastCompletedAt.toISOString())
+  })
+
+  it('reports the AgentRun once the org has one', async () => {
+    await seedIssue({ list: CommunityIssueList.trending })
+    const completed = await seedExperimentRun(
+      'trending_issues',
+      ExperimentRunStatus.COMPLETED,
+    )
+    await backdateExperimentRun(completed.runId, 1)
+    await seedAgentRun(AgentRunStatus.running)
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=trending`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('running')
+    expect(res.data.refresh.lastCompletedAt).toBeNull()
   })
 })
 

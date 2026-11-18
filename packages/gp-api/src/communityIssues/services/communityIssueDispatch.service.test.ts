@@ -964,6 +964,138 @@ describe('the engine switch — gates read the runs of the engine that will run 
   })
 })
 
+describe('the ExperimentRun fallback while both engines hold history', () => {
+  beforeEach(() => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'trending_issues')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  const seedExperimentRun = async (
+    organizationSlug: string,
+    status: ExperimentRunStatus,
+    updatedAt?: Date,
+  ) => {
+    const run = await service.prisma.experimentRun.create({
+      data: { organizationSlug, experimentType: 'trending_issues', status },
+    })
+    if (updatedAt) {
+      // @updatedAt is Prisma-managed, so backdate the completion via raw SQL.
+      await service.prisma.$executeRaw`
+        UPDATE experiment_run
+        SET updated_at = ${updatedAt}
+        WHERE run_id = ${run.runId}
+      `
+    }
+    return run
+  }
+
+  it('does not re-dispatch an org whose ExperimentRun completed yesterday', async () => {
+    const orgSlug = `ci-cutover-fresh-${Date.now()}`
+    await seedOrg(orgSlug)
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    await seedExperimentRun(
+      orgSlug,
+      ExperimentRunStatus.COMPLETED,
+      subDays(new Date(), 1),
+    )
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+    expect(result).toEqual({ dispatched: 1, skipped: 1 })
+  })
+
+  it('re-dispatches an org whose ExperimentRun is older than the window', async () => {
+    const orgSlug = `ci-cutover-stale-${Date.now()}`
+    await seedOrg(orgSlug)
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    await seedExperimentRun(
+      orgSlug,
+      ExperimentRunStatus.COMPLETED,
+      subDays(new Date(), INACTIVITY_THRESHOLD_DAYS + 10),
+    )
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ dispatched: 2, skipped: 0 })
+  })
+
+  it('does not dispatch an org with an in-flight ExperimentRun', async () => {
+    const orgSlug = `ci-cutover-inflight-${Date.now()}`
+    await seedOrg(orgSlug)
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    await seedExperimentRun(orgSlug, ExperimentRunStatus.RUNNING)
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+    expect(result).toEqual({ dispatched: 1, skipped: 1 })
+  })
+
+  it('reads the newer of an AgentRun and an ExperimentRun completion', async () => {
+    const orgSlug = `ci-cutover-newest-${Date.now()}`
+    await seedOrg(orgSlug)
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: orgSlug },
+    })
+    const agentRun = await seedAgentRun(orgSlug, AgentRunStatus.completed)
+    await service.prisma.$executeRaw`
+      UPDATE agent_run
+      SET updated_at = ${subDays(new Date(), INACTIVITY_THRESHOLD_DAYS + 10)}
+      WHERE id = ${agentRun.id}
+    `
+    await seedExperimentRun(
+      orgSlug,
+      ExperimentRunStatus.COMPLETED,
+      subDays(new Date(), 1),
+    )
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun()
+    const agentsSpy = mockAgentsRun()
+
+    const result = await service.app
+      .get(CommunityIssueDispatchService)
+      .dispatchIfNeeded(orgSlug)
+
+    expect(agentsSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'top_community_issues',
+    ])
+    expect(result).toEqual({ dispatched: 1, skipped: 1 })
+  })
+})
+
 describe('DispatchRequestSchema — orgSlugs cap', () => {
   it('rejects an orgSlugs array longer than 200', () => {
     const result = DispatchRequestSchema.safeParse({

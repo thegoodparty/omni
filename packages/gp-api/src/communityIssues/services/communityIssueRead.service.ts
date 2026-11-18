@@ -195,12 +195,18 @@ export class CommunityIssueReadService extends createPrismaBase(
         orderBy: { updatedAt: Prisma.SortOrder.desc },
       }),
     ])
+    // Cutover: an org that ran this type on the PMF Engine has no AgentRun
+    // yet, so the old engine's last run is what the client should see. Goes
+    // when ExperimentRun does.
+    if (latestRun === null) {
+      return this.experimentRunRefresh(organizationSlug, agentName)
+    }
     return refreshOf(
-      latestRun && {
+      {
         status: AGENT_RUN_STATUS_MAP[latestRun.status],
         createdAt: latestRun.createdAt,
       },
-      latestRun !== null && TERMINAL_AGENT_RUNS.has(latestRun.status),
+      TERMINAL_AGENT_RUNS.has(latestRun.status),
       latestCompletedRun?.updatedAt,
     )
   }
