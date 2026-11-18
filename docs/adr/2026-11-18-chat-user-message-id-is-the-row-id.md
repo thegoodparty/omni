@@ -8,7 +8,7 @@ scope:
   - packages/gp-api/src/chats/**
   - packages/gp-api/prisma/schema/agentMessage.prisma
   - packages/gp-api/prisma/schema/chatMessageFeedback.prisma
-supersedes: []
+supersedes: ['2026-11-17-chat-on-agent-message.md']
 superseded_by:
 ---
 
@@ -35,6 +35,15 @@ server-generated id; it *is* the id.
   keeps deduping; it maps to the same id.
 
 ## Context
+
+This record supersedes `2026-11-17-chat-on-agent-message.md`. That one had chat
+write both tables behind a global `chat-agent-message` flag, with a backfill and
+a parity check. Writing both is now finished, so the flag, the backfill and the
+parity job are gone: a flag whose "off" branch is a table about to be dropped is
+not a rollback, and once every reader takes `AgentMessage` there is nothing left
+to copy or compare. What that record decided about rebuilding `content`,
+`segments`, citations and tool parts from `AgentMessage` still holds and is not
+restated here.
 
 Chat was moving off `ChatMessage`, which carried a `client_message_id` column
 with a partial unique index — the only store of the retry key. Dropping the
