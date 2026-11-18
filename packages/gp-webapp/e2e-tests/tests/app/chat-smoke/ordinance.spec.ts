@@ -64,6 +64,13 @@ test.describe('Ordinance flow chat', () => {
       prompt,
     })
 
+    // The clarify question is a tool call, so its options are the part of this
+    // turn that is structured rather than prose. Asserted live first, so the
+    // assertion after the reload is known to be about a card that existed.
+    await expect(clarifyCard(conversation).first()).toBeVisible({
+      timeout: 60_000,
+    })
+
     // A reload rebuilds the step's conversation from the server: the anchored
     // createConversation returns the same conversation, and the transcript —
     // the answer, the reply, and the clarify tool's own payload — is read back
