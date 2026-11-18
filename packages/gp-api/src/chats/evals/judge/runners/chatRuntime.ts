@@ -10,6 +10,7 @@ import {
   type CreateBriefingChatResponse,
 } from '@/chats/briefing-chats/schemas/CreateBriefingChat.schema'
 import { LlmService } from '@/llm/services/llm.service'
+import { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type { TestServiceContext } from '@/test-service'
 import {
   seedOptionsFor,
@@ -445,6 +446,23 @@ export const inProcessChatRuntime = (
   },
 
   readAssistantText: async ({ assistantMessageId }) => {
+    const store = service.app.get(ChatStoreService)
+    if (await store.readsAgentMessages()) {
+      const keyRow = await service.prisma.agentMessage.findFirst({
+        where: { id: assistantMessageId },
+        select: { conversationId: true },
+      })
+      if (!keyRow?.conversationId) return null
+      const messages = await store.listMessagesByConversation(
+        keyRow.conversationId,
+      )
+      return (
+        messages.find(
+          (m) =>
+            m.id === assistantMessageId && m.role === ChatMessageRole.assistant,
+        )?.content ?? null
+      )
+    }
     const row = await service.prisma.chatMessage.findFirst({
       where: { id: assistantMessageId, role: ChatMessageRole.assistant },
     })

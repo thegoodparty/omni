@@ -1,11 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
+  AgentMessageRole,
   ChatFeedbackKind,
   ChatMessageFeedback,
   ChatMessageRole,
 } from '../../generated/prisma'
 import type { ChatMessageFeedback as ChatMessageFeedbackDTO } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { FeaturesService } from '@/features/services/features.service'
+import { CHAT_AGENT_MESSAGE_FLAG } from './chatAgentMessages.util'
 
 // `comment` carries three states on the wire, matching the artifact-feedback
 // service: `undefined` leaves the stored note alone (a re-vote without
@@ -32,6 +35,10 @@ const toDTO = (row: ChatMessageFeedback): ChatMessageFeedbackDTO => ({
 export class ChatMessageFeedbackService extends createPrismaBase(
   MODELS.ChatMessageFeedback,
 ) {
+  constructor(private readonly features: FeaturesService) {
+    super()
+  }
+
   // Ratings the caller left on one thread, keyed by message id, so a replayed
   // transcript restores its own action-bar state. Scoped to the caller: one
   // user never sees another's rating.
@@ -99,14 +106,27 @@ export class ChatMessageFeedbackService extends createPrismaBase(
     conversationId: string,
     messageId: string,
   ): Promise<void> {
-    const message = await this.client.chatMessage.findFirst({
-      where: {
-        id: messageId,
-        conversationId,
-        role: ChatMessageRole.assistant,
-      },
-      select: { id: true },
-    })
+    // A turn's last AgentMessage row carries its ChatMessage id, so the same
+    // id rates either way.
+    const message = (await this.features.isGlobalFeatureEnabled(
+      CHAT_AGENT_MESSAGE_FLAG,
+    ))
+      ? await this.client.agentMessage.findFirst({
+          where: {
+            id: messageId,
+            conversationId,
+            role: AgentMessageRole.assistant,
+          },
+          select: { id: true },
+        })
+      : await this.client.chatMessage.findFirst({
+          where: {
+            id: messageId,
+            conversationId,
+            role: ChatMessageRole.assistant,
+          },
+          select: { id: true },
+        })
     if (!message) {
       throw new NotFoundException('Message not found')
     }
