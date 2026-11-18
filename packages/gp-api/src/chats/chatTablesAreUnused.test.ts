@@ -3,15 +3,17 @@ import { join, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 // Chat reads and writes only AgentMessage. `ChatMessage` and
-// `ChatMessageSegment` still exist in the schema because dropping them is a
-// separate deploy, so until they are gone nothing may use them: a task still
-// serving during a rollout would break the moment the tables are dropped, and
-// the break would be a column or relation that no longer exists rather than a
-// missing import, which no compiler catches.
+// `ChatMessageSegment` used to be tables, and the code that used them was
+// removed a deploy before the tables were dropped, so that no task serving
+// during the drop's rollout could read them. That ordering is what made the
+// drop safe, and it is invisible in a diff: Prisma names every mapped column in
+// its SELECTs, so a single leftover query would have failed mid-rollout rather
+// than at build time.
 //
-// This is the test that keeps that true. It scans for the ways code reaches the
-// old store — the Prisma delegates, and the `messages` relation on
-// ChatConversation, which reads chat_message rather than agent_message.
+// This test keeps it that way. It scans for the ways code used to reach the old
+// store — the Prisma delegates, and the `messages` relation on ChatConversation,
+// which read chat_message rather than agent_message — and checks the models are
+// gone from the schema, so a partial revert cannot bring back half of it.
 const SRC = resolve(__dirname, '..')
 const SCHEMA_DIR = resolve(SRC, '../prisma/schema')
 
@@ -70,13 +72,13 @@ describe('nothing outside the migrations uses the dropped chat tables', () => {
     expect([...new Set(offenders)]).toEqual([])
   })
 
-  it('keeps the old tables in the schema, so this guard is what protects them', () => {
+  it('has no ChatMessage or ChatMessageSegment model left to reach', () => {
     const schema = readdirSync(SCHEMA_DIR)
       .filter((entry) => entry.endsWith('.prisma'))
       .map((entry) => readFileSync(join(SCHEMA_DIR, entry), 'utf8'))
       .join('\n')
 
-    expect(schema).toMatch(/^model ChatMessage \{/m)
-    expect(schema).toMatch(/^model ChatMessageSegment \{/m)
+    expect(schema).not.toMatch(/^model ChatMessage \{/m)
+    expect(schema).not.toMatch(/^model ChatMessageSegment \{/m)
   })
 })

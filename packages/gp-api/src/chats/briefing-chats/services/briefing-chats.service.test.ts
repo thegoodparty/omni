@@ -4,13 +4,15 @@ import {
   AnnotationKind,
   AnnotationResourceType,
   ChatConversation,
-  ChatMessage,
   ChatMessageRole,
   MeetingBriefing,
 } from '../../../generated/prisma'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import type {
+  ChatMessageWithSegments,
+  ChatStoreService,
+} from '@/chats/services/chatStore.prisma'
 import type {
   ChatStreamChunk,
   FinalizeTurn,
@@ -167,7 +169,7 @@ class FakeChatStore {
     (id: string, ownerUserId: number) => Promise<ChatConversation | null>
   >(() => Promise.resolve(buildConversation()))
   listMessagesByConversation = vi.fn<
-    (conversationId: string) => Promise<ChatMessage[]>
+    (conversationId: string) => Promise<ChatMessageWithSegments[]>
   >(() => Promise.resolve([]))
   softDeleteConversation = vi.fn<
     (id: string, ownerUserId: number) => Promise<void>
@@ -787,21 +789,29 @@ describe('BriefingChatsService', () => {
 
   describe('loadConversation', () => {
     it('returns conversationId and messages from chatStore', async () => {
-      const messages: ChatMessage[] = [
+      const messages: ChatMessageWithSegments[] = [
         {
           id: 'm-1',
           conversationId: CONVERSATION_ID,
           role: ChatMessageRole.user,
           content: 'hello',
+          model: null,
+          inputTokens: null,
+          outputTokens: null,
           createdAt: new Date('2026-01-01T00:00:01Z'),
-        } as unknown as ChatMessage,
+          segments: [],
+        },
         {
           id: 'm-2',
           conversationId: CONVERSATION_ID,
           role: ChatMessageRole.assistant,
           content: 'hi back',
+          model: null,
+          inputTokens: null,
+          outputTokens: null,
           createdAt: new Date('2026-01-01T00:00:02Z'),
-        } as unknown as ChatMessage,
+          segments: [],
+        },
       ]
       chatStore.listMessagesByConversation.mockResolvedValueOnce(messages)
 

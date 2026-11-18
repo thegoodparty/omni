@@ -6,7 +6,6 @@ import {
   ChatAttachmentSource,
   ChatAttachmentStatus,
   ChatConversation,
-  ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
   ChatScope,
@@ -27,7 +26,11 @@ import {
   MAX_BUFFERED_CHUNKS,
   MAX_CHAT_HISTORY_MESSAGES,
 } from './chatStream.service'
-import type { ChatStoreService, PersistedSegment } from './chatStore.prisma'
+import type {
+  ChatMessageWithSegments,
+  ChatStoreService,
+  PersistedSegment,
+} from './chatStore.prisma'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import type { ChatAttachmentsService } from './chatAttachments.service'
 import type { S3Service } from '@/vendors/aws/services/s3.service'
@@ -58,7 +61,7 @@ interface AppendArgs {
 
 class FakeChatStore {
   private conversations = new Map<string, ChatConversation>()
-  private messagesByConversation = new Map<string, ChatMessage[]>()
+  private messagesByConversation = new Map<string, ChatMessageWithSegments[]>()
   private nextMessageId = 1
   public events: string[] = []
   public lastListRecentLimit: number | undefined
@@ -91,16 +94,25 @@ class FakeChatStore {
     content: string
     createdAt?: Date
     segments?: PersistedSegment[]
-  }): ChatMessage {
-    const row: ChatMessage = {
+  }): ChatMessageWithSegments {
+    const row: ChatMessageWithSegments = {
       id: `seed-${this.nextMessageId++}`,
       conversationId: args.conversationId,
       role: args.role,
       content: args.content,
-      clientMessageId: null,
+      model: null,
+      inputTokens: null,
+      outputTokens: null,
       createdAt: args.createdAt ?? new Date(),
-      segments: args.segments ?? [],
-    } as unknown as ChatMessage
+      segments: (args.segments ?? []).map((s, ordinal) => ({
+        kind: s.kind,
+        text: s.text ?? null,
+        toolName: s.toolName ?? null,
+        toolCallId: s.toolCallId ?? null,
+        payload: s.payload ?? null,
+        ordinal,
+      })),
+    }
     const list = this.messagesByConversation.get(args.conversationId) ?? []
     list.push(row)
     this.messagesByConversation.set(args.conversationId, list)
@@ -119,7 +131,9 @@ class FakeChatStore {
     return Promise.resolve(row)
   }
 
-  listMessagesByConversation(conversationId: string): Promise<ChatMessage[]> {
+  listMessagesByConversation(
+    conversationId: string,
+  ): Promise<ChatMessageWithSegments[]> {
     const list = this.messagesByConversation.get(conversationId) ?? []
     return Promise.resolve([...list])
   }
@@ -127,7 +141,7 @@ class FakeChatStore {
   listRecentMessagesByConversation(
     conversationId: string,
     limit: number,
-  ): Promise<ChatMessage[]> {
+  ): Promise<ChatMessageWithSegments[]> {
     this.listRecentCalls += 1
     this.lastListRecentLimit = limit
     this.events.push('listRecentMessagesByConversation')
@@ -140,7 +154,7 @@ class FakeChatStore {
     userMessageId,
   }: {
     userMessageId: string
-  }): Promise<ChatMessage | null> {
+  }): Promise<ChatMessageWithSegments | null> {
     this.replayedFor = userMessageId
     const list = this.messagesByConversation.get(this.replyConversationId) ?? []
     const userIndex = list.findIndex((m) => m.id === userMessageId)
@@ -156,7 +170,7 @@ class FakeChatStore {
     ownerUserId: number
     content: string
     id?: string
-  }): Promise<{ message: ChatMessage; replayed: boolean } | null> {
+  }): Promise<{ message: ChatMessageWithSegments; replayed: boolean } | null> {
     this.events.push('appendUserMessageIfAlive')
     this.userAppendIds.push(args.id)
     if (this.deletedBeforeUserAppend) {
@@ -180,18 +194,27 @@ class FakeChatStore {
     }).then((message) => ({ message, replayed: false }))
   }
 
-  appendMessage(args: AppendArgs): Promise<ChatMessage> {
+  appendMessage(args: AppendArgs): Promise<ChatMessageWithSegments> {
     this.events.push(`appendMessage:${args.role}`)
     if (args.segments !== undefined) this.lastAppendedSegments = args.segments
-    const row: ChatMessage = {
+    const row: ChatMessageWithSegments = {
       id: args.id ?? `msg-${this.nextMessageId++}`,
       conversationId: args.conversationId,
       role: args.role,
       content: args.content,
-      clientMessageId: null,
+      model: null,
+      inputTokens: null,
+      outputTokens: null,
       createdAt: new Date(),
-      segments: args.segments ?? [],
-    } as unknown as ChatMessage
+      segments: (args.segments ?? []).map((s, ordinal) => ({
+        kind: s.kind,
+        text: s.text ?? null,
+        toolName: s.toolName ?? null,
+        toolCallId: s.toolCallId ?? null,
+        payload: s.payload ?? null,
+        ordinal,
+      })),
+    }
     const list = this.messagesByConversation.get(args.conversationId) ?? []
     list.push(row)
     this.messagesByConversation.set(args.conversationId, list)
@@ -206,7 +229,7 @@ class FakeChatStore {
     return Promise.resolve()
   }
 
-  getPersistedMessages(conversationId: string): ChatMessage[] {
+  getPersistedMessages(conversationId: string): ChatMessageWithSegments[] {
     return [...(this.messagesByConversation.get(conversationId) ?? [])]
   }
 
@@ -1221,7 +1244,7 @@ describe('ChatStreamService', () => {
     })
   })
 
-  describe('idempotency via clientMessageId', () => {
+  describe('idempotency via the client-supplied message id', () => {
     it('writes the user turn under the id the client sent', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([{ kind: 'text', delta: 'ok' }])

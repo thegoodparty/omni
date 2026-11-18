@@ -1,9 +1,10 @@
 import type { ChatConversationUsage } from '@goodparty_org/contracts'
-import { ChatMessage, ChatMessageRole } from '../../generated/prisma'
+import { ChatMessageRole } from '../../generated/prisma'
+import type { ChatMessageWithSegments } from './chatStore.prisma'
 
 export const summarizeConversationUsage = (
   messages: Pick<
-    ChatMessage,
+    ChatMessageWithSegments,
     'role' | 'model' | 'inputTokens' | 'outputTokens'
   >[],
 ): ChatConversationUsage => {

@@ -13,12 +13,10 @@ model ChatMessageFeedback {
   conversationId String           @map("conversation_id")
   conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  chatMessageId String?      @map("chat_message_id")
-  chatMessage   ChatMessage? @relation(fields: [chatMessageId], references: [id], onDelete: Cascade)
-
-  /// The assistant AgentMessage this rates. Written alongside chatMessageId
-  /// while both tables exist; chatMessageId and its unique index are dropped
-  /// once nothing writes it.
+  /// The assistant AgentMessage this rates. Nullable for one more deploy, for
+  /// the ratings #3872's backfill could not key; it becomes NOT NULL once prod
+  /// is known to have none. Postgres treats NULLs as distinct, so the unique
+  /// index below tolerates them.
   agentMessageId String?       @map("agent_message_id")
   agentMessage   AgentMessage? @relation(fields: [agentMessageId], references: [id], onDelete: Cascade)
 
@@ -35,9 +33,6 @@ model ChatMessageFeedback {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  @@unique([submitterUserId, chatMessageId], map: "chat_message_feedback_user_message_unique")
-  /// Unique already, so the swap in the drop PR is only a column drop. NULLs
-  /// are distinct in Postgres, so rows not yet backfilled do not collide.
   @@unique([submitterUserId, agentMessageId], map: "chat_message_feedback_user_agent_message_unique")
   @@index([conversationId])
   @@map("chat_message_feedback")

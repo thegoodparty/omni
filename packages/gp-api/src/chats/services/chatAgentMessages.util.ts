@@ -6,13 +6,13 @@ import {
   AgentMessage,
   AgentMessageRole,
   ChatMessageRole,
-  ChatMessageSegment,
   ChatMessageSegmentKind,
   Prisma,
 } from '../../generated/prisma'
 import type { LlmStreamUsage } from '@/llm/services/llm.service'
 import type {
   ChatMessageWithSegments,
+  DisplaySegment,
   PersistedSegment,
 } from './chatStore.prisma'
 
@@ -50,6 +50,8 @@ export type StoredAgentMessage = Pick<
 >
 
 type JsonObject = Prisma.JsonObject
+
+type PageSegment = Omit<DisplaySegment, 'ordinal'>
 
 type SegmentLike = Pick<PersistedSegment, 'kind'> & {
   text?: string | null
@@ -193,7 +195,6 @@ const toChatMessage = (
       conversationId: first.conversationId ?? '',
       role: ChatMessageRole.user,
       content: text,
-      clientMessageId: null,
       model: null,
       inputTokens: null,
       outputTokens: null,
@@ -206,10 +207,7 @@ const toChatMessage = (
   )
   const last = assistants[assistants.length - 1]!
   const refused = refusedToolCallIds(group)
-  const segments: Omit<
-    ChatMessageSegment,
-    'id' | 'chatMessageId' | 'ordinal'
-  >[] = []
+  const segments: PageSegment[] = []
   for (const row of assistants) {
     for (const part of Array.isArray(row.parts) ? row.parts : []) {
       if (!isObject(part)) continue
@@ -270,7 +268,6 @@ const toChatMessage = (
       .filter((s) => s.kind === ChatMessageSegmentKind.text)
       .map((s) => s.text ?? '')
       .join(''),
-    clientMessageId: null,
     model:
       [...assistants].reverse().find((row) => row.model !== null)?.model ??
       null,
@@ -278,12 +275,7 @@ const toChatMessage = (
     outputTokens: sumTokens(assistants, 'outputTokens'),
     createdAt: first.createdAt,
     segments: structured
-      ? segments.map((s, ordinal) => ({
-          ...s,
-          id: `${last.id}:${ordinal}`,
-          chatMessageId: last.id,
-          ordinal,
-        }))
+      ? segments.map((s, ordinal) => ({ ...s, ordinal }))
       : [],
   }
 }

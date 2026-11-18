@@ -1,9 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common'
 import {
   AgentMessageRole,
-  ChatMessage,
   ChatMessageRole,
-  ChatMessageSegment,
   ChatMessageSegmentKind,
   Prisma,
 } from '../../generated/prisma'
@@ -86,7 +84,8 @@ const insertDrafts = async (
   return ids
 }
 
-// One ordered display block of an assistant turn (see ChatMessageSegment).
+// One ordered display block of an assistant turn: a run of text, a tool call,
+// or a citation. Built from an AgentMessage's parts, never stored as a row.
 export type PersistedSegment = {
   kind: ChatMessageSegmentKind
   text?: string | null
@@ -95,8 +94,27 @@ export type PersistedSegment = {
   toolCallId?: string | null
 }
 
-export type ChatMessageWithSegments = ChatMessage & {
-  segments: ChatMessageSegment[]
+// A message in the chat API's shape. A turn's model loop is several
+// AgentMessage rows; it reads back as the one message the user saw.
+export type ChatMessageWithSegments = {
+  id: string
+  conversationId: string
+  role: ChatMessageRole
+  content: string
+  model: string | null
+  inputTokens: number | null
+  outputTokens: number | null
+  createdAt: Date
+  segments: DisplaySegment[]
+}
+
+export type DisplaySegment = {
+  kind: ChatMessageSegmentKind
+  text: string | null
+  toolName: string | null
+  toolCallId: string | null
+  payload: Prisma.InputJsonValue | null
+  ordinal: number
 }
 
 @Injectable()
@@ -150,7 +168,7 @@ export class ChatStoreService extends createPrismaBase(
     // A reply cut off mid-stream. Its last text part carries the mark, so a
     // retry of the same send runs the turn again instead of replaying it.
     interrupted?: boolean
-  }): Promise<ChatMessage> {
+  }): Promise<ChatMessageWithSegments> {
     const built =
       args.agentMessages ??
       chatMessageToAgentMessages({
@@ -160,8 +178,6 @@ export class ChatStoreService extends createPrismaBase(
         inputTokens: args.inputTokens ?? null,
         outputTokens: args.outputTokens ?? null,
         segments: (args.segments ?? []).map((s, i) => ({
-          id: `${args.conversationId}:${i}`,
-          chatMessageId: args.conversationId,
           ordinal: i,
           kind: s.kind,
           text: s.text ?? null,
@@ -211,7 +227,7 @@ export class ChatStoreService extends createPrismaBase(
   private async readOne(
     db: Prisma.TransactionClient,
     messageId: string,
-  ): Promise<ChatMessage | null> {
+  ): Promise<ChatMessageWithSegments | null> {
     const key = await db.agentMessage.findFirst({
       where: { id: messageId },
       select: { conversationId: true },
@@ -295,7 +311,7 @@ export class ChatStoreService extends createPrismaBase(
     ownerUserId: number
     content: string
     id?: string
-  }): Promise<{ message: ChatMessage; replayed: boolean } | null> {
+  }): Promise<{ message: ChatMessageWithSegments; replayed: boolean } | null> {
     const { conversationId, ownerUserId, content, id } = args
     return this.client.$transaction(async (tx) => {
       const alive = await tx.chatConversation.findFirst({
@@ -343,7 +359,7 @@ export class ChatStoreService extends createPrismaBase(
     userMessageId: string
     conversationId: string
     ownerUserId: number
-  }): Promise<ChatMessage | null> {
+  }): Promise<ChatMessageWithSegments | null> {
     const userRow = await this.client.agentMessage.findFirst({
       where: {
         id: args.userMessageId,
