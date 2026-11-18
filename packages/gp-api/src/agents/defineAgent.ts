@@ -20,6 +20,14 @@ export type AgentDefinition<
   // Every tool the agent has, by name. The name is the agent's, not the tool's:
   // the loop turns each entry into an AI SDK tool under its key.
   tools: Record<string, AgentTool>
+  // The PMF Engine broker's anti-fabrication gate, same contract
+  // (`scope.data_required_unless` in
+  // packages/gp-ai/broker/endpoints/artifact_publish.py): an agent whose tool
+  // reads a warehouse table may not submit an output that no successful query
+  // backs, unless its `field` carries one of `values`. Declared here rather
+  // than derived, because gp-api's manifest is only the input and output
+  // schemas, and the carve-out's values are the agent's own vocabulary.
+  dataRequiredUnless?: { field: string; values: readonly string[] }
   // Saves the validated output where the product reads it. It can run twice
   // for one run, so make it an upsert.
   onArtifact: (

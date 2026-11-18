@@ -345,6 +345,160 @@ describe('top_community_issues on gp-api agents', () => {
     expect(track).toHaveBeenCalledTimes(1)
   })
 
+  it('refuses an output the run read no data for, and takes one a query backs', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'top_community_issues')
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
+    const query = vi
+      .spyOn(service.app.get(PeopleDbxStatementClient), 'query')
+      .mockResolvedValue({ columns: ['n'], rows: [['31000']] })
+    spies.push(track, query)
+    // Submit with no query run first, then run it, then the same submit. The
+    // first is the fabricated list the PMF Engine's broker refuses to publish.
+    const replies = [
+      toolCall('getCommunityIssues', { list: 'top_community' }),
+      toolCall('submitOutput', {
+        output: output([issue('Stormwater flooding on Murchison Road', 1)]),
+      }),
+      toolCall('queryDatabricks', { sql: LEAN_SQL }),
+      toolCall('submitOutput', {
+        output: output([issue('Stormwater flooding on Murchison Road', 1)]),
+      }),
+    ]
+    const prompts: string[] = []
+    spies.push(
+      vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+        model: new MockLanguageModelV3({
+          doStream: async (options) => {
+            prompts.push(JSON.stringify(options.prompt))
+            return {
+              stream: simulateReadableStream<LanguageModelV3StreamPart>({
+                chunks: [
+                  { type: 'stream-start', warnings: [] },
+                  replies[prompts.length - 1]!,
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_use' },
+                    usage: {
+                      inputTokens: {
+                        total: 2000,
+                        noCache: 2000,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                      },
+                      outputTokens: {
+                        total: 200,
+                        text: 200,
+                        reasoning: undefined,
+                      },
+                    },
+                  },
+                ],
+              }),
+            }
+          },
+        }),
+        modelId: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+      }),
+    )
+
+    await service.client.post(
+      `${BASE}/self-dispatch`,
+      { type: 'top_community_issues' },
+      { headers: { 'x-organization-slug': orgSlug } },
+    )
+    await service.jobs.settle()
+
+    const run = await service.prisma.agentRun.findFirstOrThrow({
+      where: { organizationSlug: orgSlug, agentName: 'top_community_issues' },
+    })
+    expect(run.status).toBe(AgentRunStatus.completed)
+    // The refusal reached the model, which is what sent it to the query.
+    expect(prompts[2]).toContain('No warehouse query succeeded')
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(
+      await service.prisma.communityIssue.count({
+        where: { organizationSlug: orgSlug, lastRefreshedRunId: run.id },
+      }),
+    ).toBe(1)
+  })
+
+  it('accepts insufficient_signal with no query at all, as the manifest allows', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'top_community_issues')
+    spies.push(
+      vi
+        .spyOn(service.app.get(AnalyticsService), 'track')
+        .mockResolvedValue({ event: 'stub', userId: 'stub' }),
+      vi
+        .spyOn(service.app.get(PeopleDbxStatementClient), 'query')
+        .mockResolvedValue({ columns: [], rows: [] }),
+    )
+    const prompts: string[] = []
+    spies.push(
+      vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+        model: new MockLanguageModelV3({
+          doStream: async (options) => {
+            prompts.push(JSON.stringify(options.prompt))
+            return {
+              stream: simulateReadableStream<LanguageModelV3StreamPart>({
+                chunks: [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'tool-call',
+                    toolCallId: `call-${uuidv7()}`,
+                    toolName: 'submitOutput',
+                    input: JSON.stringify({
+                      output: {
+                        ...output([]),
+                        data_quality: 'insufficient_signal',
+                        data_quality_reason: 'No such office in this state.',
+                      },
+                    }),
+                  },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'tool-calls', raw: 'tool_use' },
+                    usage: {
+                      inputTokens: {
+                        total: 2000,
+                        noCache: 2000,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                      },
+                      outputTokens: {
+                        total: 200,
+                        text: 200,
+                        reasoning: undefined,
+                      },
+                    },
+                  },
+                ],
+              }),
+            }
+          },
+        }),
+        modelId: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+      }),
+    )
+
+    await service.client.post(
+      `${BASE}/self-dispatch`,
+      { type: 'top_community_issues' },
+      { headers: { 'x-organization-slug': orgSlug } },
+    )
+    await service.jobs.settle()
+
+    const run = await service.prisma.agentRun.findFirstOrThrow({
+      where: { organizationSlug: orgSlug, agentName: 'top_community_issues' },
+    })
+    expect(run.status).toBe(AgentRunStatus.completed)
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).not.toContain('No warehouse query succeeded')
+  })
+
   it('a refresh makes a task card for each new issue and sends Top Issues Refreshed', async () => {
     await service.prisma.communityIssue.updateMany({
       where: { organizationSlug: orgSlug },

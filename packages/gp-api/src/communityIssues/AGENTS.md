@@ -164,7 +164,14 @@ accepted.
   that input from `resolveServeContext`, so in production it equals
   `orgDatabricksScope`; a judge run, where every case shares the fixture org,
   is scoped to the case's own district. No state, or half an L2 pair, refuses
-  every query.
+  every query. This is narrower than the PMF Engine's broker scope in practice
+  only where an office has an L2 district: the broker injected
+  `Residence_Addresses_State` plus `Residence_Addresses_City` from the run
+  params, and `top_community_issues`' manifest declares no `city` input
+  (`additionalProperties: false`), so the broker's city clause was never
+  active for this agent. The district column the office's `l2DistrictType`
+  names is narrower than a city, and is the scope the instruction already
+  asked the broker for in its own WHERE.
 - The input carries `l2DistrictType` and `l2DistrictName` only as a pair, as
   `buildDispatchParams` does for the PMF Engine. Signup's `HIGH` priority is
   not carried over.

@@ -54,6 +54,17 @@ await agentsService.run('myAgent', { organizationSlug, topic })
   is inferred from `input`, and its second argument is the `ToolContext`.
 - `output` is enforced when the model calls `submitOutput`. A miss returns
   Zod's list of what is wrong, not the whole input, and the model retries.
+- **An agent that reads the warehouse cannot submit an output no successful
+  query backs.** A tool built with `readsWarehouse: true` (only
+  `queryDatabricks` is) makes `submitOutput` refuse while the run has had no
+  query come back `ok`, because a schema-valid artifact is exactly what a
+  model invents when the warehouse was unreachable. This is the PMF Engine
+  broker's `NoDataQueriesSucceeded` gate, moved to the engine. The escape is
+  the manifest's own carve-out, declared as `dataRequiredUnless`: an output
+  whose named field carries one of the listed values is not claiming data,
+  so the gate does not apply. `top_community_issues` declares
+  `data_quality: insufficient_signal`, as its manifest's
+  `scope.data_required_unless` does.
 - `onArtifact` saves the validated output where the product reads it. It
   can run twice for one run (a crash after it, before the run is marked
   complete), so make it an upsert.

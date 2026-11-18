@@ -367,3 +367,173 @@ describe('runAgentLoop', () => {
     expect(JSON.stringify(saved[1]?.parts)).toContain(SUBMIT_TOOL)
   })
 })
+
+describe('the anti-fabrication gate', () => {
+  // What queryDatabricks returns: a warehouse read reports ok, and a refusal
+  // (a rejected query, a timeout, a warehouse error) reports ok: false.
+  const warehouseTool = (results: unknown[]) => {
+    let call = 0
+    return {
+      description: 'Read the warehouse.',
+      input: z.object({}),
+      readsWarehouse: true as const,
+      execute: async () => results[call++],
+    }
+  }
+
+  const WarehouseOutput = z.object({
+    data_quality: z.enum(['ok', 'partial', 'insufficient_signal']),
+    title: z.string(),
+  })
+
+  const dataQualityOnly = z.object({
+    data_quality: z.enum(['ok', 'partial', 'insufficient_signal']),
+  })
+
+  const gateArgs = (
+    model: MockLanguageModelV3,
+    toolRows: unknown[],
+    overrides: Partial<AgentLoopArgs> = {},
+  ): AgentLoopArgs =>
+    loopArgs(model, [], {
+      output: dataQualityOnly,
+      dataRequiredUnless: {
+        field: 'data_quality',
+        values: ['insufficient_signal'],
+      },
+      tools: { queryDatabricks: warehouseTool(toolRows) },
+      ...overrides,
+    })
+
+  // The replies the loop sends the model, in order.
+  type Reply = () => { stream: ReadableStream }
+  const scripted = (...replies: Reply[]) => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () =>
+        (call < replies.length ? replies[call++]!() : replies.at(-1)!()) as never,
+    })
+    return model
+  }
+  const submit = (output: unknown) => () => callTool(SUBMIT_TOOL, { output })
+  const query = () => () => callTool('queryDatabricks', {})
+  const say = (text: string) => () => ({
+    stream: simulateReadableStream({
+      chunks: [
+        { type: 'stream-start' as const, warnings: [] },
+        { type: 'text-start' as const, id: 't1' },
+        { type: 'text-delta' as const, id: 't1', delta: text },
+        { type: 'text-end' as const, id: 't1' },
+        {
+          type: 'finish' as const,
+          finishReason: { unified: 'stop' as const, raw: 'end_turn' },
+          usage: {
+            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 10, text: 10, reasoning: undefined },
+          },
+        },
+      ],
+    }),
+  })
+
+  it('refuses an output no warehouse query backed, then takes one a query did', async () => {
+    const saved: AgentMessageRow[] = []
+    // Submit before any query, get refused, query, then the same submit lands.
+    const model = scripted(
+      submit({ data_quality: 'ok' }),
+      query(),
+      submit({ data_quality: 'ok' }),
+    )
+
+    const output = await runAgentLoop(
+      gateArgs(model, [{ ok: true, columns: ['n'], rows: [['1']] }], {
+        saveRows: async (rows) => {
+          saved.push(...rows)
+        },
+      }),
+    )
+
+    expect(output).toEqual({ data_quality: 'ok' })
+    // The refusal the model read names the tool to run, which is what makes it
+    // a correction rather than a dead end.
+    expect(JSON.stringify(saved)).toContain('No warehouse query succeeded')
+    expect(JSON.stringify(saved)).toContain('queryDatabricks')
+  })
+
+  it('refuses every submit when the only query failed, refusing the run', async () => {
+    const saved: AgentMessageRow[] = []
+    const model = scripted(
+      query(),
+      submit({ data_quality: 'ok' }),
+      say('nothing else to add'),
+    )
+
+    await expect(
+      runAgentLoop(
+        gateArgs(model, [{ ok: false, reason: 'query_failed' }], {
+          saveRows: async (rows) => {
+            saved.push(...rows)
+          },
+        }),
+      ),
+    ).rejects.toThrow('ended without submitting its output')
+    expect(JSON.stringify(saved)).toContain('No warehouse query succeeded')
+  })
+
+  it('accepts the carve-out value with no successful query at all', async () => {
+    const model = scripted(submit({ data_quality: 'insufficient_signal' }))
+
+    const output = await runAgentLoop(
+      gateArgs(model, [{ ok: false, reason: 'no_scope' }]),
+    )
+
+    expect(output).toEqual({ data_quality: 'insufficient_signal' })
+  })
+
+  it('does not accept another data_quality value as the carve-out', async () => {
+    const saved: AgentMessageRow[] = []
+    const model = scripted(
+      submit({ data_quality: 'partial' }),
+      say('nothing else to add'),
+    )
+
+    await expect(
+      runAgentLoop(
+        gateArgs(model, [], {
+          saveRows: async (rows) => {
+            saved.push(...rows)
+          },
+        }),
+      ),
+    ).rejects.toThrow('ended without submitting its output')
+    expect(JSON.stringify(saved)).toContain('No warehouse query succeeded')
+  })
+
+  it.each([
+    ['no tools at all', {}],
+    [
+      'a tool that reads no warehouse',
+      {
+        webSearch: {
+          description: 'Search.',
+          input: z.object({}),
+          execute: async () => ({ ok: true }),
+        },
+      },
+    ],
+  ])('does nothing for an agent with %s', async (_name, tools) => {
+    const model = new MockLanguageModelV3({
+      doStream: async () =>
+        callTool(SUBMIT_TOOL, { output: { data_quality: 'ok' } }),
+    })
+
+    const output = await runAgentLoop(
+      gateArgs(model, [], {
+        output: WarehouseOutput.omit({ title: true }),
+        tools: tools as AgentLoopArgs['tools'],
+      }),
+    )
+
+    expect(output).toEqual({ data_quality: 'ok' })
+  })
+})

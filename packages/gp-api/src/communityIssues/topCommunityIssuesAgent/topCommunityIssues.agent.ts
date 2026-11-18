@@ -56,6 +56,10 @@ export const topCommunityIssuesAgent = defineAgent({
   output: TopCommunityIssuesOutputSchema,
   model: 'claude-sonnet-4-6',
   prompt: TOP_COMMUNITY_ISSUES_PROMPT,
+  // The manifest's scope.data_required_unless, which the PMF Engine broker
+  // enforces at publish: a run that read no data may not report findings
+  // unless it declares it found insufficient signal.
+  dataRequiredUnless: { field: 'data_quality', values: ['insufficient_signal'] },
   tools: {
     getCommunityIssues,
     webSearch,
