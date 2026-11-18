@@ -233,7 +233,7 @@ migrated triggers disagree, so nothing reaches a handler until both are in.
   `db_change_relay` (they are seeded by the migration, not by the harness),
   so nothing is captured and no relay loop runs. A suite that wants capture
   inserts the config row, and drives the relay with
-  `service.app.get(DbChangeRelayService).relayUnsent()` before
+  `service.app.get(DbChangeRelayService).relayPass()` before
   `service.jobs.settle()` — the relay's own loop does not run under
   `NODE_ENV=test`, so an assertion never races a pass.
 - **Ordering within a relay batch.** Jobs sent in one transaction all get

@@ -74,14 +74,7 @@ export class DbChangeRelayService
   private async relay(): Promise<void> {
     while (!this.stopped) {
       try {
-        // Checked before the lease, so an idle task writes nothing at all.
-        if ((await this.hasWork()) && (await this.takeLease())) {
-          try {
-            await this.relayUnsent()
-          } finally {
-            await this.releaseLease()
-          }
-        }
+        await this.relayPass()
       } catch (err) {
         this.logger.error({ err }, 'change relay pass failed')
       }
@@ -99,7 +92,17 @@ export class DbChangeRelayService
     return row?.found === true
   }
 
-  async relayUnsent(): Promise<number> {
+  async relayPass(): Promise<number> {
+    // Checked before the lease, so an idle task writes nothing at all.
+    if (!(await this.hasWork()) || !(await this.takeLease())) return 0
+    try {
+      return await this.relayUnsent()
+    } finally {
+      await this.releaseLease()
+    }
+  }
+
+  private async relayUnsent(): Promise<number> {
     const byTable = tableEntries()
     let relayed = 0
     for (;;) {
@@ -127,7 +130,8 @@ export class DbChangeRelayService
       }
       // Stops mid-drain on a deploy: the rows it has not read stay unsent,
       // and the next task's pass picks them up.
-      if (batch.count < RELAY_BATCH_SIZE || this.stopped) return relayed
+      if (batch.lostLease || batch.count < RELAY_BATCH_SIZE || this.stopped)
+        return relayed
     }
   }
 
@@ -136,8 +140,26 @@ export class DbChangeRelayService
     tables: number
     handlers: number
     oldestWaitedSeconds: number
+    lostLease: boolean
   }> {
     return this.prisma.$transaction(async (tx) => {
+      // Renews the lease and holds its row lock until this batch commits. A
+      // task taking the lease waits on that lock, so two holders' batches
+      // never overlap and one row's changes are never relayed out of order.
+      const renewed = await tx.$executeRaw`
+        UPDATE db_change_relay
+        SET expires_at = now() + make_interval(secs => ${RELAY_LEASE_SECONDS}::int)
+        WHERE id = 1 AND holder = ${this.holder}
+      `
+      if (renewed === 0) {
+        return {
+          count: 0,
+          tables: 0,
+          handlers: 0,
+          oldestWaitedSeconds: 0,
+          lostLease: true,
+        }
+      }
       const rows = await tx.$queryRaw<Unrelayed[]>`
         SELECT id, table_name, row_key,
           extract(epoch FROM now() - created_at)::float8 AS waited_seconds
@@ -179,6 +201,7 @@ export class DbChangeRelayService
         oldestWaitedSeconds: Math.round(
           Math.max(0, ...rows.map((row) => Number(row.waited_seconds))),
         ),
+        lostLease: false,
       }
     })
   }

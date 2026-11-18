@@ -63,7 +63,7 @@ describe('db change relay', () => {
       'update',
     ])
 
-    await relay().relayUnsent()
+    await relay().relayPass()
     await service.jobs.settle()
 
     expect(track).toHaveBeenCalledTimes(2)
@@ -132,7 +132,7 @@ describe('db change relay', () => {
       }),
     ).rejects.toThrow('rolled back')
 
-    await relay().relayUnsent()
+    await relay().relayPass()
 
     expect(await changeRows()).toEqual([])
     expect(await service.prisma.dbChange.count()).toBe(0)
@@ -197,7 +197,7 @@ describe('db change relay', () => {
       const captured = await service.prisma.$queryRaw<Array<{ id: bigint }>>`
         SELECT id FROM db_change WHERE relayed_at IS NULL ORDER BY id`
 
-      await relay().relayUnsent()
+      await relay().relayPass()
       await service.jobs.settle()
 
       expect(handles.map((handle) => handle.changeId)).toEqual(
@@ -267,5 +267,24 @@ describe('db change cleanup', () => {
     expect(left.map((row) => [row.op, row.relayedAt])).toEqual([
       ['update', null],
     ])
+  })
+  it('relays nothing once another task holds the lease', async () => {
+    const track = vi
+      .spyOn(service.app.get(CrmCampaignsService), 'trackCampaign')
+      .mockResolvedValue(undefined)
+    await createCampaign()
+    await service.prisma.$executeRaw`
+      UPDATE db_change_relay
+      SET holder = 'other-task', expires_at = now() + interval '30 seconds'
+      WHERE id = 1
+    `
+
+    expect(await relay().relayPass()).toBe(0)
+    await service.jobs.settle()
+
+    expect(track).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.dbChange.count({ where: { relayedAt: null } }),
+    ).toBe(1)
   })
 })
