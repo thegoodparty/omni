@@ -34,7 +34,7 @@ const INVISIBLE_CHARS = new RegExp(
   '[' + '\\uFEFF' + '\\u200B' + '\\u200C' + '\\u200D' + '\\u2060' + ']',
 )
 
-const containsWriteNode = (node: unknown): boolean => {
+export const containsWriteNode = (node: unknown): boolean => {
   if (node === null || node === undefined) return false
   if (Array.isArray(node)) {
     return node.some(containsWriteNode)
@@ -317,7 +317,7 @@ const extractColumnRef = (node: unknown): string | null => {
  * - Anything else (functions, type coercions, comparisons against other
  *   columns): empty set.
  */
-const mandatoryValuesForColumn = (
+export const mandatoryValuesForColumn = (
   where: unknown,
   column: string,
 ): Set<string> => {

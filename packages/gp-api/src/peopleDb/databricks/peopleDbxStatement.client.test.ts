@@ -207,6 +207,23 @@ describe('PeopleDbxStatementClient', () => {
       expect(callsMatching('/cancel')).toHaveLength(1)
     })
 
+    // A pg-boss worker has no HTTP request to hang a signal on, so the tool
+    // hands one in directly and the statement still stops.
+    it('cancels the statement and stops polling once a passed-in signal aborts', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ statement_id: 's1', status: { state: 'RUNNING' } }),
+      )
+      const aborter = new AbortController()
+
+      const pending = client.query(stmt('SELECT 1'), {
+        signal: aborter.signal,
+      })
+      aborter.abort()
+
+      await expect(pending).rejects.toThrow(PeopleDbxClientAbortedError)
+      expect(callsMatching('/cancel')).toHaveLength(1)
+    })
+
     it('does not poll a statement that already finished when the request aborts', async () => {
       const aborter = new AbortController()
       aborter.abort()

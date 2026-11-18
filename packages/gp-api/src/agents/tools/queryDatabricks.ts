@@ -1,0 +1,315 @@
+import { z } from 'zod'
+import {
+  containsWriteNode,
+  mandatoryValuesForColumn,
+  SqlRejected,
+} from '@/llm/tools/constituentSql.validator'
+import { isRecord } from '@/llm/tools/util/isRecord.util'
+import { parseSingleSelect } from '@/llm/tools/util/sqlAst.util'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { PeopleDbxStatementClient } from '@/peopleDb/databricks/peopleDbxStatement.client'
+import { defineTool, type ToolContext } from './tool'
+
+// The state column the PMF Engine's broker injected into every query off a
+// run's scope ticket, under the same name: the L2 voter file is the only
+// source this data is scoped by.
+const STATE_COLUMN = 'Residence_Addresses_State'
+
+const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000
+const MAX_SQL_CHARS = 10_000
+const MAX_ERROR_CHARS = 400
+const L2_COLUMN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+// The run's own slice of the voter file. An agent never chooses it: the
+// caller resolves it from the run's organization, not from tool input or the
+// model, so no query can read past the jurisdiction the report is about.
+export type DatabricksScope = {
+  state: string
+  // The org's L2 district column and the value it must equal — the same pair
+  // the dispatch code puts in a run's l2_district_* params.
+  district?: { column: string; value: string } | null
+}
+
+export type DatabricksToolOptions = {
+  // The agent's manifest scope.allowed_tables, verbatim. This is the whole
+  // grant: a query naming anything else is rejected, so there is no implicit
+  // access to a table an agent did not declare.
+  tables: string[]
+  // The manifest's scope.max_rows. Results are cut here.
+  maxRows: number
+  // Where the run's state and district come from. Null means the org has no
+  // jurisdiction to scope to, and every query is refused rather than run
+  // unscoped.
+  scope: (ctx: ToolContext) => Promise<DatabricksScope | null>
+  statementTimeoutMs?: number
+}
+
+const queryInput = z.object({
+  sql: z
+    .string()
+    .min(1)
+    .max(MAX_SQL_CHARS)
+    .describe(
+      'One read-only SELECT over an allowed table, with the office jurisdiction filter in its WHERE. Write values as literals, not bind parameters.',
+    ),
+})
+
+// The run's organization as a Databricks scope: its state, and its L2 district
+// column and value when it has one, from the same resolveServeContext the
+// dispatch code builds a run's params from. An org with no jurisdiction
+// resolves to null, and the tool then refuses every query.
+export const orgDatabricksScope = async (
+  ctx: ToolContext,
+): Promise<DatabricksScope | null> => {
+  const organizations = ctx.get(OrganizationsService)
+  const organization = await organizations.client.organization.findUnique({
+    where: { slug: ctx.organizationSlug },
+  })
+  if (!organization) return null
+  const serveCtx = await organizations.resolveServeContext(organization)
+  if (!serveCtx?.state) return null
+  // A column name that is not an identifier is not one this can prove a
+  // clause against, and guessing would refuse every query forever.
+  const district =
+    serveCtx.l2DistrictType &&
+    serveCtx.l2DistrictName &&
+    L2_COLUMN_NAME.test(serveCtx.l2DistrictType)
+      ? { column: serveCtx.l2DistrictType, value: serveCtx.l2DistrictName }
+      : null
+  return { state: serveCtx.state, district }
+}
+
+// A table reference as the allowlist spells it: catalog, then schema, then
+// name. A quoted dotted name arrives whole in `table` and a bare one arrives
+// split across db/schema, so every form is joined and re-split rather than
+// read positionally.
+const tableRef = (entry: Record<string, unknown>): string =>
+  [entry.db, entry.schema, entry.table]
+    .filter((part): part is string => typeof part === 'string' && part !== '')
+    .join('.')
+    .split('.')
+    .filter(Boolean)
+    .join('.')
+
+// The broker's rule, kept: an exact match, or the reference is a proper
+// suffix of an allowed name on a dot boundary (`dbt.t`, and `t` for
+// `catalog.dbt.t`). A spoofed qualifier (`evil.public.t`) is a suffix of
+// nothing and still fails.
+const isAllowedTable = (ref: string, tables: string[]): boolean =>
+  tables.some((allowed) => {
+    const name = allowed.toLowerCase()
+    const reference = ref.toLowerCase()
+    return name === reference || name.endsWith(`.${reference}`)
+  })
+
+const eachNode = (
+  node: unknown,
+  visit: (node: Record<string, unknown>) => void,
+): void => {
+  if (Array.isArray(node)) {
+    for (const item of node) eachNode(item, visit)
+    return
+  }
+  if (!isRecord(node)) return
+  visit(node)
+  for (const value of Object.values(node)) eachNode(value, visit)
+}
+
+// Every SELECT at any depth: the outer one, each UNION branch, each CTE body,
+// each subquery. A filter on the outer query does not scope an unfiltered read
+// of the table underneath it, so each one is checked on its own.
+const selectsIn = (
+  stmt: Record<string, unknown>,
+): Record<string, unknown>[] => {
+  const selects: Record<string, unknown>[] = []
+  eachNode(stmt, (node) => {
+    if (node.type === 'select') selects.push(node)
+  })
+  return selects
+}
+
+const cteNames = (selects: Record<string, unknown>[]): Set<string> => {
+  const names = new Set<string>()
+  for (const select of selects) {
+    for (const cte of Array.isArray(select.with) ? select.with : []) {
+      if (!isRecord(cte) || !isRecord(cte.name)) continue
+      if (typeof cte.name.value === 'string') {
+        names.add(cte.name.value.toLowerCase())
+      }
+    }
+  }
+  return names
+}
+
+// The state always, and the district whenever the org has one — the same
+// predicates the broker injected, which the model now writes itself and the
+// tool has to prove.
+const requiredFilters = (scope: DatabricksScope): Array<[string, string]> => [
+  [STATE_COLUMN, scope.state],
+  ...(scope.district
+    ? [[scope.district.column, scope.district.value] as [string, string]]
+    : []),
+]
+
+const assertScope = (
+  where: unknown,
+  table: string,
+  scope: DatabricksScope,
+): void => {
+  for (const [column, value] of requiredFilters(scope)) {
+    // mandatoryValuesForColumn: an AND unions, an OR intersects, so
+    // `= 'x' OR 1=1` proves nothing and is rejected. The same proof the
+    // constituent tool uses to hold its district filter in place.
+    if (mandatoryValuesForColumn(where, column).has(value)) continue
+    throw new SqlRejected(
+      `every SELECT that reads ${table} must guarantee ${column} = '${value}' in its own WHERE, with no OR that could step around it`,
+    )
+  }
+}
+
+// Read-only, allowlisted and scoped, proven on the parsed statement. Nothing
+// here rewrites the SQL: gp-api has no Spark re-emitter it can trust (Spark
+// reads a double-quoted identifier as a string, so a re-emitted query would
+// silently compare literals), so a query either already says what is allowed
+// or comes back with the fix in the message.
+const assertAllowedQuery = (
+  sql: string,
+  tables: string[],
+  scope: DatabricksScope,
+): void => {
+  const parsed = parseSingleSelect(sql)
+  if (!parsed) {
+    throw new SqlRejected(
+      'send exactly one SELECT and nothing else: no second statement after a semicolon, and no DDL, SHOW, DESCRIBE or write',
+    )
+  }
+  const { stmt } = parsed
+  if (containsWriteNode(stmt)) {
+    throw new SqlRejected(
+      'only a read is allowed; INSERT, UPDATE, DELETE, MERGE and DDL are rejected even inside a CTE or a subquery',
+    )
+  }
+  if (isRecord(stmt.into) && stmt.into.expr) {
+    throw new SqlRejected('SELECT INTO writes a table, so it is not allowed')
+  }
+
+  const selects = selectsIn(stmt)
+  const ctes = cteNames(selects)
+  for (const select of selects) {
+    const reads: string[] = []
+    for (const entry of Array.isArray(select.from) ? select.from : []) {
+      if (!isRecord(entry)) continue
+      if (typeof entry.table !== 'string') {
+        // A table function (read_files, range, explode…) is not a table at
+        // all, so there is nothing to allowlist. A derived table is a nested
+        // SELECT and is checked as one.
+        const derived = isRecord(entry.expr) && isRecord(entry.expr.ast)
+        if (!derived) {
+          throw new SqlRejected(
+            `read a table from the allowlist: ${tables.join(', ') || '(none)'}`,
+          )
+        }
+        continue
+      }
+      const ref = tableRef(entry)
+      if (ctes.has(ref.toLowerCase())) continue
+      if (!isAllowedTable(ref, tables)) {
+        throw new SqlRejected(
+          `${ref} is not an allowed table. Allowed: ${tables.join(', ') || '(none)'}`,
+        )
+      }
+      reads.push(ref)
+    }
+    // One read per SELECT. The proof below is over the WHERE, and in a
+    // self-join one alias' predicate reads as proof for both, so a second
+    // read of the same table would be a way around the filter.
+    if (reads.length > 1) {
+      throw new SqlRejected(
+        `one table read per SELECT: split ${reads.join(' and ')} into separate queries instead of joining them`,
+      )
+    }
+    for (const ref of reads) assertScope(select.where, ref, scope)
+  }
+}
+
+const brief = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).slice(
+    0,
+    MAX_ERROR_CHARS,
+  )
+
+// Rejects as soon as the signal aborts, so the tool's ceiling holds even if a
+// statement never settles on its own. The listener goes on the combined signal
+// the caller builds for this one call, never on the run's.
+const rejectedOnAbort = (signal: AbortSignal): Promise<never> =>
+  new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason), {
+      once: true,
+    })
+  })
+
+// The agent's Databricks tool, standing in for the PMF Engine broker's
+// Databricks scope: the manifest's table allowlist and row cap, the run's
+// jurisdiction filter, one read-only statement, and a ceiling on how long it
+// may run. Every refusal is a value the model reads and corrects, never a
+// throw, so one bad query does not end a run.
+export const databricksTool = (options: DatabricksToolOptions) => {
+  const statementTimeoutMs =
+    options.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS
+  return defineTool({
+    description: `Run one read-only SELECT over internal modeled constituent data (${options.tables.join(', ')}) and get back its columns and at most ${options.maxRows} rows. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One statement only, no DDL, no writes.`,
+    input: queryInput,
+    execute: async ({ sql }, ctx) => {
+      const scope = await options.scope(ctx)
+      if (!scope) {
+        return {
+          ok: false,
+          reason: 'no_scope',
+          detail: 'this organization has no jurisdiction to scope the query to',
+        }
+      }
+      try {
+        assertAllowedQuery(sql, options.tables, scope)
+      } catch (error) {
+        return { ok: false, reason: 'rejected', detail: brief(error) }
+      }
+
+      const timeout = AbortSignal.timeout(statementTimeoutMs)
+      const signal = AbortSignal.any([ctx.signal, timeout])
+      let result: { columns: string[]; rows: Array<Array<string | null>> }
+      try {
+        const query = ctx
+          .get(PeopleDbxStatementClient)
+          .query({ sql, params: [] }, { signal })
+        // The arm that loses the race may still reject later, and an
+        // unhandled rejection would take the task down.
+        query.catch(() => undefined)
+        result = await Promise.race([query, rejectedOnAbort(signal)])
+      } catch (error) {
+        // The run is being stopped (a deploy, or the job's own timeout), so
+        // the loop is going down and this is not the model's to fix.
+        if (ctx.signal.aborted) throw error
+        if (timeout.aborted) {
+          return {
+            ok: false,
+            reason: 'timeout',
+            detail: `the query passed ${statementTimeoutMs}ms and was cancelled; narrow it, aggregate more, or LIMIT less`,
+          }
+        }
+        return { ok: false, reason: 'query_failed', detail: brief(error) }
+      }
+
+      const truncated = result.rows.length > options.maxRows
+      const rows = truncated
+        ? result.rows.slice(0, options.maxRows)
+        : result.rows
+      return {
+        ok: true,
+        columns: result.columns,
+        rows,
+        rowCount: rows.length,
+        truncated,
+      }
+    },
+  })
+}

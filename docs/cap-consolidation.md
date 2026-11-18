@@ -89,8 +89,8 @@ successful production traffic, not a merged PR.
      opponent chain runs collection, then summary, then actions, and those
      three flip together, so collection and summary are built in wave 1 but
      wait for actions before they flip.
-   - **Wave 2, needs a Databricks tool** (a table allowlist and a row cap per
-     agent, built first): `race_opponent_actions`, `opponent_research`,
+   - **Wave 2, needs a Databricks tool** (a table allowlist, a row cap and
+     the run's jurisdiction filter per agent, built first): `race_opponent_actions`, `opponent_research`,
      `top_community_issues`, `campaign_tracker_tasks`.
    - **Wave 3, its own design each:** `find_existing_ordinances` (PDF
      reading, the code-capture files, the heaviest traffic),

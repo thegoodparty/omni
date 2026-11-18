@@ -22,6 +22,7 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 | `tools/checkLink.ts`        | HEAD status and final URL                                                                        |
 | `tools/agentWeb.service.ts` | Plain HTTP behind the private-address guard, on every redirect hop                               |
 | `tools/judgeReplay.ts`      | Serves the judge's recorded pages to a judge run                                                 |
+| `tools/queryDatabricks.ts`  | `databricksTool({ tables, maxRows, scope })`: one scoped read-only SELECT off the manifest scope |
 
 Agents live with their product: `trending_issues` is
 `src/communityIssues/trendingIssuesAgent/`.
@@ -80,6 +81,55 @@ JavaScript comes back as a failure value. It also returns the page's own
 `<time datetime>`, then JSON-LD — an agent that has to put a source inside a
 window dates it from the page, never from a search snippet. Failures are
 values, never throws, so one bad URL does not end a run.
+
+## Databricks
+
+`databricksTool` stands in for the PMF Engine broker's Databricks scope. Each
+agent builds its own, with the table allowlist and row cap from its manifest's
+`scope` block, so the grant lives in the definition and not in the model's
+hands:
+
+```ts
+tools: {
+  queryDatabricks: databricksTool({
+    tables: ['goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq'],
+    maxRows: 50_000,
+    scope: orgDatabricksScope,
+  }),
+}
+```
+
+- **One read-only SELECT, parsed.** Not a regex: the statement goes through
+  `parseSingleSelect`, every SELECT at any depth is walked (the outer one, each
+  UNION branch, each CTE body, each subquery), and a write node anywhere —
+  `INSERT`, `UPDATE`, `DELETE`, `MERGE`, DDL, or `SELECT INTO` — is rejected.
+  Two statements after a semicolon, a table function in `FROM`, and a query the
+  parser cannot read are all refused, never passed through.
+- **The allowlist is the manifest's.** A table reference must match
+  `scope.allowed_tables` exactly, or be a dot-boundary suffix of one, so
+  `dbt.<t>` and bare `<t>` work and a spoofed `evil.public.<t>` does not. A CTE
+  name is not a table and is not checked.
+- **The run's jurisdiction is not the model's to choose.** `scope` resolves it
+  from `ctx.organizationSlug` through `orgDatabricksScope` — the org's elected
+  office and `OrganizationsService.resolveServeContext`, the same source
+  `communityIssueDispatch.service.ts` builds a run's `state` and `l2_*` params
+  from. Every SELECT that reads an allowed table must prove its own
+  `Residence_Addresses_State = '<state>'` (and `'<L2 column>' = '<district>'`
+  when the office has one) in its WHERE. A query with no filter, another
+  state's, or an OR that steps around it is rejected with the clause to add. An
+  org with no jurisdiction gets `no_scope` and no query runs.
+- **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
+  reads a double-quoted identifier as a string), so the model writes the filter
+  itself and the tool proves it rather than splicing SQL.
+- Results are cut at `maxRows` with `truncated: true`. Every refusal is a value
+  the model reads and corrects — `rejected` with the fix, `no_scope`,
+  `query_failed` with the warehouse's message, `timeout` — so one bad query
+  never ends a run. The only throw is the run's own `signal` aborting, which
+  means the loop is going down.
+- It runs on `ctx.get(PeopleDbxStatementClient)`, the same Statement Execution
+  client the voter reads use, and passes its own signal so a statement that
+  never settles still stops at `statementTimeoutMs` (30s default) and is
+  cancelled at the warehouse.
 
 ## Moving a PMF Engine agent here
 

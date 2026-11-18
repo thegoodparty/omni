@@ -209,7 +209,14 @@ export class PeopleDbxStatementClient {
 
   // Rows come back positionally as strings (or null) under JSON_ARRAY, which
   // is why callers coerce per column rather than trusting a driver's typing.
-  async query(statement: DbxStatement): Promise<PeopleDbxRows> {
+  //
+  // `signal` is for callers outside an HTTP request — a pg-boss worker — where
+  // requestAbortSignal has nothing to carry. Either one cancels the statement
+  // and stops the poll.
+  async query(
+    statement: DbxStatement,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<PeopleDbxRows> {
     const config = this.config()
     return this.statementSpan(config, 'INLINE', async (span) => {
       const startedAt = Date.now()
@@ -224,7 +231,12 @@ export class PeopleDbxStatementClient {
       })
       recordStatementId(first.statement_id)
       this.markStatementId(span, first.statement_id)
-      const settled = await this.awaitCompletion(config, first, startedAt)
+      const settled = await this.awaitCompletion(
+        config,
+        first,
+        startedAt,
+        options.signal,
+      )
       const columns =
         settled.manifest?.schema?.columns.map((column) => column.name) ?? []
       const rows = [...(settled.result?.data_array ?? [])]
@@ -365,6 +377,7 @@ export class PeopleDbxStatementClient {
     config: PeopleDbxConfig,
     initial: StatementResponse,
     startedAt: number,
+    signal?: AbortSignal,
   ): Promise<StatementResponse> {
     let current = initial
     while (current.status.state !== SUCCEEDED) {
@@ -374,7 +387,7 @@ export class PeopleDbxStatementClient {
             (current.status.error?.message ?? 'no error message'),
         )
       }
-      if (requestAbortSignal.getStore()?.aborted) {
+      if (signal?.aborted || requestAbortSignal.getStore()?.aborted) {
         this.cancel(config, current.statement_id)
         throw new PeopleDbxClientAbortedError()
       }
