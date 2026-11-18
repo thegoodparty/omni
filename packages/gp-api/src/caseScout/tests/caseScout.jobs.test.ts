@@ -565,6 +565,37 @@ describe('caseScoutDraft', () => {
     expect(record().counts).toMatchObject({ candidates: 5, capped: 2 })
   })
 
+  it.each([
+    ['dev', { proposed: 3, capped: 1 }],
+    ['prod', { proposed: 1, capped: 3 }],
+  ])(
+    'reads the merge share for the cap only in prod (%s)',
+    async (environment, counts) => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', environment)
+      await seedSessions([3, 3, 3, 3])
+      const earlier = parseISO('2026-11-10T09:30:00.000Z').toISOString()
+      const unmerged = ['a', 'b', 'c'].map((id) => ({
+        runId: '2026-11-10',
+        conversationId: `conv-old-${id}`,
+        agentId: 'chief_of_staff',
+        outcome: 'proposed',
+        caseId: `old-${id}`,
+        failureSummary: `old failure ${id}`,
+        createdAt: earlier,
+      }))
+      objects.set(
+        `${BUCKET}/ledger/2026-11.jsonl`,
+        unmerged.map((line) => JSON.stringify(line)).join('\n') + '\n',
+      )
+      draftFor = (sessionId) =>
+        newCase(`case-${sessionId.split(':')[1]}`, `failure ${sessionId}`)
+
+      await service.jobs.runSchedule('caseScoutNightly')
+
+      expect(record().counts).toMatchObject(counts)
+    },
+  )
+
   it('suppresses duplicates, rejections and caseId collisions', async () => {
     await seedSessions([3, 3, 3])
     const earlier = parseISO('2026-11-10T09:30:00.000Z').toISOString()
