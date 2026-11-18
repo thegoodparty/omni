@@ -1,0 +1,39 @@
+// The change outbox: one row per captured write, written by the AFTER ROW
+// trigger db_change_capture() on every table that has a handler in
+// src/jobs/changes.registry.ts. The relay service forwards each row to its
+// handlers' pg-boss queues and stamps relayed_at.
+model DbChange {
+  id        BigInt    @id @default(autoincrement())
+  tableName String    @map("table_name")
+  // The primary key values of the changed row, so the relay can keep one
+  // pg-boss group per row and its changes stay in order.
+  rowKey    Json      @map("row_key") @db.JsonB
+  op        String
+  oldRow    Json?     @map("old_row") @db.JsonB
+  newRow    Json?     @map("new_row") @db.JsonB
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  relayedAt DateTime? @map("relayed_at") @db.Timestamptz(3)
+
+  // For the retention delete; unsent rows are found by the partial index the
+  // migration adds (id, WHERE relayed_at IS NULL), which Prisma cannot express.
+  @@index([relayedAt])
+  @@map("db_change")
+}
+
+// A single row (id 1). The capture trigger reads it on every write, so
+// flipping `enabled` off stops all capture without dropping any trigger.
+model DbChangeConfig {
+  id      Int     @id
+  enabled Boolean
+
+  @@map("db_change_config")
+}
+
+// A single row (id 1), held by the one task relaying. As email_sweep_lease.
+model DbChangeRelay {
+  id        Int       @id
+  holder    String?
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+
+  @@map("db_change_relay")
+}

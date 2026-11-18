@@ -79,6 +79,8 @@ import { RunIdSchema } from '@/caseScout/schemas/caseScoutBucket.schema'
 import { CaseScoutDraftService } from '@/caseScout/services/caseScoutDraft.service'
 import { CaseScoutNightlyService } from '@/caseScout/services/caseScoutNightly.service'
 import { CaseScoutScoreService } from '@/caseScout/services/caseScoutScore.service'
+import { DbChangeCleanupService } from '@/dbChanges/dbChangeCleanup.service'
+import { CHANGE_JOBS } from './changes.registry'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -778,6 +780,10 @@ export const JOBS = {
     timeoutMinutes: 30,
     maxConcurrent: 1,
   }),
+  // One queue per change handler (src/jobs/changes.registry.ts), set up
+  // exactly like the jobs above: the relay sends a captured write to each of
+  // its table's queues, and the worker hands it to the handler.
+  ...CHANGE_JOBS,
 }
 
 export type Jobs = typeof JOBS
@@ -1357,6 +1363,20 @@ export const SCHEDULES = {
     cron: '17 9 * * *',
     worker: (_job, { get }) => get(CaseScoutNightlyService).runNight(),
     alertAfterWaitingMinutes: 60,
+  }),
+  // :26 past every hour: deletes change outbox rows the relay sent more than
+  // a week ago, in batches, so the table does not grow without bound. Off
+  // the hour, and it touches only rows no relay reads.
+  dbChangeCleanup: defineSchedule({
+    cron: '26 * * * *',
+    worker: async (job, { get }) => {
+      await get(DbChangeCleanupService).sweepRelayed(job.signal)
+    },
+    alertAfterWaitingMinutes: 60,
+    // A batch is one indexed DELETE, and the sweep stops starting batches when
+    // the job is aborted (a deploy) or the batches run out, so this only ends
+    // one hung on the database.
+    timeoutMinutes: 10,
   }),
 }
 

@@ -84,6 +84,7 @@ import { DevEnvModule } from '@/devEnv/devEnv.module'
 import { JudgeModule } from '@/judge/judge.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { JobsModule } from '@/jobs/jobs.module'
+import { DbChangesModule } from '@/dbChanges/dbChanges.module'
 import { CaseScoutModule } from '@/caseScout/caseScout.module'
 import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult.module'
 
@@ -177,6 +178,9 @@ import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult
     DevEnvModule,
     JudgeModule,
     VendorMocksModule,
+    // The relay that forwards captured writes to their handlers. At the root
+    // so it runs with the app; nothing that serves a request imports it.
+    DbChangesModule,
     // The agentExperimentResult job's handler. Loaded in tests too, unlike
     // the SQS consumer that forwards to it.
     AgentExperimentResultModule,
