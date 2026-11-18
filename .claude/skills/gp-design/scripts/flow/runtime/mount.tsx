@@ -5,7 +5,7 @@
 // the flow of the option it sits in.
 // ?view=phone|desktop[&option=b][&step=2|&state=upload-failed] shows one frame alone at
 // the window's size, for the Desktop preview tab and for screenshots.
-import { useEffect, useRef, useState, type ComponentType } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { Button } from '@styleguide/components/ui/button'
@@ -17,11 +17,14 @@ import { Frame } from './frame'
 import {
   GoContext,
   ProductContext,
+  StoreContext,
+  makeStore,
   type FlowModule,
   type Product,
 } from './index'
 
 const controllers: Record<string, (step: string) => void> = {}
+const restarts: Record<string, () => void> = {}
 
 // With no products export, the flow is the page's one product: <main data-product>.
 const pageProduct = (): Product =>
@@ -44,6 +47,7 @@ const Navigator = ({
 }) => {
   // visit changes on every go(), so going to the screen already showing starts it over.
   const [{ step, visit }, setNav] = useState({ step: initial, visit: 0 })
+  const [store, setStore] = useState(() => makeStore())
   const ref = useRef<HTMLDivElement>(null)
   const go = (next: string) => {
     setNav((n) => ({ step: next, visit: n.visit + 1 }))
@@ -51,29 +55,42 @@ const Navigator = ({
   }
   useEffect(() => {
     controllers[oid] = go
+    restarts[oid] = () => {
+      setStore(makeStore())
+      go('entry')
+    }
   })
   const Screen = flow.screens[step] as ComponentType | undefined
   return (
-    <GoContext.Provider value={go}>
-      <div
-        ref={ref}
-        className="contents"
-        data-gp-step={step}
-        onClickCapture={(e) => {
-          const target = (e.target as Element).closest('[data-go]')
-          if (target) go(target.getAttribute('data-go') ?? 'entry')
-        }}
-      >
-        {Screen ? <Screen key={visit} /> : <Missing what={step} />}
-      </div>
-    </GoContext.Provider>
+    <StoreContext.Provider value={store}>
+      <GoContext.Provider value={go}>
+        <div
+          ref={ref}
+          className="contents"
+          data-gp-step={step}
+          // Bubble, not capture: the element's own onClick (a useFlowState setter)
+          // runs before the screen it sits on unmounts.
+          onClick={(e) => {
+            const target = (e.target as Element).closest('[data-go]')
+            if (target) go(target.getAttribute('data-go') ?? 'entry')
+          }}
+        >
+          {Screen ? <Screen key={visit} /> : <Missing what={step} />}
+        </div>
+      </GoContext.Provider>
+    </StoreContext.Provider>
   )
 }
 
 const StateScreen = ({ flow, id }: { flow: FlowModule; id: string }) => {
   const state = flow.states?.[id]
+  const store = useMemo(() => makeStore(state?.values), [state])
   const Screen = state?.screen as ComponentType | undefined
-  return Screen ? <Screen /> : <Missing what={id} />
+  return (
+    <StoreContext.Provider value={store}>
+      {Screen ? <Screen /> : <Missing what={id} />}
+    </StoreContext.Provider>
+  )
 }
 
 const Option = ({
@@ -101,7 +118,7 @@ const Option = ({
                 id={`${x}-restart`}
                 variant="outline"
                 size="small"
-                onClick={() => controllers[oid]?.('entry')}
+                onClick={() => restarts[oid]?.()}
               >
                 Restart
               </Button>
@@ -172,7 +189,9 @@ const View = ({
   params: URLSearchParams
 }) => {
   const product =
-    (params.get('product') as Product | null) ?? flow.products?.[0] ?? 'serve'
+    (params.get('product') as Product | null) ??
+    flow.products?.[0] ??
+    pageProduct()
   const state = params.get('state')
   return (
     <ProductContext.Provider value={product}>

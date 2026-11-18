@@ -52,6 +52,7 @@ when index.html was built without the current fragment or without the switch
 that hides build shapes by default.
 """
 import hashlib
+import html as htmllib
 import json
 import re
 import shutil
@@ -154,7 +155,9 @@ def resolve(val, defs, depth=0):
 
 
 def quoted(a):
-    return a.get('id') == 'questions' or re.fullmatch(r'[a-c]-drops', a.get('id') or '') is not None
+    # A "Today: ..." state shows a shipped screen as it ships, so its words are quoted too.
+    return (a.get('id') == 'questions' or re.fullmatch(r'[a-c]-drops', a.get('id') or '') is not None
+            or (a.get('data-gp-label') or '').startswith('Today:'))
 
 
 class TextParser(HTMLParser):
@@ -397,12 +400,31 @@ def main():
                 if m['kind'] in ('product', 'no-component', 'gap') and ' '.join(m['text'].split()).lower() not in listed:
                     problems.append(f'{oid}: flow/{flow.name}:{m["line"]}: the {m["kind"]} marker "{m["text"]}" has no row '
                                     f'in #{x}-mutations quoting it')
+            # A proposal goes through docs/product-design.md section 7: an existing C-xx entry in
+            # docs/product-design-gaps.md, or a question for #tmp-design-agent under Decisions needed.
+            asked = ' '.join(visible_text(element_html(html, 'questions') or '').split()).lower()
+            gaps_doc = (repo_root() / 'docs' / 'product-design-gaps.md').read_text(encoding='utf-8')
+            for m in markers:
+                if m['kind'] not in ('no-component', 'gap'):
+                    continue
+                prop = re.search(r';\s*proposes\s+(.+)$', m['text'], flags=re.S)
+                if not prop:
+                    continue
+                what = ' '.join(prop.group(1).split()).rstrip('.').strip()
+                ids = re.findall(r'\bC-\d+\b', what)
+                if ids:
+                    for cid in ids:
+                        if not re.search(rf'\b{cid}\b', gaps_doc):
+                            problems.append(f'{oid}: flow/{flow.name}:{m["line"]}: {cid} is not in docs/product-design-gaps.md')
+                elif what.lower() not in asked:
+                    problems.append(f'{oid}: flow/{flow.name}:{m["line"]}: the proposal "{what}" is not under Decisions '
+                                    f'(#questions); a new component goes to #tmp-design-agent first (docs/product-design.md section 7)')
         # Every inert control (data-inert="<name>") is named in a Built from row "Not part of this change".
         rows = re.findall(r'<tr\b[^>]*>(.*?)</tr>', element_html(section, f'{x}-sources') or '', flags=re.S)
         not_part = ' '.join(' '.join(visible_text(r).split()).lower() for r in rows
                             if 'not part of this change' in visible_text(r).lower())
         for name in sorted(set(re.findall(r'\bdata-inert="([^"]*)"', strip_sections(strip_markup(section), 'build-shape')))):
-            name = ' '.join(name.split())
+            name = ' '.join(htmllib.unescape(name).split())
             if not name:
                 problems.append(f'{oid}: data-inert="" needs the control\'s name as its Built from row says it')
             elif name.lower() not in not_part:

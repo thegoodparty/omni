@@ -47,6 +47,7 @@ const Footer = ({
         <Button
           size="large"
           className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
+          data-source="packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx:281"
           data-go={next}
         >
           {label}
@@ -55,6 +56,7 @@ const Footer = ({
           size="large"
           variant="ghost"
           className="shrink-0 lg:min-w-[140px]"
+          data-source="packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx:307"
           data-go={back}
         >
           Back

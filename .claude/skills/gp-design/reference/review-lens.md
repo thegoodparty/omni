@@ -50,8 +50,8 @@ the page and put the question in the comment you post back. Never invent a numbe
 
 - Phone first.
 - Show today's screen before the change when the design changes an existing
-  screen and the before is needed to judge it: the optional Today strip in
-  `assets/page-template-one.html`.
+  screen and the before is needed to judge it: a state labeled "Today:
+  <screen>" ("Other states appendix" in `wireframe-build.md`).
 - Copy the page around the feature from source, so the change sits in its real
   context.
 - Say what feedback we want today, and the context someone needs to give it.

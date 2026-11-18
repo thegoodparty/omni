@@ -21,8 +21,14 @@ imports the real components from `packages/styleguide`
 - `screens`: the clickable flow, one function per screen. `entry` is where the
   user starts. Any element with `data-go="<screen key>"` opens that screen when
   clicked; `useGo()` from `gp-flow` does the same from code (an upload that
-  finishes).
-- `states`: Other states, each `{ label, screen }` (below).
+  finishes). A choice that lasts across screens (a picked color, a removed
+  photo) is `const [color, setColor] = useFlowState('color', 'neutral')` from
+  `gp-flow`, never a module-level variable: Restart clears it, and every
+  screen of the flow reads the same value. A control may both set it in its
+  `onClick` and carry `data-go`: the setter runs first, then the flow moves on.
+- `states`: Other states, each `{ label, screen }`, plus `values` to start
+  that state's `useFlowState` somewhere other than the defaults
+  (`values: { color: 'blue' }`) (below).
 - `products` (optional): `['serve', 'win']` when the ticket names both ("Win
   and Serve").
 
@@ -47,7 +53,13 @@ window. On the page it is a 375 x 812 phone. Desktop preview (beside Restart;
 both are drawn by `build.py` with the real `Button`) opens the same flow at the
 window's width in a new tab, `?view=desktop` (`&option=b` on the options page).
 For screenshots, `?view=phone` or `?view=desktop` with `&step=<screen key>` or
-`&state=<state key>` opens one screen alone at the window's size.
+`&state=<state key>` opens one screen alone at the window's size. That page has
+no review page around it and no `data-gp-flow` mount: the screen sits in
+`#gp-view > [data-gp-frame]`, so a script that clicks through it looks there.
+`scripts/flow/shoot.mjs` shoots every screen and state this way, waits for an
+open overlay to finish sliding in, adds a `-full.png` at the screen's full
+height when something in the frame scrolls, and reports two keys that shoot
+identically (a state that opens the wrong screen).
 
 So one flow draws both widths, as the product does:
 
@@ -80,7 +92,16 @@ window some other way, fix the runtime, not the flow.
   `packages/gp-api/src/emailOutreach/templates/components.tsx`). Mark the
   rendered content `data-content="<what>"`, and give each element inside it
   that uses a literal value `data-content-source="<path>:<line>"` naming the
-  line that holds the value ("Mutations"). The product chrome around it stays
+  line that holds the value ("Mutations"). A part of the content drawn as its
+  own component (`const EmailHeader = () => ...`) is content wherever it is
+  used inside `data-content`, with the cites of where it is used; per-theme
+  values can be one cite expression (`data-content-source={THEME_SRC[color]}`
+  with `THEME_SRC` a const of `"<path>:<line>"` strings, an array of them, or
+  a template like `` `${FILE}:38` ``) instead of one branch per theme;
+  `THEME_SRC.blue` or `THEME_SRC['blue']` reads that one entry. Editor
+  controls that sit over the content (a row of buttons on the email) go in a
+  wrapper marked `data-editor`: inside it the usual rules apply, not the
+  content's. The product chrome around it stays
   as the product draws it. Never put labels or theme names inside the rendered
   content.
 - **No imagery.** A photo, map or chart is a plain placeholder with a label
@@ -91,8 +112,7 @@ window some other way, fix the runtime, not the flow.
 - **Real words.** Real headings, button labels and sample values from
   `docs/design-memory/fixtures.md`. No lorem ipsum, no `[BRACKETS]`. A message
   preview that fills a merge tag uses the sample recipient there.
-- **Phone first.** Design the 375 frame first; the desktop is the same flow at
-  1280. Same content, same order, same actions (`docs/product-design.md` §10).
+- **Phone first.** Design the 375 frame first; the desktop is the same flow at 1280. Same content, same order, same actions (`docs/product-design.md` §10).
 - **Flow steps vs dashboard screens.** A full-screen flow step has no dashboard
   top bar: it has the flow's own header, and its footer with the actions stays
   at the bottom (`h-dvh` and a scrolling body, as `assets/flow-template.tsx`
@@ -118,6 +138,9 @@ that in a flow:
    pattern, same labels word for word. Copy each element's classes from its
    source and put `data-source="<path>:<line>"` on the outermost element you
    copied, naming the line of that element; it covers everything inside it.
+   The lint reads the cited file: the lines around the cite (3 up, 8 down)
+   must hold that element's component tag, one of its classes, or its text,
+   so an import line or a nearby line that only looks right fails.
    Classes copied as they are keep the visual order: the `OutreachFlowShell.tsx`
    footer is `flex-row-reverse` with the main action first in the DOM, so Back
    shows on the left. Secondary text the source ships (a muted caption, a price line) is earned by
@@ -168,19 +191,26 @@ The rules are gp-webapp's `check:design-system` (`packages/gp-webapp/AGENTS.md`,
   sized control's height and padding; layout is free) carries one of, in the
   order of `docs/product-design.md` §7, "Pick in this order":
   1. `data-mutation="product <path>:<line>"`: the product already restyles it
-     this way for this job. Copy it exactly; no new look-alike.
+     this way for this job. Copy it exactly; no new look-alike. The cite is
+     read like a `data-source` ("Existing screens" item 2).
   2. `data-mutation="no-component <closest>; proposes <what>"`: no component
      does the job. `<closest>` is the closest component; `<what>` is a
      variant, a new component, or an audit C-xx id. Only after the step 2
      prior art search (`options-workflow.md`) finds no product solution for the same
-     job; when it finds one, that is item 1.
+     job; when it finds one, that is item 1. A proposal is not a decision:
+     `check.py` fails unless `<what>` is an audit C-xx id that exists in
+     `docs/product-design-gaps.md`, or the same words appear under Decisions
+     needed (`#questions`) as a question for #tmp-design-agent
+     (`docs/product-design.md` §7). The same holds for a `data-gap`'s proposal.
 - **A hand-drawn look is a gap.** A plain element (`div`, `span`, `p`) with a
   visual class sits under a `data-source` (copied from the product) or carries
   `data-gap="<what>; proposes <component or C-xx>"`: nothing in the product or
   the styleguide draws it.
 - **Never hardcoded.** No hex or `rgb()` in a class, no raw palette color
-  (`bg-blue-600`, `bg-white`) and no literal type size or radius
-  (`text-[13px]`, `rounded-[10px]`) outside copied markup, no `style={}`,
+  (`bg-blue-600`, `bg-white`) and no literal type size, line height or radius
+  (`text-[13px]`, `leading-[inherit]`, `rounded-[10px]`) outside copied markup,
+  where a bracketed value is the product's only when the source holds it (the
+  cited lines on the element that carries the cite, the cited file below it), no `style={}`,
   nothing shrunk below 0.75 (`scale-`, `zoom`), no odd px spacing
   (`p-[13px]`). New markup switches layout at `lg:` only, never `sm:`, `md:`
   or `max-*:` (`docs/product-design.md` §10); copied markup keeps its own. An
@@ -188,8 +218,19 @@ The rules are gp-webapp's `check:design-system` (`packages/gp-webapp/AGENTS.md`,
 - **Rendered content.** The one exception is the rendered content of a
   look-and-feel ticket, inside `data-content`: a plain element with
   `data-content-source="<path>:<line>"` may use `style={}` and bracketed
-  classes, and every literal value in them must be on that line. Styleguide
+  classes, and every literal value in them must be on the lines it cites.
+  `style={}` anywhere else is allowed only in markup copied under
+  `data-source`, with its values in the 40 lines from the cite. A styleguide
+  component restyled through `style` is a mutation like one restyled through
+  `className`. A value the source computes (`` `${lineHeight}px` ``) goes in a
+  const in the flow with the cite beside it. A
+  look or spacing class without brackets (`px-6`, `text-sm`, `border-border`)
+  must be on those lines by name; when the source is an inline-styled template,
+  write its value as a bracket (`px-[24px]`) instead. Styleguide
   components inside it (the editor's controls) follow every rule above.
+- **Seamless fields.** A `Textarea` or `TokenField` with
+  `variant="seamless"` sits in a card that takes `seamlessFieldHost`
+  (`@styleguide/components/ui/textarea`), or its focus never shows.
 - **Earned elements.** A muted paragraph (`<p>` with `text-muted-foreground`),
   an `Alert`, and a new plain element that needs its own look (a helper line)
   carry `data-earned="<why>"` unless they're copied under `data-source`. A
@@ -300,7 +341,9 @@ covers everything outside the Win copy.
 Words follow `docs/product-copy.md`, and Win vs Serve words
 `docs/product-vocabulary.md`. `check.py` reads the banned list from "Words we
 do not use" in `docs/product-copy.md` each run, over the page and every screen
-and state of every flow.
+and state of every flow, copied product strings included: a shipped string
+that breaks the list is not a false alarm. Rewrite it and list the old and new
+text in What changes from today ("Every option must have").
 
 ## Page rules
 

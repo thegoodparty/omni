@@ -28,6 +28,11 @@ safety, parks, affordable housing, stormwater.
 **Sample constituent: Tom Alvarez.** A Maplewood resident. The recipient in a
 message preview that fills a merge tag ("Hi Tom").
 
+**Her office, for anything that sends:** the sender is "Council Member Sarah
+Chen, City of Maplewood", replies go to `sarah.chen@maplewood.example`, and she
+has imported 860 contacts with an email address. Use the reserved `.example`
+domain, never a real-looking one.
+
 Maplewood is deliberately small and ordinary. If a design only works for a big
 city, it does not work.
 
@@ -49,6 +54,13 @@ fields, account cards, an email's To line.
 
 **Sample voter: Linda Park.** A registered voter in Maplewood. The recipient in
 a message preview that fills a merge tag ("Hi Linda").
+
+**Her campaign, for anything that sends:** the committee is "Dana Ortiz for
+City Council" (the "Paid for by" line), the campaign website is
+`danaortiz.example`, and email replies go to `dana@danaortiz.example`. Use the
+reserved `.example` domain, never a real-looking one. She has imported 1,240
+contacts with an email address, so an email to everyone reaches 1,240 people;
+the voter file itself has no email addresses.
 
 Jared stays her candidate success contact, the same as for Serve.
 

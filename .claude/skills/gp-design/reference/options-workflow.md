@@ -144,7 +144,12 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    recent shipped feature that does the same job: search the product map
    (`packages/gp-api/src/chats/general/product-knowledge/productMap.ts`) and
    merged PRs from the last two months in `packages/gp-webapp/app/dashboard`, and
-   read its code. Copy it, unless `docs/product-design.md` names it as a known
+   read its code. Then read the `AGENTS.md` of the area the flow lives in and
+   its siblings (`packages/gp-webapp/app/dashboard/outreach/AGENTS.md` lists
+   every outreach channel's steps), and grep their code for the job's verb
+   (crop, upload, schedule, preview): a part one channel already ships is
+   prior art for every other. Never mark a `no-component` mutation or a gap
+   before this search. Copy it, unless `docs/product-design.md` names it as a known
    gap; then follow the rule and say so in the post-back. When two recent
    features do the same job two ways and the docs don't settle it, pick one and
    ask in the post-back.
@@ -223,7 +228,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    (`scripts/flow/lint.mjs`) catches raw elements, imports outside the
    styleguide, restyled components and hand-drawn looks with no marker,
    hardcoded colors, `style={}`, shrunk text, off-scale spacing, unearned
-   muted text and banners, and `data-go` to no screen. Then render
+   muted text and banners, a seamless field with no host, a cite that holds
+   nothing of what it claims, and `data-go` to no screen. Then render
    it with `agent-browser` (headless Chromium), or Playwright (channel
    `chromium`) when `agent-browser` isn't installed. Playwright lives in the
    repo root `node_modules`, or the main checkout's when a worktree has none.
@@ -232,8 +238,13 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    320px. On the page, click through the phone frame; open Desktop preview and
    click through it at 1280, 1024 and 1023.
    `node scripts/flow/shoot.mjs <work>/page/index.html <work>/screens`
-   screenshots the page and every screen and state alone (phone and desktop)
-   and reports page errors, blank icons and sideways scroll. To open one
+   screenshots the page and every screen and state alone (phone, and each
+   screen at 1280, 1024 and 1023), at full height when the screen scrolls,
+   clicks every `data-go` on every screen at 375, and reports page errors,
+   blank icons, sideways scroll, dead `data-go` and screens that come out
+   identical. It does not follow a path of several screens, so click through
+   each path yourself to see that a choice made on one screen (a photo, a
+   color) is still there on the next. To open one
    screen yourself, `?view=phone` or `?view=desktop` with `&step=<screen key>`
    or `&state=<state key>` (and `&option=b` on the options page). Click every path in every option. Move the mouse off the page
    before each screenshot, so no hover state shows; then hover, focus and
@@ -267,7 +278,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    script under `.claude/skills/ux-review-options/scripts/` (`option_section.py`,
    `build.py`), run the one with the same name under
    `.claude/skills/gp-design/scripts/` instead: only it hashes the flow file,
-   and `check.py` here rejects a fragment hashed any other way. It writes one fragment per option to `<work>/build/`,
+   and `check.py` here rejects a fragment hashed any other way. build-shape's
+   own scripts (its `check.py` on the fragments) run as it says. It writes one fragment per option to `<work>/build/`,
    which is reserved for those fragments: backups and tools go elsewhere.
    Its notes go to `<work>/build-shape-notes.md`. A risk it reports about an
    ADR goes under "Decisions needed"; one about feature loss goes in

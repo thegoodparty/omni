@@ -8,27 +8,36 @@ import { StaticFrame } from './frame'
 import {
   GoContext,
   ProductContext,
+  StoreContext,
+  makeStore,
   type FlowModule,
+  type FlowValues,
   type Product,
 } from './index'
 
-const render = (Screen: ComponentType, product: Product) =>
+const render = (Screen: ComponentType, product: Product, values?: FlowValues) =>
   renderToStaticMarkup(
     <ProductContext.Provider value={product}>
-      <GoContext.Provider value={() => {}}>
-        <StaticFrame width={375}>
-          <Screen />
-        </StaticFrame>
-      </GoContext.Provider>
+      <StoreContext.Provider value={makeStore(values)}>
+        <GoContext.Provider value={() => {}}>
+          <StaticFrame width={375}>
+            <Screen />
+          </StaticFrame>
+        </GoContext.Provider>
+      </StoreContext.Provider>
     </ProductContext.Provider>,
   )
 
-const both = (Screen: ComponentType, products: Product[]) =>
+const both = (
+  Screen: ComponentType,
+  products: Product[],
+  values?: FlowValues,
+) =>
   products
     .map((p) =>
       p === 'win' && products.length > 1
-        ? `<div data-product="win">${render(Screen, p)}</div>`
-        : render(Screen, p),
+        ? `<div data-product="win">${render(Screen, p, values)}</div>`
+        : render(Screen, p, values),
     )
     .join('')
 
@@ -44,9 +53,7 @@ export const snapshot = (
     }
   > = {}
   for (const [oid, flow] of Object.entries(flows)) {
-    const products = flow.products?.length
-      ? flow.products
-      : (['serve'] as Product[])
+    const products = flow.products?.length ? flow.products : [pageProduct]
     out[oid] = { screens: {}, states: {} }
     for (const [step, screen] of Object.entries(flow.screens)) {
       out[oid].screens[step] = both(screen as ComponentType, products)
@@ -54,7 +61,7 @@ export const snapshot = (
     for (const [id, s] of Object.entries(flow.states ?? {})) {
       out[oid].states[id] = {
         label: s.label,
-        html: both(s.screen as ComponentType, products),
+        html: both(s.screen as ComponentType, products, s.values),
       }
     }
   }

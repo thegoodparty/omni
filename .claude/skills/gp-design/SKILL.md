@@ -41,6 +41,9 @@ anything else, from the repo root, and fix what is missing without asking:
   succeeds. If not, run `npm ci` (in a worktree, `scripts/worktree-setup.sh`
   instead). Tell the user it takes a few minutes.
 - `npx playwright install chromium` has been run once, so screenshots work.
+  Any script you write to render the page launches it the way
+  `scripts/flow/shoot.mjs` does, `chromium.launch({ channel: 'chromium' })`:
+  a plain `launch()` looks for a headless shell that this install skips.
 
 ## 1. Take the task
 
