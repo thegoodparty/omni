@@ -635,6 +635,40 @@ describe('PaymentEventsService', () => {
         mockCampaign.id,
         expect.objectContaining({ subscriptionId: 'sub_new' }),
       )
+      // Linking is not fulfilling: without the checkout's metadata stamp this
+      // event cannot tell which campaign the subscription was sold for.
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
+    })
+
+    it('error-logs a differing stored subscriptionId and leaves the campaign alone', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        details: { ...mockCampaign.details, subscriptionId: 'sub_previous' },
+      })
+      const event = {
+        data: {
+          object: {
+            id: 'sub_new',
+            customer: 'cus_test',
+            status: 'active',
+            metadata: { userId: String(mockUser.id) },
+          },
+        },
+      } as unknown as Stripe.CustomerSubscriptionCreatedEvent
+
+      await service.customerSubscriptionCreatedHandler(event)
+
+      expect(logger.error).toHaveBeenCalledWith(
+        {
+          campaignId: mockCampaign.id,
+          userId: mockUser.id,
+          previousSubscriptionId: 'sub_previous',
+          incomingSubscriptionId: 'sub_new',
+        },
+        expect.stringContaining('possible duplicate Pro subscription'),
+      )
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
     })
 
     it('no-ops and warns when the user has no active campaign', async () => {
