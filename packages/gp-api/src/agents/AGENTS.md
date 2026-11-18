@@ -25,7 +25,8 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 | `tools/queryDatabricks.ts`  | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
 
 Agents live with their product: `trending_issues` is
-`src/communityIssues/trendingIssuesAgent/`.
+`src/communityIssues/trendingIssuesAgent/`, `top_community_issues` is
+`src/communityIssues/topCommunityIssuesAgent/`.
 
 ## Adding an agent
 
@@ -53,6 +54,17 @@ await agentsService.run('myAgent', { organizationSlug, topic })
   is inferred from `input`, and its second argument is the `ToolContext`.
 - `output` is enforced when the model calls `submitOutput`. A miss returns
   Zod's list of what is wrong, not the whole input, and the model retries.
+- **An agent that reads the warehouse cannot submit an output no successful
+  query backs.** A tool built with `readsWarehouse: true` (only
+  `queryDatabricks` is) makes `submitOutput` refuse while the run has had no
+  query come back `ok`, because a schema-valid artifact is exactly what a
+  model invents when the warehouse was unreachable. This is the PMF Engine
+  broker's `NoDataQueriesSucceeded` gate, moved to the engine. The escape is
+  the manifest's own carve-out, declared as `dataRequiredUnless`: an output
+  whose named field carries one of the listed values is not claiming data,
+  so the gate does not apply. `top_community_issues` declares
+  `data_quality: insufficient_signal`, as its manifest's
+  `scope.data_required_unless` does.
 - `onArtifact` saves the validated output where the product reads it. It
   can run twice for one run (a crash after it, before the run is marked
   complete), so make it an upsert.
@@ -187,6 +199,17 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   that itself contains a single quote is refused: Spark reads `''` as two
   adjacent literals, not an escaped quote, so that value cannot be written in a
   query at all and a query naming it would match nothing.
+- **A scope can come from the run's stored input instead.**
+  `top_community_issues` passes `topCommunityIssuesDatabricksScope`, which
+  reads `AgentRun.input` by `ctx.runId` (never anything the model sends). The
+  dispatcher built that input from the same `resolveServeContext`, so in
+  production the two agree (a test holds them equal), and a judge run, whose
+  cases share one fixture org, is scoped to each case's own district. It fails
+  closed: no state or half an L2 pair is `no_scope`.
+- **The table must be one gp-api's principal can read**: `mart_gp_api`, the
+  schema with a grant that survives a dbt rebuild. A manifest's `dbt.*` table
+  gets a mart view first, and where the table varies by org the run carries the
+  name (`top_community_issues` reads the org's own people mart).
 - **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
   reads a double-quoted identifier as a string), so the model writes the filter
   itself and the tool proves it rather than splicing SQL.
@@ -227,6 +250,8 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
 5. Add it to `IN_PROCESS_AGENTS` in the judge
    (`src/chats/evals/judge/runners/backgroundInProcess.ts`): its candidate
    arm then runs on gp-api against the PMF Engine's base arm.
+6. Delete its `qa/` manifest under `packages/runbooks/experiments/`. QA
+   checkers are not migrated.
 
 ## How a run works
 

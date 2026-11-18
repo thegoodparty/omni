@@ -20,6 +20,9 @@ export type ToolContext = {
 export type AgentTool<I extends z.ZodType = z.ZodType> = {
   description: string
   input: I
+  // Set on a tool that reads the warehouse, so the loop can tell whether an
+  // output's data is real without knowing any tool by name.
+  readsWarehouse?: true
   execute: (input: z.infer<I>, ctx: ToolContext) => Promise<unknown>
 }
 

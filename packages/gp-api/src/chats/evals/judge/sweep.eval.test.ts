@@ -5,7 +5,7 @@ import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
 import { chatArmRuntimeFor } from './runners/httpChatRuntime'
 import { captureArm, unjudgeableRecords, type ArmCaseRequest } from './sweepArm'
-import { installBraveKey } from './braveKey'
+import { installBraveKey, installPeopleDbxKeys } from './braveKey'
 import { restoreRealModelKey } from './modelKey'
 import { judgeAwsClientConfig } from './awsCredentials'
 import { S3Client } from '@aws-sdk/client-s3'
@@ -169,6 +169,9 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
         // pattern, and it is a no-op when the key is already set or the
         // secret cannot be read.
         await installBraveKey()
+        // queryDatabricks reads through gp-api's voter-file client, whose
+        // identity `.env.test` does not carry either.
+        await installPeopleDbxKeys()
         await seedJudgeFixture(service.prisma)
         service.app.get(AgentPageReplayService).s3 = new S3Client(
           judgeAwsClientConfig(),
