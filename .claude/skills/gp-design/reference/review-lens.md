@@ -28,6 +28,11 @@ the page and put the question in the comment you post back. Never invent a numbe
 - What does the user see when it goes wrong, while it's working, and when they
   come back later to work that finished without them? How do they fix or undo
   it? These go in the Other states appendix, not the main frame.
+- Is everything on the page something the task asks for? A section, step or
+  screen beyond the ask is a question under "Decisions needed", not part of
+  the design.
+- Does it change a component other screens use? Which screens, and is that
+  asked under "Decisions needed"?
 - Does it work for every product the ticket names? Win and Serve share one frame
   with a switch; only screens that really differ are drawn twice.
 - What cheap variants are worth testing later (copy length, color, photo or

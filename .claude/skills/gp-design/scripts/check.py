@@ -227,6 +227,32 @@ def repo_root():
     sys.exit('check.py: docs/product-design.md not found above ' + str(Path(__file__).resolve()))
 
 
+IMPORTERS = {}
+
+
+def importers(path):
+    """Files in gp-webapp and the styleguide that import the module at path (by its file name)."""
+    if path not in IMPORTERS:
+        root = repo_root()
+        stem = re.escape(Path(path).stem)
+        pat = re.compile(rf"""from\s+['"][^'"]*/{stem}['"]""")
+        found = set()
+        for base in ('packages/gp-webapp/app', 'packages/gp-webapp/components', 'packages/styleguide/src'):
+            d = root / base
+            if not d.is_dir():
+                continue
+            for f in d.rglob('*.tsx'):
+                if 'node_modules' in f.parts or f.as_posix().endswith(path):
+                    continue
+                try:
+                    if pat.search(f.read_text(encoding='utf-8', errors='ignore')):
+                        found.add(f.relative_to(root).as_posix())
+                except OSError:
+                    pass
+        IMPORTERS[path] = found
+    return IMPORTERS[path]
+
+
 def product_file(root, path, line):
     """True when path:line is a real line in the repo (paths may be relative to gp-webapp or its app/)."""
     for base in (root, root / 'packages/gp-webapp', root / 'packages/gp-webapp/app'):
@@ -422,6 +448,16 @@ def main():
                 elif what.lower() not in asked:
                     problems.append(f'{oid}: flow/{flow.name}:{m["line"]}: the proposal "{what}" is not under Decisions '
                                     f'(#questions); a new component goes to #tmp-design-agent first (docs/product-design.md section 7)')
+        # A change to a component other screens use reaches all of them: the What changes
+        # row names its file, and the change is asked under Decisions needed.
+        drops = visible_text(element_html(section, f'{x}-drops') or '')
+        asked_q = ' '.join(visible_text(element_html(html, 'questions') or '').split()).lower()
+        for path in sorted(set(re.findall(r'packages/[\w./@-]+\.tsx?\b', drops))):
+            users = importers(path)
+            stem = Path(path).stem.lower()
+            if len(users) >= 2 and stem not in asked_q and path.lower() not in asked_q:
+                problems.append(f'{oid}: #{x}-drops changes {path}, which {len(users)} other files use; '
+                                f'ask it under Decisions needed (#questions), naming the screens it also changes')
         # Every inert control (data-inert="<name>") is named in a Built from row "Not part of this change".
         rows = re.findall(r'<tr\b[^>]*>(.*?)</tr>', element_html(section, f'{x}-sources') or '', flags=re.S)
         not_part = ' '.join(' '.join(visible_text(r).split()).lower() for r in rows

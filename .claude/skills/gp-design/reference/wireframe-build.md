@@ -267,6 +267,16 @@ list (`<details class="mutations" id="a-mutations">`): the element, the kind
 (product, no-component or gap), and the marker's text after its kind.
 `check.py` fails on a marker with no row. "None" when there are none.
 
+**A shared component.** When the design changes a component other screens
+use (a styleguide component, or a product component several screens import:
+the flow shell, a card, a sheet), the change reaches all of them. Its row in
+What changes from today names the file in `<code>`
+(`packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx`), and
+the change is asked under Decisions needed, naming the screens it also
+changes (`grep` its importers). `check.py` fails when a file in `#<x>-drops`
+is imported by two or more other files and `#questions` doesn't name it.
+Change it only for this flow when you can (a prop, a copy object) and say so.
+
 ## Spacing parity
 
 A flow that mirrors an existing screen must measure the same as the real one.

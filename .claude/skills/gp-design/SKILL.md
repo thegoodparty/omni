@@ -117,8 +117,10 @@ These checks run inside steps 1 to 8 of `reference/options-workflow.md`, against
 above, not your memory of them:
 
 - Step 1: list `docs/adr/`, active and superseded records.
-- Steps 4 and 5: every ticket claim checked against the code, and each clause
-  of the designer's direction mapped to the screen that delivers it.
+- Steps 4 and 5: every ticket claim checked against the code, each clause
+  of the designer's direction mapped to the screen that delivers it, and
+  nothing drawn beyond the task: extra scope is a question under Decisions
+  needed.
 - Step 8, the reviewer: every element has a source, copy, people and data
   from `fixtures.md`, and every rule in `learned.md`.
 - Where a rulebook vs code conflict goes: "Existing screens" item 2 in

@@ -93,7 +93,7 @@ export const screens: Screens = {
     <div className="flex h-dvh flex-col">
       <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
         <Intro
-          title="Which office did you win, Sarah?"
+          title="Which office did you win, Carla?"
           body="Pick the seat you hold today."
         />
         <div className="space-y-2">
