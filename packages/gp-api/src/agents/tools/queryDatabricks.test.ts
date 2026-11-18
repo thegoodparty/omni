@@ -594,6 +594,35 @@ describe('queryDatabricks', () => {
       expect(String(result.detail)).toContain('coarse dimension allowlist')
     })
 
+    // The office's L2 district column is named per run, not in the tool's
+    // options, so it has to be groupable from the scope itself.
+    it('allows grouping by the run jurisdiction columns', async () => {
+      const scoped = databricksTool({
+        tables: [TABLE],
+        maxRows: 10,
+        scope: async () => ({
+          state: 'NC',
+          district: { column: 'City_Ward', value: 'FAYETTEVILLE CITY WARD 2' },
+        }),
+      })
+      query.mockResolvedValue({
+        columns: ['City_Ward', 'n'],
+        rows: [['FAYETTEVILLE CITY WARD 2', '4820']],
+      })
+
+      await expect(
+        scoped.execute(
+          {
+            sql: `SELECT \`City_Ward\`, COUNT(*) AS n FROM ${TABLE}
+                  WHERE Residence_Addresses_State = 'NC'
+                    AND \`City_Ward\` = 'FAYETTEVILLE CITY WARD 2'
+                  GROUP BY \`City_Ward\``,
+          },
+          ctx(),
+        ),
+      ).resolves.toMatchObject({ ok: true, rowCount: 1 })
+    })
+
     // A derived table is its own SELECT, and a row read there is exactly the
     // read the outer aggregate would otherwise hide.
     it.each([

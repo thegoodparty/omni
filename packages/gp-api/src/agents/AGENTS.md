@@ -94,7 +94,7 @@ tools: {
   queryDatabricks: databricksTool({
     tables: ['goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq'],
     maxRows: 50_000,
-    dimensions: ['City_Ward', 'Voters_Active'],
+    dimensions: ['Voters_Active'],
     scope: orgDatabricksScope,
   }),
 }
@@ -112,8 +112,10 @@ tools: {
 - **`dimensions` is the groupable-column allowlist.** A GROUP BY may name only
   these, and `assertAggregateSelectShape` accepts a bare column only when it is
   in that same set, so a row identifier (`LALVOTERID`) can be neither selected nor
-  grouped. An agent lists the coarse dimensions it reasons about — the L2 district
-  columns, `Voters_Active` — and nothing row-level.
+  grouped. An agent lists the coarse dimensions it reasons about — `Voters_Active`
+  and the like — and nothing row-level. The scope's own jurisdiction columns
+  (the state, and the office's L2 district column) are groupable without being
+  declared, because their name comes from the run rather than the definition.
 - **A COUNT(*) and a cell-size floor.** Every SELECT that reads the table must
   carry a bare, unfiltered `COUNT(*)`, and `scrubResults` drops each result row
   whose `COUNT(*)` is below `minCellSize` (default 100, the

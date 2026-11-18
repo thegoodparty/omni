@@ -244,18 +244,24 @@ const qualifiedElsewhere = (
 // Aggregate-only, with the shape the constituent-data tools' validator enforces:
 // every select item is an allowlisted aggregate, a literal, or a column in GROUP
 // BY, every GROUP BY column is an approved dimension, and the SELECT carries a
-// bare COUNT(*) for the cell-size floor. A UNION branch and a derived table are
-// each their own SELECT with their own FROM, so each one is checked: an
-// aggregate in the wrong branch would land in the COUNT(*) column the floor
-// reads, and a nested read that carried no COUNT(*) would hand back a group
-// size nothing checks.
+// bare COUNT(*) for the cell-size floor. A derived table is its own SELECT, so
+// each one that reads the table is checked: an aggregate in a branch would land
+// in the COUNT(*) column the floor reads.
 const assertAggregateOnly = (
   select: Record<string, unknown>,
   readsTable: boolean,
+  scope: DatabricksScope,
   dimensions: string[],
 ): void => {
+  // The jurisdiction columns are server-bound and named per run (the office's
+  // own L2 district column), so they are groupable without being declarable in
+  // the tool's options. Grouping by one cannot narrow a cell below the floor:
+  // it is the same single value the WHERE already pins.
   assertAggregateSelectShape(select, {
-    allowedGroupBy: new Set(dimensions),
+    allowedGroupBy: new Set([
+      ...dimensions,
+      ...requiredFilters(scope).map(([column]) => column),
+    ]),
   })
   // Only a SELECT that reads the data needs a group size. A derived table of
   // literals reads nothing and has no cell to floor.
@@ -348,7 +354,7 @@ const assertAllowedQuery = (
           ? entry.as
           : (ref.split('.').pop() ?? ref)
     }
-    assertAggregateOnly(select, read !== null, dimensions)
+    assertAggregateOnly(select, read !== null, scope, dimensions)
     if (read === null || alias === null) continue
     // The filter proof is over the WHERE, and a second relation in FROM would
     // let a predicate qualified to it stand in as proof for this table, which
