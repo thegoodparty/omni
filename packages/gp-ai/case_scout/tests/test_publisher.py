@@ -160,9 +160,9 @@ class TestSlackChannelConfig:
 
         assert slack_channel_for_environment("prod") == "C0VERRIDE"
 
-    def test_the_databricks_table_is_the_dev_view_outside_prod(self):
-        assert databricks_table_for_environment("dev") == "mart_case_scout.case_scout_messages_dev"
-        assert databricks_table_for_environment("prod") == "mart_case_scout.case_scout_messages"
+    def test_the_databricks_table_is_the_dev_catalog_outside_prod(self):
+        assert databricks_table_for_environment("dev") == "gp_api_pg_dev.public.chat_message"
+        assert databricks_table_for_environment("prod") == "gp_api_pg.public.chat_message"
 
 
 class TestPRTemplate:
@@ -507,7 +507,7 @@ class TestRenderSlackNote:
 
         assert "dry run" in note
         assert "conv-123" in note
-        assert "case_scout_messages" in note  # prod table, no _dev suffix
+        assert "gp_api_pg.public.chat_message" in note  # prod catalog, no _dev suffix
         assert "$1.50" in note
         assert "$12.00" in note
 

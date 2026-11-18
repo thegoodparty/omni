@@ -7,8 +7,8 @@ hands the result to the publisher, which opens the PR. Design: the Universal
 Judge Case Iteration TDD; decision record:
 `docs/adr/2026-11-16-case-scout-reader-in-gp-api.md`.
 
-**Off by default.** Nothing runs unless `CASE_SCOUT_ENABLED=true`. Every
-environment ships it `false`. The Python reader in
+**On in dev only.** Nothing runs unless `CASE_SCOUT_ENABLED=true`, which
+only dev sets; prod and previews ship it `false`. The Python reader in
 `packages/gp-ai/case_scout/reader/` is the same pipeline and stays runnable
 until this one has had a good dev night.
 
