@@ -209,22 +209,43 @@ export class PeopleDbxStatementClient {
 
   // Rows come back positionally as strings (or null) under JSON_ARRAY, which
   // is why callers coerce per column rather than trusting a driver's typing.
-  async query(statement: DbxStatement): Promise<PeopleDbxRows> {
+  //
+  // `signal` is for callers outside an HTTP request — a pg-boss worker — where
+  // requestAbortSignal has nothing to carry. Either one cancels the statement
+  // and stops the poll.
+  //
+  // `rowLimit` caps the statement at the warehouse. It bounds what the API will
+  // hand back, so it protects this process's memory, whereas cutting rows after
+  // the fact only protects the caller's context.
+  async query(
+    statement: DbxStatement,
+    options: { signal?: AbortSignal; rowLimit?: number } = {},
+  ): Promise<PeopleDbxRows> {
     const config = this.config()
     return this.statementSpan(config, 'INLINE', async (span) => {
       const startedAt = Date.now()
-      const first = await this.post(config, statement, {
-        statement: statement.sql,
-        catalog: PEOPLE_DBX_CATALOG,
-        schema: PEOPLE_DBX_SCHEMA,
-        format: 'JSON_ARRAY',
-        disposition: 'INLINE',
-        wait_timeout: '30s',
-        on_wait_timeout: 'CONTINUE',
-      })
+      const first = await this.post(
+        config,
+        statement,
+        {
+          statement: statement.sql,
+          catalog: PEOPLE_DBX_CATALOG,
+          schema: PEOPLE_DBX_SCHEMA,
+          format: 'JSON_ARRAY',
+          disposition: 'INLINE',
+          wait_timeout: '30s',
+          on_wait_timeout: 'CONTINUE',
+        },
+        options.rowLimit,
+      )
       recordStatementId(first.statement_id)
       this.markStatementId(span, first.statement_id)
-      const settled = await this.awaitCompletion(config, first, startedAt)
+      const settled = await this.awaitCompletion(
+        config,
+        first,
+        startedAt,
+        options.signal,
+      )
       const columns =
         settled.manifest?.schema?.columns.map((column) => column.name) ?? []
       const rows = [...(settled.result?.data_array ?? [])]
@@ -365,6 +386,7 @@ export class PeopleDbxStatementClient {
     config: PeopleDbxConfig,
     initial: StatementResponse,
     startedAt: number,
+    signal?: AbortSignal,
   ): Promise<StatementResponse> {
     let current = initial
     while (current.status.state !== SUCCEEDED) {
@@ -374,7 +396,7 @@ export class PeopleDbxStatementClient {
             (current.status.error?.message ?? 'no error message'),
         )
       }
-      if (requestAbortSignal.getStore()?.aborted) {
+      if (signal?.aborted || requestAbortSignal.getStore()?.aborted) {
         this.cancel(config, current.statement_id)
         throw new PeopleDbxClientAbortedError()
       }
@@ -413,6 +435,7 @@ export class PeopleDbxStatementClient {
     config: PeopleDbxConfig,
     statement: DbxStatement,
     body: Record<string, string>,
+    rowLimit?: number,
   ): Promise<StatementResponse> {
     const bytes = Buffer.byteLength(body.statement ?? '', 'utf8')
     if (bytes > MAX_STATEMENT_BYTES) {
@@ -427,6 +450,7 @@ export class PeopleDbxStatementClient {
       'POST',
       body,
       statement.params,
+      rowLimit,
     )
     return statementResponseSchema.parse(await response.json())
   }
@@ -446,6 +470,7 @@ export class PeopleDbxStatementClient {
     method: 'GET' | 'POST',
     body?: Record<string, string>,
     params?: DbxParam[],
+    rowLimit?: number,
   ): Promise<Response> {
     const token = await this.accessToken(config)
     const response = await fetch(`https://${config.hostname}${path}`, {
@@ -459,6 +484,7 @@ export class PeopleDbxStatementClient {
             ...body,
             warehouse_id: config.warehouseId,
             ...(params && params.length > 0 ? { parameters: params } : {}),
+            ...(rowLimit !== undefined && { row_limit: rowLimit }),
           })
         : undefined,
     })

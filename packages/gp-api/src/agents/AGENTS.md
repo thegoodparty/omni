@@ -6,22 +6,23 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 
 ## Key files
 
-| Path                        | What                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------ |
-| `agents.registry.ts`        | `AGENTS`: every agent by name. The name is the run's `agentName`                                 |
-| `defineAgent.ts`            | `AgentDefinition` and `defineAgent`                                                              |
-| `agents.service.ts`         | `AgentsService.run(name, input)` and the `agentRun` worker                                       |
-| `aiSdkLoop.ts`              | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget                           |
-| `manifest.ts`               | The run's manifest (input and output schema) and its `shapeHash`                                 |
-| `agentMessages.ts`          | `AgentMessage` rows ↔ the AI SDK's messages, both ways                                           |
-| `agentRunSpans.ts`          | Grafana Agent Observability attributes and spans (`otel.ts` loads it)                            |
-| `agentModels.ts`            | Model id to provider model; tests swap in a mock model here                                      |
-| `tools/tool.ts`             | `AgentTool`, `defineTool` and `ToolContext`                                                      |
-| `tools/webSearch.ts`        | Brave web search: ranked result URLs with titles and snippets                                    |
-| `tools/fetchPage.ts`        | A web page as markdown, 10,000 characters a call (`offset` reads on), and its own published date |
-| `tools/checkLink.ts`        | HEAD status and final URL                                                                        |
-| `tools/agentWeb.service.ts` | Plain HTTP behind the private-address guard, on every redirect hop                               |
-| `tools/judgeReplay.ts`      | Serves the judge's recorded pages to a judge run                                                 |
+| Path                        | What                                                                                                             |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `agents.registry.ts`        | `AGENTS`: every agent by name. The name is the run's `agentName`                                                 |
+| `defineAgent.ts`            | `AgentDefinition` and `defineAgent`                                                                              |
+| `agents.service.ts`         | `AgentsService.run(name, input)` and the `agentRun` worker                                                       |
+| `aiSdkLoop.ts`              | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget                                           |
+| `manifest.ts`               | The run's manifest (input and output schema) and its `shapeHash`                                                 |
+| `agentMessages.ts`          | `AgentMessage` rows ↔ the AI SDK's messages, both ways                                                           |
+| `agentRunSpans.ts`          | Grafana Agent Observability attributes and spans (`otel.ts` loads it)                                            |
+| `agentModels.ts`            | Model id to provider model; tests swap in a mock model here                                                      |
+| `tools/tool.ts`             | `AgentTool`, `defineTool` and `ToolContext`                                                                      |
+| `tools/webSearch.ts`        | Brave web search: ranked result URLs with titles and snippets                                                    |
+| `tools/fetchPage.ts`        | A web page as markdown, 10,000 characters a call (`offset` reads on), and its own published date                 |
+| `tools/checkLink.ts`        | HEAD status and final URL                                                                                        |
+| `tools/agentWeb.service.ts` | Plain HTTP behind the private-address guard, on every redirect hop                                               |
+| `tools/judgeReplay.ts`      | Serves the judge's recorded pages to a judge run                                                                 |
+| `tools/queryDatabricks.ts`  | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
 
 Agents live with their product: `trending_issues` is
 `src/communityIssues/trendingIssuesAgent/`.
@@ -80,6 +81,127 @@ JavaScript comes back as a failure value. It also returns the page's own
 `<time datetime>`, then JSON-LD — an agent that has to put a source inside a
 window dates it from the page, never from a search snippet. Failures are
 values, never throws, so one bad URL does not end a run.
+
+## Databricks
+
+`databricksTool` stands in for the PMF Engine broker's Databricks scope. Each
+agent builds its own, with the table allowlist and row cap from its manifest's
+`scope` block, so the grant lives in the definition and not in the model's
+hands:
+
+```ts
+tools: {
+  queryDatabricks: databricksTool({
+    tables: ['goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq'],
+    maxRows: 50_000,
+    dimensions: ['Active'],
+    scope: orgDatabricksScope,
+  }),
+}
+```
+
+`tables` may also be a resolver — `async (ctx) => string[]` — for an agent whose
+table is not fixed by its definition but chosen per run, as the people marts
+are (`PeopleDatasetService` picks `gp_api_voters` or `gp_api_constituents` per
+org). The resolver runs once per query and an empty list refuses every query;
+the description then says "the table named in your input" rather than listing
+one, because a table the run chooses cannot be named at definition time. Put
+the chosen name in the run's input so the model reads it from its first message,
+and have the resolver read it back from the stored `AgentRun.input` by
+`ctx.runId` — never from anything the model sends in a tool call.
+
+- **Aggregate-only, on the constituent-data tool's rules.** The chat tools
+  (`query_constituent_data`, `district_insights`) hold model-written voter SQL to
+  `validateConstituentSql`; this tool runs the same shape checks per SELECT, from
+  the same functions. Every select item is an allowlisted aggregate
+  (`COUNT`, `SUM`, `AVG`, `APPROX_COUNT_DISTINCT`), a literal, or a
+  GROUP BY column; `MIN` and `MAX` are refused here, because each returns one
+  row's own value (`MAX(LALVOTERID)` is a voter ID); `SELECT *`, `DISTINCT`, window functions, a scalar function,
+  `COUNT(DISTINCT …)` and an aggregate wrapped in arithmetic are all refused. The
+  broker never enforced any of this, so a query here could otherwise have
+  selected `LALVOTERID` and its `hs_*` scores 50,000 rows deep.
+- **`dimensions` is the slicing allowlist.** A GROUP BY may name only these, a
+  bare select item is accepted only when it is in that same set, and every column
+  a `WHERE` or `HAVING` names must be one of them too — so a row identifier
+  (`LALVOTERID`) can be neither selected, grouped nor filtered on. That last one
+  is the differencing control the floor cannot be: `AND LALVOTERID <> 'x'` leaves
+  both cells far above the floor and the difference between them is one
+  person's score. An aggregate's own argument (`AVG(hs_x)`) is unrestricted,
+  because that is what the aggregate is for and the floor holds its result, but
+  it must be one plain column or `*`: a CASE or comparison inside an aggregate
+  (`AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)`) is a filter of its own. An
+  agent lists the coarse dimensions it reasons about — `Active` and the like —
+  and nothing row-level. The scope's own jurisdiction columns (the state, and the
+  office's L2 district column) are sliceable without being declared, because
+  their name comes from the run rather than the definition.
+- **A COUNT(\*) and a cell-size floor.** Every SELECT that reads the table must
+  carry a bare, unfiltered `COUNT(*)`, and `scrubResults` drops each result row
+  whose `COUNT(*)` is below `minCellSize` (default 100, the
+  `CONSTITUENT_MIN_CELL_SIZE` the chat tools use) and nulls any other count-like
+  value below it. `suppressed` reports how many rows the floor removed.
+  `truncated` is true when either the raw page or the surviving rows exceed
+  `maxRows`, because the warehouse cuts the page at `maxRows + 1` and the floor
+  can eat that extra row; only the second count would report a partial result as
+  complete.
+- **One flat SELECT.** A UNION or other set operation, a subquery anywhere
+  (FROM, WHERE, the select list) and a CTE are all refused, as the chat tools
+  refuse them: the floor reads only the outer result's own `COUNT(*)` column, so
+  a nested cell — a UNION branch that moves its count, an outer aggregate over a
+  derived table — is one the floor never sees.
+
+- **One read-only SELECT, parsed.** Not a regex: the statement goes through
+  `parseSingleSelect`, every SELECT at any depth is walked (the outer one, each
+  UNION branch, each subquery, before refusing the nesting), and a write node anywhere — `INSERT`, `UPDATE`,
+  `DELETE`, `MERGE`, DDL, or `SELECT INTO` — is rejected. Two statements after a
+  semicolon, a table function in `FROM`, and a query the parser cannot read are
+  all refused, never passed through. A comment or a backslash is refused
+  outright: both are decided purely by the parser's lexical rules, the parser
+  here is not the one that runs the statement, and a statement that proves a
+  filter here but lexes differently in Spark could have that filter removed. A
+  statement with a CTE is refused too: a
+  CTE name can mean the CTE in one place and a real table in another (a
+  non-recursive CTE cannot see itself, and a reference outside its WITH is the
+  real table), and there is no Spark binder here to resolve that.
+- **The allowlist is the manifest's.** A table reference must resolve to exactly
+  the allowed name — catalog, schema and all. A bare or partly-qualified name
+  resolves against the statement client's pinned default
+  (`goodparty_data_catalog.mart_gp_api`), which is a different table from the
+  `dbt` one the manifest grants, so it is refused rather than accepted as
+  shorthand; a spoofed `evil.public.<t>` matches nothing.
+- **One relation per SELECT.** `assertScope` proves the filter over the WHERE,
+  and a second relation would let a predicate qualified to it stand in as proof
+  for the table (`JOIN (SELECT 'IL' AS Residence_Addresses_State) d … WHERE
+d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
+  have nothing else in its `FROM`. A self-join hits the same rule.
+- **The run's jurisdiction is not the model's to choose.** `scope` resolves it
+  from `ctx.organizationSlug` through `orgDatabricksScope` — the org's elected
+  office and `OrganizationsService.resolveServeContext`, the same source
+  `communityIssueDispatch.service.ts` builds a run's `state` and `l2_*` params
+  from. Every SELECT that reads an allowed table must prove its own
+  `Residence_Addresses_State = '<state>'` (and `'<L2 column>' = '<district>'`
+  when the office has one) in its WHERE, and that column must be unqualified or
+  qualified to that table's own alias — a predicate belonging to another
+  relation is not proof. A query with no filter, another state's, one qualified
+  elsewhere, or an OR that steps around it is rejected with the clause to add.
+  An org with no jurisdiction gets `no_scope` and no query runs. A scope value
+  that itself contains a single quote is refused: Spark reads `''` as two
+  adjacent literals, not an escaped quote, so that value cannot be written in a
+  query at all and a query naming it would match nothing.
+- **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
+  reads a double-quoted identifier as a string), so the model writes the filter
+  itself and the tool proves it rather than splicing SQL.
+- The row cap is applied at the warehouse: the statement carries
+  `row_limit: maxRows + 1`, so the extra row proves there was more without this
+  process holding every match first. The result is then cut at `maxRows` with
+  `truncated: true`. Every refusal is a value
+  the model reads and corrects — `rejected` with the fix, `no_scope`,
+  `query_failed` with the warehouse's message, `timeout` — so one bad query
+  never ends a run. The only throw is the run's own `signal` aborting, which
+  means the loop is going down.
+- It runs on `ctx.get(PeopleDbxStatementClient)`, the same Statement Execution
+  client the voter reads use, and passes its own signal so a statement that
+  never settles still stops at `statementTimeoutMs` (30s default) and is
+  cancelled at the warehouse.
 
 ## Moving a PMF Engine agent here
 
