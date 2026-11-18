@@ -198,7 +198,7 @@ Select bare aggregates, never a function wrapped around one: \`ROUND(AVG(...), 1
 
 Without the L2 pair, drop the district clause; that is state scope, and the lean is low-confidence — record \`internal_data_lean_scope: "state"\` in \`notes\`.
 
-If \`n\` is 0, the district value matched no rows: skip the lean, record it in \`notes\`, and move on. Drop any column whose coverage \`cov_*\` is below ~80% of \`n\` (record it). For survivors, distinctiveness = \`avg_* - 50\`, using the average rounded to one decimal; translate to a chip (e.g. \`+11\` → "+11 pro-transit", \`-19\` → "-19 low police trust"). This lean annotates issues; it never ranks them.
+If \`n\` is 0, the district value matched no rows: skip the lean, record it in \`notes\`, and move on. The tool drops any result row whose \`n\` is under 100 and nulls any other count under 100, so a small district comes back with no rows and \`suppressed: 1\`: that is too few people for a lean, not a failed query. Skip the lean and record it in \`notes\` the same way. Drop any column whose coverage \`cov_*\` is below ~80% of \`n\` (record it). For survivors, distinctiveness = \`avg_* - 50\`, using the average rounded to one decimal; translate to a chip (e.g. \`+11\` → "+11 pro-transit", \`-19\` → "-19 low police trust"). This lean annotates issues; it never ranks them.
 
 ### Step 5 — Rank by resident attention mass
 
