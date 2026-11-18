@@ -90,9 +90,12 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
 `trending_issues` runs on either engine; `AGENTS_ON_GP_API` (contains
 `trending_issues`) picks gp-api's own agents (`src/agents/AGENTS.md`), and
 unset leaves it on the PMF Engine. `startRun` in the dispatch service is the
-one fork, so every gate above reads both engines' runs: both are
-`ExperimentRun` rows with `experimentType: 'trending_issues'`.
-`top_community_issues` stays on the PMF Engine; it also queries Databricks.
+one fork: on gp-api's agents the run is an `AgentRun` with
+`agentName: 'trending_issues'`, on the PMF Engine an `ExperimentRun` with
+`experimentType: 'trending_issues'`, and every gate and reader above follows
+the same switch (`communityIssueRead.service.ts` shows the pattern for a
+reader). `top_community_issues` stays on the PMF Engine; it also queries
+Databricks.
 
 - `trendingIssues.prompt.ts` started as the experiment's `instruction.md` with
   the runtime swapped (input message, `getCommunityIssues`, `webSearch`,
