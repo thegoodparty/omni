@@ -115,7 +115,9 @@ export class BriefingChatsService {
       annotationId,
       userId,
     )
-    return { conversationId: requireConversationId(annotation.chatConversationId) }
+    return {
+      conversationId: requireConversationId(annotation.chatConversationId),
+    }
   }
 
   async assertBriefingChatAccessible(

@@ -677,56 +677,53 @@ describe('GeneralChatsService', () => {
     },
   )
 
-  it(
-    'replays the stored reply on a retry instead of appending a second one',
-    async () => {
-      handler = buildHandler({
-        maybeCannedReply: vi.fn((userMessage: string) =>
-          userMessage === '__kickoff__' ? 'Welcome aboard!' : null,
-        ),
-      })
-      store = buildStore({
-        findOwnedConversation: vi.fn(() =>
-          Promise.resolve({ id: 'c1', title: null }),
-        ) as never,
-      })
-      const userMessageId = '11111111-1111-4111-8111-111111111111'
-      // The retry finds the reply the first attempt stored, so it neither
-      // writes a second assistant row nor runs a turn.
-      const chatStore = buildChatStore({
-        replayedReplyTo: vi.fn(() =>
-          Promise.resolve({ id: 'assistant-msg-1', content: 'Welcome aboard!' }),
-        ) as never,
-      })
-      const chatStream = { stream: vi.fn() }
-      const service = new GeneralChatsService(
-        buildRegistry(handler),
-        store,
-        chatStore,
-        chatStream as never,
-        {} as never,
-      )
-      const chunks = await collect(
-        service.sendMessage({
-          conversationId: 'c1',
-          scope: SCOPE,
-          userId: USER_ID,
-          organizationSlug: ORG,
-          userMessage: '__kickoff__',
-          userMessageId,
-        }),
-      )
+  it('replays the stored reply on a retry instead of appending a second one', async () => {
+    handler = buildHandler({
+      maybeCannedReply: vi.fn((userMessage: string) =>
+        userMessage === '__kickoff__' ? 'Welcome aboard!' : null,
+      ),
+    })
+    store = buildStore({
+      findOwnedConversation: vi.fn(() =>
+        Promise.resolve({ id: 'c1', title: null }),
+      ) as never,
+    })
+    const userMessageId = '11111111-1111-4111-8111-111111111111'
+    // The retry finds the reply the first attempt stored, so it neither
+    // writes a second assistant row nor runs a turn.
+    const chatStore = buildChatStore({
+      replayedReplyTo: vi.fn(() =>
+        Promise.resolve({ id: 'assistant-msg-1', content: 'Welcome aboard!' }),
+      ) as never,
+    })
+    const chatStream = { stream: vi.fn() }
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      chatStore,
+      chatStream as never,
+      {} as never,
+    )
+    const chunks = await collect(
+      service.sendMessage({
+        conversationId: 'c1',
+        scope: SCOPE,
+        userId: USER_ID,
+        organizationSlug: ORG,
+        userMessage: '__kickoff__',
+        userMessageId,
+      }),
+    )
 
-      expect(chunks).toEqual([
-        { type: 'text', delta: 'Welcome aboard!' },
-        { type: 'done', assistantMessageId: 'assistant-msg-1' },
-      ])
-      expect(chatStore.replayedReplyTo).toHaveBeenCalledWith(userMessageId)
-      expect(chatStore.appendUserMessageIfAlive).not.toHaveBeenCalled()
-      expect(chatStore.appendMessage).not.toHaveBeenCalled()
-      expect(chatStream.stream).not.toHaveBeenCalled()
-    },
-  )
+    expect(chunks).toEqual([
+      { type: 'text', delta: 'Welcome aboard!' },
+      { type: 'done', assistantMessageId: 'assistant-msg-1' },
+    ])
+    expect(chatStore.replayedReplyTo).toHaveBeenCalledWith(userMessageId)
+    expect(chatStore.appendUserMessageIfAlive).not.toHaveBeenCalled()
+    expect(chatStore.appendMessage).not.toHaveBeenCalled()
+    expect(chatStream.stream).not.toHaveBeenCalled()
+  })
 
   it(
     'errors a canned reply without appending when no message id is ' +

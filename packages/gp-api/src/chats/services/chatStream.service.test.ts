@@ -1232,9 +1232,9 @@ describe('ChatStreamService', () => {
       ])
       expect(llm.calls).toHaveLength(1)
       const persisted = store.getPersistedMessages(CONVERSATION_ID)
-      expect(persisted.filter((m) => m.role === ChatMessageRole.user)).toHaveLength(
-        1,
-      )
+      expect(
+        persisted.filter((m) => m.role === ChatMessageRole.user),
+      ).toHaveLength(1)
       expect(
         persisted.filter((m) => m.role === ChatMessageRole.assistant),
       ).toHaveLength(1)

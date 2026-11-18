@@ -1,9 +1,6 @@
 import { parseISO } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  AgentMessageRole,
-  ChatScope,
-} from '@/generated/prisma'
+import { AgentMessageRole, ChatScope } from '@/generated/prisma'
 import { DistrictsService } from '@/electionDb/districts/districts.service'
 import { PositionsService } from '@/electionDb/positions/positions.service'
 import { useTestService } from '@/test-service'

@@ -31,10 +31,6 @@ export interface RecordTurnArgs {
 export class JudgeTurnTelemetryService extends createPrismaBase(
   MODELS.JudgeTurnTelemetry,
 ) {
-  constructor() {
-    super()
-  }
-
   // Upsert and not create: the compound unique on (conversationId, turnIndex)
   // is what makes a retried turn overwrite its own row instead of filing a
   // second opinion about the same turn.

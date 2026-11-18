@@ -692,7 +692,8 @@ describe('GeneralChatsController (integration)', () => {
       expect(rows[0]?.agentMessageId).toBe(assistantMessageId)
     })
 
-    it('retracting a rating that was never left still succeeds', async () => {      const { conversationId, assistantMessageId } = await startThread()
+    it('retracting a rating that was never left still succeeds', async () => {
+      const { conversationId, assistantMessageId } = await startThread()
 
       // Idempotent on the ROW, strict on the id: deleting nothing is fine.
       const res = await service.client.delete(

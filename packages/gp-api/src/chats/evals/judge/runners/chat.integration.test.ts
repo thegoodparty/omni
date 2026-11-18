@@ -139,7 +139,10 @@ const transcriptRows = async (): Promise<
   { role: ChatMessageRole; content: string; segments: number }[]
 > => {
   const rows = await service.prisma.agentMessage.findMany({
-    orderBy: [{ conversationId: Prisma.SortOrder.asc }, { index: Prisma.SortOrder.asc }],
+    orderBy: [
+      { conversationId: Prisma.SortOrder.asc },
+      { index: Prisma.SortOrder.asc },
+    ],
     where: { role: { not: AgentMessageRole.tool } },
   })
   return agentMessagesToChatMessages(rows).map((message) => ({

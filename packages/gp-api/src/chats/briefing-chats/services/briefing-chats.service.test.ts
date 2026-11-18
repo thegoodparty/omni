@@ -567,7 +567,9 @@ describe('BriefingChatsService', () => {
       })
       await consume(iter)
 
-      const args = chatStream.lastArgs as StreamArgsWithUserMessageId | undefined
+      const args = chatStream.lastArgs as
+        | StreamArgsWithUserMessageId
+        | undefined
       expect(args?.userMessageId).toBe(userMessageId)
     })
 
@@ -579,7 +581,9 @@ describe('BriefingChatsService', () => {
       })
       await consume(iter)
 
-      const args = chatStream.lastArgs as StreamArgsWithUserMessageId | undefined
+      const args = chatStream.lastArgs as
+        | StreamArgsWithUserMessageId
+        | undefined
       expect(args?.userMessageId).toBeUndefined()
     })
 

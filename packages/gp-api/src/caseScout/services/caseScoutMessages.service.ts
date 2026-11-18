@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { z } from 'zod'
-import { ChatMessageRole, ChatMessageSegmentKind, Prisma } from '@/generated/prisma'
+import {
+  ChatMessageRole,
+  ChatMessageSegmentKind,
+  Prisma,
+} from '@/generated/prisma'
 import { DistrictsService } from '@/electionDb/districts/districts.service'
 import { PositionsService } from '@/electionDb/positions/positions.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'

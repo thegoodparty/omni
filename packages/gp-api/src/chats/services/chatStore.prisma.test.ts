@@ -3,14 +3,10 @@ import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { ConflictException } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  AgentMessageRole,
-  ChatMessageRole,
-} from '../../generated/prisma'
+import { AgentMessageRole, ChatMessageRole } from '../../generated/prisma'
 import { randomUUID } from 'node:crypto'
 
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 import { ChatStoreService } from './chatStore.prisma'
 
 const service = useTestService()
