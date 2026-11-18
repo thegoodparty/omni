@@ -18,7 +18,9 @@ a schedule (`docs/scheduled-jobs.md`).
 | `jobs.registry.ts`             | `JOBS` and `SCHEDULES`: every job and schedule, its worker and its few settings |
 | `jobs.service.ts`              | `send()`, `sendMany()`, queue and schedule setup, workers, logging, metrics     |
 | `jobs.module.ts`               | `@Global()`: any provider can inject `JobsService`                              |
+| `changes.registry.ts`          | `CHANGES`: every database change handler (§ Change handlers)                    |
 | `scripts/pg-boss-migration.ts` | Writes the Prisma migration for the pgboss schema                               |
+| `scripts/dbChangeTriggers.ts`  | Writes the Prisma migration for the capture triggers                            |
 | `scripts/jobs-dead-letter.ts`  | Lists, redrives or deletes dead-lettered jobs                                   |
 
 ## Adding a job
@@ -151,6 +153,115 @@ myDigest: defineSchedule({
 **Every scheduled job must be safe to run twice.** A run can fail after doing
 part of its work and be retried, and a worker that only looked dead can still
 be running when its retry starts.
+
+## Change handlers
+
+A change handler runs on a database write rather than on a cron or a
+request. A table's trigger writes each write's row into the `db_change`
+outbox (`src/dbChanges/`), one relay forwards those rows into pg-boss, and
+the handler is a job like any other: same queues, retries, dead letters and
+alerts. ADR `docs/adr/2026-11-18-database-change-events.md` says why.
+
+### Adding one
+
+Add an entry to `CHANGES` in `changes.registry.ts`, wrapped in
+`defineChangeHandler()` so the row types come from the Prisma model:
+
+```ts
+const importNeedsAttention = defineChangeHandler({
+  model: 'ContactUpload',
+  alertAfterWaitingMinutes: 30, // required, as on a job
+  onInsert: (row, { get }) => get(SomeService).handle(row.id),
+  onUpdate: (previous, next, { get }) => get(SomeService).handle(next.id),
+  onDelete: (row, { get }) => get(SomeService).handle(row.id),
+})
+```
+
+Then regenerate the triggers and commit the migration it writes:
+
+```bash
+npm run migrate:db-change-triggers -w packages/gp-api
+```
+
+`src/dbChanges/dbChangeTriggers.test.ts` fails when the registry and the
+migrated triggers disagree, so nothing reaches a handler until both are in.
+
+- `model` is a Prisma model name. Its table, primary key and scalar columns
+  come from Prisma's own metadata (DMMF), so a row arrives typed, with
+  `created_at` as a `Date` and database column names already mapped to field
+  names.
+- Only the operations some entry on the table listens to are captured: a
+  table with no `onDelete` gets no delete trigger.
+- Several entries may share a table. They run in the order listed, each in
+  its own queue, and each sees one row's writes in order.
+- `alertAfterWaitingMinutes`, `timeoutMinutes`, `attempts`, `concurrency` and
+  `maxConcurrent` mean what they mean on a job.
+
+### What to expect from it
+
+- **At least once, and no exactly-once.** A handler may run twice for one
+  write (a retry after a partial failure, a relay pass that committed its
+  jobs but not its `relayed_at`). Every handler must be safe to run twice,
+  which usually means: read the row as it is now and act on that, rather than
+  trusting the captured snapshot as the current state.
+- **One row's writes are in order.** The relay groups a table's jobs by the
+  row's primary key, and every queue is FIFO per group, so a row's insert
+  lands before its update. Different rows never wait on each other.
+- **A new row's insert is one write, an update is one.** A backfill or a
+  data repair that changes thousands of rows fires the handler thousands of
+  times.
+- **Never capture a table with secret columns as is.** The trigger copies
+  whole rows, so a handler on `user` would put `password` and
+  `password_reset_token` into `db_change`, where the source table's
+  column-level grants do not reach. Before adding a handler on `user`,
+  `peerly_phone_list` or any table with a token, hash or key column, make
+  `db_change_capture()` drop those columns from both copies. `db_change`
+  itself is revoked from `databricks_federation`.
+- **`TRUNCATE` is not captured**, and neither is a `DELETE` cascade from a
+  parent table: only `AFTER ROW INSERT/UPDATE/DELETE` on the table itself.
+- **A write inside a transaction is captured when the transaction
+  commits**, and vanishes if it rolls back. The relay reads nothing a
+  transaction has not committed.
+- **One row drains one job at a time.** Its changes share a group, so a
+  thousand writes to one row run one after another; on a preview, 19,000
+  changes to one campaign took about 4.5 minutes to handle. A backfill or
+  loop that rewrites one row many times should use `skipChangeEvents`.
+- **Backfills skip it.** In the transaction that does one, call
+  `skipChangeEvents(tx)` (`src/dbChanges/skipChangeEvents.ts`); it is
+  `SET LOCAL app.skip_change_events = 'on'`, so it ends with the
+  transaction.
+- **The kill switch** is the single row in `db_change_config`. With
+  `enabled = false` the trigger returns before writing anything, for every
+  table at once, without dropping a trigger:
+
+  ```sql
+  UPDATE db_change_config SET enabled = false WHERE id = 1;
+  ```
+
+  Rows already in `db_change` are still relayed and handled.
+
+- **In tests**, the per-test reset empties `db_change_config` and
+  `db_change_relay` (they are seeded by the migration, not by the harness),
+  so nothing is captured and no relay loop runs. A suite that wants capture
+  inserts the config row, and drives the relay with
+  `service.app.get(DbChangeRelayService).relayPass()` before
+  `service.jobs.settle()` — the relay's own loop does not run under
+  `NODE_ENV=test`, so an assertion never races a pass.
+- **Ordering within a relay batch.** Jobs sent in one transaction all get
+  their `created_on` from that transaction's `now()`, so they tie, and
+  pg-boss breaks the tie on the job id (a random uuid put one row's writes
+  out of order 16 times in 20). The relay therefore sends a deterministic id
+  whose order is `(change id, entry index)`: `changeJobId()` in
+  `src/dbChanges/dbChangeRows.ts`. `send()` takes it as the `id` option. The
+  same id also makes a resend of one change insert nothing.
+
+### Watching it
+
+The relay logs one `change batch relayed` line per batch under the
+`DbChangeRelayService` context, with the row count, the tables, the number of
+jobs sent and the oldest row's wait, and a `change outbox backlog` warning
+past five minutes. The cleanup job logs `changes deleted` per batch. A row
+whose handler dead-letters is the `jobs-dead-letter` alert like any other.
 
 ## Fan-out
 

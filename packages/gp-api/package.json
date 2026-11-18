@@ -18,6 +18,8 @@
     "lint:fix": "oxlint src --fix && eslint '{src,apps,libs,test}/**/*.ts' --fix && prettier --write 'src/**/*.{ts,js,json}'",
     "migrate:clean": "tsx scripts/migrate-clean.ts",
     "migrate:pg-boss": "tsx scripts/pg-boss-migration.ts",
+    "migrate:db-change-triggers": "tsx scripts/dbChangeTriggers.ts",
+    "bench:db-change-triggers": "tsx scripts/dbChangeTriggerBenchmark.ts",
     "jobs:dead-letter": "tsx scripts/jobs-dead-letter.ts",
     "migrate:deploy": "npx prisma migrate deploy",
     "migrate:destroy": "tsx scripts/migrate-clean.ts --preserve-fixed --skip-db",

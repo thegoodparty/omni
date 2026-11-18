@@ -138,6 +138,12 @@ export type JobSendOptions = {
   // A Prisma interactive-transaction client. The job commits or rolls back
   // with the transaction.
   tx?: PrismaTransactionLike
+  // The job's id. Defaults to a random uuid. A caller that sends several jobs
+  // in one transaction passes an id whose order is the order they must run
+  // in, because jobs sent in one transaction tie on created_on and pg-boss
+  // breaks the tie on the id. A fixed id also makes a resend of the same job
+  // insert nothing.
+  id?: string
 }
 
 export type JobSendManyItem<T> = {
@@ -307,7 +313,7 @@ export class JobsService
   ): Promise<string> {
     const { schema, maxConcurrent } = this.definitionOf(name)
     const parsed = schema.parse(data)
-    const id = randomUUID()
+    const id = options.id ?? randomUUID()
     const group = options.group ?? null
     await this.boss.send(name, parsed, {
       id,
