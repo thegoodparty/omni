@@ -298,6 +298,45 @@ describe('queryDatabricks', () => {
     expect(query).not.toHaveBeenCalled()
   })
 
+  // node-sql-parser's postgres grammar and Spark do not agree on every literal
+  // and FROM shape, and there is no way to prove they do. Each disagreement
+  // here has to fail closed: where the two see different SQL, this must refuse
+  // rather than prove a filter on a statement Spark would run differently.
+  describe('parser differences fail closed', () => {
+    it.each([
+      // Spark leaves backslash alone in a literal, so it ends the string early
+      // and the rest becomes SQL; postgres reads one long literal. Either way
+      // the value is not the state, so nothing is proven.
+      [
+        'a backslash-escaped quote',
+        `SELECT COUNT(*) AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'x\' OR 1=1 --'`,
+      ],
+      [
+        'a doubled quote',
+        `SELECT COUNT(*) AS n FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'x'' OR 1=1 --'`,
+      ],
+      // postgres reads a parenthesised join as one opaque FROM entry, which is
+      // not a table it can allowlist, so it is refused rather than skipped.
+      [
+        'a parenthesised join',
+        `SELECT COUNT(*) AS n FROM (${TABLE} a JOIN ${TABLE} b ON 1 = 1)
+         WHERE a.Residence_Addresses_State = 'IL'`,
+      ],
+      // Spark accepts a fullwidth semicolon as a statement separator.
+      [
+        'a fullwidth semicolon and a second statement',
+        `SELECT COUNT(*) AS n FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'\uff1b DROP TABLE ${TABLE}`,
+      ],
+    ])('refuses %s', async (_label, sql) => {
+      const result = await runs(sql)
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(query).not.toHaveBeenCalled()
+    })
+  })
+
   it('refuses a UNION branch that reads the table unscoped', async () => {
     const result = await runs(
       `SELECT title FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'
