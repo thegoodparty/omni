@@ -14,7 +14,7 @@ const transcriptLength = async (conversation: Locator): Promise<number> =>
 // greeting) is still writing when its composer first enables. Measure from a
 // transcript that has stopped growing, so that opening text can never stand in
 // for the reply a spec asserts on.
-const settledTranscriptLength = async (
+const waitForSettledTranscript = async (
   conversation: Locator,
 ): Promise<number> => {
   let length = 0
@@ -58,7 +58,7 @@ export const sendChatTurn = async (args: {
     await expect(composer).toBeEnabled({ timeout: 5_000 })
   }).toPass({ timeout: 300_000 })
 
-  const baseline = await settledTranscriptLength(conversation)
+  const baseline = await waitForSettledTranscript(conversation)
 
   await composer.fill(prompt)
   await sendButton.click()
@@ -75,7 +75,7 @@ export const sendChatTurn = async (args: {
     })
     .toBeGreaterThan(baseline + prompt.length + 80)
 
-  return { baseline, liveLength: await settledTranscriptLength(conversation) }
+  return { baseline, liveLength: await waitForSettledTranscript(conversation) }
 }
 
 // The history READ path: after the caller has reloaded and reopened the thread
@@ -114,7 +114,7 @@ export const expectTurnSurvivesReload = async (
 // rebuilds from its segments rather than its prose: a clarify question's
 // options (Radix's RadioGroup renders `role="radiogroup"`, the multi-select
 // variant `role="group"`).
-export const clarifyCard = (conversation: Locator): Locator =>
+export const clarifyCards = (conversation: Locator): Locator =>
   conversation.locator('[role="radiogroup"], [role="group"][aria-labelledby]')
 
 // Reopen a past conversation the way a user does: the clock control in the

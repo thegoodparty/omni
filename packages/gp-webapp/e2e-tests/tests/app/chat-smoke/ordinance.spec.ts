@@ -4,7 +4,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import {
-  clarifyCard,
+  clarifyCards,
   expectTurnSurvivesReload,
   sendChatTurn,
 } from 'src/helpers/chatSmoke.helper'
@@ -51,8 +51,6 @@ test.describe('Ordinance flow chat', () => {
     })
     await expect(conversation).toBeVisible({ timeout: 60_000 })
 
-    // The step opens by sending its own hidden kickoff so the agent asks the
-    // first clarify question without the official having to type anything.
     const prompt = 'Focus on the stretch north of Ninth Street.'
     const sent = await sendChatTurn({
       conversation,
@@ -64,23 +62,37 @@ test.describe('Ordinance flow chat', () => {
       prompt,
     })
 
-    // The clarify question is a tool call, so its options are the part of this
-    // turn that is structured rather than prose. Asserted live first, so the
-    // assertion after the reload is known to be about a card that existed.
-    await expect(clarifyCard(conversation).first()).toBeVisible({
-      timeout: 60_000,
-    })
+    // The clarify question is a tool call, so its options are the part of a turn
+    // that is structured rather than prose. The step's own kickoff already asked
+    // one question, and this turn asks another, so two cards is the floor that
+    // separates "the typed turn's tool segments rendered" from "only the
+    // kickoff's did". Higher is fine — the model may ask more than one.
+    await expect
+      .poll(() => clarifyCards(conversation).count(), {
+        timeout: 60_000,
+        intervals: [1_000],
+      })
+      .toBeGreaterThanOrEqual(2)
+    // `sendChatTurn` returns only once the turn has stopped writing, so this
+    // count cannot be overtaken by a card still arriving.
+    const cardsLive = await clarifyCards(conversation).count()
 
     // A reload rebuilds the step's conversation from the server: the anchored
     // createConversation returns the same conversation, and the transcript —
-    // the answer, the reply, and the clarify tool's own payload — is read back
+    // the answer, the reply, and each clarify tool's own payload — is read back
     // by `listMessages`.
     await page.reload({ waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
     await expectTurnSurvivesReload(conversation, prompt, sent)
-    await expect(clarifyCard(conversation).first()).toBeVisible({
-      timeout: 30_000,
-    })
+    // Every clarify card the live turn showed, no more and no fewer: a stored
+    // turn whose tool segments were dropped loses its card and fails here,
+    // which is the half of this spec the kickoff's own card cannot cover.
+    await expect
+      .poll(() => clarifyCards(conversation).count(), {
+        timeout: 30_000,
+        intervals: [1_000],
+      })
+      .toBe(cardsLive)
   })
 })
