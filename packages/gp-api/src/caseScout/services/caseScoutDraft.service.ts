@@ -9,6 +9,7 @@ import {
   COVERED_SCOPES,
   ESTIMATED_COST_PER_CALL_USD,
   judgeRecordsBucketName,
+  proposalsCanMerge,
   spendCapUsd,
 } from '../caseScout.config'
 import { SCORING_MODEL } from '../caseScout.prompts'
@@ -29,7 +30,11 @@ import {
   type DraftResponse,
 } from '../schemas/caseScoutModel.schema'
 import type { DraftedCase } from '../schemas/draftedCase.schema'
-import { nightlyCapForMergeShare, trailingMergeShare } from '../util/cap.util'
+import {
+  DEFAULT_NIGHTLY_CAP,
+  nightlyCapForMergeShare,
+  trailingMergeShare,
+} from '../util/cap.util'
 import {
   assignSplit,
   buildDraftingPrompt,
@@ -208,7 +213,9 @@ export class CaseScoutDraftService {
         monthKeysCovering(now, RECENT_PROPOSALS_WINDOW_DAYS),
       )
     ).filter((entry) => entry.runId !== runId)
-    const nightlyCap = nightlyCapForMergeShare(trailingMergeShare(history, now))
+    const nightlyCap = proposalsCanMerge()
+      ? nightlyCapForMergeShare(trailingMergeShare(history, now))
+      : DEFAULT_NIGHTLY_CAP
     const working: LedgerEntry[] = [...history]
     const caseLists = new Map<string, CaseListInfo>()
     const spendCap = spendCapUsd()

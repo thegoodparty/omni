@@ -469,6 +469,38 @@ describe('caseScoutNightly', () => {
     })
   })
 
+  it('reads only the last 24 hours and the overlap with no marker', async () => {
+    await seedConversation({ id: 'conv-fn', scope: ChatScope.chief_of_staff })
+    // A minute before the window: 24 hours and the 60-minute overlap before
+    // the 09:17 run.
+    await seedMessage(
+      'conv-fn',
+      'msg-fn-old',
+      ChatMessageRole.user,
+      '2026-11-15T08:16:00.000Z',
+      'An older question.',
+    )
+    await seedConversation({ id: 'conv-fn2', scope: ChatScope.chief_of_staff })
+    await seedMessage(
+      'conv-fn2',
+      'msg-fn-new',
+      ChatMessageRole.user,
+      '2026-11-15T08:17:00.000Z',
+      'A new question.',
+    )
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    const manifest = ManifestSchema.parse(
+      JSON.parse(bucketJson(`runs/${RUN_ID}/manifest.json`) ?? '{}'),
+    )
+    expect(manifest.windowStart).toBe('2026-11-15T08:17:00.000Z')
+    expect(manifest.sessions.map((s) => s.sessionId)).toEqual([
+      'conv-fn2:msg-fn-new',
+    ])
+    expect(transcripts.map(sessionIdIn)).toEqual(['conv-fn2:msg-fn-new'])
+  })
+
   it('caps the sessions a night reads, oldest first', async () => {
     vi.stubEnv('CASE_SCOUT_SESSION_CAP', '2')
     for (const hour of [10, 12, 14]) {
@@ -532,6 +564,37 @@ describe('caseScoutDraft', () => {
     ])
     expect(record().counts).toMatchObject({ candidates: 5, capped: 2 })
   })
+
+  it.each([
+    ['dev', { proposed: 3, capped: 1 }],
+    ['prod', { proposed: 1, capped: 3 }],
+  ])(
+    'reads the merge share for the cap only in prod (%s)',
+    async (environment, counts) => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', environment)
+      await seedSessions([3, 3, 3, 3])
+      const earlier = parseISO('2026-11-10T09:30:00.000Z').toISOString()
+      const unmerged = ['a', 'b', 'c'].map((id) => ({
+        runId: '2026-11-10',
+        conversationId: `conv-old-${id}`,
+        agentId: 'chief_of_staff',
+        outcome: 'proposed',
+        caseId: `old-${id}`,
+        failureSummary: `old failure ${id}`,
+        createdAt: earlier,
+      }))
+      objects.set(
+        `${BUCKET}/ledger/2026-11.jsonl`,
+        unmerged.map((line) => JSON.stringify(line)).join('\n') + '\n',
+      )
+      draftFor = (sessionId) =>
+        newCase(`case-${sessionId.split(':')[1]}`, `failure ${sessionId}`)
+
+      await service.jobs.runSchedule('caseScoutNightly')
+
+      expect(record().counts).toMatchObject(counts)
+    },
+  )
 
   it('suppresses duplicates, rejections and caseId collisions', async () => {
     await seedSessions([3, 3, 3])
