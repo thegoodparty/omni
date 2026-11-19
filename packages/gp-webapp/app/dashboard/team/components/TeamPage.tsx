@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   TeamMember,
@@ -63,7 +64,12 @@ const TeamPage = (): React.JSX.Element => {
   const isElectedOffice = !!organization?.electedOfficeId
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
-  const [inviteOpen, setInviteOpen] = useState(false)
+  // The plan upgrade's success step returns here with `?invite=1`, since
+  // inviting is why the candidate bought Team.
+  const searchParams = useSearchParams()
+  const [inviteOpen, setInviteOpen] = useState(
+    () => searchParams.get('invite') === '1',
+  )
 
   // isPending, not isLoading: in React Query v5 isLoading = isPending &&
   // isFetching, so while the query is disabled (orgSlug not resolved yet)

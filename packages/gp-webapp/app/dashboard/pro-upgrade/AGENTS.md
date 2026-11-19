@@ -35,6 +35,30 @@ screen) is where a candidate who is already Pro with no filing on record submits
 `MembershipBanner` and `MembershipChip` render whenever
 `isMembershipSurfaceVisible` says so.
 
+## One-time plan checkout (`win_per_campaign_pricing`)
+
+With the flag on, `PaymentStep` buys a plan once through the `PLAN` purchase
+(`createPlanCheckoutSession`, which maps gp-api's `PLANS_NOT_AVAILABLE`,
+`NOT_CAMPAIGN_OWNER`, `NO_ACTIVE_CAMPAIGN`, `SUBSCRIPTION_PLAN` and
+`ALREADY_ON_PLAN` to inline errors) and completes it with
+`completeCheckoutSession`; nothing may call the subscription session, which
+answers 410. Flag off, the subscription flow is untouched. The flag is a
+hard wait in `PaymentStep` so one candidate never sees one checkout and is
+charged through the other.
+
+- **Entry URL.** `?plan=pro|team&returnTo=<path>` (plus `source`, `channel`,
+  `cta`). `ProUpgradeWizard` parses `plan`, `returnTo` and `from` once into
+  `proUpgradeCarryContext` and re-appends them to every step URL, so a reload
+  or a Stripe redirect return keeps them. `returnTo` is an exact-path
+  allowlist (`proUpgradePlanParams.ts`); anything else is dropped.
+- **Pro to Team.** A Pro holder with `plan=team` derives to `payment` alone
+  (no stepper, one line item for the difference). `from=pro` rides the
+  success return URL so the success step knows only the difference was paid.
+- **Success.** `PlanReceiptCard` reads `GET plan-receipt` (cents; card and
+  receipt URL null on a full promo). Team's button is "Invite your team",
+  going to `/dashboard/team?invite=1`, which `TeamPage` reads to open the
+  invite drawer.
+
 ## SMS compliance cutoff
 
 gp-api computes `smsCompliance` (`open` / `closing` / `closed` /
