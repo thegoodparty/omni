@@ -82,6 +82,7 @@ const SHARED_AREAS: ProductArea[] = [
     inside: [
       'Edit details, on the first card, changes your first and last name',
       'Manage sign-in, next to it, changes your sign-in email, phone, and password',
+      'Account Information, on the last card, shows your plan. On a one-time Pro or Team plan it also shows a Good through date, which moves if the election moves, a Billing history button that opens the invoices in Stripe, and for the campaign owner on Pro an Upgrade to Team link. A campaign on the Free plan sees a See plans button. A subscriber who started before plans keeps Manage Subscription',
     ],
   },
   {
@@ -286,7 +287,7 @@ const WIN_AREAS: ProductArea[] = [
       'One flow: the candidate answers whether they have filed, gives their campaign EIN and their campaign filing details (plus a candidate profile if they have not written one), then pays',
       'Candidates who were already Pro without filing details on record add them under Campaign verification',
       'The same flow can open inside a text or robocall you are building, so upgrading does not lose the work',
-      'The Welcome to Pro screen shows the receipt for the $10 monthly charge, with the card used and a download',
+      'The Welcome to Pro screen shows the receipt, with the card used and a download. With the new plans it is the one-time plan payment, and the invoice also appears under Billing history in Account Settings. A subscriber who started before plans sees the $10 monthly charge',
     ],
   },
   {
