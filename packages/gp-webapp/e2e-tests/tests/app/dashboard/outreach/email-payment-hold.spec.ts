@@ -15,7 +15,7 @@ import {
   timeTravel,
 } from 'src/helpers/vendor-mocks.helper'
 import { eventually } from 'tests/utils/eventually'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // The payment hold sweeps (gp-api src/paymentHolds/), end to end against
 // real Stripe test-mode holds. An email send scheduled more than 3 days out

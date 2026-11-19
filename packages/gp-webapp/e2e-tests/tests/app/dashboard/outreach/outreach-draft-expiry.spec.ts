@@ -7,10 +7,7 @@ import {
   timeTravel,
 } from 'src/helpers/vendor-mocks.helper'
 import { eventually } from 'tests/utils/eventually'
-import {
-  createHeadlessTestUser,
-  withGatewayRetry,
-} from 'tests/utils/headless-user'
+import { createTestUser, withGatewayRetry } from '@goodparty_org/test-users'
 
 const IMAGE = readFileSync(
   join(__dirname, '../../../../src/fixtures/heart.png'),
@@ -20,7 +17,7 @@ const IMAGE = readFileSync(
 // candidate's saved draft past its retention and queues one run of the real
 // schedule, which deletes it the way the daily run would.
 test('a saved text draft past its retention leaves the outreach list', async () => {
-  const { client, campaignId } = await createHeadlessTestUser({
+  const { client, campaignId } = await createTestUser({
     product: 'win',
   })
   if (campaignId === undefined) throw new Error('No campaign created')

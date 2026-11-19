@@ -15,7 +15,7 @@ import {
   timeTravel,
 } from 'src/helpers/vendor-mocks.helper'
 import { eventually } from 'tests/utils/eventually'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // The email send, end to end against the vendor-mock stack: pick a
 // voter-file list with the email filter forced on, write the email, pick its

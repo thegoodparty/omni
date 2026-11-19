@@ -14,7 +14,7 @@ import {
   runJob,
   timeTravel,
 } from 'src/helpers/vendor-mocks.helper'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 import { eventually } from 'tests/utils/eventually'
 import type { AxiosInstance } from 'axios'
 

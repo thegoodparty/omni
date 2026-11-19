@@ -9,7 +9,7 @@ import {
   sendChatTurn,
 } from 'src/helpers/chatSmoke.helper'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // A priority's workspace IS a chat, on the `priority_flow` scope. The other
 // priority specs drive the cards and the send handoffs the model draws, but

@@ -1,26 +1,14 @@
-import { randomUUID } from 'crypto'
-import { nanoid } from 'nanoid'
+import { generateTestUserData as generate } from '@goodparty_org/test-users'
 
+// Kept as a class because spec helpers call it that way; the data it generates
+// comes from @goodparty_org/test-users, so the judge's users are shaped exactly
+// like the suite's.
 export class TestDataHelper {
   /**
    * Generate test user data (does NOT create actual user)
    * Use this for form validation tests that don't submit
    */
-  static generateTestUserData() {
-    const timestamp = `${Date.now()}-${nanoid(5)}`
-    return {
-      firstName: `Test${timestamp}`,
-      lastName: 'User',
-      // `+clerk_test` makes Clerk's dev instance treat the address as a test
-      // address: it sends no email (sign-in/verification code is 424242), so
-      // these throwaway users cannot bounce (ENG-11573). The domain suffix is
-      // kept so gp-api's isTestUser and sweepTestUsers still match.
-      email: `test-${timestamp}+clerk_test@test.goodparty.org`,
-      phone: `5105${Date.now().toString().slice(-6)}`,
-      password: randomUUID(),
-      zipCode: '82001',
-    }
-  }
+  static generateTestUserData = generate
 
   /**
    * Generate timestamp string

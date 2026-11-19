@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import realWorldReferences from '../e2e-tests/src/real-world-references.json'
+import realWorldReferences from '../../test-users/src/real-world-references.json'
 import {
   assessReference,
   HORIZON_DAYS,

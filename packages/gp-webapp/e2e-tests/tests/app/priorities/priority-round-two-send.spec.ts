@@ -16,7 +16,7 @@ import {
   timeTravel,
 } from 'src/helpers/vendor-mocks.helper'
 import { eventually } from 'tests/utils/eventually'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // A priority text is one purchase in two rounds. Round 1 goes out on the
 // date picked. Round 2 is paid for in the same checkout and held, with a

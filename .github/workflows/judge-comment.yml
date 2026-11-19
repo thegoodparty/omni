@@ -94,6 +94,11 @@ concurrency:
   # `/judge agreed...` lands in the ruling group too, which only means it
   # fails to cancel a sweep it was never a valid request to begin with; the
   # real validation is judge-comment-parse.sh's, after a runner starts.
+  #
+  # `/judge-eval` IS EXCLUDED HERE AND ON `parse`'s `if:`, because it is a
+  # different workflow (judge-eval.yml) that a `startsWith('/judge')` would
+  # otherwise claim: the comment would join this PR's sweep slot, cancel a
+  # live sweep, and then skip green without running anything.
   group: >-
     ${{ (github.event.issue.pull_request != null
     && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
@@ -102,6 +107,7 @@ concurrency:
     && format('universal-judge-ruling-pr-{0}', github.event.issue.number)
     || (github.event.issue.pull_request != null
     && startsWith(github.event.comment.body, '/judge')
+    && !startsWith(github.event.comment.body, '/judge-eval')
     && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     && format('universal-judge-pr-{0}', github.event.issue.number)
     || format('universal-judge-noop-{0}', github.run_id) }}
@@ -183,6 +189,7 @@ jobs:
     if: >-
       github.event.issue.pull_request != null
       && startsWith(github.event.comment.body, '/judge')
+      && !startsWith(github.event.comment.body, '/judge-eval')
       && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     outputs:
       requested: ${{ steps.parse.outputs.requested }}

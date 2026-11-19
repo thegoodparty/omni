@@ -2,8 +2,9 @@ import { expect, test, type Page } from 'src/fixtures/test'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
-import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
-import { clerkBackend, createHeadlessTestUser } from 'tests/utils/headless-user'
+import { clerkThrottle } from '@goodparty_org/test-users'
+import { createTestUser } from '@goodparty_org/test-users'
+import { clerkBackend } from 'src/helpers/clerkBackend.helper'
 
 // win-team-accounts (ENG-10816/ENG-11044 Phase 1.5). This covers the
 // /volunteer shell (app/volunteer/VolunteerSidebar.tsx, AssignmentsPage.tsx,
@@ -54,7 +55,7 @@ const signInAsExistingUser = async (
   await page.waitForFunction(() => window.Clerk?.user !== null)
 }
 
-type HeadlessOwner = Awaited<ReturnType<typeof createHeadlessTestUser>>
+type HeadlessOwner = Awaited<ReturnType<typeof createTestUser>>
 
 // A real win campaign (the owner) plus a real account with no campaign of
 // its own (the volunteer-to-be), joined by a direct-add invite: the target
@@ -65,8 +66,8 @@ const seedVolunteer = async (): Promise<{
   owner: HeadlessOwner
   volunteer: HeadlessOwner
 }> => {
-  const owner = await createHeadlessTestUser({ product: 'win' })
-  const volunteer = await createHeadlessTestUser({
+  const owner = await createTestUser({ product: 'win' })
+  const volunteer = await createTestUser({
     product: 'win',
     skipCampaignCreation: true,
   })
@@ -238,9 +239,9 @@ test.describe('Volunteer campaign switcher', () => {
     page,
   }) => {
     test.setTimeout(4 * 60 * 1000)
-    const ownerA = await createHeadlessTestUser({ product: 'win' })
-    const ownerB = await createHeadlessTestUser({ product: 'win' })
-    const volunteer = await createHeadlessTestUser({
+    const ownerA = await createTestUser({ product: 'win' })
+    const ownerB = await createTestUser({ product: 'win' })
+    const volunteer = await createTestUser({
       product: 'win',
       skipCampaignCreation: true,
     })

@@ -16,7 +16,7 @@ import {
 } from 'src/helpers/vendor-mocks.helper'
 import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // [M4] 10DLC registration, end to end against the vendor mocks (ENG-11404).
 //

@@ -1,0 +1,30 @@
+{
+  "name": "@goodparty_org/judge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pairwise eval framework for background agents: brings a base URL and a candidate URL into comparable runs and grades the pairs.",
+  "license": "CC0-1.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "run": "tsx src/run.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.77",
+    "@goodparty_org/contracts": "*",
+    "@goodparty_org/test-users": "*",
+    "ai": "^6.0.182",
+    "axios": "^1.17.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "fast-glob": "^3.3.3",
+    "tsx": "^4.20.6",
+    "vitest": "^5.1.0"
+  }
+}

@@ -10,7 +10,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { eventually } from 'tests/utils/eventually'
-import { applyElectionPreset } from 'tests/utils/headless-user'
+import { applyElectionPreset } from '@goodparty_org/test-users'
 
 // E2E coverage for the "Run for a new office" branch of the follow-on flow
 // (ENG-10389 task 11; ENG-10539 dropped the intent screen). Unlike same-office,

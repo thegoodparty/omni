@@ -9,7 +9,7 @@ import {
   sendChatTurn,
 } from 'src/helpers/chatSmoke.helper'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // Ordinance guided flow rides the `ordinance_flow` scope, one conversation per
 // (ordinance, step). ordinances.spec.ts stops at creating the record — it
