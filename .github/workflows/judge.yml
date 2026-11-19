@@ -214,10 +214,11 @@ jobs:
   # on the dev scheduler at once was one sweep per repository. It cost an hour
   # of waiting for every PR behind the first, and it was never the real cap —
   # the cap is `maxInFlight` in src/chats/evals/judge/config.ts, which is sized
-  # against that shared scheduler and not against one sweep's appetite. With the
-  # arms in separate jobs the group cannot be repo-wide anyway: it would queue
-  # the second arm of a run behind the first run's arms, which is the one wait
-  # this change exists to remove.
+  # against that shared scheduler PER ARM and against what both arms together
+  # claim, rather than against one sweep's appetite. With the arms in separate
+  # jobs the group cannot be repo-wide anyway: it would queue the second arm of
+  # a run behind the first run's arms, which is the one wait this change exists
+  # to remove.
   #
   # `plan` SPENDS NOTHING, so its group is only about not leaving two stale
   # estimates racing to write the same comment. The run_id fallback keeps the
@@ -2852,6 +2853,20 @@ jobs:
           # here alone.
           role-duration-seconds: 14400
 
+      # WHERE THE RECORDS AND THE GUARD LEDGER LIVE, for the judging step and
+      # the three bookkeeping steps after it. `prepare` decided it once for the
+      # whole sweep. Written to $GITHUB_ENV here rather than mapped per step,
+      # which is the shape judgeWorkflow.test.ts forbids for the arms and
+      # permits for these: the guard CLIs read it from the job environment
+      # themselves, and one of them runs on `always()` where a step that had
+      # not run would leave a step env entry resolving to nothing anyway.
+      #
+      # BEFORE "Judge both arms", and that ordering is the whole point: the
+      # judging entry calls parseSweepEnv, which refuses a sweep with no record
+      # store. Exported after it, every live sweep would fail at grading with
+      # both arms already billed and nothing to show for them.
+      - name: Choose where records are kept
+        run: echo "JUDGE_RECORDS_BUCKET=${{ needs.prepare.outputs.records_bucket }}" >> "$GITHUB_ENV"
 
       # THE BASE REF'S OWN CHECKOUT, and the reason an arm is a worktree
       # rather than a flag. Two worktrees are two module graphs, so the base
@@ -2990,16 +3005,6 @@ jobs:
           mkdir -p "$(dirname "$REPORT_FILE")"
           trap 'cp "$GITHUB_STEP_SUMMARY" "$REPORT_FILE" 2>/dev/null || true' EXIT
           npx tsx "$JUDGING_ENTRY"
-
-      # WHERE THE RECORDS AND THE GUARD LEDGER LIVE, for the three bookkeeping
-      # steps below. `prepare` decided it once for the whole sweep. Written to
-      # $GITHUB_ENV here rather than mapped per step, which is the shape
-      # judgeWorkflow.test.ts forbids for the arms and permits for these: the
-      # guard CLIs read it from the job environment themselves, and one of them
-      # runs on `always()` where a step that had not run would leave a step env
-      # entry resolving to nothing anyway.
-      - name: Choose where records are kept
-        run: echo "JUDGE_RECORDS_BUCKET=${{ needs.prepare.outputs.records_bucket }}" >> "$GITHUB_ENV"
 
       # ENG-11593, guard sweeps only. Reads report.md's own agent headings
       # back into `agentId:OUTCOME` pairs (for the ledger line's `verdicts`

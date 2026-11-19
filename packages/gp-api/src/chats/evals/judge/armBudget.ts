@@ -197,9 +197,10 @@ export const baseHonoursAdmission = (baseDir: string): boolean => {
 
 // WHETHER THE BASE ARM STARTS ITS BACKGROUND RUNS ALL AT ONCE, which is what
 // admission by the wave assumes. A base that honours admission but predates
-// that walks its runs one after another, and a wave sized for twelve slots
-// would take it twelve runs' worth of wall clock. Against such a base,
-// admission falls back to the one-after-another spend-down it can honour.
+// that walks its runs one after another, and a wave sized for a whole arm's
+// slots would take it that many runs' worth of wall clock. Against such a
+// base, admission falls back to the one-after-another spend-down it can
+// honour.
 //
 // The exported constant, anchored, for the reason the admission probe reads
 // the schema key: a looser match finds the name in a comment.

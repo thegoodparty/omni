@@ -689,6 +689,25 @@ describe('judge.yml keeps records in the private bucket', () => {
     )
     expect(yaml).not.toContain('JUDGE_RECORDS_DIR=')
   })
+
+  // THE GRADING JOB HAS TO EXPORT IT BEFORE IT GRADES, which is a $GITHUB_ENV
+  // ordering rule and not a style preference: a `$GITHUB_ENV` write only
+  // reaches LATER steps. `sweep.ts` calls `parseSweepEnv`, which refuses a
+  // sweep with no record store, so a step that ran after "Judge both arms"
+  // would leave every live sweep failing at grading with both arms already
+  // billed and nothing to show for them.
+  it('exports the bucket in grade before the grading step reads it', () => {
+    const gradeSteps = stepsOf(jobOf(yaml, 'grade'))
+    const gradeNames = gradeSteps.map((step) => step.name)
+    expect(gradeNames).toContain('Choose where records are kept')
+    expect(gradeNames.indexOf('Choose where records are kept')).toBeLessThan(
+      gradeNames.indexOf('Judge both arms'),
+    )
+    expect(
+      gradeSteps.find((step) => step.name === 'Choose where records are kept')
+        ?.body,
+    ).toContain('>> "$GITHUB_ENV"')
+  })
 })
 
 // THE BASE ARM RUNS THE BASE REF'S CODE, not this branch's. The workflow is
@@ -1839,10 +1858,12 @@ describe('the arms reach AWS on the role, not on the stub', () => {
 // What the old group was for was keeping two PRs from putting two sweeps'
 // worth of background runs on the dev scheduler. That is `maxInFlight` in
 // config.ts's job, and it is still the number that has to stay under the
-// shared cap — the group was never the cap. What the old group also did, as a
-// side effect, was serialise every PR behind the first for an hour; with the
-// arms in separate jobs it cannot do that without also queueing a run's
-// second arm behind its first, which is the very wait this change removes.
+// shared cap — the group was never the cap. It is a PER ARM number and the
+// two arms run at once, so the cap has to hold twice it. What the old group
+// also did, as a side effect, was serialise every PR behind the first for an
+// hour; with the arms in separate jobs it cannot do that without also
+// queueing a run's second arm behind its first, which is the very wait this
+// change removes.
 //
 // The caller layers still cancel, so a superseded request for the SAME PR is
 // killed rather than run twice, and now each of its four jobs is killed in

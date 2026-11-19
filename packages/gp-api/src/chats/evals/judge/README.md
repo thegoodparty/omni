@@ -105,7 +105,8 @@ Actions. That includes a plan-only `/judge`: posting one while a live sweep is
 running throws away what that sweep already spent, and no verdict comes out.
 Two different PRs no longer queue behind each other; what keeps their
 background runs from overrunning the shared dev scheduler is
-`config.background.maxInFlight`, not the workflow.
+`config.background.maxInFlight`, not the workflow. That is a PER ARM number
+and both arms now run at once, so a sweep claims twice it.
 
 ## Running a sweep: THREE PROCESSES, IN FOUR JOBS
 
@@ -155,7 +156,7 @@ Each job also carries its own concurrency group, keyed on the PR and the job
 name and cancelling rather than queueing. The single repo-wide queue this
 replaced was the only thing capping how many background runs two concurrent
 sweeps put on the shared dev scheduler; `config.background.maxInFlight` is that
-cap now, and it is sized for two sweeps' two arms rather than for one.
+cap now, sized per arm against what BOTH arms together may claim.
 
 **Step 3 is not checkout-neutral**, which is easy to assume because it reads
 the records rather than driving an agent. It also reads the checkout it runs
@@ -572,7 +573,7 @@ chat sweep reads the interval as before unless exclusions cut it under 8.
 attempt, a sweep is five votes: 5 of 5 one way is p = 1/32 and reads BETTER
 or WORSE; 4 of 5 is p = 0.19 and reads CAN'T SAY, too few comparisons. The
 cap was 3, where 3 of 3 is p = 1/8 and nothing could ever decide. Five costs
-two more runs an arm per agent, and an arm's forty in-flight slots take eight
+two more runs an arm per agent, and an arm's twenty in-flight slots take four
 background agents a sweep. The handling signal is unchanged and still decides
 on its own test.
 
