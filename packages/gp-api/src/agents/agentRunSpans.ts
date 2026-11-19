@@ -129,16 +129,97 @@ export const withAgentRunSpan = <T>(
     ),
   )
 
+// A tool reports its own failure as a value, not a throw, so the span reads
+// what it returned. The reason is a code and nothing else: an http failure
+// carries a URL, a rejected query carries SQL, a failed search carries the
+// provider's text. A value that is not already a short code is dropped rather
+// than clipped into whatever its first 40 characters are.
+const TOOL_REASON = /^[a-z][a-z0-9_]{0,39}$/
+
+const toolReason = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined
+  const code = value.trim().toLowerCase()
+  return TOOL_REASON.test(code) ? code : undefined
+}
+
+const toolFailed = (value: unknown): boolean =>
+  typeof value === 'object' &&
+  value !== null &&
+  'ok' in value &&
+  value.ok === false
+
+const toolOutcome = (value: unknown): Attributes => {
+  if (!toolFailed(value)) return { 'gen_ai.tool.ok': true }
+  const reason =
+    typeof value === 'object' && value !== null && 'reason' in value
+      ? toolReason(value.reason)
+      : undefined
+  return {
+    'gen_ai.tool.ok': false,
+    ...(reason === undefined ? {} : { 'gen_ai.tool.reason': reason }),
+  }
+}
+
+// A refusal that throws, as submitOutput does on a schema miss. Its message is
+// the fix-it instruction the model reads, so the span records the code and
+// never the text.
+export class ToolRefusalError extends Error {
+  constructor(
+    readonly reason: string,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ToolRefusalError'
+  }
+}
+
+const thrownReason = (err: unknown): string =>
+  err instanceof ToolRefusalError
+    ? (toolReason(err.reason) ?? 'thrown')
+    : 'thrown'
+
+// One span per tool call, answering or throwing. A tool that returns ok:false
+// still resolves, so without these attributes a refused call is
+// indistinguishable from a successful one on the run's trace.
+export const withToolSpan = <T>(
+  name: string,
+  call: { runId: string; stepKey: string },
+  fn: () => Promise<T>,
+): Promise<T> =>
+  tracer().startActiveSpan(
+    `execute_tool ${name}`,
+    {
+      kind: SpanKind.INTERNAL,
+      attributes: {
+        'gen_ai.operation.name': 'execute_tool',
+        'gen_ai.tool.name': name,
+        'gen_ai.tool.call.id': `${call.runId}:${call.stepKey}`,
+      },
+    },
+    async (span) => {
+      try {
+        const value = await fn()
+        span.setAttributes(toolOutcome(value))
+        return value
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR })
+        span.setAttribute(
+          'error.type',
+          err instanceof Error ? err.name : 'unknown',
+        )
+        span.setAttributes({
+          'gen_ai.tool.ok': false,
+          'gen_ai.tool.reason': thrownReason(err),
+        })
+        throw err
+      } finally {
+        span.end()
+      }
+    },
+  )
+
 export const instrumentTool = (name: string, tool: AgentTool): AgentTool => ({
   ...tool,
   execute: (input, ctx) =>
-    inSpan(
-      `execute_tool ${name}`,
-      {
-        'gen_ai.operation.name': 'execute_tool',
-        'gen_ai.tool.name': name,
-        'gen_ai.tool.call.id': `${ctx.runId}:${ctx.stepKey}`,
-      },
-      () => tool.execute(input, ctx),
-    ),
+    withToolSpan(name, ctx, () => tool.execute(input, ctx)),
 })

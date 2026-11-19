@@ -18,7 +18,7 @@ import {
   stepRows,
 } from './agentMessages'
 import { isRecord } from '@/llm/tools/util/isRecord.util'
-import { instrumentTool } from './agentRunSpans'
+import { instrumentTool, ToolRefusalError, withToolSpan } from './agentRunSpans'
 import type { AgentTool, ToolContext } from './tools/tool'
 
 export const SUBMIT_TOOL = 'submitOutput'
@@ -248,35 +248,43 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
   // error repeats the whole input, which for a large output is tens of
   // thousands of tokens added to the context on every miss. Zod's own list of
   // what is wrong is enough to fix it.
+  const submitOutput = async ({ output }: { output?: unknown }) => {
+    const parsed = args.output.safeParse(output)
+    if (!parsed.success) {
+      const problems = describeIssues(parsed.error.issues, ['output'])
+      throw new ToolRefusalError(
+        'schema',
+        `The output does not match the schema. Fix these and call ${SUBMIT_TOOL} again:\n${problems.join('\n')}`,
+      )
+    }
+    // The anti-fabrication gate. Distinct from the schema check above on
+    // purpose: an invented output is schema-valid, and the only evidence
+    // that this one is not is that no warehouse query returned a row.
+    if (
+      warehouseTools.length > 0 &&
+      warehouseQueries === 0 &&
+      !carveOutApplies(parsed.data, args.dataRequiredUnless)
+    ) {
+      throw new ToolRefusalError(
+        'no_data',
+        `No warehouse query succeeded, so this output cannot be submitted: ` +
+          `it would report data this run never read. Run ${warehouseTools.join(' or ')} ` +
+          `and read its result before calling ${SUBMIT_TOOL} again.`,
+      )
+    }
+    return 'accepted'
+  }
   const tools: ToolSet = {
     [SUBMIT_TOOL]: tool({
       description:
         'Submit the output. Call once, at the end, with the whole structured output.',
       inputSchema: jsonSchema<{ output?: unknown }>(submitJsonSchema),
-      execute: async ({ output }) => {
-        const parsed = args.output.safeParse(output)
-        if (!parsed.success) {
-          const problems = describeIssues(parsed.error.issues, ['output'])
-          throw new Error(
-            `The output does not match the schema. Fix these and call ${SUBMIT_TOOL} again:\n${problems.join('\n')}`,
-          )
-        }
-        // The anti-fabrication gate. Distinct from the schema check above on
-        // purpose: an invented output is schema-valid, and the only evidence
-        // that this one is not is that no warehouse query returned a row.
-        if (
-          warehouseTools.length > 0 &&
-          warehouseQueries === 0 &&
-          !carveOutApplies(parsed.data, args.dataRequiredUnless)
-        ) {
-          throw new Error(
-            `No warehouse query succeeded, so this output cannot be submitted: ` +
-              `it would report data this run never read. Run ${warehouseTools.join(' or ')} ` +
-              `and read its result before calling ${SUBMIT_TOOL} again.`,
-          )
-        }
-        return 'accepted'
-      },
+      execute: (input) =>
+        withToolSpan(
+          SUBMIT_TOOL,
+          { ...args.toolContext, stepKey: stepKey(SUBMIT_TOOL) },
+          () => submitOutput(input),
+        ),
     }),
   }
   // The one place an agent's tools become AI SDK tools, for every agent.
