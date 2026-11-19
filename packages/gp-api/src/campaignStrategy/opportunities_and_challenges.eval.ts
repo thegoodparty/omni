@@ -39,6 +39,9 @@ export default definePairwiseAgentEvalSuite<OpportunitiesAndChallengesEvalInput>
       // The old judge resolved these once per sweep from one fixture account. Here
       // each run fills them from its own campaign and its own user, so both arms
       // compare the same fields supplied by two equivalent accounts.
+      // JSON.parse returns `any`; the object is this suite's own input type,
+      // round-tripped, and the run route validates it against the agent's.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       const resolved = JSON.parse(
         JSON.stringify(input)
           .replaceAll('{judgeRaceId}', raceId)

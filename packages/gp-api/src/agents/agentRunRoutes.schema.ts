@@ -21,8 +21,8 @@ export const StartAgentRunResponseSchema = z.object({
 })
 
 // One status vocabulary over both engines' tables. The PMF Engine's
-// AWAITING_RESUME is a run its own recovery loop picks up, so it reads as
-// running.
+// AWAITING_RESUME reads as failed, because a judge run is never resumed (see
+// `AWAITING_RESUME_ERROR` in the service).
 export const AGENT_RUN_ROUTE_STATUSES = [
   'queued',
   'running',

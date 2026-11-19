@@ -292,7 +292,7 @@ describe('on the PMF Engine', () => {
     })
   })
 
-  it('reports a run still waiting on its own recovery loop as running', async () => {
+  it('reports a run parked awaiting a resume as failed, because nothing resumes it', async () => {
     const run = await service.prisma.experimentRun.create({
       data: {
         experimentType: 'find_existing_ordinances',
@@ -301,7 +301,16 @@ describe('on the PMF Engine', () => {
       },
     })
 
-    expect((await readRun(run.runId)).data.status).toBe('running')
+    // `start` is the one dispatcher that bypasses the test-user guard, and the
+    // resume loop cannot carry that bypass: it re-dispatches through the same
+    // guard, which refuses a judge's @test.goodparty.org org. So the row only
+    // cycles the sweep until MAX_RESUME_ATTEMPTS fails it, and reporting
+    // 'running' would have the judge poll for an outcome already decided.
+    expect((await readRun(run.runId)).data).toEqual({
+      status: 'failed',
+      artifact: null,
+      error: expect.stringContaining('never resumed') as unknown as string,
+    })
   })
 
   it('reports a run with no artifact published yet as null', async () => {

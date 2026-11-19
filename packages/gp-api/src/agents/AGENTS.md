@@ -372,8 +372,10 @@ GET  /v1/agents/runs/:runId             -> { status, artifact, error }
   runs gp-api's engine.
 - **`GET` returns the artifact the same way from both.** An `AgentRun` keeps
   its artifact in the row; an `ExperimentRun` keeps S3 coordinates and the row
-  is read through `S3Service.getFile`. `AWAITING_RESUME` reads as `running`,
-  because its own recovery loop will pick it up.
+  is read through `S3Service.getFile`. `AWAITING_RESUME` reads as `failed`,
+  because a judge run is never resumed: the resume loop re-dispatches through
+  the test-user guard that only `POST` bypasses, so a parked judge run can only
+  cycle the sweep until `MAX_RESUME_ATTEMPTS` fails it. The error says so.
 - **`compliance_setup` is refused by name**: it buys domains and submits to
   Peerly, so a judge run of it spends real money.
 - **A suite writes one input, in the manifest's snake_case shape**, which is

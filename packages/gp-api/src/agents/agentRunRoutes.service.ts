@@ -108,12 +108,21 @@ const toGpApiInput = (definition: AgentDefinition, input: AgentRunInput) => {
 const jsonOrNull = (value: unknown): Prisma.JsonValue =>
   value === null ? null : z.json().parse(value)
 
+// A judge run is never resumed, so AWAITING_RESUME is terminal on this route.
+// `start` is the one dispatcher that bypasses the test-user guard
+// (`allowTestUser`), and the resume loop cannot carry that bypass: it
+// re-dispatches through the same guard, which refuses a @test.goodparty.org
+// org, so a parked judge run is only a row cycling the sweep until
+// MAX_RESUME_ATTEMPTS marks it FAILED. Reading it as still running would have
+// the judge poll for an hour for an outcome already decided.
+export const AWAITING_RESUME_ERROR =
+  'the run parked awaiting a resume, and a judge run is never resumed'
+
 const EXPERIMENT_RUN_STATUS: Record<ExperimentRunStatus, AgentRunRouteStatus> =
   {
     [ExperimentRunStatus.QUEUED]: 'queued',
     [ExperimentRunStatus.RUNNING]: 'running',
-    // Its own recovery loop picks it up, so it is still going.
-    [ExperimentRunStatus.AWAITING_RESUME]: 'running',
+    [ExperimentRunStatus.AWAITING_RESUME]: 'failed',
     [ExperimentRunStatus.COMPLETED]: 'completed',
     [ExperimentRunStatus.FAILED]: 'failed',
     [ExperimentRunStatus.SUPERSEDED]: 'superseded',
@@ -227,10 +236,11 @@ export class AgentRunRoutesService extends createPrismaBase(MODELS.AgentRun) {
     if (!experimentRun) throw new NotFoundException(`no run ${runId}`)
 
     await this.requireMembership(experimentRun.organizationSlug, user)
+    const parked = experimentRun.status === ExperimentRunStatus.AWAITING_RESUME
     return {
       status: EXPERIMENT_RUN_STATUS[experimentRun.status],
       artifact: await this.readPublishedArtifact(experimentRun),
-      error: experimentRun.error,
+      error: parked ? AWAITING_RESUME_ERROR : experimentRun.error,
     }
   }
 
