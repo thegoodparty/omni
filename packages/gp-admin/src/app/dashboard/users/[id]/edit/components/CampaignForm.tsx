@@ -76,17 +76,11 @@ function hasErrorInEditedFields(
   })
 }
 
-type StatusFlagKey =
-  | 'isActive'
-  | 'isVerified'
-  | 'isPro'
-  | 'isDemo'
-  | 'canDownloadFederal'
+type StatusFlagKey = 'isActive' | 'isVerified' | 'isDemo' | 'canDownloadFederal'
 
 const STATUS_FLAG_KEYS: readonly StatusFlagKey[] = [
   'isActive',
   'isVerified',
-  'isPro',
   'isDemo',
   'canDownloadFederal',
 ] as const
@@ -207,15 +201,8 @@ export function CampaignForm({
   onCancel,
   isSaving,
 }: CampaignFormProps) {
-  const {
-    isActive,
-    isVerified,
-    isPro,
-    isDemo,
-    didWin,
-    tier,
-    canDownloadFederal,
-  } = initialData
+  const { isActive, isVerified, isDemo, didWin, tier, canDownloadFederal } =
+    initialData
   const data = initialData.data ?? {}
   const details = initialData.details ?? {}
   const positionName = initialData.positionName ?? null
@@ -234,7 +221,6 @@ export function CampaignForm({
     defaultValues: {
       isActive: isActive ?? false,
       isVerified: isVerified ?? false,
-      isPro: isPro ?? false,
       isDemo: isDemo ?? false,
       didWin: didWin ?? null,
       tier,

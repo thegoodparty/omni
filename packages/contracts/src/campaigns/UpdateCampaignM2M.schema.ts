@@ -6,6 +6,7 @@ export const UpdateCampaignM2MSchema = CampaignSchema.omit({
   createdAt: true,
   updatedAt: true,
   userId: true,
+  isPro: true,
   vendorTsData: true,
 })
   .partial()

@@ -190,7 +190,7 @@ describe('CampaignForm', () => {
 
       expect(screen.getByLabelText('Active')).toBeInTheDocument()
       expect(screen.getByLabelText('Verified')).toBeInTheDocument()
-      expect(screen.getByLabelText('Pro')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Pro')).not.toBeInTheDocument()
       expect(screen.getByLabelText('Demo Account')).toBeInTheDocument()
       expect(screen.getByLabelText('Won Election')).toBeInTheDocument()
       expect(screen.getByLabelText('Can Download Federal')).toBeInTheDocument()
@@ -822,7 +822,6 @@ describe('CampaignForm', () => {
     it('defaults nullable booleans to false when null', () => {
       renderForm({
         isVerified: null,
-        isPro: null,
         didWin: null,
       })
 
