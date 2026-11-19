@@ -16,6 +16,10 @@ import {
 } from './emailApi'
 import { isBlockError } from './emailForm.util'
 import { formatDollars } from './emailFlow.util'
+import {
+  creditLines,
+  useOutreachCredit,
+} from 'app/dashboard/outreach/util/outreachCredit'
 import type { EmailSurface } from './emailSurface'
 
 const PAYMENT_REQUIRED = 402
@@ -45,6 +49,7 @@ export const EmailPayStep = ({
 }: EmailPayStepProps) => {
   const queryClient = useQueryClient()
   const { data: send } = useEmailSend(surface.isServe, draftId)
+  const outreachCredit = useOutreachCredit()
   const confirmedRef = useRef<EmailSend | null>(null)
 
   // Every card, the first and each one after a decline, goes through confirm.
@@ -104,7 +109,16 @@ export const EmailPayStep = ({
       />
       {send?.estimate && (
         <p className="text-sm text-foreground" data-testid="email-pay-price">
-          Up to {formatDollars(send.estimate.priceCents)}
+          Up to{' '}
+          {formatDollars(
+            outreachCredit.active && !surface.isServe
+              ? send.estimate.priceCents -
+                  creditLines(
+                    send.estimate.priceCents,
+                    outreachCredit.balanceCents,
+                  ).creditCents
+              : send.estimate.priceCents,
+          )}
         </p>
       )}
       <PaymentHoldCard
