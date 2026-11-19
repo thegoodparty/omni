@@ -45,10 +45,6 @@ export const CAMPAIGN_FIELDS = {
     label: 'Verified',
     display: { type: 'boolean', trueBadgeColor: 'blue' },
   },
-  isPro: {
-    label: 'Pro',
-    display: { type: 'boolean', trueBadgeColor: 'violet' },
-  },
   isDemo: {
     label: 'Demo Account',
     display: { type: 'boolean', trueBadgeColor: 'amber' },
