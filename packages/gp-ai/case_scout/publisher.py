@@ -7,8 +7,9 @@ GitHub-key-holding half of the TDD's three-process split. It never reads a
 transcript: everything here comes from `runs/<runId>/bundle.json` (already
 gated, already-fictional case fields), `sources.json` (caseId ->
 conversationId, used only in the PRIVATE Slack note, never the PR), and
-`record.json` (counts, spend, and the marker candidate the Reader computed —
-see reader/main.py's module docstring for why that last piece lives there).
+`record.json` (counts, spend, and the marker candidate gp-api's reader
+computed — packages/gp-api/src/caseScout/util/sessions.util.ts's
+newMarkerCandidate).
 
 Pure stdlib + boto3/botocore only (via bucket.py/ai_secrets.py/github_auth.py)
 — same constraint as every other top-level case_scout module: the Lambda zip
@@ -32,8 +33,7 @@ Plus two prod-only housekeeping steps that run first, every night:
     case-scout PR open more than 7 days.
   - The outcome reconcile: for each case proposed in the last 30 days with
     no outcome yet, read its PR's state and append "merged" or "rejected"
-    (reader/ledger.py's module docstring has the line shapes and who reads
-    them).
+    (packages/gp-api/src/caseScout/util/ledger.util.ts reads them).
 """
 
 from __future__ import annotations
@@ -53,10 +53,10 @@ from case_scout.bucket import CaseScoutBucket, Marker
 GITHUB_API_BASE_URL = "https://api.github.com"
 REPO = "thegoodparty/omni"
 DEFAULT_BRANCH = "main"
-# Matches reader/case_lists.py's _CASES_PATH exactly — same files, read here
-# through the authenticated Contents API instead of that module's keyless
-# raw-content read (see that module's docstring for why the Reader can't
-# use this path: the Publisher is the only process allowed to hold write
+# Matches gp-api's caseScoutCaseLists.service.ts CASE_LIST_URL exactly — same
+# files, read here through the authenticated Contents API instead of that
+# service's keyless raw-content read (see its comment for why the reader
+# can't use this path: the Publisher is the only process allowed to hold write
 # credentials, per the TDD's three-process isolation).
 CASES_PATH = "packages/gp-api/src/chats/evals/judge/cases"
 LABEL = "case-scout"
@@ -91,7 +91,7 @@ OUTCOME_REJECTED = "rejected"
 _SETTLED_OUTCOMES = frozenset({OUTCOME_MERGED, OUTCOME_REJECTED, OUTCOME_PR_CLOSED_STALE})
 
 # How far back the reconcile looks for proposals still waiting on an
-# outcome. Matches the Reader's own ledger window (reader/ledger.py's
+# outcome. Matches the reader's own ledger window (gp-api's ledger.util.ts
 # RECENT_PROPOSALS_WINDOW_DAYS): an outcome for anything older can no
 # longer move the 14-day cap or the 30-day rejection suppression.
 RECONCILE_WINDOW_DAYS = 30
@@ -106,9 +106,7 @@ class PublishError(Exception):
 class GitHubClient(Protocol):
     """The seam run_publish depends on — never the concrete
     RealGitHubClient — so every Publisher test runs against FakeGitHubClient
-    with no real network call, the same pattern as
-    reader/messages.py's CaseScoutMessageReader and
-    reader/case_lists.py's ChatCaseListReader."""
+    with no real network call."""
 
     def read_file(self, path: str, ref: str) -> tuple[dict[str, Any] | None, str | None]:
         """The file's parsed JSON and blob sha, or (None, None) if it
@@ -649,7 +647,7 @@ def _default_post_slack(channel: str, text: str) -> bool:
 def _tonight_counts(bucket: CaseScoutBucket, run_id: str) -> dict[str, int]:
     """Implementation Notes 2.3: "Counts: covered, needs setup, gated,
     capped, list full" — read straight back from the ledger lines
-    reader/night.py already wrote for this exact runId, one line per
+    gp-api's caseScoutDraft job already wrote for this exact runId, one line per
     decided candidate, so this never has to re-derive an outcome tally
     itself."""
     counts: dict[str, int] = {}
@@ -757,8 +755,8 @@ def _close_stale_prs(bucket: CaseScoutBucket, github: GitHubClient, environment:
 
 
 def _months_covering(now: datetime, days: int) -> list[str]:
-    # Same as reader/ledger.py's yyyymm_keys_covering, restated because the
-    # Lambda zip ships only top-level modules and can't import reader/.
+    # Same as gp-api's ledger.util.ts monthKeysCovering, restated because the
+    # two sides share no code.
     keys: list[str] = []
     for stamp in (now - timedelta(days=days), now):
         key = stamp.strftime("%Y-%m")
@@ -899,8 +897,8 @@ def _gate_dropped_every_draft_two_nights(bucket: CaseScoutBucket, run_id: str) -
 
 def _advance_marker(bucket: CaseScoutBucket, run_id: str) -> bool:
     """TDD: "The marker moves only after the publish succeeds." Applies the
-    candidate reader/main.py computed and stashed in record.json's
-    `newMarker` (see that module's docstring), via If-Match against the
+    candidate gp-api's caseScoutDraft job computed and stashed in
+    record.json's `newMarker`, via If-Match against the
     marker's current etag — a stale-etag write raises and is reported as a
     failed advance (AC: "a concurrent publish can't double-advance it"),
     never silently overwritten."""

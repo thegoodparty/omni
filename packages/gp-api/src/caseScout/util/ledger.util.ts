@@ -4,8 +4,8 @@ import { z } from 'zod'
 
 // Lookups over ledger/<yyyy-mm>.jsonl history (Implementation Notes 2.2,
 // 10.4 and § 7). The publisher writes "merged", "rejected" and
-// "prClosedStale" lines beside the reader's own; see
-// packages/gp-ai/case_scout/reader/ledger.py for who writes which.
+// "prClosedStale" lines beside the reader's own
+// (packages/gp-ai/case_scout/publisher.py).
 
 export const DUPLICATE_WINDOW_DAYS = 30
 export const REJECTION_SUPPRESSION_WINDOW_DAYS = 30

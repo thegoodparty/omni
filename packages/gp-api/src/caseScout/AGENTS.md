@@ -8,9 +8,7 @@ Judge Case Iteration TDD; decision record:
 `docs/adr/2026-11-16-case-scout-reader-in-gp-api.md`.
 
 **On in dev only.** Nothing runs unless `CASE_SCOUT_ENABLED=true`, which
-only dev sets; prod and previews ship it `false`. The Python reader in
-`packages/gp-ai/case_scout/reader/` is the same pipeline and stays runnable
-until this one has had a good dev night.
+only dev sets; prod and previews ship it `false`.
 
 **The publisher is not here, on purpose.** gp-api reads transcripts, so it
 must never hold the GitHub App key. It writes the night's files to the scout's
@@ -31,7 +29,7 @@ session cap and the marker but are never sent to a model.
 
 | File                                    | Holds                                                                                                                        |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, word for word the Python reader's                                             |
+| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                              |
 | `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist |
 | `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                       |
 | `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy, contact patterns, second read, schema                                                   |
@@ -42,7 +40,7 @@ session cap and the marker but are never sent to a model.
 
 | Key                                                       | Written by                               | Read by                                     |
 | --------------------------------------------------------- | ---------------------------------------- | ------------------------------------------- |
-| `claims/<runId>`, `claims/<runId>.reader`                 | nightly, create-only                     | Either path: whoever claims a night runs it |
+| `claims/<runId>`                                          | nightly, create-only                     | nightly: one run a night                    |
 | `marker.json`                                             | the publisher only                       | nightly                                     |
 | `runs/<runId>/manifest.json`                              | nightly, create-only                     | score, draft                                |
 | `runs/<runId>/scores/<sessionId>.json`                    | score, create-only                       | score (spend total), draft                  |
@@ -99,6 +97,6 @@ test accounts (`OTEL_SERVICE_ENVIRONMENT`), as the Python reader did.
 - **Never log chat text.** Logs and job payloads carry ids and counts only.
   Model spans record neither inputs nor outputs.
 - **Prompts are graded.** The quality bench
-  (`packages/gp-ai/case_scout/bench/README.md`) graded these exact prompts,
-  and still runs the Python copy. Keep the two copies identical until the
-  bench is ported, and run it before and after any prompt change.
+  (`src/chats/evals/caseScoutBench/README.md`) drives these prompts, the
+  model calls and the gate. Run it before and after any prompt change, and
+  keep its `runner.ts` in step with the draft job's per-candidate rules.

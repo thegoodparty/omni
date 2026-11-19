@@ -1,13 +1,11 @@
 [project]
 name = "gp-case-scout"
 version = "0.1.0"
-description = "Nightly case scout: turns real production chat failures into fictional judge cases"
+description = "Nightly case scout publisher: opens the PR for the fictional judge cases gp-api drafts"
 requires-python = ">=3.11"
 dependencies = [
     "gp-shared",
     "boto3>=1.40.50",
-    "databricks-sql-connector>=4.0.5",
-    "pydantic>=2.0.0",
 ]
 
 [tool.uv.sources]

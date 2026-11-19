@@ -25,6 +25,8 @@ lerna-debug.log*
 
 # Tests
 /coverage
+# Case scout quality bench runs (src/chats/evals/caseScoutBench)
+/bench-out
 /.vitest-fs-module-cache
 /.nyc_output
 /test-scripts

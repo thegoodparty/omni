@@ -1,6 +1,7 @@
 """The self-check alert (Implementation Notes section 8, "Should never
 happen"; S9 ticket): a SECOND, INDEPENDENT check behind the PII gate
-(reader/gate.py) — never a replacement for it. Scans what already reached
+(packages/gp-api/src/caseScout/util/gate.util.ts) — never a replacement for
+it. Scans what already reached
 GitHub (open case-scout-labeled PR bodies) and what a run is about to
 publish (its bundle.json) for a conversation-id-shaped string or an email
 address, alerting through alerts.post_alert on any hit.
@@ -9,9 +10,7 @@ Deliberately redefines its own patterns rather than importing gate.py's: the
 whole point of a second check is structural independence, so a bug in one
 check's regex can't blind the other.
 
-Top-level (not under reader/) so it's importable from the Publisher's Lambda
-action (publisher.py, which calls this at the end of run_publish) without
-reaching into the Reader's package — this check only ever needs the
+Called at the end of publisher.run_publish. This check only ever needs the
 Publisher's own GitHub client and the bucket, never a transcript.
 """
 

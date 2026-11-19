@@ -492,7 +492,7 @@ jobs:
       # ordering is just so a reviewer reads it as the newest member.
       - name: apply dev/case-scout
         background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/case-scout case-scout-${{ needs.await-checks.outputs.sha }}
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/case-scout
 
       - wait-all:
 
@@ -536,7 +536,7 @@ jobs:
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
       - name: reverify dev/case-scout
         background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/case-scout case-scout-${{ needs.await-checks.outputs.sha }}
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/case-scout
       - name: reverify dev/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
@@ -1159,11 +1159,6 @@ jobs:
           set -euo pipefail
           found=0; missing=0; absent=""
           # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml.
-          # case-scout is deliberately NOT in this list: it is dev-only until
-          # a person opens the separate prod-rollout PR (ENG-11588), so there
-          # is no prod/case-scout root for this check to gate and adding it
-          # here would just make every prod promotion wait on an image this
-          # list has no job to deploy.
           for s in broker pmf-engine serve-analyze ddhq-matcher autopilot-agent autopilot-agent-playwright; do
             if aws ecr describe-images --repository-name gp-ai-projects \
                  --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then

@@ -1,14 +1,13 @@
 """Read/write helpers for the scout's private bucket (`case-scout-<env>`).
 
-One client so later stories (Reader, gate, Publisher) share one place that
-knows the object shapes, rather than hand-rolling S3 calls each time. Shapes
+The Publisher's one place that knows the object shapes, rather than
+hand-rolling S3 calls each time. gp-api's caseScout writes the same objects
+(packages/gp-api/src/caseScout/AGENTS.md § Bucket). Shapes
 match Implementation Notes section 2.2 of the Universal Judge Case Iteration
 TDD exactly — this module ships no business logic of its own, only typed
 read/write helpers over those paths:
 
     marker.json               lastSessionStart, processedSessionIds   (moved after publish)
-    claims/<runDate>          If-None-Match: *                        (one run a night)
-    claims/<runDate>.reader   If-None-Match: *                        (one Reader a night)
     ledger/<yyyy-mm>.jsonl    conversationId, agentId, outcome, caseId, prNumber
     runs/<runId>/bundle.json  drafts that passed the gate
     runs/<runId>/sources.json caseId -> conversationId
@@ -16,7 +15,7 @@ read/write helpers over those paths:
 
 No object here holds a transcript or any PII — see the TDD's PII gate (section
 4): this bucket is reached only after a draft passes the gate, or it is the
-scout's own bookkeeping (the marker, claims, the ledger).
+scout's own bookkeeping (the marker, the ledger).
 """
 
 import json
@@ -29,14 +28,6 @@ from botocore.exceptions import ClientError
 BUCKET_NAME_ENV = "CASE_SCOUT_BUCKET"
 
 MARKER_KEY = "marker.json"
-
-
-def _claim_key(run_date: str) -> str:
-    return f"claims/{run_date}"
-
-
-def _reader_claim_key(run_date: str) -> str:
-    return f"claims/{run_date}.reader"
 
 
 def _ledger_key(yyyymm: str) -> str:
@@ -75,18 +66,10 @@ class Marker:
         }
 
 
-class AlreadyClaimedError(Exception):
-    """Raised by claim_run when the night is already claimed — a normal,
-    expected outcome (one run a night), never a surprise. Callers that want
-    the boolean shape should use claim_run's return value instead of
-    catching this; it exists for callers that would rather branch on an
-    exception than inspect a bool."""
-
-
 class CaseScoutBucket:
     """Thin S3 wrapper for the scout's bucket. Every method takes/returns
     plain dicts and primitives — no AWS types leak past this module — so a
-    caller (the Lambda, the Reader, a test) never needs to know this is S3
+    caller (the Lambda, a test) never needs to know this is S3
     rather than, say, a local dir in a future test double."""
 
     def __init__(self, bucket_name: str | None = None, s3_client: Any = None):
@@ -134,46 +117,6 @@ class CaseScoutBucket:
             **kwargs,
         )
 
-    def claim_run(self, run_date: str) -> bool:
-        """Claims the night via claims/<runDate> with If-None-Match: * — one
-        run a night (TDD section 2.2 / section 3 step 1). Returns True if
-        this call won the claim, False if the night was already claimed.
-        Never raises on an ordinary lost race; only a real S3 failure
-        propagates."""
-        return self._put_if_absent(_claim_key(run_date))
-
-    def claim_reader(self, run_date: str) -> bool:
-        """The Reader's own claim, separate from claim_run: the Lambda's
-        `start` takes claims/<runDate> before it launches the Reader, so a
-        Reader that tried to take that same key would always lose and exit
-        without reading anything. This key keeps a second Reader task for
-        the same night from running."""
-        return self._put_if_absent(_reader_claim_key(run_date))
-
-    def _put_if_absent(self, key: str) -> bool:
-        try:
-            self._s3.put_object(
-                Bucket=self.bucket_name,
-                Key=key,
-                Body=b"{}",
-                ContentType="application/json",
-                IfNoneMatch="*",
-            )
-            return True
-        except ClientError as e:
-            if e.response.get("Error", {}).get("Code") in ("PreconditionFailed", "412"):
-                return False
-            raise
-
-    def is_claimed(self, run_date: str) -> bool:
-        try:
-            self._s3.head_object(Bucket=self.bucket_name, Key=_claim_key(run_date))
-            return True
-        except ClientError as e:
-            if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
-                return False
-            raise
-
     def read_ledger_lines(self, yyyymm: str) -> list[dict[str, Any]]:
         """All decoded lines from ledger/<yyyy-mm>.jsonl, or [] if that month
         has no ledger yet (a brand-new deploy, or a month nothing was
@@ -220,8 +163,8 @@ class CaseScoutBucket:
         self._put_json(_bundle_key(run_id), bundle)
 
     def read_run_bundle(self, run_id: str) -> dict[str, Any] | None:
-        """The run's bundle.json, or None if it was never written (a stub
-        publish invoked before the Reader runs, or a run that produced no
+        """The run's bundle.json, or None if it was never written (a publish
+        invoked before gp-api wrote the night, or a run that produced no
         drafts and skipped writing one — TDD section 3: "If there are no
         drafts, it posts the note only"). Callers must treat None as a
         no-drafts publish, never an error."""

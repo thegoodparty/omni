@@ -9,9 +9,7 @@
     "pattern": "steering_to_third_party",
     "drop_ok": false,
     "covered_by": null,
-    "also_pass_if_covered_by": [
-      "product-how-to-from-the-map"
-    ],
+    "also_pass_if_covered_by": ["product-how-to-from-the-map"],
     "scored": true
   },
   "planted_pii": [],
