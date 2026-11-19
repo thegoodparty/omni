@@ -20,6 +20,7 @@ import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
 import { PeopleQueryModule } from '../peopleDb/peopleQuery.module'
 import { PaymentsModule } from '../payments/payments.module'
+import { OutreachCreditsModule } from '../outreachCredits/outreachCredits.module'
 import { PrioritiesModule } from '../priorities/priorities.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { RobocallFreeOfferModule } from '../robocallFreeOffer/robocallFreeOffer.module'
@@ -117,7 +118,6 @@ import { OutreachP2pSmsCancelService } from './services/outreachP2pSmsCancel.ser
 import { OutreachP2pSmsReconcileService } from './services/outreachP2pSmsReconcile.service'
 import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTexts.service'
 import { OutreachP2pSmsPromoService } from './services/outreachP2pSmsPromo.service'
-import { OutreachCreditsModule } from 'src/outreachCredits/outreachCredits.module'
 
 @Module({
   imports: [

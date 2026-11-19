@@ -137,8 +137,13 @@ export class OutreachEmailAdminService extends createPrismaBase(
     if (row.outreach.status !== OutreachStatus.in_progress) {
       throw new ConflictException('This send is not running')
     }
-    if (!hold) throw new NotFoundException('No payment hold for this send')
-    if (hold.state !== OutreachHoldState.held) {
+    // A send credit covers in full has no hold; the settle sweep drains it and
+    // settles the credit once stoppingAt is set.
+    const coveredByCredit = !hold && row.outreach.creditReservedCents > 0
+    if (!hold && !coveredByCredit) {
+      throw new NotFoundException('No payment hold for this send')
+    }
+    if (hold && hold.state !== OutreachHoldState.held) {
       throw new ConflictException(
         `This send's payment hold is ${hold.state}; it can't be canceled here`,
       )
@@ -149,14 +154,16 @@ export class OutreachEmailAdminService extends createPrismaBase(
       where: { id: row.id, stoppingAt: null },
       data: { stoppingAt: new Date() },
     })
-    await this.holds.settle({ outreachId })
+    if (hold) await this.holds.settle({ outreachId })
     this.logger.info({ outreachId }, 'Email send canceled by staff')
   }
 
   private async findByOutreachOrThrow(outreachId: number) {
     const row = await this.model.findUnique({
       where: { outreachId },
-      include: { outreach: { select: { status: true } } },
+      include: {
+        outreach: { select: { status: true, creditReservedCents: true } },
+      },
     })
     if (!row) throw new NotFoundException('Email send not found')
     return row

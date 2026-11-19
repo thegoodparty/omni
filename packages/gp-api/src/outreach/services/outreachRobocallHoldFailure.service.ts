@@ -4,6 +4,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { JobsService } from '@/jobs/jobs.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   OutreachType,
@@ -72,6 +73,7 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
   constructor(
     private readonly analytics: AnalyticsService,
     private readonly jobs: JobsService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -214,6 +216,15 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
       data: { settleState: RobocallSettleState.cancelled },
     })
     if (claim.count === 0) return
+
+    try {
+      await this.credits.release(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to release the outreach credit after expiry cancel',
+      )
+    }
 
     await this.emitMilestone(
       draft.outreach.campaign!.userId,

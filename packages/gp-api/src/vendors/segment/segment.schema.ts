@@ -7,6 +7,7 @@ export const segmentSchema = z.object({
   affiliation: z.string().optional(),
   pledged: z.boolean().optional(),
   isPro: z.boolean().optional(),
+  plan: z.string().optional(),
   campaignId: z.number().optional(),
 })
 

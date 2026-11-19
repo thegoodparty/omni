@@ -17,6 +17,7 @@ import {
   OutreachStatus,
   OutreachType,
 } from '@/generated/prisma'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isUniqueConstraintError } from 'src/prisma/util/prismaErrors.util'
 import { UsersService } from 'src/users/services/users.service'
@@ -79,6 +80,7 @@ export class PaymentHoldsService
     private readonly orphanedHolds: OutreachOrphanedHoldService,
     private readonly events: PaymentHoldEventsService,
     private readonly moduleRef: ModuleRef,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -861,7 +863,25 @@ export class PaymentHoldsService
       )
     }
 
-    const amountCents = Math.min(report.amountCents, authorizedCents)
+    // Only a send that drew outreach credit has a reserve. Credit pays first,
+    // so the card is capped at what the send cost beyond it. Credit settles
+    // before the capture, not after: settle is idempotent and a recovery
+    // re-entering here recomputes the same split from the persisted reserve.
+    const { creditReservedCents } =
+      await this.client.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+        select: { creditReservedCents: true },
+      })
+    let cardDueCents = report.amountCents
+    if (creditReservedCents > 0) {
+      const { cardCents } = await this.credits.settle(
+        outreachId,
+        report.amountCents,
+      )
+      cardDueCents = cardCents
+    }
+
+    const amountCents = Math.min(cardDueCents, authorizedCents)
     if (amountCents === 0) {
       await this.voidHold(paymentIntentId, outreachId)
       await this.model.updateMany({

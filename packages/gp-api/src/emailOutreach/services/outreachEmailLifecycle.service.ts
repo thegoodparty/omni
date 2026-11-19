@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common'
 import { isAfter, isBefore, subHours, subMinutes } from 'date-fns'
 import { JobsService } from '@/jobs/jobs.service'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
@@ -19,6 +20,7 @@ import {
   WARMING_ADVANCE_MIN_HOURS,
 } from '../emailOutreach.const'
 import { nextWarmingStep } from '../util/emailPricing.util'
+import { OutreachEmailSettlementAdapter } from './outreachEmailSettlementAdapter.service'
 import { SesService } from './ses.service'
 
 const STARTABLE_STATUSES: OutreachStatus[] = [
@@ -48,6 +50,8 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     private readonly holds: PaymentHoldsService,
     private readonly jobs: JobsService,
     private readonly ses: SesService,
+    private readonly credits: OutreachCreditsService,
+    private readonly settlement: OutreachEmailSettlementAdapter,
   ) {
     super()
   }
@@ -73,13 +77,23 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
         status: { in: STARTABLE_STATUSES },
         date: { lte: new Date() },
       },
-      select: { id: true, status: true, email: { select: { id: true } } },
+      select: {
+        id: true,
+        status: true,
+        creditReservedCents: true,
+        email: { select: { id: true } },
+      },
     })
     for (const outreach of due) {
       signal?.throwIfAborted()
       if (!outreach.email || !outreach.status) continue
       try {
-        await this.startIfHeld(outreach.id, outreach.status, outreach.email.id)
+        await this.startIfHeld(
+          outreach.id,
+          outreach.status,
+          outreach.email.id,
+          outreach.creditReservedCents > 0,
+        )
       } catch (err) {
         this.logger.error(
           { err, outreachId: outreach.id },
@@ -96,6 +110,7 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     outreachId: number,
     status: OutreachStatus,
     outreachEmailId: number,
+    hasCreditReserve: boolean,
   ): Promise<void> {
     let hold: Awaited<ReturnType<PaymentHoldsService['getHold']>>
     try {
@@ -107,7 +122,10 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
       await this.fail(outreachId, status, 'payment hold no longer active')
       return
     }
-    if (!hold) {
+    // A send its credit covers in full never saved a card, so it has no hold
+    // and no payment left to wait for.
+    const coveredByCredit = !hold && hasCreditReserve
+    if (!hold && !coveredByCredit) {
       await this.fail(outreachId, status, 'no payment hold')
       return
     }
@@ -117,7 +135,7 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     // the hold module's unpaid sweep, which releases it and sends the user the
     // Canceled email; releasing it here would skip that email. A placement
     // still in flight is flagged so the placer voids instead of committing.
-    if (hold.state !== OutreachHoldState.held) {
+    if (hold && hold.state !== OutreachHoldState.held) {
       if (hold.state === OutreachHoldState.placing) {
         await this.holds.release({ outreachId })
       }
@@ -220,6 +238,7 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     })
     if (failed.count === 1) {
       this.logger.warn({ outreachId, reason }, 'Email send failed to start')
+      await this.credits.release(outreachId)
     }
   }
 
@@ -262,28 +281,47 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     }
   }
 
+  // A send credit covered in full has no hold, so completeSettle never runs
+  // for it (it throws without a PaymentIntent). The same drain-and-report the
+  // hold module calls settles the credit directly. True once it is settled.
+  private async settleCreditOnly(outreachId: number): Promise<boolean> {
+    const { creditReservedCents } =
+      await this.client.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+        select: { creditReservedCents: true },
+      })
+    if (creditReservedCents === 0) {
+      this.logger.error(
+        { outreachId },
+        'CRITICAL an email send is running with no payment hold',
+      )
+      return false
+    }
+    const report = await this.settlement.stopAndReport(outreachId)
+    if (!report.ready) return false
+    await this.credits.settle(outreachId, report.amountCents)
+    return true
+  }
+
   private async settleOrFinish(outreachId: number): Promise<void> {
     const hold = await this.client.outreachPaymentHold.findUnique({
       where: { outreachId },
       select: { state: true },
     })
     if (!hold) {
-      this.logger.error(
-        { outreachId },
-        'CRITICAL an email send is running with no payment hold',
-      )
-      return
+      if (!(await this.settleCreditOnly(outreachId))) return
+    } else {
+      let state = hold.state
+      if (state === OutreachHoldState.held) {
+        await this.holds.settle({ outreachId })
+        const after = await this.client.outreachPaymentHold.findUniqueOrThrow({
+          where: { outreachId },
+          select: { state: true },
+        })
+        state = after.state
+      }
+      if (!SETTLED_HOLD_STATES.includes(state)) return
     }
-    let state = hold.state
-    if (state === OutreachHoldState.held) {
-      await this.holds.settle({ outreachId })
-      const after = await this.client.outreachPaymentHold.findUniqueOrThrow({
-        where: { outreachId },
-        select: { state: true },
-      })
-      state = after.state
-    }
-    if (!SETTLED_HOLD_STATES.includes(state)) return
     // SES's numbers lag the last send by a minute or two, and finishing
     // reads them to decide warming.
     const last = await this.client.outreachEmailRecipient.aggregate({

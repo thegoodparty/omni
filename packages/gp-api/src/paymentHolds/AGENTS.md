@@ -25,7 +25,7 @@ Decision record: `docs/adr/2026-10-27-one-channel-neutral-outreach-payment-hold.
 
 - **Holds are placed 3 days before the send,** or immediately at confirm when the send is sooner. Plan every hold for Visa's off-session 4 days 18 hours, read from Stripe's `captureBefore`.
 - **The idempotency key is `outreach-hold-<customerId>-<outreachId>-<holdAttempt>`.** The customer ID is there because previews share a Stripe test account. `holdAttempt` bumps only after a decline, a void, or recovery finding no intent at Stripe under it; never after a timeout.
-- **One capture path:** `settle`, behind the `capturing` claim. It calls the channel's `stopAndReport` first.
+- **One capture path:** `settle`, behind the `capturing` claim. It calls the channel's `stopAndReport` first. A send whose `Outreach.creditReservedCents` is above 0 drew outreach credit: `completeSettle` settles that credit before capturing and captures only `min(reported - creditUsed, authorizedCents)`, so a settled-first split is recomputed identically on a retry. Rows with no reserve (every other channel) are untouched.
 - **Every state move is a compare-and-set** from the expected state. Holds placed at confirm are created directly in `placing`.
 - **Every void outside the normal path** is written to `OutreachOrphanedHold` for the reconcile sweep: a window-fit or lost-commit void always, a release or reschedule void only when Stripe refused the cancel.
 - **A `scheduled` or `hold_failed` row's `holdAttempt` has never been sent to Stripe.** That is what lets `updateCard` change the card under the same key. A Stripe failure that might have placed the hold leaves the row in `placing`, never back in `scheduled`: a release there would skip the void a live hold needs.
