@@ -193,8 +193,8 @@ Each phase is one PR, driven to delegate approval with every check green.
 - The old grader is not kept. The grader below is new and smaller, not
   `judge.ts`, `score.ts` and `report.ts` moved; the whole framework targets
   600 to 1,000 lines.
-- `trending_issues` and `top_community_issues` as the first two suites, since
-  they already run on gp-api.
+- `trending_issues` as the first suite: the one agent already running on
+  gp-api in dev and prod, so both arms exercise the engine being kept.
 
 #### The grader
 
@@ -225,10 +225,15 @@ meaning. One PR per wave, matching the migration waves in
   `opportunities_and_challenges`, `race_opponent_collection`, `self_research`,
   `meeting_schedule`.
 - Wave 2: `race_opponent_actions`, `opponent_research`,
-  `campaign_tracker_tasks`.
+  `top_community_issues`, `campaign_tracker_tasks`.
 - Wave 3: `find_existing_ordinances`, `meeting_briefing`.
 - Not converted: `district_issue_pulse` and `district_issue_snapshot` (to be
   deleted), and `compliance_setup` (blocked: it makes real purchases).
+
+`top_community_issues` builds a suite in Wave 2 but cannot be judged until
+its data-platform prerequisite lands: its lean annotation reads the `hs_*`
+scores in the people marts, so its switch stays off everywhere until those
+exist (`cap-consolidation.md`).
 
 Background suites are judged only by the new framework once their wave lands.
 The old runner stays for chat until the follow-ups below.
