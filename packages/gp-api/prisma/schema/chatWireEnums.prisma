@@ -1,0 +1,16 @@
+/// On the wire only: a chat message is an `AgentMessage` row, so nothing
+/// stores these. They stay on the Prisma schema because
+/// `@goodparty_org/contracts` generates the chat contract's enum schemas from
+/// this schema folder.
+enum ChatMessageRole {
+  user
+  assistant
+  system
+  tool
+}
+
+enum ChatMessageSegmentKind {
+  text
+  tool
+  citation
+}

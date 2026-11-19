@@ -20,10 +20,8 @@ export type SetChatMessageFeedbackArgs = {
 
 // Every read and write here names its columns rather than taking Prisma's
 // default. Without a select, Prisma lists every mapped column in the SELECT it
-// sends (and in a create's or update's RETURNING), so a column the schema still
-// carries but nothing uses would be read on every call — and an old task would
-// break the moment that column is dropped. Naming them keeps these queries
-// identical whichever deploy's schema they run against.
+// sends (and in a create's or update's RETURNING), so any column added to this
+// table is read on every call whether or not anyone wants it.
 const FEEDBACK_COLUMNS = {
   id: true,
   conversationId: true,

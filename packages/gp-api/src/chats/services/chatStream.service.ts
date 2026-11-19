@@ -2,7 +2,6 @@ import { Injectable, Optional } from '@nestjs/common'
 import {
   ChatAttachmentSource,
   ChatAttachmentStatus,
-  ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
   ChatScope,
@@ -293,8 +292,8 @@ const CARD_NOTE_PREFIX = '[Card you showed:'
 // draws, so its note is what tells the model it asked.
 const QUESTION_TOOLS = ['ask_clarify_question', 'ask_panel_weekly_time']
 
-const isCardTool = (toolName: string | null): boolean =>
-  toolName !== null &&
+const isCardTool = (toolName: string | null | undefined): boolean =>
+  typeof toolName === 'string' &&
   (toolName.startsWith('present_') || QUESTION_TOOLS.includes(toolName))
 
 const replayAssistantContent = (m: ChatMessageWithSegments): string =>
@@ -1288,7 +1287,7 @@ export class ChatStreamService {
     allowToolOnly = false,
     agentMessages?: AgentMessageDraft[],
     interrupted = false,
-  ): Promise<ChatMessage | null> {
+  ): Promise<ChatMessageWithSegments | null> {
     const row = assistantRowToPersist(text, segments, allowToolOnly)
     if (!row) return null
     return this.store.appendMessage({

@@ -1,6 +1,6 @@
 ---
 title: Chat's old message tables are dropped in two deploys, not one
-status: active
+status: superseded
 decided_by: [swain]
 date: 2026-11-19
 code: ['#3891']
@@ -9,7 +9,7 @@ scope:
   - packages/gp-api/prisma/schema/agentMessage.prisma
   - packages/gp-api/prisma/schema/chatMessageFeedback.prisma
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-19-the-chat-table-drop-carries-no-guard-test.md
 ---
 
 # Chat's old message tables are dropped in two deploys, not one
