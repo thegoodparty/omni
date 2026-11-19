@@ -3,7 +3,7 @@ title: Decision models are called through one provider-agnostic client in gp-api
 status: active
 decided_by: [agent]
 date: 2026-11-19
-code: ['#TBD']
+code: ['#3909']
 scope:
   - packages/gp-api/src/decisionModels/**
 supersedes: []
