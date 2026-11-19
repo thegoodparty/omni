@@ -396,6 +396,24 @@ describe('POST /v1/admin/campaigns/:id/plan/refund', () => {
     ).toBe(CampaignPlanPurchaseStatus.paid)
   })
 
+  it('refuses a refund to Free while a Stripe subscription is attached', async () => {
+    const { campaign } = await paidPro()
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { details: { subscriptionId: 'sub_test_admin_refund' } },
+    })
+
+    const res = await service.client.post(
+      planPath(campaign.id, '/refund'),
+      {},
+      { headers: MACHINE_HEADERS },
+    )
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(refund).not.toHaveBeenCalled()
+    expect((await readCampaign(campaign.id)).isPro).toBe(true)
+  })
+
   it('refuses a campaign with no paid purchase', async () => {
     const campaign = await seedCampaign({
       isPro: true,

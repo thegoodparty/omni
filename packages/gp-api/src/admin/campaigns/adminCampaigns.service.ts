@@ -181,6 +181,14 @@ export class AdminCampaignsService {
       })
     }
 
+    const backToPro = purchase.kind === CampaignPlanPurchaseKind.team_upgrade
+    if (!backToPro && campaign.details?.subscriptionId) {
+      throw new ConflictException({
+        message: 'Cancel the Stripe subscription before refunding this plan',
+        errorCode: 'ACTIVE_SUBSCRIPTION',
+      })
+    }
+
     const outreachSent =
       (await this.campaigns.client.outreach.count({
         where: {
@@ -210,7 +218,6 @@ export class AdminCampaignsService {
       refundedCents = purchase.amountCents
     }
 
-    const backToPro = purchase.kind === CampaignPlanPurchaseKind.team_upgrade
     await this.campaigns.setIsPro(id, backToPro, true, {
       outreachCreditCents: 0,
       ...(backToPro
