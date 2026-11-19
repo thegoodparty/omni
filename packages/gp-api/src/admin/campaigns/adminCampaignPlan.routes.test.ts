@@ -163,6 +163,26 @@ describe('POST /v1/admin/campaigns/:id/plan', () => {
     })
   })
 
+  it('refuses Free while a Stripe subscription is attached', async () => {
+    const campaign = await seedCampaign({
+      isPro: true,
+      plan: CampaignPlanLevel.pro,
+      details: { subscriptionId: 'sub_test_admin_plan' },
+    })
+
+    const res = await service.client.post(
+      planPath(campaign.id),
+      { plan: 'free', reason: 'ended early' },
+      { headers: MACHINE_HEADERS },
+    )
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      plan: CampaignPlanLevel.pro,
+      isPro: true,
+    })
+  })
+
   it('rejects a body with no reason', async () => {
     const campaign = await seedCampaign()
 

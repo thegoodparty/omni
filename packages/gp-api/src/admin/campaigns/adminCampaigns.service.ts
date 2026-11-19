@@ -91,10 +91,18 @@ export class AdminCampaignsService {
   async setPlan(id: number, body: AdminSetPlan): Promise<CampaignPlanState> {
     const { plan, creditCents } = body
     const paid = plan !== CampaignPlanLevel.free
-    await this.campaigns.findUniqueOrThrow({
+    const existing = await this.campaigns.findUniqueOrThrow({
       where: { id },
-      select: { id: true },
+      select: { id: true, details: true },
     })
+    // Free would leave Stripe billing a campaign the product shows as free
+    // (ENG-10660), so staff cancel the subscription first.
+    if (!paid && existing.details?.subscriptionId) {
+      throw new ConflictException({
+        message: 'Cancel the Stripe subscription before setting Free',
+        errorCode: 'ACTIVE_SUBSCRIPTION',
+      })
+    }
 
     const { campaign } = await this.campaigns.setIsPro(id, paid, true, {
       plan,
