@@ -204,6 +204,14 @@ data. A span shows the model, the token counts, the finish reason and the tool
 names — never a message body, tool arguments or a tool result. Don't turn those
 on to debug a prompt; use the Braintrust trace or the stored `AgentMessage` rows.
 
+Background agents (`packages/gp-api/src/agents`) reach the same app on their own
+path: `agentRunSpanProcessor` stamps the run's id and agent on every span, so a
+run's `execute_tool <name>` spans answer whether that agent's tools worked. Each
+one carries `gen_ai.tool.ok` and, when the tool failed, `gen_ai.tool.reason` — the
+tool's own code (`rejected`, `timeout`, `no_scope`), `schema` or `no_data`
+for a refused `submitOutput`, `thrown` for a throw. Both are codes only, never a URL, SQL or
+message text; see `src/agents/AGENTS.md` § Observability.
+
 Grafana Cloud must have Agent Observability enabled on the stack before
 data appears. If the Conversations view is empty but Tempo has the spans, check
 that before the instrumentation.

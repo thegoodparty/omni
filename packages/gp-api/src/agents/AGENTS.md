@@ -310,7 +310,11 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
 ## Observability
 
 Each attempt runs under an `invoke_agent <name>` span; each tool under
-`execute_tool <name>`. `agentRunSpanProcessor` stamps
+`execute_tool <name>`, carrying `gen_ai.tool.ok` and, when the tool failed,
+`gen_ai.tool.reason` — its own `reason` when that is a short code
+(`rejected`, `timeout`, `http_error`), `schema` or `no_data` for a refused
+`submitOutput`, `thrown` for a throw. Neither ever carries a URL, SQL, page text or message;
+a reason that is not already a `[a-z0-9_]` code is dropped. `agentRunSpanProcessor` stamps
 `gen_ai.conversation.id` (the run id), `gen_ai.agent.name`,
 `gen_ai.agent.version` (the shape hash) and `agento11y.record=true` on
 every span inside the run, the AI SDK's model-call spans included, for

@@ -1,6 +1,12 @@
 import { simulateReadableStream } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
-import { describe, expect, it } from 'vitest'
+import { trace } from '@opentelemetry/api'
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { type AgentMessageRow, toModelMessages } from './agentMessages'
 import {
@@ -542,5 +548,105 @@ describe('the anti-fabrication gate', () => {
     )
 
     expect(output).toEqual({ data_quality: 'ok' })
+  })
+})
+
+describe('the trace of a run', () => {
+  let exporter: InMemorySpanExporter
+  let provider: BasicTracerProvider
+
+  beforeEach(() => {
+    exporter = new InMemorySpanExporter()
+    provider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    })
+    trace.setGlobalTracerProvider(provider)
+  })
+
+  afterEach(() => {
+    trace.disable()
+  })
+
+  const toolSpan = (toolName: string) => {
+    const spans = exporter
+      .getFinishedSpans()
+      .filter(
+        (s) =>
+          s.attributes['gen_ai.operation.name'] === 'execute_tool' &&
+          s.attributes['gen_ai.tool.name'] === toolName,
+      )
+    expect(spans).toHaveLength(1)
+    return spans[0]!
+  }
+
+  it("records submitOutput's schema rejection, and then its acceptance", async () => {
+    let calls = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls++
+        return callTool(
+          SUBMIT_TOOL,
+          calls === 1
+            ? { output: { status: 'found', minutes: 'eight' } }
+            : { output: { status: 'found', minutes: 8 } },
+        )
+      },
+    })
+
+    await runAgentLoop(loopArgs(model, []))
+
+    const submits = exporter
+      .getFinishedSpans()
+      .filter((s) => s.attributes['gen_ai.tool.name'] === SUBMIT_TOOL)
+    expect(submits.map((s) => s.attributes['gen_ai.tool.ok'])).toEqual([
+      false,
+      true,
+    ])
+    expect(submits[0]?.attributes['gen_ai.tool.reason']).toBe('schema')
+    expect(submits[1]?.attributes).not.toHaveProperty('gen_ai.tool.reason')
+    // The message is the fix-it instruction the model reads; the span carries
+    // the code and never the text.
+    expect(JSON.stringify(submits[0]?.attributes)).not.toContain('minutes')
+  })
+
+  it('records a warehouse query that came back ok:false', async () => {
+    let calls = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls++
+        return calls === 1
+          ? callTool('queryDatabricks', { sql: 'SELECT 1' })
+          : callTool(SUBMIT_TOOL, {
+              output: { status: 'missing', reason: 'no data' },
+            })
+      },
+    })
+
+    await runAgentLoop(
+      loopArgs(model, [], {
+        tools: {
+          queryDatabricks: {
+            description: 'Read the warehouse.',
+            input: z.object({ sql: z.string() }),
+            readsWarehouse: true as const,
+            execute: async () => ({
+              ok: false,
+              reason: 'rejected',
+              detail:
+                "every SELECT must guarantee Residence_Addresses_State = 'NC'",
+            }),
+          },
+        },
+        dataRequiredUnless: {
+          field: 'status',
+          values: ['missing'],
+        },
+      }),
+    )
+
+    expect(toolSpan('queryDatabricks').attributes).toMatchObject({
+      'gen_ai.tool.ok': false,
+      'gen_ai.tool.reason': 'rejected',
+    })
   })
 })
