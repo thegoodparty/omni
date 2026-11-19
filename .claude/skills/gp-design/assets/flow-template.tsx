@@ -14,7 +14,7 @@ import { Button } from '@styleguide/components/ui/button'
 import { Input } from '@styleguide/components/ui/input'
 import { Label } from '@styleguide/components/ui/label'
 import { GoodPartyOrgLogo } from '@styleguide/components/ui/good-party-org-logo'
-import type { Screens, States } from 'gp-flow'
+import type { Paths, Screens, States } from 'gp-flow'
 
 // The flow step title, copied from Intro.tsx in app/dashboard/outreach/v2/social.
 const Intro = ({ title, body }: { title: string; body: string }) => (
@@ -120,4 +120,12 @@ export const states: States = {
     label: 'State label',
     screen: () => <div className="p-6">State screen</div>,
   },
+}
+
+// Every path a person takes through the flow, from entry. A screen key clicks the
+// data-go to it; { click: '<control text>' } makes a choice on the screen showing;
+// { wait: '<key>' } waits for a screen that opens by itself (a draft that finishes).
+// shoot.mjs walks each path at 375 and 1280 and screenshots every step.
+export const paths: Paths = {
+  'Happy path': ['1'],
 }

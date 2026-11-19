@@ -252,7 +252,12 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    styleguide, restyled components and hand-drawn looks with no marker,
    hardcoded colors, `style={}`, shrunk text, off-scale spacing, unearned
    muted text and banners, a seamless field with no host, a cite that holds
-   nothing of what it claims, and `data-go` to no screen. Then render
+   nothing of what it claims, and `data-go` to no screen. It also reads
+   `<work>/notes/coverage.md`: every clause line must name a screen or state
+   key of the page in backticks, a block of the page (`#brief-measure`), or
+   the question it became; a key the page doesn't have fails. And it checks
+   the fixtures: every email address on a `.example` domain, no written date
+   in the past. Then render
    it with Playwright (channel `chromium`). Playwright lives in the
    repo root `node_modules`, or the main checkout's when a worktree has none.
    Render at the widths in `docs/product-design.md` §10: 375px and 1280px,
@@ -267,40 +272,32 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    icons, sideways scroll, dead `data-go`, screens of one option that come
    out identical, and each serious or critical accessibility rule broken
    (contrast, names and labels, ARIA, target size) with the shots it broke
-   on. It shoots several pages at once, so it takes under a minute. Run it
-   once per batch of fixes, not after each fix: fix everything a run reports,
-   then run it again. Fix every
+   on. It shoots several pages at once, so it takes under a minute. It also
+   walks every path the flow file exports (`paths`, see the template) from
+   entry at 375 and 1280, one screenshot per step in `screens/paths/`, and
+   crops each control the design adds (not under `data-source`, not
+   `data-inert`) at rest, on hover and on keyboard focus in
+   `screens/controls/`, reporting a step it can't take and a control with
+   no visible focus. Run it once per batch of fixes, not after each fix: fix
+   everything a run reports, then run it again; after a fix to a few
+   screens, `--only a/editor,a/review` reshoots just those. Fix every
    accessibility line on markup the design adds; one on a screen copied as
-   shipped goes under "Rulebook vs code" in `#questions`. It does not follow a path of several screens, so click through
-   each path yourself to see that a choice made on one screen (a photo, a
-   color) is still there on the next. To open one
-   screen yourself, `?view=phone` or `?view=desktop` with `&step=<screen key>`
-   or `&state=<state key>` (and `&option=b` on the options page). Click every path in every option. Move the mouse off the page
-   before each screenshot, so no hover state shows; then hover, focus and
-   disable each control you changed and screenshot those too. Screenshot
-   every screen and confirm no icon is blank. Fix anything clipped,
+   shipped goes under "Rulebook vs code" in `#questions`. Export a path for
+   every way through each option, and look at the path screenshots to see
+   that a choice made on one screen (a photo, a color) is still there on the
+   next. To open one screen yourself, `?view=phone` or `?view=desktop` with
+   `&step=<screen key>` or `&state=<state key>` (and `&option=b` on the
+   options page). Disable each control you changed that can be disabled and
+   screenshot it. Confirm no icon is blank. Fix anything clipped,
    overlapping, dead or off-system. Controls marked `data-inert` (not part of
    this change) are exempt from clicking.
-8. **Review the fit to the task.** One round with a subagent that reads only
-   the page, the ticket, `<work>/notes/coverage.md`, `reference/review-lens.md`,
-   `reference/wireframe-build.md` and `docs/design-memory/fixtures.md`. It
-   checks that the page answers the task; the design rules, copy and
-   `learned.md` are the senior review's, so it doesn't repeat them. It clicks
-   every path, answers every question in the review lens against the page,
-   checks every line of `coverage.md` against the page and the ticket (a
-   clause missing from the list, a screen that doesn't draw it, a question
-   that isn't in `#questions`), checks the options are distinct, that every
-   element has a source and that people and data come from `fixtures.md`,
-   and fixes what it finds. It may fix layout and structure. Any copy it changes goes in `#<x>-drops` when it differs from
-   shipped, and it never changes copy the ticket specifies without listing it
-   there. It flags any option that changes an
-   existing system (lists, filters, outreach) the ticket doesn't ask to change.
-   Don't let it pull the options toward each other. It keeps backups and any
-   tools it writes outside `<work>/build/`, which holds only build-shape
-   fragments. It edits `<work>/page/src.html` and the flow files in
-   `<work>/flow/` and rebuilds. Rerun `build.py` and step 7's
-   check after its fixes. Then run the senior design review
-   (`reference/senior-review.md`) and apply its fixes before step 9.
+8. **Senior design review.** Run it as `reference/senior-review.md` says,
+   once, and apply its fixes. It also covers the fit to the task: the
+   review lens, distinct options, and an option that changes an existing
+   system the ticket doesn't ask to change. Any copy a fix changes goes in
+   `#<x>-drops` when it differs from shipped, and copy the ticket specifies
+   never changes without a row there. Keep backups and any tools you write
+   outside `<work>/build/`, which holds only build-shape fragments.
 9. **Add how it's built, then the final check.** Build shapes come last,
    after the senior review's fixes, because any edit to an option makes its
    build shape stale: run this step once, on the final options. Run the `build-shape`
@@ -362,7 +359,7 @@ rounds step 4), with no six-state cap. These parts of this workflow do not apply
 - "Real options, no recommendation" and "Three different models".
 - Step 5's "pick three" and the list of other models.
 - The review lens questions on distinct options and "which option worked", and
-  step 8's distinctness check.
+  the senior review's distinctness question.
 - "One line per option" in the post-back: write one line on the design.
 - `check.py`'s banned "recommended", "best option" and star words.
 
@@ -379,9 +376,9 @@ When people comment after the first publish:
    in the reply, or ask. Never take the narrowest reading.
 4. Rebuild the appendix to cover every state the build will need, and add the
    Win / Serve switch if the ticket names both products and it isn't there yet.
-5. Every republish runs steps 7 to 9 again, in order: check, the step 8
-   review, then `build-shape` in UX mode for each changed option and the
-   final check. The senior review runs once per run, not per republish.
+5. Every republish runs steps 7 and 9 again, in order: check, then
+   `build-shape` in UX mode for each changed option and the final check.
+   The senior review (step 8) runs once per run, not per republish.
    `check.py` fails on a stale build shape, so it can't be published. A
    revision that skips them drifts. Say in
    the post-back that they ran.

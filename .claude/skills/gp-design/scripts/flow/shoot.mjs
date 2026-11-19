@@ -17,8 +17,13 @@
 // line per serious or critical accessibility rule broken, with the shots and the
 // elements (selector and markup) it broke on.
 // Shots run several at a time (GP_SHOOT_JOBS, default 6).
-// Hover, focus, disabled, and state kept across a path of several screens stay with
-// the person or agent checking the design (gp-design options-workflow.md step 7).
+// Each control the design adds (not under data-source, not data-inert) on every
+// screen at 375 gets a crop at rest, on hover and on keyboard focus, in controls/;
+// a focus crop identical to the rest crop prints "no visible focus".
+// Each path the flow exports (paths) is walked from entry at 375 and 1280, one
+// screenshot per step in paths/; a step that can't be taken prints a line.
+// --only a/review,b/editor shoots and checks just those screens and states, and
+// skips the page shots and the paths, for a rerun after a fix to a few screens.
 import { createRequire } from 'node:module'
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync } from 'node:fs'
@@ -27,9 +32,22 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, '../../../../..')
-const [index, out] = process.argv.slice(2).map((p) => path.resolve(p))
-if (!index || !out) {
-  console.error('usage: node shoot.mjs <index.html> <out-dir>')
+const argv = process.argv.slice(2)
+const onlyAt = argv.indexOf('--only')
+const only =
+  onlyAt === -1
+    ? null
+    : new Set(
+        (argv.splice(onlyAt, 2)[1] ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      )
+const [index, out] = argv.map((p) => path.resolve(p))
+if (!index || !out || (only && !only.size)) {
+  console.error(
+    'usage: node shoot.mjs <index.html> <out-dir> [--only a/<key>,b/<key>]',
+  )
   process.exit(2)
 }
 let chromium
@@ -45,11 +63,19 @@ mkdirSync(out, { recursive: true })
 const html = readFileSync(index, 'utf8')
 const keys = [
   ...html.matchAll(/data-gp-snapshot="(option-[abc]) (screen|state) ([^"]+)"/g),
-].map((m) => ({
-  oid: m[1],
-  kind: m[2],
-  key: m[3],
-}))
+]
+  .map((m) => ({
+    oid: m[1],
+    kind: m[2],
+    key: m[3],
+  }))
+  .filter(({ oid, key }) => !only || only.has(`${oid.slice(-1)}/${key}`))
+if (only && keys.length < only.size) {
+  console.error(
+    `--only names a screen or state the page doesn't have: ${[...only].join(', ')}`,
+  )
+  process.exit(2)
+}
 const url = pathToFileURL(index).href
 const found = []
 let axeSource = null
@@ -176,11 +202,15 @@ const open = async (width, height, query) => {
   return { ctx, page }
 }
 
-const pageJobs = [
-  [375, 812],
-  [1280, 900],
-  [320, 700],
-].map(([width, height]) => async () => {
+const pageJobs = (
+  only
+    ? []
+    : [
+        [375, 812],
+        [1280, 900],
+        [320, 700],
+      ]
+).map(([width, height]) => async () => {
   const { ctx, page } = await open(width, height, '')
   await page.screenshot({
     path: path.join(out, `page-${width}.png`),
@@ -304,7 +334,172 @@ const clickJobs = keys
       await ctx.close()
     }
   })
-await pool([...pageJobs, ...shotJobs, ...clickJobs])
+// The controls this design adds, at rest, on hover and on keyboard focus.
+mkdirSync(path.join(out, 'controls'), { recursive: true })
+const controlJobs = keys
+  .filter((k) => k.kind === 'screen')
+  .map(({ oid, key }) => async () => {
+    const query = `?view=phone&option=${oid.slice(-1)}&step=${encodeURIComponent(key)}`
+    const { ctx, page } = await open(375, 812, query)
+    const sel =
+      'button, input, textarea, select, [role="button"], [role="tab"], [role="radio"], [role="checkbox"], [role="switch"], [role="link"], [role="combobox"]'
+    // Mark the controls this design adds, so each can be found again by number.
+    const count = await page.$$eval(
+      `[data-gp-frame] :is(${sel})`,
+      (els) =>
+        els
+          .filter(
+            (e) =>
+              e.getClientRects().length > 0 &&
+              !e.closest('[data-source], [data-inert]'),
+          )
+          .map((e, i) => e.setAttribute('data-gp-ctl', String(i))).length,
+    )
+    for (let i = 0; i < Math.min(count, 12); i++) {
+      const el = page.locator(`[data-gp-ctl="${i}"]`)
+      const name = `${oid}-${key}-ctl${i + 1}`
+      try {
+        await el.scrollIntoViewIfNeeded({ timeout: 2000 })
+        const box = await el.boundingBox()
+        if (!box) continue
+        const clip = {
+          x: Math.max(0, box.x - 8),
+          y: Math.max(0, box.y - 8),
+          width: box.width + 16,
+          height: box.height + 16,
+        }
+        await page.mouse.move(0, 0)
+        const rest = await page.screenshot({
+          clip,
+          path: path.join(out, 'controls', `${name}-rest.png`),
+        })
+        if (await el.isEnabled()) {
+          await el.hover({ timeout: 2000 })
+          await page.waitForTimeout(120)
+          await page.screenshot({
+            clip,
+            path: path.join(out, 'controls', `${name}-hover.png`),
+          })
+        }
+        await page.mouse.move(0, 0)
+        // A key press first, so focus() shows :focus-visible the way Tab does.
+        await page.keyboard.press('Shift')
+        await el.focus({ timeout: 2000 })
+        await page.waitForTimeout(120)
+        const focus = await page.screenshot({
+          clip,
+          path: path.join(out, 'controls', `${name}-focus.png`),
+        })
+        const label = (
+          (await el.getAttribute('aria-label')) ||
+          (await el.innerText().catch(() => '')) ||
+          (await el.getAttribute('placeholder')) ||
+          ''
+        )
+          .trim()
+          .slice(0, 40)
+        if ((await el.isEnabled()) && rest.equals(focus))
+          found.push(
+            `${oid} screen ${key}: no visible focus on "${label || `control ${i + 1}`}" (controls/${name}-focus.png)`,
+          )
+        await page.evaluate(() => document.activeElement?.blur?.())
+      } catch {
+        // A control that moved or closed under the last one's focus: skip it.
+      }
+    }
+    await ctx.close()
+  })
+// Walk every path the flow exports, from entry, at phone and desktop width.
+mkdirSync(path.join(out, 'paths'), { recursive: true })
+const pathsOf = async () => {
+  const { ctx, page } = await open(375, 812, '?view=phone')
+  const all = await page.evaluate(() => window.gpPaths ?? {})
+  await ctx.close()
+  return all
+}
+const pathJobs = []
+if (!only) {
+  const all = await pathsOf()
+  for (const [oid, paths] of Object.entries(all))
+    for (const [label, steps] of Object.entries(paths))
+      for (const [view, width, height] of [
+        ['phone', 375, 812],
+        ['desktop', 1280, 800],
+      ])
+        pathJobs.push(async () => {
+          const query = `?view=${view}&option=${oid.slice(-1)}&step=entry`
+          const { ctx, page } = await open(width, height, query)
+          const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+          const frame = page.locator('[data-gp-frame]').first()
+          for (const [i, step] of steps.entries()) {
+            const what =
+              typeof step === 'string'
+                ? `data-go="${step}"`
+                : step.wait
+                  ? `wait for ${step.wait}`
+                  : `"${step.click}"`
+            try {
+              if (typeof step === 'string') {
+                await frame
+                  .locator(`[data-go="${step}"]`)
+                  .filter({ visible: true })
+                  .first()
+                  .click({ timeout: 3000 })
+                await page.waitForTimeout(250)
+                const now = await page
+                  .$eval('[data-gp-step]', (e) =>
+                    e.getAttribute('data-gp-step'),
+                  )
+                  .catch(() => null)
+                if (now !== step) {
+                  found.push(
+                    `${oid} path "${label}" at ${width}: step ${i + 1} ${what} opened ${now ?? 'nothing'}`,
+                  )
+                  break
+                }
+              } else if (step.wait) {
+                // A screen that moves on by itself (drafting, uploading).
+                await page.waitForFunction(
+                  (k) =>
+                    document
+                      .querySelector('[data-gp-step]')
+                      ?.getAttribute('data-gp-step') === k,
+                  step.wait,
+                  { timeout: 10000 },
+                )
+                await page.waitForTimeout(250)
+              } else {
+                await frame
+                  .getByText(step.click, { exact: false })
+                  .filter({ visible: true })
+                  .first()
+                  .click({ timeout: 3000 })
+                await page.waitForTimeout(250)
+              }
+              await frame.screenshot({
+                path: path.join(
+                  out,
+                  'paths',
+                  `${oid}-${slug}-${view}-${String(i + 1).padStart(2, '0')}.png`,
+                ),
+              })
+            } catch (e) {
+              found.push(
+                `${oid} path "${label}" at ${width}: can't take step ${i + 1} ${what} (${String(e.message).split('\n')[0]})`,
+              )
+              break
+            }
+          }
+          await ctx.close()
+        })
+}
+await pool([
+  ...pageJobs,
+  ...shotJobs,
+  ...clickJobs,
+  ...controlJobs,
+  ...pathJobs,
+])
 await browser.close()
 for (const [id, v] of a11y) {
   found.push(
@@ -315,5 +510,7 @@ for (const [id, v] of a11y) {
 }
 console.log(found.length ? found.join('\n') : 'clean')
 console.log(`${clicks} data-go clicks checked`)
-console.log(`${keys.length} screens and states, screenshots in ${out}`)
+console.log(
+  `${keys.length} screens and states, ${pathJobs.length / 2} paths walked, screenshots in ${out}`,
+)
 process.exit(found.length ? 1 : 0)

@@ -243,6 +243,11 @@ const View = ({
 }
 
 export const mount = (flows: Record<string, FlowModule>) => {
+  // shoot.mjs reads each option's paths from here to walk them.
+  ;(window as unknown as { gpPaths: Record<string, unknown> }).gpPaths =
+    Object.fromEntries(
+      Object.entries(flows).map(([oid, f]) => [oid, f.paths ?? {}]),
+    )
   const params = new URLSearchParams(location.search)
   const view = params.get('view')
   if (view === 'build') {
