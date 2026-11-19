@@ -23,7 +23,7 @@ The judge is a small test framework, like Vitest for agents.
 | `it(...)` | **Case**: one scenario with an input |
 | `beforeEach` | **Setup**: state a case needs first |
 | Code under test | **Run**: drives the agent, returns text |
-| `expect(...)` | **Grading**: the panel compares base and candidate |
+| `expect(...)` | **Grading**: the judge compares base and candidate |
 
 ```ts
 type EvalContext = {
@@ -53,18 +53,74 @@ type Case<Input> = {
 Rules:
 
 - **Every case runs 3 times on each side.** Not configurable.
-- **Output is a string**: the exact text the panel reads. A background suite
+- **Output is a string**: the exact text the judge reads. A background suite
   serializes its artifact.
 - **Cases are TypeScript**, in `<agent>.eval.ts` beside the agent. The
   suite's input type checks every case. No JSON case files.
 - **Setup goes through public routes, or runs another agent.** It never writes
   rows directly. A case whose state no route and no agent can create is not
   written yet.
-- **The judge talks only to a base URL.** It imports no gp-api code and holds
-  no AWS, S3, SQS or Databricks access. It holds a model key for the panel
-  and a way to sign in a user.
+- **The judge talks only to a base URL and a candidate URL.** It imports no
+  gp-api code and holds no AWS, S3, SQS or Databricks access. It holds a
+  judge-model key and a way to sign in a user.
 - **No page replay and no pinned data version.** Both arms run at the same
   time, so the web and the voter mart are the same for both.
+
+## How it runs
+
+```
+npx tsx packages/judge/run.ts \
+  --base https://dev.goodparty.org \
+  --candidate https://pr-3904.preview.goodparty.org \
+  --suite trending_issues,top_community_issues \
+  --judge-model claude-sonnet-4-6 \
+  --out ./judge-results
+```
+
+| Input | What it is |
+| --- | --- |
+| `--base` | the base arm's URL: dev, running main |
+| `--candidate` | the candidate arm's URL: a PR preview |
+| `--suite` | suite names, comma-separated, or `all` |
+| `--judge-model` | the model every grading call uses |
+| `--out` | where `results.json` and `results.md` are written |
+| `--concurrency` | cases in flight at once, default 16 |
+| `ANTHROPIC_API_KEY` | the environment holds the judge model's key |
+
+It loads suites from the checkout it runs in, and imports nothing else from
+gp-api: the two URLs are the whole of its input.
+
+**Locally**, the same command with `--candidate http://localhost:3000`, or a
+preview URL, and an `--out` in the working tree.
+
+**In CI**, `judge.yml` waits for the preview, runs the command, and posts
+`results.md` as the PR comment. `/judge <suite>` triggers it.
+
+**Flow.** For every case and its three attempts, base and candidate run at
+once in one shared pool: sign in, setup, run, keep the output string. A pair
+is graded as soon as attempt N exists on both sides, so grading overlaps the
+runs still landing. At the end the process writes `results.json` and
+`results.md`.
+
+### Signing in
+
+A run needs a real signed-in user, so reuse the sequence the e2e suite already
+runs. In `packages/gp-webapp/e2e-tests/tests/utils/api-registration.ts`,
+`bootstrapTestUser` creates a real Clerk user with the backend SDK, calls
+`mintApiToken` for a one-hour API token, then provisions the user through the
+API before any browser session, every Clerk call through `clerkThrottle`.
+Those are `@test.goodparty.org` users, and gp-api's `sweepTestUsers` deletes
+them after three hours.
+
+`bootstrapTestUser` is module-private and takes a Playwright `Page` for the
+sign-in it does at the end; the part the judge needs is everything before
+that. Extract it into a package both the judge and the e2e suite import, or
+copy it.
+
+It needs `CLERK_SECRET_KEY` for the dev Clerk instance. Clerk's Backend API
+budget is 100 requests per 10 seconds per instance, shared with every other
+process holding that secret — the e2e suites, gp-api's own provisioning
+lookups, the test-user sweep — which is one reason `--concurrency` is capped.
 
 ## One way to run any background agent
 
@@ -101,13 +157,6 @@ until that agent migrates, or not at all.
 
 Each phase is one PR, driven to delegate approval with every check green.
 
-### 0. Concurrent grading
-
-Grade every pair and every panel seat concurrently, capped at 16 model calls
-(`judge.ts`, `config.ts`). The commit exists on branch `judge-speed-yml`
-(`8e72c29a48`). It survives the refactor unchanged and cuts grading from about
-9 minutes to about 1.
-
 ### 1. The run routes
 
 - `POST /agents/:name/runs` and `GET /agents/runs/:runId` in gp-api, as above.
@@ -119,14 +168,31 @@ Grade every pair and every panel seat concurrently, capped at 16 model calls
 ### 2. The framework
 
 - `definePairwiseAgentEvalSuite`, `EvalContext`, a judge user and org per case
-  and attempt.
-- One runner process: for every case and attempt, base and candidate at once,
-  each pair graded as soon as both sides land, reusing today's grading,
-  scoring and report code.
-- A new `judge.yml` of about 200 lines: wait for the preview, sign in, run,
-  post the verdict comment. `/judge <agent>` keeps working.
+  and attempt, and the `run.ts` command above.
+- One runner process, one shared pool: for every case and attempt, base and
+  candidate at once, each pair graded as soon as both sides land.
+- A new `judge.yml` of about 200 lines: wait for the preview, run the command,
+  post `results.md`. `/judge <suite>` keeps working.
+- The old grader is not kept. The grader below is new and smaller, not
+  `judge.ts`, `score.ts` and `report.ts` moved; the whole framework targets
+  600 to 1,000 lines.
 - `trending_issues` and `top_community_issues` as the first two suites, since
   they already run on gp-api.
+
+#### The grader
+
+One pair per attempt, three pairs per case. Each pair is judged in **both
+orders** — base as A and candidate as B, then swapped — and two orders that
+disagree are a tie. One grading call returns the winner, `handledWhen` as
+yes/partly/no per side, a score per dimension, and one sentence of reasoning.
+
+A suite's verdict is a sign test over its non-tied pairs: BETTER or WORSE at
+p < 0.05, otherwise NO DIFFERENCE FOUND. It is also WORSE when the candidate's
+`handledWhen` pass rate drops significantly. The migration gate is "not
+WORSE".
+
+The run writes `results.json` — every output, every judgment, tokens — and
+`results.md`, and exits 1 on WORSE.
 
 ### 3. Every background agent's suite
 
@@ -147,7 +213,7 @@ Background suites are judged only by the new framework once their wave lands.
 The old runner stays for chat until the follow-ups below.
 
 **Stop here.** At this point every background migration PR is judged by
-`/judge <agent>` in one run of about the length of one agent run.
+`/judge <suite>` in one run of about the length of one agent run.
 
 ## Follow-ups, not scheduled
 
@@ -166,9 +232,9 @@ The old runner stays for chat until the follow-ups below.
 
 ## Open questions
 
-- **Signing in against a preview.** Today a separate step mints a Clerk
-  session from a checkout of main. Confirm a preview accepts that session,
-  or use the M2M token if the run routes accept it for a named user.
+- **Creating an org.** A case needs a fresh org, and no user route creates one
+  today. Either one exists that this has not found, or phase 1 adds one,
+  mounted in dev and previews only like the run routes.
 - **Background cost.** Background cases go from 1 run per side to 3. Raise the
   guard's $50-per-PR cap when its pricing moves.
 - **Dev agent capacity.** Both arms of a background sweep share dev's
