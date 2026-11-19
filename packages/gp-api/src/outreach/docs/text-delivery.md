@@ -228,7 +228,10 @@ an invented one silences a constituent org-wide and forever.
 
 **Reply intent shadow.** `util/replyIntent.util.ts`'s `classifyReplyIntent`
 reads a reply as three labels, `optOut`, `civicPanelJoin` and
-`civicPanelLeave`, each `{ value, probabilities? }`. With no decision client
+`civicPanelLeave`, each `{ value, probabilities? }`. It takes the channel
+(`text` by default, ingest passes it; `email`, `door`, `call`) and words the
+model's questions for it: a reply the person sent, or a canvasser's note of
+what they said. With no decision client
 it is exactly the three regex predicates above. With one
 (`src/decisionModels/`), the model answers each label (true at
 `REPLY_INTENT_YES_THRESHOLD`), except that a regex opt-out is never

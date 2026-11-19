@@ -19,6 +19,7 @@ import { formatPlan, selectAgents } from './cli'
 import { estimateAgent } from './planCost'
 import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
+import { ARM_GEMINI_KEY_ENV } from './labeled/replyIntent.adapter'
 import { ARM_AWS_ENV } from './awsCredentials'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
@@ -192,6 +193,20 @@ describe('judge.yml spend switches', () => {
     expect(arms).toHaveLength(2)
     const shadowed = arms
       .filter((step) => setsEnv(step.body, KEY_ENV))
+      .map((step) => step.name)
+    expect(shadowed).toEqual([])
+  })
+
+  // Gemini's key, for reply_intent's decision-model arm, follows the same
+  // rule: `.env.test` stubs GEMINI_API_KEY, so it arrives under the arm name
+  // and the adapter hands it to the client itself.
+  it('passes the Gemini key to both arms under the arm name', () => {
+    expect(arms).toHaveLength(2)
+    expect(arms.map((step) => envValue(step.body, ARM_GEMINI_KEY_ENV))).toEqual(
+      ['${{ secrets.GEMINI_API_KEY }}', '${{ secrets.GEMINI_API_KEY }}'],
+    )
+    const shadowed = arms
+      .filter((step) => setsEnv(step.body, 'GEMINI_API_KEY'))
       .map((step) => step.name)
     expect(shadowed).toEqual([])
   })

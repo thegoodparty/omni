@@ -7,6 +7,7 @@ import {
   OPT_OUT_FLOOR_PROBABILITY,
   REPLY_INTENT_LABELS,
   REPLY_INTENT_YES_THRESHOLD,
+  type ReplyChannel,
   type ReplyIntentDecide,
   type ReplyIntentLabel,
 } from './replyIntent.util'
@@ -142,5 +143,51 @@ describe('classifyReplyIntent with a decision client', () => {
 
     expect(decide).not.toHaveBeenCalled()
     expect(result.optOut).toEqual({ value: false })
+  })
+})
+
+describe('classifyReplyIntent by channel', () => {
+  const CHANNELS: ReplyChannel[] = ['text', 'email', 'door', 'call']
+
+  const questionsAsked = async (channel?: ReplyChannel) => {
+    const decide = fakeDecide(ALL_LOW)
+    await classifyReplyIntent('Not interested right now', decide, channel)
+    const [request] = decide.mock.calls[0] ?? []
+    if (!request) throw new Error('expected one decide call')
+    return request.questions
+  }
+
+  it('reads a reply as a text when no channel is given', async () => {
+    expect(await questionsAsked()).toEqual(await questionsAsked('text'))
+  })
+
+  it('words the questions differently for each channel, same labels', async () => {
+    const asked = await Promise.all(CHANNELS.map(questionsAsked))
+    const optOutInstructions = new Set(
+      asked.map((questions) => questions.optOut.instructions),
+    )
+    expect(optOutInstructions.size).toBe(CHANNELS.length)
+    for (const questions of asked) {
+      expect(Object.keys(questions).sort()).toEqual(
+        [...REPLY_INTENT_LABELS].sort(),
+      )
+    }
+  })
+
+  it.each(CHANNELS)('is the regex on %s with no client', async (channel) => {
+    expect(await classifyReplyIntent('STOP', null, channel)).toEqual({
+      optOut: { value: true },
+      civicPanelJoin: { value: false },
+      civicPanelLeave: { value: false },
+    })
+  })
+
+  it.each(CHANNELS)('keeps the opt-out floor on %s', async (channel) => {
+    const result = await classifyReplyIntent(
+      'STOP',
+      fakeDecide(ALL_LOW),
+      channel,
+    )
+    expect(result.optOut.value).toBe(true)
   })
 })

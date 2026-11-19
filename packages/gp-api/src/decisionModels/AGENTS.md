@@ -5,7 +5,9 @@ score judgments over a piece of text, each answered with probabilities.
 `DecisionModelService.decide({ input, questions })` takes a map of questions
 keyed by `[A-Za-z0-9_-]{1,64}` and returns, per key, `{ type, value,
 probabilities, confidence? }`, plus `usage`, `model`, `provider` and
-`costUsd`. Callers never name a provider.
+`costUsd`. Product callers never name a provider; a caller that holds its own key,
+such as a judge arm, passes `credentials: { provider, apiKey }` as the
+second argument and skips the env.
 
 Kept out of `src/llm/` on purpose: the judge guard maps that folder to every
 agent, and nothing here is an agent.
@@ -55,9 +57,13 @@ codes only, never the provider's message, which could quote the input.
 
 ## Callers
 
-| Caller                              | What                                                                                                                                                              |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `outreach/util/replyIntent.util.ts` | Reply intent (opt-out, civic panel join and leave), regex floor for opt-out. Shadow only, behind `REPLY_INTENT_DECISION_SHADOW`; `outreach/docs/text-delivery.md` |
+| Caller                                             | What                                                                                                                                                                                            |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outreach/util/replyIntent.util.ts`                | Reply intent (opt-out, civic panel join and leave), regex floor for opt-out, questions worded per channel. Shadow only, behind `REPLY_INTENT_DECISION_SHADOW`; `outreach/docs/text-delivery.md` |
+| `chats/evals/judge/labeled/replyIntent.adapter.ts` | The Universal Judge's `reply_intent` arm. A spending arm calls Gemini with `JUDGE_GEMINI_API_KEY`; judge README "Labeled cases"                                                                 |
+
+A change here auto-selects `reply_intent` for `/judge`
+(`.github/scripts/judge-path-floor.sh`).
 
 Tests: `services/decisionModel.service.test.ts` spies on `fetch` with the
 bodies in `fixtures/` (invented text only).

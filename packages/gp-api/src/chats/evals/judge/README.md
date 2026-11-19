@@ -616,10 +616,27 @@ paid call. An adapter that returns something that is not labels ran and
 said nothing usable: that is its answer, recorded `blocked` with no labels and
 scored as wrong on every one. An adapter that throws is an `infraError`
 record, a harness or vendor fault, and never gets a fallback answer.
-`reply_intent`'s adapter calls today's production predicates directly
-(`outreach/util/textOptOut.util.ts`, `civicPanelJoin.util.ts`,
-`civicPanelLeave.util.ts`), so a branch that edits one is what its candidate
-arm measures. Its hard labels carry no probabilities.
+`reply_intent`'s adapter calls the production classifier,
+`outreach/util/replyIntent.util.ts`'s `classifyReplyIntent`, with the case's
+channel, so a branch that edits it, a predicate under it
+(`textOptOut.util.ts`, `civicPanelJoin.util.ts`, `civicPanelLeave.util.ts`)
+or the decision-model client (`src/decisionModels/`) is what its candidate
+arm measures. Which path an arm runs is set by spend, never by a flag: a dry
+arm passes no decision client and gets the regex, hard labels with no
+probabilities, recorded as model `regex`. A spending arm runs the path
+`REPLY_INTENT_DECISION_SHADOW` turns on in ingest: Gemini Decision 1 answers
+each label, the regex stays the opt-out floor, and the record carries the
+probabilities, the model, the input tokens and their cost. A ref without the
+decision path (the base, until it lands) runs the regex either way, so
+`/judge reply_intent` on the PR that adds it compares regex against regex
+plus model.
+
+**The key.** `.env.test` stubs `GEMINI_API_KEY`, so the real one reaches the
+arms as `JUDGE_GEMINI_API_KEY`, from the `GEMINI_API_KEY` repository secret,
+and the adapter hands it to the decision client itself (the same reason
+`modelKey.ts` gives for Anthropic's). A spending arm with that name empty or
+rejected records an `infraError` per case naming it, and never falls back to
+the regex. A dry arm never reads it.
 
 **How the verdict is formed** (`labeled/score.ts`), with no normalize, no
 panel, no bootstrap and no panel spend:

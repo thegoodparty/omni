@@ -324,3 +324,33 @@ describe('provider selection', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
+
+describe('explicit credentials', () => {
+  it('uses the given provider and key over the env', async () => {
+    vi.stubEnv('DECISION_MODEL_PROVIDER', 'typesafe')
+    fetchSpy.mockResolvedValue(jsonResponse(GEMINI_SUCCESS))
+
+    const result = await service.decide(
+      { input: FICTIONAL_REPLY, questions: QUESTIONS },
+      { provider: 'gemini', apiKey: 'test-judge-gemini-key' },
+    )
+
+    expect(result.provider).toBe('gemini')
+    const sent = sentRequest()
+    expect(sent.url).toBe(GEMINI_DECISIONS_URL)
+    expect(sent.headers.get('x-goog-api-key')).toBe('test-judge-gemini-key')
+  })
+
+  it('throws not_configured for an empty key instead of reading the env', async () => {
+    const error = await service
+      .decide(
+        { input: FICTIONAL_REPLY, questions: QUESTIONS },
+        { provider: 'gemini', apiKey: '' },
+      )
+      .catch((err: Error) => err)
+
+    expect(error).toBeInstanceOf(DecisionModelError)
+    expect((error as DecisionModelError).reason).toBe('not_configured')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})

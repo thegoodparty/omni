@@ -468,8 +468,8 @@ export class OutreachTextIngestService extends createPrismaBase(
         }
         try {
           const [regex, model] = await Promise.all([
-            classifyReplyIntent(message.content, null),
-            classifyReplyIntent(message.content, decide),
+            classifyReplyIntent(message.content, null, 'text'),
+            classifyReplyIntent(message.content, decide, 'text'),
           ])
           const disagreeingLabels = REPLY_INTENT_LABELS.filter(
             (label) => model[label].value !== regex[label].value,

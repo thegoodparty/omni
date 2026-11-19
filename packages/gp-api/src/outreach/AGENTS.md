@@ -506,8 +506,9 @@ false`: it hands back what was built, not a fresh build. A text holds the
   writes it on a new campaign's anchor envelope only; a key this org already
   spent on a walk leaves the next walk unlinked. See
   `gp-webapp/app/dashboard/shared/agent-chat/AGENTS.md` ("Cards").
-- **The three reply predicates are judged.** `util/textOptOut.util.ts`,
-  `util/civicPanelJoin.util.ts` and `util/civicPanelLeave.util.ts` are what
+- **Reply classification is judged.** `util/replyIntent.util.ts` and the
+  three predicates under it (`util/textOptOut.util.ts`,
+  `util/civicPanelJoin.util.ts`, `util/civicPanelLeave.util.ts`) are what
   the Universal Judge's labeled agent `reply_intent` measures, so a PR
   touching one is auto-selected for `/judge`. Its cases are fictional replies
   with the labels the person meant
