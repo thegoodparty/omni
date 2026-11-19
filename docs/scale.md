@@ -27,7 +27,7 @@ All counts are aggregate. Date read: 2026-11-05.
 | Largest saved voter-file filter or list | TBD (data team) | none in repo |
 | Largest outreach audience sent | ~82,000 recipients, resolution outran the gateway (INC-101) | `packages/gp-api/src/vendors/peerly/services/p2pPhoneListUpload.service.ts:849` |
 | CallHub robocall dialing, self-serve tier | 120 calls/min, one campaign at a time | ClickUp post-mortem "2026-11-03 Election Robocall" |
-| gp-api ECS task memory, prod / non-prod | 4096 MB / 2048 MB, 1 vCPU | `packages/gp-api/deploy/components/service.ts:335` |
+| gp-api ECS task memory, every environment | 4096 MB, 1 vCPU | `packages/gp-api/deploy/components/service.ts:345` |
 
 ## Limits already in code
 
