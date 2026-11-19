@@ -23,7 +23,7 @@ export const USAGE = `usage: npx tsx packages/judge/src/run.ts \\
   --base <url> \\
   --candidate <url> \\
   --suite <names|all> \\
-  --judge-model <ai-sdk model id e.g. anthropic/claude-sonnet-4-6> \\
+  --judge-model <ai-sdk model id e.g. anthropic/claude-sonnet-5-5> \\
   --out <dir> \\
   [--concurrency ${DEFAULT_CONCURRENCY}]`
 

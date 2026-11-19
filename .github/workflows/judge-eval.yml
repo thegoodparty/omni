@@ -258,7 +258,7 @@ jobs:
             --base https://gp-api-dev.goodparty.org \
             --candidate "https://pr-$PR_NUMBER.preview.goodparty.org" \
             --suite "$SUITES" \
-            --judge-model anthropic/claude-sonnet-4-6 \
+            --judge-model anthropic/claude-sonnet-5-5 \
             --out ./judge-results
 
       # Both artifacts, whatever happened: results.json holds every output and

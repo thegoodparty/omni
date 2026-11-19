@@ -107,7 +107,7 @@ npx tsx packages/judge/src/run.ts \
   --base https://dev.goodparty.org \
   --candidate https://pr-3904.preview.goodparty.org \
   --suite trending_issues \
-  --judge-model anthropic/claude-sonnet-4-6 \
+  --judge-model anthropic/claude-sonnet-5-5 \
   --out ./judge-results
 ```
 
@@ -137,7 +137,7 @@ reasoning. Default questions: `task_success`, `instruction_adherence`,
 `generateObject` from `ai` with a Zod schema — never a provider SDK — so
 `--judge-model` is the only thing naming a provider and swapping providers is a
 flag change. `src/model.ts` maps a known prefix (`anthropic`) to that provider,
-so `anthropic/claude-sonnet-4-6` needs `ANTHROPIC_API_KEY`; a prefix it does not
+so `anthropic/claude-sonnet-5-5` needs `ANTHROPIC_API_KEY`; a prefix it does not
 know goes to the AI SDK's default provider, the gateway, which needs
 `AI_GATEWAY_API_KEY`.
 
