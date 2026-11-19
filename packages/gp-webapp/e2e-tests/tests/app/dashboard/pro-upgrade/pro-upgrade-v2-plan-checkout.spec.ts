@@ -26,6 +26,8 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
 const PLANS_FLAG = 'win_per_campaign_pricing'
 
 type CampaignMine = { id: number; isPro?: boolean }
+type CampaignProState = { isPro?: boolean }
+type TcrComplianceMine = { status?: string | null }
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
