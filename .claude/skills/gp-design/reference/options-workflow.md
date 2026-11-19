@@ -262,9 +262,16 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    `node scripts/flow/shoot.mjs <work>/page/index.html <work>/screens`
    screenshots the page and every screen and state alone (phone, and each
    screen at 1280, 1024 and 1023), at full height when the screen scrolls,
-   clicks every `data-go` on every screen at 375, and reports page errors,
-   blank icons, sideways scroll, dead `data-go` and screens of one option
-   that come out identical. It does not follow a path of several screens, so click through
+   clicks every `data-go` on every screen at 375, runs axe-core inside the
+   frame on every phone and desktop shot, and reports page errors, blank
+   icons, sideways scroll, dead `data-go`, screens of one option that come
+   out identical, and each serious or critical accessibility rule broken
+   (contrast, names and labels, ARIA, target size) with the shots it broke
+   on. It shoots several pages at once, so it takes under a minute. Run it
+   once per batch of fixes, not after each fix: fix everything a run reports,
+   then run it again. Fix every
+   accessibility line on markup the design adds; one on a screen copied as
+   shipped goes under "Rulebook vs code" in `#questions`. It does not follow a path of several screens, so click through
    each path yourself to see that a choice made on one screen (a photo, a
    color) is still there on the next. To open one
    screen yourself, `?view=phone` or `?view=desktop` with `&step=<screen key>`
@@ -274,20 +281,17 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    every screen and confirm no icon is blank. Fix anything clipped,
    overlapping, dead or off-system. Controls marked `data-inert` (not part of
    this change) are exempt from clicking.
-8. **Review.** One round with a subagent that reads only the page, the ticket,
-   `reference/review-lens.md`, `reference/wireframe-build.md`,
-   `docs/product-design.md`, `docs/product-copy.md`,
-   `docs/product-vocabulary.md`, `docs/design-memory/learned.md`,
-   `docs/design-memory/fixtures.md`, `packages/styleguide/COMPONENTS.md` and,
-   for one design, `gp-design` §3. It clicks every path, answers every
-   question in the review lens against the page, checks every line of
-   `<work>/notes/coverage.md` against the page and the ticket (a clause
-   missing from the list, a screen that doesn't draw it, a question that isn't
-   in `#questions`), checks the options are
-   distinct, that every element has a source, that copy passes the copy docs,
-   that people and data come from `fixtures.md` and that every `learned.md`
-   rule holds, and fixes what it finds. It may fix layout, structure and rule
-   breaks. Any copy it changes goes in `#<x>-drops` when it differs from
+8. **Review the fit to the task.** One round with a subagent that reads only
+   the page, the ticket, `<work>/notes/coverage.md`, `reference/review-lens.md`,
+   `reference/wireframe-build.md` and `docs/design-memory/fixtures.md`. It
+   checks that the page answers the task; the design rules, copy and
+   `learned.md` are the senior review's, so it doesn't repeat them. It clicks
+   every path, answers every question in the review lens against the page,
+   checks every line of `coverage.md` against the page and the ticket (a
+   clause missing from the list, a screen that doesn't draw it, a question
+   that isn't in `#questions`), checks the options are distinct, that every
+   element has a source and that people and data come from `fixtures.md`,
+   and fixes what it finds. It may fix layout and structure. Any copy it changes goes in `#<x>-drops` when it differs from
    shipped, and it never changes copy the ticket specifies without listing it
    there. It flags any option that changes an
    existing system (lists, filters, outreach) the ticket doesn't ask to change.
@@ -295,9 +299,11 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    tools it writes outside `<work>/build/`, which holds only build-shape
    fragments. It edits `<work>/page/src.html` and the flow files in
    `<work>/flow/` and rebuilds. Rerun `build.py` and step 7's
-   check after its fixes.
-9. **Add how it's built, then the final check.** Build shapes come last because
-   any edit to an option makes its build shape stale. Run the `build-shape`
+   check after its fixes. Then run the senior design review
+   (`reference/senior-review.md`) and apply its fixes before step 9.
+9. **Add how it's built, then the final check.** Build shapes come last,
+   after the senior review's fixes, because any edit to an option makes its
+   build shape stale: run this step once, on the final options. Run the `build-shape`
    skill (`.claude/skills/build-shape/SKILL.md`) in UX mode on
    `<work>/page/src.html` and the flow files. **build-shape is written for
    ux-review-options: wherever it names a
@@ -356,7 +362,7 @@ rounds step 4), with no six-state cap. These parts of this workflow do not apply
 - "Real options, no recommendation" and "Three different models".
 - Step 5's "pick three" and the list of other models.
 - The review lens questions on distinct options and "which option worked", and
-  step 8's distinctness and convergence checks.
+  step 8's distinctness check.
 - "One line per option" in the post-back: write one line on the design.
 - `check.py`'s banned "recommended", "best option" and star words.
 
@@ -373,8 +379,9 @@ When people comment after the first publish:
    in the reply, or ask. Never take the narrowest reading.
 4. Rebuild the appendix to cover every state the build will need, and add the
    Win / Serve switch if the ticket names both products and it isn't there yet.
-5. Every republish runs steps 7 to 9 again, in order: check, review, then
-   `build-shape` in UX mode for each changed option and the final check.
+5. Every republish runs steps 7 to 9 again, in order: check, the step 8
+   review, then `build-shape` in UX mode for each changed option and the
+   final check. The senior review runs once per run, not per republish.
    `check.py` fails on a stale build shape, so it can't be published. A
    revision that skips them drifts. Say in
    the post-back that they ran.

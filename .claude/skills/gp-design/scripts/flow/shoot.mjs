@@ -13,6 +13,10 @@
 // screen it names. It waits for open overlays to finish animating, and prints one
 // line per page error, blank icon, sideways scroll, dead data-go, or two different
 // screens that came out identical (none: "clean").
+// It runs axe-core inside the frame on every phone and desktop shot and prints one
+// line per serious or critical accessibility rule broken, with the shots and the
+// elements (selector and markup) it broke on.
+// Shots run several at a time (GP_SHOOT_JOBS, default 6).
 // Hover, focus, disabled, and state kept across a path of several screens stay with
 // the person or agent checking the design (gp-design options-workflow.md step 7).
 import { createRequire } from 'node:module'
@@ -48,6 +52,68 @@ const keys = [
 }))
 const url = pathToFileURL(index).href
 const found = []
+let axeSource = null
+try {
+  axeSource = readFileSync(
+    createRequire(path.join(repo, 'package.json')).resolve(
+      'axe-core/axe.min.js',
+    ),
+    'utf8',
+  )
+} catch {
+  found.push('axe-core not found under the repo: accessibility not checked')
+}
+// rule id -> { impact, help, shots }
+const a11y = new Map()
+// The frame is a fragment of a page, so page-level rules don't apply to it.
+const pageRules = [
+  'region',
+  'landmark-one-main',
+  'page-has-heading-one',
+  'html-has-lang',
+  'document-title',
+  'bypass',
+]
+const audit = async (page, shot) => {
+  if (!axeSource) return
+  await page.addScriptTag({ content: axeSource })
+  const violations = await page.evaluate(async (off) => {
+    const res = await window.axe.run(
+      { include: [['[data-gp-frame]']] },
+      {
+        runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] },
+        rules: Object.fromEntries(off.map((r) => [r, { enabled: false }])),
+        resultTypes: ['violations'],
+      },
+    )
+    return res.violations
+      .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v) => ({
+        id: v.id,
+        impact: v.impact,
+        help: v.help,
+        nodes: v.nodes.map(
+          (n) =>
+            `${n.target.join(' ')} ${n.html.replace(/\s+/g, ' ').slice(0, 80)}`,
+        ),
+      }))
+  }, pageRules)
+  for (const v of violations) {
+    const seen = a11y.get(v.id) ?? { ...v, shots: [], elements: new Set() }
+    seen.shots.push(shot)
+    for (const n of v.nodes) seen.elements.add(n)
+    a11y.set(v.id, seen)
+  }
+}
+// Run jobs a few at a time; each opens its own context, so they don't share state.
+const pool = async (jobs, size = Number(process.env.GP_SHOOT_JOBS) || 6) => {
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(size, jobs.length) }, async () => {
+      while (next < jobs.length) await jobs[next++]()
+    }),
+  )
+}
 
 const browser = await chromium.launch({ channel: 'chromium' })
 const open = async (width, height, query) => {
@@ -103,23 +169,25 @@ const open = async (width, height, query) => {
   if (r.blank) found.push(`${r.blank} blank icon(s) on ${where}`)
   if (r.page > 0)
     found.push(`the page scrolls sideways by ${r.page}px on ${where}`)
-  if (r.frame > 0)
+  // Below 375 the review page squeezes its frames under any real phone's width, so
+  // the frames are checked in their own ?view= shots instead.
+  if (r.frame > 0 && (query || width >= 375))
     found.push(`a frame scrolls sideways by ${r.frame}px on ${where}`)
   return { ctx, page }
 }
 
-for (const [width, height] of [
+const pageJobs = [
   [375, 812],
   [1280, 900],
   [320, 700],
-]) {
+].map(([width, height]) => async () => {
   const { ctx, page } = await open(width, height, '')
   await page.screenshot({
     path: path.join(out, `page-${width}.png`),
     fullPage: true,
   })
   await ctx.close()
-}
+})
 // How far the tallest scrolling area inside the frame runs past its box.
 const overflow = (page) =>
   page.evaluate(() => {
@@ -161,6 +229,7 @@ const remember = (buf, name, oid) => {
     )
   else hashes.set(h, name)
 }
+const shotJobs = []
 for (const { oid, kind, key } of keys) {
   // 1023 and 1024 sit either side of lg:, where a Drawer becomes a Dialog.
   const views =
@@ -172,60 +241,78 @@ for (const { oid, kind, key } of keys) {
           ['desktop', '1024', 1024, 800],
         ]
       : [['phone', 'phone', 375, 812]]
-  for (const [view, label, width, height] of views) {
-    const query = `?view=${view}&option=${oid.slice(-1)}&${kind === 'screen' ? 'step' : 'state'}=${encodeURIComponent(key)}`
-    const { ctx, page } = await open(width, height, query)
-    const name = `${oid}-${kind}-${key}-${label}`
-    const shot = await page.screenshot({ path: path.join(out, `${name}.png`) })
-    const full = await shootFull(page, path.join(out, `${name}-full.png`))
-    if (label === 'phone' || label === 'desktop')
-      remember(full ?? shot, `${name}${full ? '-full' : ''}.png`, oid)
-    await ctx.close()
-  }
+  for (const [view, label, width, height] of views)
+    shotJobs.push(async () => {
+      const query = `?view=${view}&option=${oid.slice(-1)}&${kind === 'screen' ? 'step' : 'state'}=${encodeURIComponent(key)}`
+      const { ctx, page } = await open(width, height, query)
+      const name = `${oid}-${kind}-${key}-${label}`
+      const shot = await page.screenshot({
+        path: path.join(out, `${name}.png`),
+      })
+      const full = await shootFull(page, path.join(out, `${name}-full.png`))
+      if (label === 'phone' || label === 'desktop') {
+        remember(full ?? shot, `${name}${full ? '-full' : ''}.png`, oid)
+        await audit(page, name)
+      }
+      await ctx.close()
+    })
 }
 // Click every visible data-go on every screen, each from a fresh load at 375, and
 // check it opens the screen it names: a covered, disabled or dead control shows here.
 let clicks = 0
-for (const { oid, key } of keys.filter((k) => k.kind === 'screen')) {
-  const query = `?view=phone&option=${oid.slice(-1)}&step=${encodeURIComponent(key)}`
-  const probe = await open(375, 812, query)
-  const targets = await probe.page.$$eval('[data-gp-frame] [data-go]', (els) =>
-    els.map((e, i) => {
-      // Under an open dialog or drawer only its own controls can be clicked.
-      const modal = document.querySelector(
-        '[data-gp-frame] [role="dialog"], [data-gp-frame] [role="alertdialog"]',
-      )
-      return {
-        i,
-        go: e.getAttribute('data-go'),
-        visible: e.getClientRects().length > 0 && (!modal || modal.contains(e)),
-      }
-    }),
-  )
-  await probe.ctx.close()
-  for (const t of targets.filter((t) => t.visible)) {
-    const { ctx, page } = await open(375, 812, query)
-    const el = (await page.$$('[data-gp-frame] [data-go]'))[t.i]
-    clicks++
-    try {
-      await el.click({ timeout: 3000 })
-      await page.waitForTimeout(250)
-      const now = await page
-        .$eval('[data-gp-step]', (e) => e.getAttribute('data-gp-step'))
-        .catch(() => null)
-      if (now !== t.go)
+const clickJobs = keys
+  .filter((k) => k.kind === 'screen')
+  .map(({ oid, key }) => async () => {
+    const query = `?view=phone&option=${oid.slice(-1)}&step=${encodeURIComponent(key)}`
+    const probe = await open(375, 812, query)
+    const targets = await probe.page.$$eval(
+      '[data-gp-frame] [data-go]',
+      (els) =>
+        els.map((e, i) => {
+          // Under an open dialog or drawer only its own controls can be clicked.
+          const modal = document.querySelector(
+            '[data-gp-frame] [role="dialog"], [data-gp-frame] [role="alertdialog"]',
+          )
+          return {
+            i,
+            go: e.getAttribute('data-go'),
+            visible:
+              e.getClientRects().length > 0 && (!modal || modal.contains(e)),
+          }
+        }),
+    )
+    await probe.ctx.close()
+    for (const t of targets.filter((t) => t.visible)) {
+      const { ctx, page } = await open(375, 812, query)
+      const el = (await page.$$('[data-gp-frame] [data-go]'))[t.i]
+      clicks++
+      try {
+        await el.click({ timeout: 3000 })
+        await page.waitForTimeout(250)
+        const now = await page
+          .$eval('[data-gp-step]', (e) => e.getAttribute('data-gp-step'))
+          .catch(() => null)
+        if (now !== t.go)
+          found.push(
+            `${oid} screen ${key}: data-go="${t.go}" opened ${now ?? 'nothing'}`,
+          )
+      } catch (e) {
         found.push(
-          `${oid} screen ${key}: data-go="${t.go}" opened ${now ?? 'nothing'}`,
+          `${oid} screen ${key}: can't click data-go="${t.go}" (${String(e.message).split('\n')[0]})`,
         )
-    } catch (e) {
-      found.push(
-        `${oid} screen ${key}: can't click data-go="${t.go}" (${String(e.message).split('\n')[0]})`,
-      )
+      }
+      await ctx.close()
     }
-    await ctx.close()
-  }
-}
+  })
+await pool([...pageJobs, ...shotJobs, ...clickJobs])
 await browser.close()
+for (const [id, v] of a11y) {
+  found.push(
+    `accessibility ${v.impact}: ${id} (${v.help}) on ${v.shots.length} shot(s): ${v.shots.slice(0, 4).join(', ')}${v.shots.length > 4 ? ', ...' : ''}`,
+  )
+  // The element to fix: its selector inside the frame and the start of its markup.
+  for (const el of [...v.elements].slice(0, 5)) found.push(`  at ${el}`)
+}
 console.log(found.length ? found.join('\n') : 'clean')
 console.log(`${clicks} data-go clicks checked`)
 console.log(`${keys.length} screens and states, screenshots in ${out}`)

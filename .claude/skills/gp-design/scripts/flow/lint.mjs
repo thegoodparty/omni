@@ -23,6 +23,7 @@
 //   values that line contains;
 // - a muted paragraph (<p> with text-muted-foreground) and an Alert are earned:
 //   data-earned="<why>" on it, or copied from the product under data-source;
+// - no ScrollArea inside a DrawerBody or DrawerContent, which already scroll;
 // - every literal data-go names a screen, and there is an entry screen.
 import { createRequire } from 'node:module'
 import { existsSync, readFileSync } from 'node:fs'
@@ -390,7 +391,13 @@ const walk = (node, ctx) => {
       gap: ctx.gap || 'data-gap' in a,
       parentAsChild: 'asChild' in a,
       host: ctx.host || /\bseamlessFieldHost\b/.test(classText),
+      scrolls: ctx.scrolls || name === 'DrawerBody' || name === 'DrawerContent',
     }
+    if (name === 'ScrollArea' && ctx.scrolls)
+      fail(
+        open,
+        'ScrollArea inside a Drawer: DrawerBody already scrolls (COMPONENTS.md)',
+      )
     if (
       (name === 'Textarea' || name === 'TokenField') &&
       str(a.variant) === 'seamless' &&
@@ -689,6 +696,7 @@ const ROOT = {
   content: false,
   contentSources: null,
   parentAsChild: false,
+  scrolls: false,
 }
 const defNodes = new Set([...components.values()].map((c) => c.node))
 for (const st of sf.statements) if (!defNodes.has(st)) walk(st, ROOT)
