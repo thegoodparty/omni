@@ -83,6 +83,13 @@ import { CaseScoutScoreService } from '@/caseScout/services/caseScoutScore.servi
 import { AgentsService } from '@/agents/agents.service'
 import { AgentRunReplaySchema } from '@/agents/tools/judgeReplay'
 
+// Every agent shares the agentRun queue, and a run is a paid model loop, so
+// one cap fleet-wide is its only throttle. 100 is what the PMF Engine the
+// runs migrate from ran at once in dev (SSM
+// /pmf-engine/dev/max-concurrent-agents), and a judge sweep is 42 runs for
+// one suite (docs/adr/2026-11-19-the-agent-run-cap-is-the-cap-per-task.md).
+const AGENT_RUN_MAX_CONCURRENT = 100
+
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
   JobWithMetadata<T>,
@@ -330,9 +337,11 @@ export const JOBS = {
     alertAfterWaitingMinutes: 60,
     timeoutMinutes: 120,
     attempts: 5,
-    concurrency: 2,
-    // Every agent shares this queue and this one fleet-wide cap.
-    maxConcurrent: 10,
+    // As many slots a task as the cap: the cap alone decides how many runs
+    // go at once, and no task count is part of it. pg-boss spawns a worker
+    // per slot, so a task can be handed every queued run up to the cap.
+    concurrency: AGENT_RUN_MAX_CONCURRENT,
+    maxConcurrent: AGENT_RUN_MAX_CONCURRENT,
   }),
   // Agent-run dispatchers fanned out by their daily schedules, one office,
   // org, row or campaign each. The agent platform queues the runs themselves.

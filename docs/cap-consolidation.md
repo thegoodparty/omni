@@ -27,7 +27,9 @@ as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
   carries the run id, the organization, an abort signal and service lookup.
   Agents share a tool by importing it.
 - **Starting a run.** `AgentsService.run(name, input)` is the only way in.
-  Every agent shares one pg-boss queue, `agentRun`, with one fleet-wide cap.
+  Every agent shares one pg-boss queue, `agentRun`, with one fleet-wide cap
+  of 100 running runs, and each task gets that many slots, so the cap alone
+  decides (`docs/adr/2026-11-19-the-agent-run-cap-is-the-cap-per-task.md`).
   A run that fails its last attempt dead-letters, which alerts like any
   other job.
 - **Storage.** Two parents, one message table:
