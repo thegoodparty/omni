@@ -46,6 +46,11 @@ const UNBILLABLE_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
   'incomplete_expired',
 ])
 
+const PRO_FULFILL_STATUSES = new Set<Stripe.Subscription.Status>([
+  'active',
+  'trialing',
+])
+
 // How long after Stripe mints a subscription an unmatched lookup is still
 // assumed to be racing our own fulfillment write rather than describing a
 // genuine orphan. checkout.session.completed and customer.subscription.created
@@ -212,14 +217,23 @@ export class PaymentEventsService {
   async customerSubscriptionCreatedHandler(
     event: Stripe.CustomerSubscriptionCreatedEvent,
   ) {
-    const { id: subscriptionId, customer: customerId } = event.data.object
+    const {
+      id: subscriptionId,
+      customer: customerId,
+      status,
+      metadata,
+    } = event.data.object
     if (!subscriptionId) {
       throw new BadRequestException('No subscriptionId found in subscription')
     }
 
+    const metadataUserId = metadata?.userId
     // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const user = await this.usersService.findByCustomerId(customerId as string)
+    const customerIdString = customerId as string
+    const user = metadataUserId
+      ? await this.usersService.findUser({ id: parseInt(metadataUserId) })
+      : await this.usersService.findByCustomerId(customerIdString)
     if (!user) {
       throw new BadGatewayException(
         'No user found with given subscription customerId',
@@ -234,9 +248,45 @@ export class PaymentEventsService {
       return
     }
 
-    return this.campaignsService.patchCampaignDetails(campaign.id, {
+    // Overwriting a different stored sub id is the duplicate-checkout shape
+    // (ENG-11084): the previous sub keeps billing once we stop tracking it, so
+    // neither fulfil nor re-link — alert and leave the campaign as it was.
+    const { id: campaignId, details } = campaign
+    const storedSubscriptionId = details?.subscriptionId
+    if (storedSubscriptionId && storedSubscriptionId !== subscriptionId) {
+      this.logger.error(
+        {
+          campaignId,
+          userId: user.id,
+          previousSubscriptionId: storedSubscriptionId,
+          incomingSubscriptionId: subscriptionId,
+        },
+        '[WEBHOOK] customer.subscription.created for a campaign linked to a ' +
+          'different subscriptionId — possible duplicate Pro subscription',
+      )
+      return
+    }
+
+    await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId,
     })
+
+    // Only a subscription we stamped at checkout names its campaign itself,
+    // and only one that is billing right now fulfils Pro: an `incomplete` or
+    // `past_due` subscription is linked above (so its later events resolve)
+    // but must not hand out Pro before it has been paid for.
+    if (!metadataUserId || !PRO_FULFILL_STATUSES.has(status)) {
+      return
+    }
+
+    const { becamePro } = await this.campaignsService.setIsPro(campaignId)
+    if (becamePro) {
+      this.logger.info(
+        { campaignId, userId: user.id, subscriptionId, status },
+        '[WEBHOOK] Fulfilled Pro from customer.subscription.created',
+      )
+      await this.dispatchOpponentCollectionOnProUpgrade(campaignId)
+    }
   }
 
   async customerSubscriptionResumedHandler(

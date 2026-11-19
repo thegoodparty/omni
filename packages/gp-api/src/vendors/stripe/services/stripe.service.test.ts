@@ -81,6 +81,7 @@ const userId = 7
 const email = 'buyer@example.com'
 const priceId = 'price_test_pro'
 const storedCustomerId = 'cus_stored_123'
+const campaignId = 111
 
 const proUser = {
   id: userId,
@@ -114,6 +115,7 @@ describe('StripeService Pro subscription checkout', () => {
 
       const result = await service.createEmbeddedProSubscriptionCheckoutSession(
         proUser,
+        campaignId,
         'https://app.test/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
       )
 
@@ -126,6 +128,9 @@ describe('StripeService Pro subscription checkout', () => {
       )
       expect(args.success_url).toBeUndefined()
       expect(args.metadata).toEqual({ userId })
+      expect(args.subscription_data).toEqual({
+        metadata: { userId, campaignId },
+      })
       expect(args.line_items).toEqual([{ price: priceId, quantity: 1 }])
 
       expect(result).toEqual({
@@ -141,7 +146,10 @@ describe('StripeService Pro subscription checkout', () => {
       })
 
       await expect(
-        service.createEmbeddedProSubscriptionCheckoutSession(proUser),
+        service.createEmbeddedProSubscriptionCheckoutSession(
+          proUser,
+          campaignId,
+        ),
       ).rejects.toThrow(BadGatewayException)
     })
 
@@ -152,13 +160,23 @@ describe('StripeService Pro subscription checkout', () => {
         url: 'https://stripe.test/checkout',
       })
 
-      await service.createCheckoutSession(proUser)
+      await service.createCheckoutSession(proUser, campaignId)
       const redirectArgs = firstOrThrow(sessionsCreate.mock.calls)[0]
 
-      await service.createEmbeddedProSubscriptionCheckoutSession(proUser)
+      await service.createEmbeddedProSubscriptionCheckoutSession(
+        proUser,
+        campaignId,
+      )
       const embeddedArgs = nthOrThrow(sessionsCreate.mock.calls, 1)[0]
 
       expect(embeddedArgs.metadata).toEqual(redirectArgs.metadata)
+      expect(embeddedArgs.subscription_data.metadata).toEqual({
+        userId,
+        campaignId,
+      })
+      expect(embeddedArgs.subscription_data).toEqual(
+        redirectArgs.subscription_data,
+      )
       expect(embeddedArgs.mode).toBe(redirectArgs.mode)
       expect(embeddedArgs.line_items).toEqual(redirectArgs.line_items)
       expect(embeddedArgs.customer).toBe(redirectArgs.customer)
@@ -174,7 +192,7 @@ describe('StripeService Pro subscription checkout', () => {
         url: 'https://stripe.test/checkout',
       })
 
-      await service.createCheckoutSession(proUser)
+      await service.createCheckoutSession(proUser, campaignId)
 
       const args = firstOrThrow(sessionsCreate.mock.calls)[0]
       expect(args.customer).toBe(storedCustomerId)
@@ -191,7 +209,7 @@ describe('StripeService Pro subscription checkout', () => {
       })
 
       const newUser = { ...proUser, metaData: null } as unknown as User
-      await service.createCheckoutSession(newUser)
+      await service.createCheckoutSession(newUser, campaignId)
 
       expect(setCustomerIdIfAbsent).toHaveBeenCalledWith(userId, 'cus_new_456')
       const args = firstOrThrow(sessionsCreate.mock.calls)[0]
@@ -212,7 +230,7 @@ describe('StripeService Pro subscription checkout', () => {
       })
 
       const newUser = { ...proUser, metaData: null } as unknown as User
-      await service.createCheckoutSession(newUser)
+      await service.createCheckoutSession(newUser, campaignId)
 
       expect(customersDel).toHaveBeenCalledWith('cus_orphan')
       const args = firstOrThrow(sessionsCreate.mock.calls)[0]
@@ -225,9 +243,9 @@ describe('StripeService Pro subscription checkout', () => {
       findUser.mockResolvedValue(null)
 
       const newUser = { ...proUser, metaData: null } as unknown as User
-      await expect(service.createCheckoutSession(newUser)).rejects.toThrow(
-        BadGatewayException,
-      )
+      await expect(
+        service.createCheckoutSession(newUser, campaignId),
+      ).rejects.toThrow(BadGatewayException)
       expect(customersDel).toHaveBeenCalledWith('cus_orphan')
       expect(sessionsCreate).not.toHaveBeenCalled()
     })

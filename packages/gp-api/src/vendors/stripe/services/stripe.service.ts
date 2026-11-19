@@ -907,12 +907,21 @@ export class StripeService {
   //  redirect flow (createCheckoutSession) and the embedded flow
   //  (createEmbeddedProSubscriptionCheckoutSession). The webhook
   //  (checkout.session.completed) identifies the campaign and sets isPro from
-  //  metadata.userId, so both flows must carry it identically.
+  //  metadata.userId, so both flows must carry it identically. The same ids on
+  //  subscription_data stamp the SUBSCRIPTION, which is the copy that survives
+  //  a lost completion webhook (ENG-11182).
   private getProSubscriptionSessionParams = async (
     user: User,
+    campaignId: number,
   ): Promise<Stripe.Checkout.SessionCreateParams> => ({
     metadata: {
       userId: user.id,
+    },
+    subscription_data: {
+      metadata: {
+        userId: user.id,
+        campaignId,
+      },
     },
     // Pin the stored customer instead of customer_email: an email-only
     // session mints a NEW Stripe customer per completed checkout, so Stripe
@@ -944,9 +953,9 @@ export class StripeService {
     ],
   })
 
-  async createCheckoutSession(user: User) {
+  async createCheckoutSession(user: User, campaignId: number) {
     const session = await this.stripe.checkout.sessions.create({
-      ...(await this.getProSubscriptionSessionParams(user)),
+      ...(await this.getProSubscriptionSessionParams(user, campaignId)),
       success_url: `${WEBAPP_ROOT_URL}/dashboard/pro-upgrade/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${WEBAPP_ROOT_URL}/dashboard`,
     })
@@ -958,13 +967,15 @@ export class StripeService {
   // Embedded (in-wizard) variant of the Pro subscription checkout. Mirrors the
   //  one-time embedded path (createCustomCheckoutSession): ui_mode 'custom' +
   //  return_url, returns a client_secret instead of a redirect url. isPro is
-  //  still flipped only by the checkout.session.completed webhook.
+  //  still flipped only by the checkout.session.completed and the
+  //  customer.subscription.created webhooks.
   async createEmbeddedProSubscriptionCheckoutSession(
     user: User,
+    campaignId: number,
     returnUrl: string = `${WEBAPP_ROOT_URL}/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}`,
   ) {
     const session = await this.stripe.checkout.sessions.create({
-      ...(await this.getProSubscriptionSessionParams(user)),
+      ...(await this.getProSubscriptionSessionParams(user, campaignId)),
       ui_mode: 'custom',
       return_url: returnUrl,
     })
