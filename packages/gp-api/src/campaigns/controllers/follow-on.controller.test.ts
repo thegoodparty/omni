@@ -3,6 +3,8 @@ import { ElectionsService } from '@/elections/services/elections.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ConflictException } from '@nestjs/common'
+import { FeaturesService } from '@/features/services/features.service'
+import { WIN_PER_CAMPAIGN_PRICING_FLAG } from '@/shared/util/winPerCampaignPricingFlag.util'
 import { CampaignsService } from '../services/campaigns.service'
 import { CrmCampaignsService } from '../services/crmCampaigns.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,8 +21,20 @@ const spyOnGroup = () => {
   return vi.spyOn(analytics, 'group').mockResolvedValue(undefined)
 }
 
+// isFeatureEnabled answers true for every flag when Amplitude is unconfigured,
+// so the per-campaign pricing flag is pinned explicitly in each test.
+const setPerCampaignPricing = (enabled: boolean) =>
+  vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockImplementation(
+      async ({ feature }) =>
+        feature !== WIN_PER_CAMPAIGN_PRICING_FLAG || enabled,
+    )
+
 describe('POST /v1/campaigns/follow-on', () => {
   beforeEach(() => {
+    setPerCampaignPricing(false)
+
     // createForUser fires a CRM sync that resolves the new org's position and
     // district via the election-api, which isn't reachable in the harness.
     // That sync is incidental to the follow-on behavior under test, so stub it.
@@ -716,5 +730,87 @@ describe('POST /v1/campaigns/follow-on', () => {
       where: { userId: service.user.id },
     })
     expect(campaignCount).toBe(1)
+  })
+  describe('with per-campaign pricing on', () => {
+    const seedProSource = async (slug: string) => {
+      await service.prisma.organization.create({
+        data: { slug: `campaign-${slug}`, ownerId: service.user.id },
+      })
+      const prevCampaign = await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: `prev-${slug}`,
+          isPro: true,
+          plan: 'pro',
+          didWin: true,
+          details: { electionDate: '2099-11-03' },
+          organizationSlug: `campaign-${slug}`,
+        },
+      })
+      await service.prisma.organization.create({
+        data: {
+          slug: `eo-${slug}`,
+          ownerId: service.user.id,
+          positionId: `pos-${slug}`,
+        },
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          organizationSlug: `eo-${slug}`,
+          userId: service.user.id,
+          termEndDate: new Date('2099-01-05T00:00:00Z'),
+          campaignId: prevCampaign.id,
+        },
+      })
+    }
+
+    it('starts a same-office follow-on from a Pro campaign on Free', async () => {
+      setPerCampaignPricing(true)
+      await seedProSource('flag-on')
+
+      const result = await service.client.post('/v1/campaigns/follow-on', {
+        intent: 'same-office',
+        fromOrganizationSlug: 'eo-flag-on',
+      })
+
+      expect(result.status).toBe(201)
+      const row = await service.prisma.campaign.findUniqueOrThrow({
+        where: { id: result.data.id },
+      })
+      expect(row).toMatchObject({ isPro: false, plan: 'free' })
+    })
+
+    it('starts a new-office follow-on from a Pro office org on Free', async () => {
+      setPerCampaignPricing(true)
+      await seedProSource('new-office')
+      vi.spyOn(
+        service.app.get(ElectionsService),
+        'getPositionByBallotReadyId',
+      ).mockResolvedValue({
+        id: 'pos-new',
+        brPositionId: 'br-new',
+        brDatabaseId: 'db-new',
+        state: 'CA',
+        name: 'City Council',
+      })
+
+      const created = await service.app.get(CampaignsService).createFollowOn(
+        service.user,
+        {
+          intent: 'new-office',
+          ballotReadyPositionId: 'br-new',
+          details: { electionDate: '2099-11-03', state: 'CA' },
+        },
+        {
+          hasActiveCampaign: false,
+          holdsOffice: true,
+          canStartCampaign: true,
+          canGainOffice: true,
+          reelectionOfficeSlug: 'eo-new-office',
+        },
+      )
+
+      expect(created).toMatchObject({ isPro: false, plan: 'free' })
+    })
   })
 })

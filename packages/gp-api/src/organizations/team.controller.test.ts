@@ -6,6 +6,8 @@ import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-cli
 import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
 import { OutreachAssignmentService } from '@/outreach/services/outreachAssignment.service'
 import { ClerkClient, Invitation } from '@clerk/backend'
+import { FeaturesService } from '@/features/services/features.service'
+import { WIN_PER_CAMPAIGN_PRICING_FLAG } from '@/shared/util/winPerCampaignPricingFlag.util'
 import { TeamInviteMetadata } from '@goodparty_org/contracts'
 import { BadGatewayException } from '@nestjs/common'
 import jwt from 'jsonwebtoken'
@@ -108,7 +110,19 @@ const stubCrmTeamMembers = () => service.app.get(CrmTeamMembersService)
 // tests that don't care about it don't leave a real, unmocked DB lookup
 // racing in the background into the next test — individual tests below
 // re-spy these to assert on them or to simulate a HubSpot failure.
+// isFeatureEnabled answers true for every flag when Amplitude is unconfigured,
+// so the per-campaign pricing flag is pinned explicitly (off by default, so a
+// campaign's createdAt crossing TEAM_GATE_START never changes the suite).
+const setPerCampaignPricing = (enabled: boolean) =>
+  vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockImplementation(
+      async ({ feature }) =>
+        feature !== WIN_PER_CAMPAIGN_PRICING_FLAG || enabled,
+    )
+
 beforeEach(() => {
+  setPerCampaignPricing(false)
   vi.spyOn(stubCrmTeamMembers(), 'syncTeamMember').mockResolvedValue(undefined)
   vi.spyOn(
     stubCrmTeamMembers(),
@@ -348,6 +362,7 @@ describe('POST /v1/organizations/team/invites', () => {
   // membership row on an eo- org would half-work, since no Serve surface
   // checks for anything but ownership.
   it('rejects an eo- (elected-office) organization even when the flag is on', async () => {
+    setPerCampaignPricing(true)
     const EO_SLUG = 'eo-team-org'
     await service.prisma.organization.create({
       data: { slug: EO_SLUG, ownerId: service.user.id },
@@ -360,6 +375,95 @@ describe('POST /v1/organizations/team/invites', () => {
     )
 
     expect(result.status).toBe(400)
+  })
+
+  describe('Team plan gate', () => {
+    const AFTER_GATE = new Date('2099-01-01T00:00:00.000Z')
+    const BEFORE_GATE = new Date('2020-01-01T00:00:00.000Z')
+
+    const seedCampaign = (createdAt: Date, plan: 'free' | 'pro' | 'team') =>
+      service.prisma.campaign.create({
+        data: {
+          organizationSlug: ORG_SLUG,
+          userId: service.user.id,
+          slug: 'gate-campaign',
+          createdAt,
+          plan,
+          isPro: plan !== 'free',
+        },
+      })
+
+    const invite = () =>
+      service.client.post(
+        INVITES_PATH,
+        {
+          email: 'gated@example.com',
+          name: 'Gated Person',
+          role: 'campaignAdmin',
+        },
+        { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+      )
+
+    const stubClerkSuccess = () => {
+      vi.spyOn(
+        stubClerkInvitations(),
+        'listPendingTeamInvitations',
+      ).mockResolvedValue([])
+      vi.spyOn(
+        stubClerkInvitations(),
+        'createTeamInvitation',
+      ).mockResolvedValue(mockInvitation({ emailAddress: 'gated@example.com' }))
+      vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+    }
+
+    it('403s TEAM_PLAN_REQUIRED for a Pro campaign created after the gate', async () => {
+      setPerCampaignPricing(true)
+      await createOrg()
+      await seedCampaign(AFTER_GATE, 'pro')
+      const createInvitation = vi.spyOn(
+        stubClerkInvitations(),
+        'createTeamInvitation',
+      )
+
+      const result = await invite()
+
+      expect(result.status).toBe(403)
+      expect(result.data).toMatchObject({ code: 'TEAM_PLAN_REQUIRED' })
+      expect(createInvitation).not.toHaveBeenCalled()
+    })
+
+    it('creates the invite for a Team campaign created after the gate', async () => {
+      setPerCampaignPricing(true)
+      await createOrg()
+      await seedCampaign(AFTER_GATE, 'team')
+      stubClerkSuccess()
+
+      const result = await invite()
+
+      expect(result.status).toBe(201)
+    })
+
+    it('creates the invite for a Pro campaign created before the gate', async () => {
+      setPerCampaignPricing(true)
+      await createOrg()
+      await seedCampaign(BEFORE_GATE, 'pro')
+      stubClerkSuccess()
+
+      const result = await invite()
+
+      expect(result.status).toBe(201)
+    })
+
+    it('creates the invite after the gate when the flag is off', async () => {
+      setPerCampaignPricing(false)
+      await createOrg()
+      await seedCampaign(AFTER_GATE, 'pro')
+      stubClerkSuccess()
+
+      const result = await invite()
+
+      expect(result.status).toBe(201)
+    })
   })
 
   it('a campaignAdmin member can invite', async () => {
