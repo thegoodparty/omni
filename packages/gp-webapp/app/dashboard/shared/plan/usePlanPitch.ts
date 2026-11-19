@@ -5,7 +5,7 @@ import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { buildPlanPitch, type PlanPitch } from './planPitch'
 
 export const usePlanPitch = (): PlanPitch => {
-  const { enabled } = useWinPerCampaignPricingFlag()
+  const { ready, enabled } = useWinPerCampaignPricingFlag()
   const { recommendTeam } = usePlan()
-  return buildPlanPitch(enabled, recommendTeam)
+  return buildPlanPitch(ready, enabled, recommendTeam)
 }

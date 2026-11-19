@@ -5,6 +5,7 @@ import { useFlagOn } from './FeatureFlagsProvider'
 export const WIN_PER_CAMPAIGN_PRICING_FLAG_KEY = 'win_per_campaign_pricing'
 
 interface UseWinPerCampaignPricingFlagResult {
+  // Settled: loaded, or failed (a failed load never becomes ready).
   ready: boolean
   enabled: boolean
 }
@@ -12,8 +13,8 @@ interface UseWinPerCampaignPricingFlagResult {
 export const useWinPerCampaignPricingFlag = (
   trackExposure = true,
 ): UseWinPerCampaignPricingFlagResult => {
-  const { ready, on } = useFlagOn(WIN_PER_CAMPAIGN_PRICING_FLAG_KEY, {
+  const { ready, failed, on } = useFlagOn(WIN_PER_CAMPAIGN_PRICING_FLAG_KEY, {
     trackExposure,
   })
-  return { ready, enabled: on }
+  return { ready: ready || Boolean(failed), enabled: on }
 }

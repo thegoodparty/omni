@@ -19,7 +19,6 @@ import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
 import type { PlanPitch } from '../plan/planPitch'
 import { usePlanPitch } from '../plan/usePlanPitch'
-import { SeeAllPlansLink } from '../plan/SeeAllPlansLink'
 import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
@@ -119,6 +118,7 @@ export const MembershipBanner = (): React.JSX.Element | null => {
   const visible = Boolean(ready && isMembershipSurfaceVisible(state))
 
   if (!visible || !state) return null
+  if (state.tier === 'free' && !planPitch.ready) return null
 
   const action = resolveMembershipAction(state)
   const copy = bannerCopy(
@@ -175,12 +175,6 @@ export const MembershipBanner = (): React.JSX.Element | null => {
         <div role="status" className={BANNER_CLASS_NAME}>
           {body}
         </div>
-      )}
-      {state.tier === 'free' && planPitch.enabled && (
-        <SeeAllPlansLink
-          href={planPitch.allPlansHref}
-          className="mb-2 text-[13px] font-medium text-primary underline"
-        />
       )}
       {pitchOpen && (
         <ProPitchDialog

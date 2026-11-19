@@ -23,7 +23,6 @@ import {
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
-import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
 import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 
 const UPGRADE_CTA = 'Upgrade to Pro'
@@ -153,9 +152,6 @@ const OpponentProLockedView = (): React.JSX.Element => {
           >
             {upgradeCta}
           </Button>
-          {planPitch.enabled && (
-            <SeeAllPlansLink href={planPitch.allPlansHref} />
-          )}
 
           <p className="text-sm text-muted-foreground">
             {planPitch.enabled ? '' : 'Cancel anytime. '}Already on{' '}

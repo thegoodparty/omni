@@ -346,10 +346,6 @@ describe('MembershipBanner plan copy', () => {
       screen.getByText('Unlock voter data and outreach with Pro for $299.'),
     ).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/\$10\b|\/mo|a month/)
-    expect(screen.getByRole('link', { name: 'See all plans' })).toHaveAttribute(
-      'href',
-      '/dashboard/plans',
-    )
   })
 
   it('keeps the legacy copy with the flag off', () => {
@@ -358,6 +354,5 @@ describe('MembershipBanner plan copy', () => {
     expect(
       screen.getByText(MEMBERSHIP_COPY.banner.free.body),
     ).toBeInTheDocument()
-    expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
   })
 })

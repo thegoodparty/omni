@@ -25,7 +25,6 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
 import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import {
   PITCH_PANEL_COPY,
@@ -144,9 +143,6 @@ export const ProPitchPanel = ({
                 <span className="text-base leading-normal">{bullet}</span>
               </div>
             ))}
-            {planPitch.enabled && (
-              <SeeAllPlansLink href={planPitch.allPlansHref} />
-            )}
           </div>
         </div>
       )}

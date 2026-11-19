@@ -61,6 +61,7 @@ export const MembershipChip = (): React.JSX.Element | null => {
   const visible = Boolean(ready && isMembershipSurfaceVisible(state))
 
   if (!visible || !state) return null
+  if (state.tier === 'free' && !planPitch.ready) return null
 
   const action = resolveMembershipAction(state)
   const label = verificationLabel(

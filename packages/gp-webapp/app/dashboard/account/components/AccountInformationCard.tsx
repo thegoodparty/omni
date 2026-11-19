@@ -34,7 +34,7 @@ export const AccountInformationCard = ({
   const userType = isElectedOffice ? 'Elected official' : 'Candidate'
   const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
   const { plan } = usePlan()
-  const paidPlan = buildPlanPitch(planPricingEnabled, plan === 'team')
+  const paidPlan = buildPlanPitch(true, planPricingEnabled, plan === 'team')
   const planLabel = isPro
     ? planPricingEnabled
       ? `GoodParty.org ${paidPlan.name} Plan - ${paidPlan.price}`

@@ -240,9 +240,6 @@ describe('ProPitchDialog', () => {
       ).toBeInTheDocument()
       expect(screen.getByText(/\$299 for your campaign/)).toBeInTheDocument()
       expect(document.body.textContent).not.toMatch(/\$10\b|\/mo/)
-      expect(
-        screen.getByRole('link', { name: 'See all plans' }),
-      ).toHaveAttribute('href', '/dashboard/plans')
     })
 
     it('pitches Team above the voter threshold', () => {
@@ -253,16 +250,12 @@ describe('ProPitchDialog', () => {
         screen.getByText('Join Team to unlock voter data and outreach'),
       ).toBeInTheDocument()
       expect(screen.getByText(/\$399 for your campaign/)).toBeInTheDocument()
-      expect(
-        screen.getByRole('link', { name: 'See all plans' }),
-      ).toHaveAttribute('href', '/dashboard/plans?highlight=team')
     })
 
     it('keeps the legacy copy and no plans link with the flag off', () => {
       renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1)
 
       expect(screen.getByText(MEMBERSHIP_COPY.pitch.pill)).toBeInTheDocument()
-      expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
     })
   })
 })

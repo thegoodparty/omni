@@ -9,7 +9,10 @@ import {
 
 describe('gateCopy plan copy', () => {
   it('replaces only the price bullet and never prints a legacy price', () => {
-    const copy = withPlanPriceBullet(PRO_COPY.sms, buildPlanPitch(true, false))
+    const copy = withPlanPriceBullet(
+      PRO_COPY.sms,
+      buildPlanPitch(true, true, false),
+    )
 
     expect(copy.bullets[0]).toBe(
       '$299 for your campaign, with $175 in outreach credit',
@@ -19,7 +22,7 @@ describe('gateCopy plan copy', () => {
   })
 
   it('names Team in the interstitial and explainer when recommended', () => {
-    const pitch = buildPlanPitch(true, true)
+    const pitch = buildPlanPitch(true, true, true)
 
     expect(planInterstitialCopy(pitch).cta).toBe('Join Team')
     expect(EXPLAINER_COPY.titleFree('door', pitch.name)).toBe(

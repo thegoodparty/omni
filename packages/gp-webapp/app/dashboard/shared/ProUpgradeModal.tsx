@@ -11,7 +11,6 @@ import { useEffect } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
-import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   proUpgradeHref,
@@ -263,11 +262,6 @@ export function ProUpgradeModal({
             {cta}
           </Link>
         </Button>
-        {planPitch.enabled && (
-          <div className="mt-4">
-            <SeeAllPlansLink href={planPitch.allPlansHref} />
-          </div>
-        )}
       </div>
     </Modal>
   )
