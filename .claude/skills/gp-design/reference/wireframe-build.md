@@ -103,7 +103,9 @@ window some other way, fix the runtime, not the flow.
   values can be one cite expression (`data-content-source={THEME_SRC[color]}`
   with `THEME_SRC` a const of `"<path>:<line>"` strings, an array of them, or
   a template like `` `${FILE}:38` ``) instead of one branch per theme;
-  `THEME_SRC.blue` or `THEME_SRC['blue']` reads that one entry. Editor
+  `THEME_SRC.blue` or `THEME_SRC['blue']` reads that one entry. A content
+  part shown outside the content too (the photo in a crop drawer) carries
+  `data-content` and its cite at that use as well. Editor
   controls that sit over the content (a row of buttons on the email) go in a
   wrapper marked `data-editor`: inside it the usual rules apply, not the
   content's. The product chrome around it stays
@@ -292,8 +294,9 @@ A flow that mirrors an existing screen must measure the same as the real one.
 1. **Copy the real class strings.** Put them on the same elements, with the same
    wrappers, and read the base variant too (`toggleVariants`, `ToggleGroup`)
    before you change a size.
-2. **Keep the product's size.** A mirrored control keeps the product's size, even
-   under 44px. The 44px minimum is for controls the feature invents.
+2. **Keep the product's size.** A mirrored control keeps the product's size. A
+   control the feature adds takes the size `docs/product-design.md` §10 gives
+   it: flow buttons `size="large"`, buttons inside a step the default size.
 3. **Measure.** After rendering, read `getBoundingClientRect()` for the mirrored
    rows in `?view=phone&step=<key>` and compare them with today's screen.
 
@@ -315,8 +318,9 @@ A flow that mirrors an existing screen must measure the same as the real one.
 - A Built from list below the appendix (`<details class="sources" id="a-sources">`):
   one row per element and its source, per "Every design shows what it's built
   from" in `docs/product-design.md` §7. A row with no source starts "Gap:".
-  Label a screen "as shipped" only when its strings and controls are
-  unchanged; name any control left out of the frame in Built from, and any it
+  Label a screen "as shipped" (or "as today") only when its strings and
+  controls are unchanged, in the same order and place; a control moved on
+  the screen is a What changes from today row. Name any control left out of the frame in Built from, and any it
   drops in What changes from today.
 - A What changes from today list next to it
   (`<details class="drops" id="a-drops">`), per "Say what a change drops" in
