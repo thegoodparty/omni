@@ -10,6 +10,7 @@ import { useEffect } from 'react'
 import { PRO_UPGRADE_ENTRY_PATH } from '@shared/experiments/proUpgrade3Flag'
 import { EVENTS, trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
 import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 export type P2PModalVariant = 'ProFreeTextsNonCompliant' | 'NonProUpgrade'
@@ -180,6 +181,11 @@ export function P2PUpgradeModal({
               <Link href={content.href}>{content.cta}</Link>
             </Button>
           </div>
+          {planPitch.enabled && !isProFreeTextsNonCompliant && (
+            <div className="flex justify-center">
+              <SeeAllPlansLink href={planPitch.allPlansHref} />
+            </div>
+          )}
         </div>
       </div>
     </Modal>

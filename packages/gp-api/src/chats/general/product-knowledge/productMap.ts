@@ -290,6 +290,22 @@ const WIN_AREAS: ProductArea[] = [
     ],
   },
   {
+    // No tab: reached from "See all plans" in the Pro and Team pitches. Only
+    // exists while the per-campaign pricing flag is on.
+    navId: null,
+    name: 'Plans',
+    path: '/dashboard/plans',
+    modes: ['win'],
+    does: 'Compare the Free, Pro and Team plans and see which one the campaign is on.',
+    inside: [
+      'A table compares what each plan includes (stacked cards on a phone). Each plan is one payment for the campaign',
+      'Pro and Team include outreach credit for texts and robocalls. Team adds logins for teammates',
+      'The current plan is marked, and its button is off',
+      'Pro has a button that starts the upgrade. The Team button is off until Team checkout ships',
+    ],
+    gate: 'No tab. Reached from See all plans in a Pro or Team pitch, and only for campaigns on per-campaign pricing.',
+  },
+  {
     // No tab: candidates reach this from the membership status shown at the
     // bottom of the left rail (or, on a phone, in the top bar), and from the
     // end of the Pro upgrade flow.
