@@ -68,7 +68,7 @@ const TeamPage = (): React.JSX.Element => {
   // inviting is why the candidate bought Team.
   const searchParams = useSearchParams()
   const [inviteOpen, setInviteOpen] = useState(
-    () => searchParams.get('invite') === '1',
+    () => searchParams?.get('invite') === '1',
   )
 
   // isPending, not isLoading: in React Query v5 isLoading = isPending &&
