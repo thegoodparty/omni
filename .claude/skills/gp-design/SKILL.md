@@ -133,9 +133,10 @@ above, not your memory of them:
 ## 4. Hand it back
 
 After step 9 and the senior design review, publish the page per step 10 of `reference/options-workflow.md` and give the
-links: the page and `?view=desktop`. The page shows the flow in a phone frame,
-with a Desktop preview button that opens the same flow at the window's width in
-a new tab, with no page bar. If the person asked not to
+links: the page, `?view=desktop` and `?view=build`. The page shows the flow in a
+phone frame, with a Desktop preview button that opens the same flow at the
+window's width in a new tab, and Show how it's built, which opens the build
+shape in a new tab. If the person asked not to
 publish, give the local path to `index.html` instead (for a prototype in gp-webapp, the branch and route). Add one line on
 what it is, the gaps and proposed components (or "None"), and every open
 question for a person. Add what the review found and fixed, anything left

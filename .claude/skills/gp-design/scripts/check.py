@@ -353,8 +353,8 @@ def main():
                 problems.append(f'build shape for {oid} is stale: rerun build-shape')
             elif header.group(0).strip() not in html:
                 problems.append(f'index.html is missing the current build shape for {oid}: rerun build.py')
-        if 'class="build-shape"' in html and 'id="build-toggle"' not in html:
-            problems.append('build shapes show by default: rerun build.py to add the switch that hides them')
+        if 'class="build-shape"' in html and 'main .build-shape { display: none; }' not in html:
+            problems.append('build shapes show on the page: rerun build.py to hide them behind Show how it\'s built')
 
     for pat, label in BANNED:
         if one_design and label in RECOMMEND_LABELS:

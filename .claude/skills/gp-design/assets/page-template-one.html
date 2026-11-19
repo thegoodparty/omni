@@ -7,74 +7,86 @@
 <style>
 /*GP_FLOW_CSS*/
 /* scaffold:start: the review page around the design. Keep it as the template has it; check.py fails on any edit. */
-body { margin: 0; background: var(--brand-surface-secondary); font-family: 'Open Sans', system-ui, sans-serif; color: var(--brand-text-primary); }
-.page { max-width: 1280px; margin: 0 auto; padding: 0 24px 96px; }
-.page-bar {
-  position: sticky; top: 0; z-index: 10; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
-  padding: 12px 24px; background: #fff; border-bottom: 1px solid var(--brand-border-primary);
-}
-.page-bar h1 { font-size: 15px; font-weight: 600; margin: 0 auto 0 0; }
-.page-bar a { color: var(--goodparty-blue-500); font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; padding: 12px 4px; }
-.option { padding-top: 56px; }
-.option > h2 { font-size: 24px; font-weight: 700; margin: 0 0 8px; }
-.option > p { font-size: 16px; color: var(--brand-text-secondary); margin: 0 0 8px; max-width: 70ch; }
-.option > p.sends { font-size: 14px; margin-bottom: 24px; }
-.brief { padding-top: 56px; max-width: 860px; }
-.brief h2 { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
-.brief dl { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; margin: 8px 0 0; font-size: 16px; }
-.brief dt { font-weight: 600; }
-.brief dd { margin: 0; }
-.brief ul, .drops ul { margin: 0; padding-left: 20px; font-size: 16px; list-style: disc; }
-.brief h3 { font-size: 16px; font-weight: 600; margin: 16px 0 8px; }
-.brief code, .sources code, .drops code { overflow-wrap: anywhere; }
-/* Below the design: Decisions needed stays open, the rest of the brief is collapsed. */
-.brief details { margin-top: 16px; }
-.brief summary { cursor: pointer; font-size: 16px; font-weight: 600; padding: 8px 0; }
-@media (max-width: 600px) { .brief dl { grid-template-columns: 1fr; gap: 0; } .brief dd { margin-bottom: 12px; } }
-/* Restart, Desktop preview and the Serve / Win switch: build.py renders them with the real Button and ToggleGroup. */
-.frame-head { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 8px; margin-bottom: 8px; }
+/* The page wears the styleguide: blocks below the frame are a Card (card.tsx), each collapsible is an
+   Accordion item (accordion.tsx), tables are a Table (table.tsx), question numbers a soft pill Badge (badge.tsx). */
+body { margin: 0; background: var(--brand-surface-secondary); font-family: 'Open Sans', system-ui, sans-serif; color: var(--color-foreground); line-height: 1.5; }
+.page { max-width: 1280px; margin: 0 auto; padding: 32px 24px 96px; }
+.option + .option { margin-top: 64px; }
+.option > h2 { font-size: var(--text-2xl); font-weight: 600; line-height: 1.33; margin: 0 0 8px; }
+.option > p { font-size: var(--text-base); color: var(--color-muted-foreground); margin: 0 0 8px; max-width: 70ch; }
+.option > p.sends { font-size: var(--text-sm); margin-bottom: 24px; }
+/* Restart, Desktop preview, Show how it's built and the Serve / Win switch: mount.tsx renders them with the real Button and ToggleGroup. */
+.frame-head { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 8px; margin-bottom: 12px; }
 /* The frame the flow renders in stands in for the window (scripts/flow/runtime/frame.tsx). On the page it is a
    375 x 812 phone; ?view=desktop is the whole window, ?view=phone a 375px column the window's height. */
-.gp-frame { border: 1px solid var(--brand-border-primary); }
+.gp-frame { border: 1px solid var(--color-border); }
 .gp-frame--phone { width: 375px; max-width: 100%; height: 812px; border-radius: 28px; }
 .gp-frame--view-desktop { width: 100vw; height: 100dvh; border: 0; }
 .gp-frame--view-phone { width: 375px; max-width: 100%; height: 100dvh; margin: 0 auto; border-top: 0; border-bottom: 0; }
-body[data-view] > :not(#gp-view) { display: none; }
-/* On a phone the page drops its side padding so the phone frame fills the screen; the text keeps 16px. */
+/* !important: the artifact host adds a bar with inline styles, which a view never shows. */
+body[data-view] > :not(#gp-view) { display: none !important; }
+/* Cards: everything under the frame, and Decisions needed and the summary below the design, all one width. */
+.option > details, .brief > div, .brief > details { max-width: 960px; margin-top: 16px; padding: 0 24px; background: var(--color-card); color: var(--color-card-foreground); border: 1px solid var(--color-border); border-radius: var(--radius-xl); font-size: var(--text-sm); }
+.option > details:first-of-type { margin-top: 24px; }
+.brief { margin-top: 48px; }
+.brief > div { padding-top: 24px; padding-bottom: 8px; }
+.brief h2 { font-size: var(--text-xl); font-weight: 600; line-height: 1.4; margin: 0 0 8px; }
+.brief h3 { font-size: var(--text-sm); font-weight: 600; margin: 16px 0 8px; }
+/* Accordion trigger: text-sm medium, py-4, a chevron that turns when open. */
+details > summary { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 16px 0; list-style: none; cursor: pointer; font-size: var(--text-sm); font-weight: 500; color: var(--color-foreground); }
+details > summary::-webkit-details-marker { display: none; }
+details > summary:hover { text-decoration: underline; }
+details > summary::after { content: ''; flex-shrink: 0; width: 16px; height: 16px; margin-top: 2px; background: var(--color-muted-foreground); transition: transform 200ms;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat; }
+details[open] > summary::after { transform: rotate(180deg); }
+.option > details[open], .brief > details[open] { padding-bottom: 16px; }
+/* A collapsible inside a card is an Accordion item: a top border, no card of its own. */
+.brief > div details { margin-top: 8px; border-top: 1px solid var(--color-border); }
+.brief > div details[open] { padding-bottom: 8px; }
+/* Decisions needed: one row per question, numbered with a soft pill Badge. */
+#questions > ul { margin: 0; padding: 0; list-style: none; counter-reset: question; }
+#questions > ul > li { position: relative; padding: 12px 0 12px 36px; border-bottom: 1px solid var(--color-border); counter-increment: question; }
+#questions > ul > li:last-child { border-bottom: 0; }
+#questions > ul > li::before { content: counter(question); position: absolute; left: 0; top: 12px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; height: 20px; min-width: 20px; padding: 0 6px; border-radius: 9999px; background: var(--color-grayscale-200); color: var(--color-foreground); font-size: var(--text-xs); font-weight: 500; line-height: 1; }
+.brief ul, .option > details > ul { margin: 0; padding-left: 20px; list-style: disc; }
+.brief ul li + li, .option > details > ul li + li { margin-top: 8px; }
+#questions > ul > li + li { margin-top: 0; }
+.brief dl { display: grid; grid-template-columns: 160px 1fr; gap: 12px 16px; margin: 0; }
+.brief dt { color: var(--color-muted-foreground); font-weight: 500; }
+.brief dd { margin: 0; }
+.brief code, .option > details code { font-family: var(--font-mono); font-size: 0.92em; overflow-wrap: anywhere; }
+/* Table: rows split by a border, cells p-2 with the first and last flush to the card. */
+.option > details table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.option > details tr { border-bottom: 1px solid var(--color-border); }
+.option > details tr:last-child { border-bottom: 0; }
+.option > details td { padding: 12px 8px; vertical-align: top; overflow-wrap: anywhere; }
+.option > details td:first-child { padding-left: 0; width: 32%; font-weight: 500; }
+.option > details td:last-child { padding-right: 0; }
+/* Other states: one phone frame per state, its label above. */
+.appendix-grid { display: flex; flex-wrap: wrap; gap: 24px; }
+.appendix-grid figure { width: 375px; max-width: 100%; margin: 0; }
+.appendix-grid figcaption { font-size: var(--text-sm); color: var(--color-muted-foreground); margin-bottom: 8px; }
+@media (max-width: 600px) { .brief dl { grid-template-columns: 1fr; gap: 4px; } .brief dd { margin-bottom: 8px; } }
+/* On a phone the page drops its side padding so the phone frame fills the screen; text and cards keep 16px. */
 @media (max-width: 440px) {
   .page { padding-left: 0; padding-right: 0; }
-  .brief, .option > h2, .option > p, .frame-head, .appendix, .sources, .drops, .mutations, .build-shape { padding-left: 16px; padding-right: 16px; }
+  .brief, .option > h2, .option > p, .frame-head, .build-shape { padding-left: 16px; padding-right: 16px; }
+  .option > details { margin-left: 16px; margin-right: 16px; padding: 0 16px; }
+  .brief > div, .brief > details { padding-left: 16px; padding-right: 16px; }
   .gp-frame--phone { width: 100%; border-radius: 0; border-left: 0; border-right: 0; }
-  /* The bar wraps to several rows on a phone; sticky, it would cover the frame. */
-  .page-bar { position: static; }
 }
-/* Other states: collapsed under the frame so the happy path stays uncluttered. */
-.appendix, .sources, .drops, .mutations { margin-top: 16px; max-width: 1200px; }
-.appendix > summary, .sources > summary, .drops > summary, .mutations > summary { cursor: pointer; font-size: 14px; font-weight: 600; padding: 8px 0; }
-.appendix-grid { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 8px; }
-.appendix-grid figure { width: 375px; max-width: 100%; margin: 0; }
-.appendix-grid figcaption { font-size: 14px; color: var(--brand-text-secondary); margin-bottom: 8px; }
-/* Built from: each element and its source, per docs/product-design.md section 7. */
-.sources table, .mutations table { border-collapse: collapse; font-size: 14px; width: 100%; background: #fff; }
-.sources td, .mutations td { border: 1px solid var(--brand-border-primary); padding: 8px 12px; vertical-align: top; overflow-wrap: anywhere; }
-.sources td:first-child { width: 40%; font-weight: 600; }
-.drops ul { margin-top: 8px; font-size: 14px; }
 /* scaffold:end */
 /* The page's own rules go here: layout of the page around the design only. The design itself is drawn
    in <work>/flow/option-x.tsx with the real components (reference/wireframe-build.md). */
 </style>
 </head>
 <body>
-<nav class="page-bar" aria-label="Design">
-  <h1>{{TITLE}}</h1>
-  <a href="#questions">Questions</a>
-  <a href="#brief-summary">Summary</a>
-</nav>
 <!-- One design: data-design="one" tells check.py to check #option-a only. data-product is
      "win", "serve" or "both": the products the task names (gp-design section 1). -->
 <main class="page" data-design="one" data-product="{{PRODUCT}}">
 
-<!-- The design comes first, right under the page bar: one flow in one phone frame, starting
+<!-- The design comes first, at the top of the page: one flow in one phone frame, starting
      on the entry screen, where the user starts. -->
 <section class="option" id="option-a">
   <h2>{{NAME_A}}</h2>
@@ -166,14 +178,5 @@ body[data-view] > :not(#gp-view) { display: none; }
 </section>
 
 </main>
-<script>
-// A page bar link into a collapsed block opens it. The flows' own script is inlined by build.py.
-document.querySelectorAll('.page-bar a[href^="#"]').forEach((link) => {
-  link.addEventListener('click', () => {
-    const target = document.querySelector(link.getAttribute('href'))
-    if (target && target.tagName === 'DETAILS') target.open = true
-  })
-})
-</script>
 </body>
 </html>

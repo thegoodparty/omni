@@ -16,9 +16,10 @@ same for both templates: page-template.html (three options) and
 page-template-one.html (one design, #option-a only).
 
 If <work>/build/ exists next to <work>/page/src.html, inlines each build-shape
-fragment <work>/build/option-x.html at the end of its #option-x section, the
-build-shape panel CSS once, and a "Show how it's built" switch at the right end
-of the page bar. Build shapes start hidden so the page opens on the prototypes.
+fragment <work>/build/option-x.html at the end of its #option-x section and the
+build-shape panel CSS once. Build shapes stay hidden on the page; each option's
+"Show how it's built" button (runtime/mount.tsx) opens its shape alone in a new
+tab, ?view=build[&option=b].
 """
 import hashlib
 import html as htmllib
@@ -38,39 +39,10 @@ repo = skill.parents[2]
 flow_build = skill / 'scripts/flow/build.mjs'
 panel_css = skill.parent / 'build-shape/assets/ux-panel.css'
 
-toggle_css = '''
-#build-toggle { margin-left: 8px; display: inline-flex; align-items: center; height: 32px; padding: 0 16px; border: 1px solid var(--color-tertiary-dark);
-  border-radius: 9999px; background: transparent; color: var(--color-tertiary-dark); font: 500 14px/1 'Open Sans', system-ui, sans-serif; cursor: pointer; }
-#build-toggle:hover { background: color-mix(in srgb, var(--color-tertiary-dark) 5%, transparent); }
-body:not(.show-build) .build-shape { display: none; }
+hidden_css = '''
+main .build-shape { display: none; }
+body[data-view="build"] #gp-view { max-width: 1280px; margin: 0 auto; padding: 24px 24px 96px; }
 '''
-
-toggle_button = (
-    '<button id="build-toggle" '
-    'type="button" aria-pressed="false">Show how it\'s built</button>\n'
-)
-
-toggle_script = '''<script>
-(() => {
-  const button = document.getElementById('build-toggle')
-  const set = (on) => {
-    document.body.classList.toggle('show-build', on)
-    button.setAttribute('aria-pressed', String(on))
-    button.textContent = on ? 'Hide how it\\'s built' : 'Show how it\\'s built'
-    localStorage.setItem('show-build', on ? '1' : '0')
-  }
-  button.addEventListener('click', () => set(!document.body.classList.contains('show-build')))
-  set(localStorage.getItem('show-build') === '1' || new URLSearchParams(location.search).has('build'))
-})()
-</script>
-'''
-
-def add_to_page_bar(html, button):
-    nav_end = html.find('</nav>', html.find('class="page-bar"'))
-    if nav_end == -1:
-        sys.exit('no <nav class="page-bar"> to hold the switch')
-    return html[:nav_end] + button + html[nav_end:]
-
 
 def flows(work):
     """Run build.mjs; returns (css, js, snapshot)."""
@@ -112,9 +84,7 @@ def main():
                 html = html[:span[1]] + fragment.read_text().strip() + '\n' + html[span[1]:]
                 inlined += 1
         if inlined:
-            html = html.replace('</head>', f'<style>\n/*GP_BUILD_SHAPE*/\n{panel_css.read_text()}{toggle_css}/*GP_BUILD_SHAPE end*/\n</style>\n</head>', 1)
-            html = add_to_page_bar(html, toggle_button)
-            html = html.replace('</body>', toggle_script + '</body>', 1)
+            html = html.replace('</head>', f'<style>\n/*GP_BUILD_SHAPE*/\n{panel_css.read_text()}{hidden_css}/*GP_BUILD_SHAPE end*/\n</style>\n</head>', 1)
         print(f'inlined {inlined} build shape(s) from {build}')
     css, js, snap = flows(work)
     if '/*GP_FLOW_CSS*/' not in html:
