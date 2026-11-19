@@ -569,6 +569,8 @@ export class PurchaseService {
         return PaymentType.OUTREACH_PURCHASE
       case PurchaseType.POLL:
         return PaymentType.POLL
+      case PurchaseType.PLAN:
+        return PaymentType.PLAN
       default:
         throw new Error(`No payment type mapping for: ${purchaseType}`)
     }

@@ -5,6 +5,7 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { addDays, format } from 'date-fns'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CampaignPlanLevel, PlanPricingModel } from '../generated/prisma'
 import { CheckoutSessionMode, WebhookEventType } from './payments.types'
 
 // Route-level coverage for Pro fulfilment from `customer.subscription.created`.
@@ -186,10 +187,47 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
     expect(updated.details.subscriptionId).toBe('sub_pro_created')
     expect(updated.isPro).toBe(true)
     expect(updated.details.isProUpdatedAt).toBeDefined()
+    expect(updated).toMatchObject({
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.subscription,
+      planEndedAt: null,
+    })
     // Flipping Pro without this leaves the candidate Pro with no opponent
     // research started, because the sibling completion event then computes
     // `becamePro === false` and skips its own dispatch.
     expect(opponentCollection).toHaveBeenCalledExactlyOnceWith(campaign.id)
+  })
+
+  it('keeps a one-time Team plan the campaign already holds', async () => {
+    const seeded = await seedCampaign()
+    const campaign = await service.prisma.campaign.update({
+      where: { id: seeded.id },
+      data: {
+        isPro: true,
+        plan: CampaignPlanLevel.team,
+        planPricingModel: PlanPricingModel.one_time,
+      },
+    })
+
+    const res = await deliverStripeEvent(
+      subscriptionCreatedEvent({
+        subscriptionId: 'sub_over_team',
+        customerId: 'cus_over_team',
+        status: 'active',
+        metadata: {
+          userId: String(service.user.id),
+          campaignId: String(campaign.id),
+        },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: true,
+      plan: CampaignPlanLevel.team,
+      planPricingModel: PlanPricingModel.one_time,
+      planEndedAt: null,
+    })
   })
 
   it('flips Pro for a trialing subscription', async () => {
@@ -369,6 +407,11 @@ describe('POST /v1/payments/events — checkout.session.completed (regression)',
     )
     const afterCompleted = await readCampaign(campaign.id)
     expect(afterCompleted.isPro).toBe(true)
+    expect(afterCompleted).toMatchObject({
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.subscription,
+      planEndedAt: null,
+    })
 
     const res = await deliverStripeEvent(
       subscriptionCreatedEvent({

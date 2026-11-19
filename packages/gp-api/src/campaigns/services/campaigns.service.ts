@@ -1,4 +1,8 @@
 import {
+  CampaignPlanState,
+  holdsOneTimePlan,
+} from '@/campaigns/plans/planState.util'
+import {
   CampaignLaunchStatus,
   CampaignStatus,
   type Eligibility,
@@ -16,7 +20,12 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { Campaign, Prisma, User } from '../../generated/prisma'
+import {
+  Campaign,
+  CampaignPlanLevel,
+  Prisma,
+  User,
+} from '../../generated/prisma'
 import { formatISO } from 'date-fns'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -59,6 +68,11 @@ enum CandidateVerification {
   yes = 'YES',
   no = 'NO',
 }
+
+type SetIsProData = Omit<
+  Prisma.CampaignUpdateInput,
+  'isPro' | 'hasFreeTextsOffer'
+>
 
 @Injectable()
 export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
@@ -900,7 +914,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       },
       false,
     )
-    await this.setIsPro(campaign.id, false, false)
+    // A one-time plan outlives a stray subscription on the same campaign, so
+    // the subscription ending must not take the plan's Pro with it.
+    await this.setIsPro(campaign.id, false, false, (locked) =>
+      holdsOneTimePlan(locked)
+        ? null
+        : { plan: CampaignPlanLevel.free, planEndedAt: new Date() },
+    )
     await this.crm.trackCampaign(campaign.id)
   }
 
@@ -939,7 +959,11 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     campaignId: number,
     isPro: boolean = true,
     trackCampaign: boolean = true,
-    data: Omit<Prisma.CampaignUpdateInput, 'isPro' | 'hasFreeTextsOffer'> = {},
+    // A function is decided against the locked row; returning null leaves
+    // that row's Pro state as it is.
+    data:
+      | SetIsProData
+      | ((locked: CampaignPlanState) => SetIsProData | null) = {},
   ): Promise<{ becamePro: boolean; campaign: Campaign }> {
     // Read outside the transaction: a flag evaluation is a network call and
     // must not run while the row lock is held. Only a Pro grant can offer
@@ -977,26 +1001,33 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     const { campaign, isBecomingProFirstTime } = await this.client.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT id FROM campaign WHERE id = ${campaignId} FOR UPDATE`
-        const existingCampaign = await tx.campaign.findUnique({
+        const existingCampaign = await tx.campaign.findUniqueOrThrow({
           where: { id: campaignId },
           select: {
             isPro: true,
             hasFreeTextsOffer: true,
             freeTextsOfferRedeemedAt: true,
+            plan: true,
+            planPricingModel: true,
+            planEndedAt: true,
           },
         })
 
-        const isBecomingProFirstTime = !existingCampaign?.isPro && isPro
+        const resolvedData =
+          typeof data === 'function' ? data(existingCampaign) : data
+        const nextIsPro = resolvedData === null ? existingCampaign.isPro : isPro
+        const isBecomingProFirstTime =
+          !existingCampaign.isPro && nextIsPro === true
         const shouldGrantOffer =
           isBecomingProFirstTime &&
-          !existingCampaign?.freeTextsOfferRedeemedAt &&
+          !existingCampaign.freeTextsOfferRedeemedAt &&
           !perCampaignPricing
 
         const campaign = await tx.campaign.update({
           where: { id: campaignId },
           data: {
-            ...data,
-            isPro,
+            ...resolvedData,
+            isPro: nextIsPro,
             ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
           },
         })
