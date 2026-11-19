@@ -1565,6 +1565,75 @@ var ProductMap = (function () {
     },
   ]
 
+  // Every area the app declares in productMap.ts (build.py passes them in) joins the
+  // tree, so a released area appears without anyone editing this file. One already
+  // drawn above, matched by name or route, keeps its drawing; the rest list the events
+  // filed under them instead of steps. Explorer area names that differ from the app's
+  // are aliased here; anything else unmatched stays in "not on the map yet".
+  const AREA_ALIASES = {
+    'constituent data': 'constituents',
+    'issue capture': 'what we heard',
+    'civic panel': 'chief of staff',
+  }
+  const norm = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+  const routeBase = (r) => (r || '').split('?')[0].split('/[')[0]
+  const listedEvents = (pa) => {
+    const base = routeBase(pa.path)
+    const want = norm(pa.name)
+    return (DATA.events || [])
+      .filter((e) => {
+        if (e.status === 'retired') return false
+        const tags = e.tags || []
+        if (!pa.modes.includes('win') && tags.includes('product:win'))
+          return false
+        if (!pa.modes.includes('serve') && tags.includes('product:serve'))
+          return false
+        const area = norm(e.area)
+        if (area === want || AREA_ALIASES[area] === want) return true
+        const url = routeBase(e.url)
+        return (
+          base.length > '/dashboard'.length &&
+          (url === base || url.startsWith(base + '/'))
+        )
+      })
+      .sort((a, b) => (b.count_30d || 0) - (a.count_30d || 0))
+      .map((e) => e.event_type)
+  }
+  ;(DATA.product_areas || []).forEach((pa) => {
+    if (!pa.path.startsWith('/')) return
+    const product =
+      pa.modes.length > 1 ? 'Win and Serve' : pa.modes[0] === 'serve' ? 'Serve' : 'Win'
+    // Win and Serve reuse routes and names for different areas (/dashboard/contacts
+    // is Voter Data in one and Constituents in the other), so an area counts as drawn
+    // only within its own product. A both-products area counts as drawn anywhere.
+    const drawn = TREE.some(
+      (p) =>
+        (product === 'Win and Serve' || p.product === product) &&
+        p.areas.some(
+          (a) => norm(a.name) === norm(pa.name) || a.route === pa.path,
+        ),
+    )
+    if (drawn) return
+    let p = TREE.find((x) => x.product === product)
+    if (!p) {
+      p = { product, blurb: 'Areas both products share.', areas: [] }
+      TREE.push(p)
+    }
+    p.areas.push({
+      name: pa.name,
+      route: pa.path,
+      inMap: true,
+      surfaces: [
+        {
+          kind: 'list',
+          name: pa.name,
+          route: pa.path,
+          evs: listedEvents(pa),
+        },
+      ],
+    })
+  })
+
   // --------------------------------------------------------------- helpers
   const AMP_ORG = 'goodparty'
   const ampUrl = (t) =>
@@ -1847,6 +1916,26 @@ var ProductMap = (function () {
       Until then the events that fire on it are in the explorer, not on this map.</p></div></details>`,
       }
     }
+    if (f.kind === 'list') {
+      if (!whole && !f.evs.some(isHit)) return null
+      const clean = f.evs.every((n) => EV[n] && EV[n][0] === 'active')
+      const fired = f.evs.filter((n) => EV[n] && EV[n][1] > 0).length
+      const ctx = `the ${f.name} area at ${f.route}`
+      const body = f.evs.length
+        ? `<div class="evs">${f.evs.map((n) => evRow(n, {}, ctx)).join('')}</div>`
+        : `<p class="notyet">No event is filed under this area yet. If one fires here, it may be filed under another name; search for it above.</p>`
+      return {
+        clean,
+        html: `<details class="flow" data-clean="${clean ? 1 : 0}" data-key="${esc('flow:' + f.name)}"${openAttr}><summary class="fsum">${ICON_CARET}
+      <div class="fmain">
+        <div class="ftitle"><h2>${esc(f.name)}</h2><span class="route">${esc(f.route)}</span>
+          <span class="fkind">events only</span></div>
+        <div class="fmeta"><span>steps not drawn</span><span>${fired} of ${f.evs.length} fired in the last 30 days</span></div>
+      </div>
+      <div class="fstats"><span class="stat ok">${f.evs.length} events</span></div>
+    </summary><div class="fbody">${body}<div class="allclear">Everything else in this area is active.</div></div></details>`,
+      }
+    }
     const nodes = nodesOf(f)
     f._whole = whole
     if (!whole) {
@@ -1954,12 +2043,13 @@ var ProductMap = (function () {
     const areas = p.areas.map(areaHTML).filter(Boolean)
     if (!areas.length) return ''
     const all = p.areas.flatMap((a) => a.surfaces)
-    const drawn = all.filter((s) => !s.building).length,
-      pending = all.length - drawn
+    const listed = all.filter((s) => s.kind === 'list').length,
+      pending = all.filter((s) => s.building).length,
+      drawn = all.length - listed - pending
     const openAttr = isOpen('product:' + p.product, true) ? ' open' : ''
     return `<details class="product" data-key="${esc('product:' + p.product)}"${openAttr}><summary class="psum">${ICON_CARET}
     <div class="pmain"><h2>${esc(p.product)}</h2><p>${esc(p.blurb)}</p></div>
-    <span class="pcount">${p.areas.length} areas · ${drawn} drawn${pending ? ` · ${pending} still being built` : ''}</span>
+    <span class="pcount">${p.areas.length} areas · ${drawn} drawn${listed ? ` · ${listed} events only` : ''}${pending ? ` · ${pending} still being built` : ''}</span>
   </summary><div class="pbody">${areas.join('')}</div></details>`
   }
 
@@ -1990,6 +2080,7 @@ var ProductMap = (function () {
         <dt>Page</dt><dd>One screen with several parts that can appear in any order, like the dashboard. Each part is a <b>zone</b>.</dd>
         <dt>Event</dt><dd>One action we record, with how many times it happened in the last 30 days.</dd>
         <dt>Still being built</dt><dd>We know this flow exists but have not drawn its steps on this map yet.</dd>
+        <dt>Events only</dt><dd>An area of the product with no screens drawn yet. It lists every event we record there, busiest first.</dd>
       </dl>
     </section>
     <section>
@@ -2073,6 +2164,7 @@ var ProductMap = (function () {
         ? `<li><b>${BUILDING_COUNT} flow${BUILDING_COUNT === 1 ? ' is' : 's are'} placed but not yet drawn.</b> Each sits under its area above with a "Still being built" tag and opens to the file its steps live in; each needs its step list read out of the code once.</li>`
         : ''
     }
+    <li><b>Areas marked "events only" have no screens drawn.</b> Every area the product declares is on the map; the ones nobody has drawn list their events instead of steps.</li>
     <li><b>Page zones are inferred.</b> A flow's steps are declared in code; a page's zones are not, so on Campaign Manager and Campaign Tracker the grouping is a reading of each event's own description, not a fact.</li>
     <li><b>Per-step volume on the outreach wizards</b> needs a property breakdown in Amplitude that the snapshot does not hold, so those steps show the event's total, not the step's.</li>
     <li><b>Steps are drawn by hand.</b> Event numbers refresh with the explorer twice a week; the steps themselves are read from each flow's code once and do not yet notice when a flow changes.</li>
@@ -2160,7 +2252,7 @@ var ProductMap = (function () {
       .flatMap((a) => a.surfaces)
       .filter((f) => !f.building)
       .flatMap((f) => [
-        ...nodesOf(f).flatMap(stepNames),
+        ...(f.kind === 'list' ? f.evs : nodesOf(f).flatMap(stepNames)),
         ...((f.offstep || {}).evs || []),
         ...((f.unplaced || {}).evs || []),
       ]),

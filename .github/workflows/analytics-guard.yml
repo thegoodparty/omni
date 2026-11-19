@@ -164,7 +164,10 @@ jobs:
           base='${{ steps.guard.outputs.base }}'
           if [ -z "$base" ]; then
             echo "::warning::no merge base; running the runbooks suite anyway"
-          elif [ -z "$(git diff --name-only "$base" HEAD -- .)" ]; then
+          # The surfaces and productMap.ts are tested here too: the product map's build
+          # reads the app's area list with a regex (DATA-2835), so a format change there
+          # must run the test that pins it.
+          elif [ -z "$(git diff --name-only "$base" HEAD -- . ../../surfaces ../../../gp-api/src/chats/general/product-knowledge/productMap.ts)" ]; then
             echo "No runbooks changes; skipping the suite."
             exit 0
           fi

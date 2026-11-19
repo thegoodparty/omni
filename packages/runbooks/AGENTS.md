@@ -60,8 +60,10 @@ A fourth, the product map in `surfaces/product-map/` (DATA-2547), shows the same
 laid over the product's flows and pages, with the steps where nothing fires. It is the
 explorer's audience and the explorer's data, organised the way people remember using the
 site. It is the explorer's own template rendered with the map's tree (`map.js`) in place
-of the events table, so both pages share search, filters and cards; the node model is
-hand-authored in `map.js` for now.
+of the events table, so both pages share search, filters and cards. Its areas come from
+the app's own `productMap.ts` at build time (DATA-2835), so a released area appears on its
+own; the steps inside a flow are hand-drawn in `map.js`, and an area nobody has drawn
+lists its events instead.
 
 `surfaces/` is where pages built from committed governance data live. The three published
 pages (explorer, map, console) are one epic, DATA-2580, and share `surfaces/shared/`: the

@@ -21,6 +21,12 @@ feature in your head.
 Rendered into `../campaign-manager/campaignManagerPrompt.ts` (`'win'`) and
 `../chief-of-staff/services/chiefOfStaffPrompt.ts` (`'serve'`).
 
+The analytics product map (`packages/runbooks/surfaces/product-map/build.py`)
+also reads each area's `name`, `path` and `modes` from this file, with a regex.
+Keep each area an object literal with those keys on their own lines at four
+spaces; `test_the_map_reads_every_area_in_productMap` in the runbooks suite
+fails if they move.
+
 The map also tells the Campaign Manager where a message was sent from: the
 webapp sends the page path with each message, and `areaForPath` (in
 `productMap.ts`) resolves it to the most specific area holding it. A path the
