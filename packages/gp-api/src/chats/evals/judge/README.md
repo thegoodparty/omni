@@ -103,10 +103,20 @@ saying the figure can run slightly low.
 **A second request on the same PR cancels the first**, from a comment or from
 Actions. That includes a plan-only `/judge`: posting one while a live sweep is
 running throws away what that sweep already spent, and no verdict comes out.
-Two different PRs no longer queue behind each other; what keeps their
-background runs from overrunning the shared dev scheduler is
-`config.background.maxInFlight`, not the workflow. That is a PER ARM number
-and both arms now run at once, so a sweep claims twice it.
+A concurrency cancel hits ONE JOB at a time rather than the whole run, so the
+older run's `grade` would otherwise start on half-written records and have its
+partial report posted — that is why `grade`'s `if:` names both arms and skips
+when either was cancelled, rather than relying on `cancelled()`.
+
+Two different PRs no longer queue behind each other, and nothing replaces that
+queue. `config.background.maxInFlight` is the bound, not the workflow: it is a
+PER ARM number, both arms run at once, and sweeps on two PRs overlap as well.
+One sweep claims forty of the dev scheduler's fifty tasks and leaves the rest
+of dev its room; two overlapping sweeps reach eighty and oversubscribe it, and
+a run that waits more than the poll's five minutes of headroom for a slot is
+abandoned as an infra error while its task may still launch and bill. Nothing
+gates on scheduler headroom or alerts when the queue falls behind, so treat
+two concurrent sweeps as the case to watch.
 
 ## Running a sweep: THREE PROCESSES, IN FOUR JOBS
 

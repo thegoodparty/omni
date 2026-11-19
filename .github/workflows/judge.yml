@@ -2757,9 +2757,18 @@ jobs:
     # `success()` off for every job in `needs` — which without this line would
     # run the grading on a plan-only request, where `prepare` never ran and
     # every output is empty.
+    #
+    # NOR ON A CANCELLED ARM, and that is not the same test as `!cancelled()`.
+    # A concurrency cancel applies to ONE JOB, not to the run: a newer request
+    # on this PR kills the older run's arms and leaves `cancelled()` false for
+    # the rest of it, so this job would start on half-written records, spend on
+    # the panel, and have its report posted by `verdict`. Naming the arms is
+    # what turns "the sweep this belongs to stopped" into a skip here.
     if: >-
       !cancelled()
       && needs.prepare.result == 'success'
+      && needs.base-arm.result != 'cancelled'
+      && needs.candidate-arm.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:

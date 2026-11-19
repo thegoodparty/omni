@@ -192,17 +192,23 @@ export interface ShapeBudget {
   // cap is waiting outside its own timeout, so the sweep's poll can give up
   // on a run that never started.
   //
-  // THIS IS ONE ARM's NUMBER, AND BOTH ARMS RUN AT ONCE. judge.yml used to
-  // hold one repository-wide group on the sweep job, so at most one sweep's
-  // arms were out at a time; `base-arm` and `candidate-arm` are separate jobs
-  // that run beside each other now, and the repo-wide queue is gone with the
-  // single job. So the shared scheduler sees this number TWICE per sweep, and
-  // that is what it has to be sized against: twenty puts one sweep's two arms
-  // at forty of the fifty-task default, leaving the rest of dev its room. A
-  // second sweep judged at the same time is a wait rather than a pile of runs
-  // whose polls time out as infra errors. Raise this against the shared cap
-  // and against what both arms together may claim, never against one arm's
-  // appetite.
+  // THIS IS ONE ARM's NUMBER, AND BOTH ARMS RUN AT ONCE, AND SO DO SWEEPS.
+  // judge.yml used to hold one repository-wide group on the sweep job, so at
+  // most one sweep's arms were out at a time; `base-arm` and `candidate-arm`
+  // are separate jobs that run beside each other now, and the groups are keyed
+  // on the PR, so sweeps on two PRs also overlap. Twenty puts one sweep at
+  // forty of the fifty-task default, leaving the rest of dev its room; TWO
+  // sweeps judged at once therefore reach eighty and oversubscribe it.
+  //
+  // THAT OVERLAP IS NOT HANDLED, and it is the trade this change made for
+  // taking every PR off the one-hour queue. `pollTimeoutMsFor` starts its
+  // deadline at dispatch rather than at admission, so a run that waits more
+  // than the five-minute headroom for a scheduler slot is abandoned and
+  // recorded as an infraError while the task may still launch and bill. Two
+  // concurrent sweeps are the case that reaches that, and nothing here gates
+  // on scheduler headroom or alerts when the queue falls behind. Size this
+  // against the shared cap and against what both arms of one sweep may claim;
+  // treating it as one sweep's appetite is how it got to forty per arm.
   maxInFlight: number
 }
 

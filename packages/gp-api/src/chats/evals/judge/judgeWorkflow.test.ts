@@ -262,12 +262,48 @@ describe('judge.yml spend switches', () => {
 // A capture step that fails after the arms have been billed must not take the
 // verdict with it: `success()` is the default on a step with no `if:`, so the
 // judging step would be skipped and a paid sweep would end with no report.
+//
+// THE STEP'S OWN `if:` IS ONLY HALF OF IT. The arms are jobs now, so whether
+// grading runs at all is decided by the `grade` JOB's `needs:` and `if:`, and
+// a step guard cannot keep those right: delete them and the default
+// `success()` skips grading whenever an arm fails (both arms billed, no
+// verdict), and drop the `prepare` guard and grading runs on a plan-only
+// request where every output is empty. Both read green without the job-level
+// assertions below.
 describe('judge.yml judges what the arms managed to capture', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const judging = stepsOf(yaml).find((step) => step.name === 'Judge both arms')
 
   it('runs the judging step even when a capture failed', () => {
     expect(judging?.body).toMatch(/^ {8}if: '!cancelled\(\)'$/m)
+  })
+
+  // THE JOB-LEVEL GUARDS, read off the job rather than off a step.
+  it('needs both arms and refuses to grade a sweep that stopped', () => {
+    const grade = jobOf(yaml, 'grade')
+    const condition = /^ {4}if: >-\n((?: {6,}\S.*\n)+)/m.exec(grade)?.[1] ?? ''
+    const collapsed = condition.replace(/\s+/g, ' ').trim()
+    // `always()` would outlive a cancelled sweep, which is the one thing this
+    // job must not do: grading calls the panel.
+    expect(collapsed).not.toContain('always()')
+    expect(collapsed).toContain('!cancelled()')
+    // Without this the `!cancelled()` above turns off the default `success()`
+    // and grading runs on a plan-only request, where `prepare` never ran.
+    expect(collapsed).toContain("needs.prepare.result == 'success'")
+    // A concurrency cancel hits ONE JOB, not the run, so `cancelled()` stays
+    // false for a sweep whose arms were killed by a newer request. Naming the
+    // arms is what stops it grading half-written records.
+    for (const arm of ARMS) {
+      expect(collapsed).toContain(`needs.${arm}.result != 'cancelled'`)
+    }
+  })
+
+  // The job cannot read `needs.<job>` for a job it does not declare, so both
+  // arms have to be named in `needs` as well as in the `if:`.
+  it('declares both arms in its needs', () => {
+    const needs = /^ {4}needs: \[(.+)\]$/m.exec(jobOf(yaml, 'grade'))?.[1]
+    const declared = (needs ?? '').split(',').map((one) => one.trim())
+    expect(declared).toEqual(['plan', 'prepare', ...ARMS])
   })
 
   // NOT the arm captures. A base arm that failed wrote no manifest, so the
