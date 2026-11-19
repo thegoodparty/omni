@@ -1,5 +1,11 @@
-import { createTestUser, type TestUser } from '@goodparty_org/test-users'
-import { resolveApiRoot } from './apiRoot'
+import {
+  createTestUser,
+  vercelBypassHeaders,
+  type TestUser,
+} from '@goodparty_org/test-users'
+import axios from 'axios'
+import { randomUUID } from 'node:crypto'
+import { probeTimeoutMs, resolveApiRoot } from './apiRoot'
 import type {
   EvalApi,
   EvalContext,
@@ -128,17 +134,88 @@ export type ArmReachability = {
   detail: string
 }
 
+// A run id no arm can hold, so the answer says whether the ROUTE exists rather
+// than whether the run does. Without a session the route's guard answers 401
+// before the handler runs; a route that is not there answers Nest's own
+// `Cannot GET ...` 404. Those two are the difference between an arm that can be
+// judged and one whose deploy is missing the routes, and reading it before the
+// first run is what stops a whole sweep from grading nothing but 404s — the
+// mistake PR #3926 made expensive.
+//
+// Both roots are asked, the way `resolveApiRoot` does: a webapp serves gp-api at
+// `/api` and answers a bare `/v1/...` with its login page, so an HTML 200 is not
+// an answer about the route at all and the probe keeps looking.
+const routeAnswerAt = async (
+  url: string,
+): Promise<{ answers: boolean; detail: string }> => {
+  let status: number | 'no response' = 'no response'
+  let message = ''
+  let json = false
+  try {
+    const response = await axios.get(url, {
+      timeout: probeTimeoutMs,
+      validateStatus: () => true,
+      // A webapp preview answers the Vercel login page otherwise, which is not
+      // the arm's own answer to anything.
+      headers: vercelBypassHeaders(),
+    })
+    status = response.status
+    const body = response.data
+    json = typeof body === 'object' && body !== null
+    const { message: bodyMessage } = body as { message?: unknown }
+    if (typeof bodyMessage === 'string') message = bodyMessage
+  } catch (error) {
+    return {
+      answers: false,
+      detail: `${url} got no response (${error instanceof Error ? error.message : String(error)})`,
+    }
+  }
+
+  if (!json) return { answers: false, detail: `${url} answered ${status}` }
+  if (status === 401) return { answers: true, detail: `${url} answered 401` }
+  if (status === 404 && !message.startsWith('Cannot ')) {
+    return { answers: true, detail: `${url} answered 404` }
+  }
+  if (status === 404) {
+    return {
+      answers: false,
+      detail: `${url} answered 404 for a route that does not exist (${message})`,
+    }
+  }
+  return {
+    answers: false,
+    detail: `${url} answered ${status}${message ? ` (${message})` : ''}`,
+  }
+}
+
+const runRoutesAnswer = async (
+  baseUrl: string,
+): Promise<{ ok: boolean; detail: string }> => {
+  const runId = randomUUID()
+  const details: string[] = []
+  for (const root of [baseUrl, `${baseUrl}/api`]) {
+    const answer = await routeAnswerAt(`${root}/v1/agents/runs/${runId}`)
+    if (answer.answers) return { ok: true, detail: answer.detail }
+    details.push(answer.detail)
+  }
+  return {
+    ok: false,
+    detail:
+      `${details.join('; ')} — so this arm's gp-api may not have the run ` +
+      `routes deployed`,
+  }
+}
+
 // Fail before spending anything if an arm cannot be reached, or cannot answer
-// the run route the whole comparison depends on. The check is `/v1/version` on
-// whichever root the URL resolves to: it 200s on a live gp-api and fails when an
-// origin resolves but serves nothing — a preview that has not rolled out yet, or
-// a URL that is not an arm at all. `resolveApiRoot` probes both shapes and
-// throws rather than guessing, so its refusal IS the unreachability report, and
-// it names what it read the way judge.yml's gate does.
+// the run route the whole comparison depends on. The first check is
+// `/v1/version` on whichever root the URL resolves to: it 200s on a live gp-api
+// and fails when an origin resolves but serves nothing — a preview that has not
+// rolled out yet, or a URL that is not an arm at all. `resolveApiRoot` probes
+// both shapes and throws rather than guessing, so its refusal IS the
+// unreachability report, and it names what it read the way judge.yml's gate does.
 export const probeArm = async (baseUrl: string): Promise<ArmReachability> => {
   try {
     await resolveApiRoot(baseUrl)
-    return { baseUrl, ok: true, detail: '`/v1/version` answered 200' }
   } catch (error) {
     return {
       baseUrl,
@@ -146,4 +223,6 @@ export const probeArm = async (baseUrl: string): Promise<ArmReachability> => {
       detail: error instanceof Error ? error.message : String(error),
     }
   }
+  const route = await runRoutesAnswer(baseUrl.replace(/\/$/, ''))
+  return { baseUrl, ok: route.ok, detail: route.detail }
 }

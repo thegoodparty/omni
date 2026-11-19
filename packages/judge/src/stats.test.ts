@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   binomialUpperTail,
+  cannotJudge,
   choose,
   handledRegressionP,
   readVerdict,
@@ -104,6 +105,25 @@ describe('handledRegressionP', () => {
   })
 })
 
+describe('cannotJudge', () => {
+  it('is true when nothing was judged', () => {
+    expect(cannotJudge(0, 0)).toBe(true)
+    expect(cannotJudge(0, 3)).toBe(true)
+  })
+
+  it('is true when more than half the pairs were not judged', () => {
+    expect(cannotJudge(2, 3)).toBe(true)
+  })
+
+  it('is false at exactly half', () => {
+    expect(cannotJudge(3, 3)).toBe(false)
+  })
+
+  it('is false when most pairs were judged', () => {
+    expect(cannotJudge(9, 1)).toBe(false)
+  })
+})
+
 describe('readVerdict', () => {
   it('cannot reach significance from one case alone', () => {
     // Three of three is p = 0.125: an exact test over one case's three attempts
@@ -170,6 +190,45 @@ describe('readVerdict', () => {
     })
     expect(verdict.sign.pBetter).toBeLessThan(0.05)
     expect(verdict.label).toBe('WORSE')
+  })
+
+  it("is CAN'T JUDGE when no pair reached the grader", () => {
+    const verdict = readVerdict({
+      votes: [],
+      handled: noHandling,
+      notJudged: 3,
+    })
+    expect(verdict.label).toBe("CAN'T JUDGE")
+    expect(verdict.notJudged).toBe(3)
+  })
+
+  it("is CAN'T JUDGE when more than half the pairs did not", () => {
+    const verdict = readVerdict({
+      votes: ['candidate', 'candidate'],
+      handled: noHandling,
+      notJudged: 4,
+    })
+    expect(verdict.label).toBe("CAN'T JUDGE")
+  })
+
+  it('still reads a verdict when exactly half the pairs did not', () => {
+    // Five of ten is a majority and four of eight is not; the line is "more than
+    // half", so an even split is judged on the half that ran.
+    const verdict = readVerdict({
+      votes: ['candidate', 'candidate', 'candidate', 'candidate', 'candidate'],
+      handled: noHandling,
+      notJudged: 5,
+    })
+    expect(verdict.label).toBe('BETTER')
+  })
+
+  it("is CAN'T JUDGE rather than WORSE on the little that ran", () => {
+    const verdict = readVerdict({
+      votes: ['base'],
+      handled: noHandling,
+      notJudged: 2,
+    })
+    expect(verdict.label).toBe("CAN'T JUDGE")
   })
 
   it('does not call a minority of pairs significant', () => {

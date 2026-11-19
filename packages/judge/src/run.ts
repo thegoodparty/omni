@@ -75,13 +75,14 @@ export const runJudge = async (
 
   const startedAt = now().toISOString()
 
-  // Fail before spending anything if an arm cannot be reached.
+  // Fail before spending anything if an arm cannot be reached, or cannot answer
+  // the run routes every pair depends on.
   const probe = deps.probeArmFn ?? probeArm
   for (const url of [options.base, options.candidate]) {
     const reachability = await probe(url)
     if (!reachability.ok) {
       console.error(
-        `Arm ${url} is not reachable (${reachability.detail}); nothing was run.`,
+        `Arm ${url} cannot be judged (${reachability.detail}); nothing was run.`,
       )
       return 1
     }
@@ -123,6 +124,11 @@ export const runJudge = async (
           log(
             `  graded ${pair.caseId} attempt ${pair.attempt}: ${pair.winner}`,
           ),
+        onPairNotJudged: (_suiteName, pair) =>
+          log(
+            `  not judged ${pair.caseId} attempt ${pair.attempt}: ` +
+              `${pair.failedArms.join(' and ')} failed`,
+          ),
       })
     } catch (error) {
       // A run that cannot provision, reach an arm, or call the model has no
@@ -138,7 +144,7 @@ export const runJudge = async (
     log(
       `  ${suite.name}: ${verdict.label} ` +
         `(candidate ${verdict.sign.forCandidate}, base ${verdict.sign.forBase}, ` +
-        `tied ${verdict.sign.ties}; handling ` +
+        `tied ${verdict.sign.ties}, not judged ${verdict.notJudged}; handling ` +
         `${verdict.handled.candidatePass}/${verdict.handled.candidateTotal} ` +
         `vs ${verdict.handled.basePass}/${verdict.handled.baseTotal})`,
     )
@@ -162,6 +168,20 @@ export const runJudge = async (
   if (worse.length > 0) {
     log(`\nWORSE: ${worse.map((outcome) => outcome.result.suite).join(', ')}`)
     return 1
+  }
+  // Its own code, because "could not be judged" is not "got worse": nothing
+  // about the candidate was learned, and a gate that read 0 here would wave a
+  // suite through on the strength of runs that never happened.
+  const unjudged = outcomes.filter(
+    (outcome) => outcome.verdict.label === "CAN'T JUDGE",
+  )
+  if (unjudged.length > 0) {
+    log(
+      `\nCAN'T JUDGE: ${unjudged
+        .map((outcome) => outcome.result.suite)
+        .join(', ')}`,
+    )
+    return 2
   }
   return 0
 }
