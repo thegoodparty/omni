@@ -80,7 +80,7 @@ export class OutreachCreditsService extends createPrismaBase(MODELS.Outreach) {
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.run(tx, (client) =>
-      this.close(client, outreachId, (reserved) => reserved),
+      this.close(client, outreachId, (reserved) => reserved, true),
     )
   }
 
@@ -98,6 +98,7 @@ export class OutreachCreditsService extends createPrismaBase(MODELS.Outreach) {
     tx: Prisma.TransactionClient,
     outreachId: number,
     returnedCents: (reservedCents: number) => number,
+    zeroReserve = false,
   ): Promise<number> {
     const [claim] = await tx.$queryRaw<
       { credit_reserved_cents: number; campaign_id: number | null }[]
@@ -117,6 +118,14 @@ export class OutreachCreditsService extends createPrismaBase(MODELS.Outreach) {
 
     const { credit_reserved_cents: reservedCents, campaign_id: campaignId } =
       claim
+    // A released send holds nothing, so a later settle bills the card in full
+    // and a later reserve reports 0, rather than reading a refunded amount.
+    if (zeroReserve) {
+      await tx.outreach.update({
+        where: { id: outreachId },
+        data: { creditReservedCents: 0 },
+      })
+    }
     const returned = returnedCents(reservedCents)
     if (campaignId !== null && returned > 0) {
       await tx.$executeRaw`

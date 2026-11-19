@@ -204,4 +204,18 @@ describe('release', () => {
     await credits.settle(id, 5000)
     expect(await balance()).toBe(17500)
   })
+
+  it('bills the card in full for a settle that follows a release', async () => {
+    await setup(17500)
+    const id = await createOutreach()
+    await reserve(id, 10000)
+
+    await credits.release(id)
+    expect(await credits.settle(id, 5000)).toEqual({
+      creditUsedCents: 0,
+      cardCents: 5000,
+    })
+    expect(await reserve(id, 10000)).toBe(0)
+    expect(await balance()).toBe(17500)
+  })
 })
