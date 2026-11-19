@@ -80,7 +80,7 @@ Rules:
 npx tsx packages/judge/run.ts \
   --base https://dev.goodparty.org \
   --candidate https://pr-3904.preview.goodparty.org \
-  --suite trending_issues,top_community_issues \
+  --suite trending_issues \
   --judge-model anthropic/claude-sonnet-4-6 \
   --out ./judge-results
 ```
@@ -159,7 +159,11 @@ This is what makes a migration PR judge itself:
 | Arm | Where | Engine for the agent being migrated |
 | --- | --- | --- |
 | Base | dev, running main | PMF Engine (its switch is off on dev) |
-| Candidate | the PR preview | gp-api (previews switch on every agent in the registry) |
+| Candidate | the PR preview | gp-api (previews switch on every agent gp-api has) |
+
+That works only for an agent gp-api already has. One gp-api has not built yet
+runs the PMF Engine on **both** arms, so the suite would compare PMF-Engine
+output with itself and pass. Build the gp-api agent first, then the suite.
 
 `ctx.runAgent` is the only background helper. There is no separate legacy
 helper: the route picks the engine. After an agent's switch flips on dev,
