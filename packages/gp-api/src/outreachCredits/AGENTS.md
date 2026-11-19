@@ -19,3 +19,10 @@ The campaign's `outreachCreditCents` balance, spent per send. Each channel (P2P 
 - **A returned remainder is dropped when `planEndedAt` is set.** Credit never resurrects after the plan ends, and `reserve` returns 0 for an ended plan.
 - **`reserve` is idempotent:** a send that already holds a reserve (or is settled) gets its persisted amount back.
 - **No ledger table.** Purchase rows and the per-send reservation are the audit.
+
+## P2P text callers (behind `win_per_campaign_pricing`)
+
+- **Immediate charge:** `calculateAmount` takes `min(balance, estimate)` off like free texts (remainder under 50c forgiven to $0). `executePostPurchase` calls `reserve` before `recordHold`, so no capture can run first.
+- **Hold:** the hold stays at the full amount (ADR `2026-10-19-sms-hold-stays-undiscounted`). Capture charges `actual - reserved` and `settle`s in the same transaction as the `captured` commit; a send the credit covers settles captured at $0.
+- **Unwind:** `OutreachP2pSmsFreeTextsService.restore` and the non-hold cancel in `OutreachService` call `release`.
+- A campaign still holding the free-texts offer keeps that path and reserves no credit. Serve SMS never reserves.

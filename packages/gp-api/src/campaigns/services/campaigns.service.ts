@@ -910,9 +910,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     return this.moduleRef.get(FeaturesService, { strict: false })
   }
 
-  private async isPerCampaignPricingEnabled(
-    campaignId: number,
-  ): Promise<boolean> {
+  async isPerCampaignPricingEnabled(campaignId: number): Promise<boolean> {
     const owner = await this.client.campaign.findUnique({
       where: { id: campaignId },
       select: { userId: true },

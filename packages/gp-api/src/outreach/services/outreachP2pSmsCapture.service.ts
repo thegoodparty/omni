@@ -20,6 +20,7 @@ import {
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
 import { OutreachP2pSmsPromoService } from './outreachP2pSmsPromo.service'
+import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
 
 // Bounds the Stripe calls one pass issues so a backlog can't overrun the cron
 // cadence; the remainder capture on the next pass, expiry-priority first.
@@ -77,6 +78,7 @@ interface CaptureBilling {
   peerlyPhoneListId: string
   leadsLoaded: number
   offerApplied: boolean
+  creditReservedCents: number
 }
 
 // The capture half of the Win p2p SMS hold. B1 placed a manual-capture
@@ -113,6 +115,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     private readonly freeTexts: OutreachP2pSmsFreeTextsService,
     private readonly promo: OutreachP2pSmsPromoService,
     private readonly jobs: JobsService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -487,7 +490,13 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
         await this.restoreFreeTextsBestEffort(outreachId)
         return
       }
-      await this.commitCaptured(outreachId, 0, null, billing.peerlyPhoneListId)
+      await this.commitCaptured(
+        outreachId,
+        0,
+        null,
+        billing.peerlyPhoneListId,
+        this.creditActualCents(billing),
+      )
       return
     }
 
@@ -534,9 +543,11 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     )
     // Only a send that reached someone: a list scrubbed to nobody sent
     // nothing, so it voids and hands the free-texts offer back as before.
+    // Credit is the same kind of discount: a send it covers in full is out and
+    // paid, so it settles captured at $0 rather than voided.
     const promoCovered =
       captureAmount < WIN_SMS_HOLD_MIN_CENTS &&
-      promoDiscount > 0 &&
+      (promoDiscount > 0 || billing.creditReservedCents > 0) &&
       billing.leadsLoaded > 0
 
     // FRESH re-read: never trust the persisted state before moving money. The
@@ -568,6 +579,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
         intent.amount_received ?? captureAmount,
         resolveChargeId(intent),
         billing.peerlyPhoneListId,
+        this.creditActualCents(billing),
       )
       return
     }
@@ -585,6 +597,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
           0,
           null,
           billing.peerlyPhoneListId,
+          this.creditActualCents(billing),
         )
         return
       }
@@ -617,7 +630,13 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     // it voided would read as "payment did not complete" and block the send.
     if (promoCovered) {
       await this.stripe.voidHold(authorizationIntentId)
-      await this.commitCaptured(outreachId, 0, null, billing.peerlyPhoneListId)
+      await this.commitCaptured(
+        outreachId,
+        0,
+        null,
+        billing.peerlyPhoneListId,
+        this.creditActualCents(billing),
+      )
       this.logger.info(
         { outreachId, captureAmount, promoDiscount },
         'win sms capture: promotion code covered the send; released the ' +
@@ -665,6 +684,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       intent.amount_received ?? captureAmount,
       resolveChargeId(intent),
       billing.peerlyPhoneListId,
+      this.creditActualCents(billing),
     )
   }
 
@@ -677,15 +697,25 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     capturedAmountInCents: number,
     chargeIntentId: string | null,
     peerlyPhoneListId: string,
+    creditActualCents: number | null,
   ): Promise<void> {
-    const commit = await this.model.updateMany({
-      where: { outreachId, settleState: P2pSmsSettleState.capturing },
-      data: {
-        settleState: P2pSmsSettleState.captured,
-        capturedAmountInCents,
-        chargeIntentId,
-        peerlyPhoneListId,
-      },
+    // The credit settles in the same transaction as the commit, so a row
+    // never reads captured with its credit still reserved. Null: no credit
+    // was reserved, nothing to settle.
+    const commit = await this.client.$transaction(async (tx) => {
+      const committed = await tx.outreachP2pSms.updateMany({
+        where: { outreachId, settleState: P2pSmsSettleState.capturing },
+        data: {
+          settleState: P2pSmsSettleState.captured,
+          capturedAmountInCents,
+          chargeIntentId,
+          peerlyPhoneListId,
+        },
+      })
+      if (committed.count > 0 && creditActualCents !== null) {
+        await this.credits.settle(outreachId, creditActualCents, tx)
+      }
+      return committed
     })
     if (commit.count === 0) {
       this.logger.error(
@@ -753,7 +783,19 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     const billableCount = billing.offerApplied
       ? Math.max(0, billing.leadsLoaded - FREE_TEXTS_OFFER.COUNT)
       : billing.leadsLoaded
-    return calcTextAmountInCents(billableCount)
+    // Credit comes off the real cost at capture; the hold stayed undiscounted.
+    return Math.max(
+      0,
+      calcTextAmountInCents(billableCount) - billing.creditReservedCents,
+    )
+  }
+
+  // What the send really cost, for settling the credit it reserved. Null when
+  // the send reserved none.
+  private creditActualCents(billing: CaptureBilling): number | null {
+    return billing.creditReservedCents > 0
+      ? calcTextAmountInCents(billing.leadsLoaded)
+      : null
   }
 
   // True only when the build is `ready` with a stamped leads_loaded — the
@@ -779,6 +821,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       select: {
         phoneListId: true,
         projectId: true,
+        creditReservedCents: true,
         campaign: { select: { hasFreeTextsOffer: true } },
         p2pSms: { select: { freeTextsApplied: true } },
       },
@@ -831,6 +874,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       peerlyPhoneListId: build.id,
       leadsLoaded: build.leadsLoaded,
       offerApplied,
+      creditReservedCents: outreach.creditReservedCents,
     }
   }
 }

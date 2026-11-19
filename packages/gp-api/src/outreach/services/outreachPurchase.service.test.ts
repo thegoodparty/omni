@@ -18,15 +18,18 @@ import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerl
 import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneList.service'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
+import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { OutreachPurchaseHandlerService } from './outreachPurchase.service'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mockCampaignsService = {
   checkFreeTextsEligibility: vi.fn(),
   redeemFreeTexts: vi.fn(),
+  isPerCampaignPricingEnabled: vi.fn(),
+  findUnique: vi.fn(),
 } as unknown as CampaignsService
 
 const mockOutreachService = {
@@ -36,6 +39,7 @@ const mockOutreachService = {
   recordCheckoutSession: vi.fn(),
   recordFreePurchase: vi.fn(),
   markFreeTextsConsumed: vi.fn(),
+  client: { $transaction: vi.fn((fn: (tx: object) => unknown) => fn({})) },
 } as unknown as OutreachService
 
 const mockPeerlyPhoneListService = {
@@ -69,6 +73,11 @@ const mockP2pSmsCapture = {
   captureHold: vi.fn(),
 } as unknown as OutreachP2pSmsCaptureService
 
+const mockCredits = {
+  reserve: vi.fn(),
+  release: vi.fn(),
+} as unknown as OutreachCreditsService
+
 const mockLogger = createMockLogger()
 
 const service = new OutreachPurchaseHandlerService(
@@ -81,6 +90,7 @@ const service = new OutreachPurchaseHandlerService(
   mockVoterFileFilterService,
   mockP2pSmsHold,
   mockP2pSmsCapture,
+  mockCredits,
   mockLogger,
 )
 
@@ -1779,6 +1789,231 @@ describe('OutreachPurchaseHandlerService', () => {
         checkoutSessionId: 'cs_hold_gone',
         peerlyPhoneListId: undefined,
       })
+    })
+  })
+
+  describe('plan credit (win_per_campaign_pricing)', () => {
+    const CREDIT_CENTS = 17500
+    const purchaseMetadata = { ...baseMetadata, campaignId: 111 }
+
+    const withCredit = (
+      balanceCents: number,
+      planEndedAt: Date | null = null,
+    ) => {
+      vi.mocked(
+        mockCampaignsService.isPerCampaignPricingEnabled,
+      ).mockResolvedValue(true)
+      vi.mocked(mockCampaignsService.findUnique).mockResolvedValue({
+        outreachCreditCents: balanceCents,
+        planEndedAt,
+      } as never)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValue(false)
+    }
+
+    afterEach(() => {
+      vi.mocked(mockCampaignsService.isPerCampaignPricingEnabled).mockReset()
+      vi.mocked(mockCampaignsService.findUnique).mockReset()
+      vi.mocked(mockCampaignsService.checkFreeTextsEligibility).mockReset()
+    })
+
+    it('charges $0 when the credit covers the whole send', async () => {
+      withCredit(CREDIT_CENTS)
+      mockServerLeadsLoaded(2400)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 2400,
+      })
+
+      expect(calcTextAmountInCents(2400)).toBe(8400)
+      expect(amount).toBe(0)
+    })
+
+    it('charges the remainder when the credit covers part of the send', async () => {
+      withCredit(CREDIT_CENTS)
+      mockServerLeadsLoaded(8572)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 8572,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(8572) - CREDIT_CENTS)
+    })
+
+    it('forgives a remainder under the Stripe minimum', async () => {
+      withCredit(8390)
+      mockServerLeadsLoaded(2400)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 2400,
+      })
+
+      expect(amount).toBe(0)
+    })
+
+    it('draws no credit once the plan has ended', async () => {
+      withCredit(CREDIT_CENTS, new Date('2026-01-01'))
+      mockServerLeadsLoaded(2400)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 2400,
+      })
+
+      expect(amount).toBe(8400)
+    })
+
+    it('leaves the full amount alone with the flag off', async () => {
+      mockServerLeadsLoaded(2400)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 2400,
+      })
+
+      expect(amount).toBe(8400)
+      expect(mockCampaignsService.findUnique).not.toHaveBeenCalled()
+    })
+
+    it('keeps the free-texts path for a campaign still holding the offer', async () => {
+      withCredit(CREDIT_CENTS)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValue(true)
+      mockServerLeadsLoaded(7000)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 7000,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(7000 - FREE_TEXTS_OFFER.COUNT))
+      expect(mockCampaignsService.findUnique).not.toHaveBeenCalled()
+    })
+
+    it('with win_sms_hold_billing also on, holds the full undiscounted amount', async () => {
+      withCredit(CREDIT_CENTS)
+      mockServerLeadsLoaded(2400)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 2400,
+        winSmsHoldBillingEnabled: true,
+      })
+
+      expect(amount).toBe(8400)
+      expect(mockCampaignsService.findUnique).not.toHaveBeenCalled()
+    })
+
+    it('reserves the credit against the undiscounted estimate before the hold is recorded', async () => {
+      withCredit(CREDIT_CENTS)
+      vi.mocked(mockCredits.reserve).mockResolvedValueOnce(8400)
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce('finalized')
+      mockServerLeadsLoaded(2400)
+
+      await service.executePostPurchase('cs_credit_1', {
+        ...purchaseMetadata,
+        winSmsHoldBillingEnabled: true,
+      })
+
+      expect(mockCredits.reserve).toHaveBeenCalledWith({}, 111, 77, 8400)
+      expect(
+        vi.mocked(mockCredits.reserve).mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        vi.mocked(mockP2pSmsHold.recordHold).mock.invocationCallOrder[0] ??
+          Infinity,
+      )
+    })
+
+    it('reserves against the hold send cap for a hold checkout, with no live Peerly call', async () => {
+      withCredit(CREDIT_CENTS)
+      vi.mocked(mockCredits.reserve).mockResolvedValueOnce(CREDIT_CENTS)
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce('finalized')
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue({
+        ...CAPTURED_LIST_FIXTURE,
+        sendCapTexts: 7000,
+      })
+
+      await service.executePostPurchase('cs_credit_2', {
+        ...purchaseMetadata,
+        winSmsHoldBillingEnabled: true,
+      })
+
+      expect(mockCredits.reserve).toHaveBeenCalledWith(
+        {},
+        111,
+        77,
+        calcTextAmountInCents(7000),
+      )
+      expect(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).not.toHaveBeenCalled()
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockReset()
+    })
+
+    it('caps a free send to the texts the reserve pays for when the balance shrank', async () => {
+      withCredit(CREDIT_CENTS)
+      vi.mocked(mockCredits.reserve).mockResolvedValueOnce(4000)
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce('finalized')
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue(
+        CAPTURED_LIST_FIXTURE,
+      )
+      mockServerLeadsLoaded(2400)
+
+      await service.executePostPurchase('free_confirmed_1', purchaseMetadata)
+
+      expect(mockPeerlyPhoneListCapture.persistSendCap).toHaveBeenCalledWith(
+        CAPTURED_LIST_FIXTURE.id,
+        maxTextsForAmountInCents(4000),
+      )
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockReset()
+    })
+
+    it('reserves nothing for a campaign holding the free-texts offer', async () => {
+      withCredit(CREDIT_CENTS)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValue(true)
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce('finalized')
+
+      await service.executePostPurchase('free_confirmed_2', purchaseMetadata)
+
+      expect(mockCredits.reserve).not.toHaveBeenCalled()
+    })
+
+    it('reserves nothing with the flag off', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce('finalized')
+
+      await service.executePostPurchase('free_confirmed_3', purchaseMetadata)
+
+      expect(mockCredits.reserve).not.toHaveBeenCalled()
+    })
+
+    it('returns the reserve when the send is refused as a duplicate', async () => {
+      withCredit(CREDIT_CENTS)
+      vi.mocked(mockCredits.reserve).mockResolvedValueOnce(8400)
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce('duplicate_refused')
+      mockServerLeadsLoaded(2400)
+
+      await service.executePostPurchase('free_confirmed_4', purchaseMetadata)
+
+      expect(mockCredits.release).toHaveBeenCalledWith(77)
     })
   })
 })
