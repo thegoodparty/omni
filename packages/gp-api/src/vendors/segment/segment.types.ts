@@ -19,6 +19,10 @@ export const EVENTS = {
     ProSubscriptionPastDue: 'Account - Pro Subscription Past Due',
     ProSubscriptionEnded: 'Account - Pro Subscription Ended',
     ProUpgradeComplete: 'pro_upgrade_complete',
+    // A one-time plan ended, was extended, or was refunded. Fired by the
+    // expiry sweep (change 'ended') and the admin plan endpoints ('extended',
+    // 'refunded'). `creditExpiredCents` is present when credit was zeroed.
+    PaidPlanUpdated: 'Account - Paid Plan Updated',
     UserDeleted: 'Account - User Deleted',
   },
   Onboarding: {

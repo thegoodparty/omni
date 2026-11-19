@@ -10,6 +10,7 @@ import {
 } from 'app/dashboard/outreach/v2/gate/gateCopy'
 import { ProPitchPanel } from 'app/dashboard/outreach/v2/gate/ProPitchPanel'
 import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // The "join Pro to send this campaign" pause screen (design: the pause screen
@@ -23,6 +24,7 @@ const InterstitialStep = (): React.JSX.Element => {
   // the safest fallback shape (the two-step texting-plus-verification copy).
   const gateChannel: GateChannel = channel ?? 'sms'
   const planPitch = usePlanPitch()
+  const { plan } = usePlan()
   const copy = planPitch.enabled
     ? planInterstitialCopy(planPitch)
     : INTERSTITIAL_COPY
@@ -30,12 +32,14 @@ const InterstitialStep = (): React.JSX.Element => {
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, {
       channel: gateChannel,
+      plan,
     })
-  }, [gateChannel])
+  }, [gateChannel, plan])
 
   const handleJoin = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, {
       channel: gateChannel,
+      plan,
     })
     goToNextStep()
   }

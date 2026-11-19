@@ -289,7 +289,7 @@ describe('CampaignsService - Organization positionId sync', () => {
       const { service, mockCampaignUpdate, mockIdentify } =
         await buildOrgSyncModule()
 
-      mockCampaignUpdate.mockResolvedValue({ id: 10, userId: 42 })
+      mockCampaignUpdate.mockResolvedValue({ id: 10, userId: 42, plan: 'free' })
 
       await service.update({
         where: { id: 10 },
@@ -298,8 +298,28 @@ describe('CampaignsService - Organization positionId sync', () => {
 
       // campaignId rides the identify so the warehouse can attribute the
       // per-campaign isPro value rather than overwriting it across campaigns.
+      // A Pro flip on a campaign whose plan column still reads free is Pro.
       expect(mockIdentify).toHaveBeenCalledWith(42, {
         isPro: true,
+        plan: 'pro',
+        campaignId: 10,
+      })
+    })
+
+    it('identifies a team campaign as team, not pro', async () => {
+      const { service, mockCampaignUpdate, mockIdentify } =
+        await buildOrgSyncModule()
+
+      mockCampaignUpdate.mockResolvedValue({ id: 10, userId: 42, plan: 'team' })
+
+      await service.update({
+        where: { id: 10 },
+        data: { isPro: true },
+      })
+
+      expect(mockIdentify).toHaveBeenCalledWith(42, {
+        isPro: true,
+        plan: 'team',
         campaignId: 10,
       })
     })

@@ -37,6 +37,7 @@ import {
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults, WrapperType } from 'src/shared/types/utility.types'
 import { toDateOnlyString } from 'src/shared/util/date.util'
+import { identifyPlan } from 'src/shared/util/identifyPlan.util'
 import { buildSlug } from 'src/shared/util/slug.util'
 import { WIN_PER_CAMPAIGN_PRICING_FLAG } from 'src/shared/util/winPerCampaignPricingFlag.util'
 import { getUserFullName } from 'src/users/util/users.util'
@@ -514,6 +515,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     if (isPro) {
       await this.analytics.identify(campaign?.userId, {
         isPro,
+        plan: identifyPlan(campaign),
         campaignId: campaign?.id,
       })
     }
@@ -788,6 +790,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       if (scalarFields?.isPro) {
         await this.analytics.identify(updatedCampaign.userId, {
           isPro: scalarFields.isPro,
+          plan: identifyPlan(updatedCampaign),
           campaignId: updatedCampaign.id,
         })
       }
@@ -1059,6 +1062,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       if (updatedIsPro) {
         await this.analytics.identify(campaign?.userId, {
           isPro: updatedIsPro,
+          plan: identifyPlan(campaign),
           campaignId: campaign?.id,
         })
       }

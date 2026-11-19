@@ -88,7 +88,7 @@ describe('ProPitchDialog', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.InterstitialViewed,
-      { channel: 'generic' },
+      { channel: 'generic', plan: 'free' },
     )
   })
 
@@ -124,7 +124,7 @@ describe('ProPitchDialog', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.InterstitialCompleted,
-      { channel: 'generic' },
+      { channel: 'generic', plan: 'free' },
     )
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(router.push).toHaveBeenCalledWith(
@@ -167,7 +167,7 @@ describe('ProPitchDialog', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.InterstitialViewed,
-      { channel: 'voter-data' },
+      { channel: 'voter-data', plan: 'free' },
     )
 
     await user.click(
