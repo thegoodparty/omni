@@ -23,6 +23,10 @@
 // statement would be wrong the day a designer renames a button, it is too
 // specific to be worth the staleness.
 
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+
+const usd = (cents: number): string => `$${cents / 100}`
+
 export type ProductMode = 'win' | 'serve'
 
 export interface ProductArea {
@@ -299,7 +303,10 @@ const WIN_AREAS: ProductArea[] = [
     does: 'Compare the Free, Pro and Team plans and see which one the campaign is on.',
     inside: [
       'A table compares what each plan includes (stacked cards on a phone). Each plan is one payment for the campaign',
-      'Pro and Team include outreach credit for texts and robocalls. Team adds logins for teammates',
+      `Free costs nothing. Pro is ${usd(PLAN_PRICING.proCents)} and Team is ${usd(PLAN_PRICING.teamCents)}, each paid once for the whole campaign`,
+      `Pro and Team include ${usd(PLAN_PRICING.includedCreditCents)} in outreach credit for texts and robocalls. Team adds logins for teammates`,
+      `Joining Team from Pro costs the ${usd(PLAN_PRICING.teamCents - PLAN_PRICING.proCents)} difference, and the outreach credit comes along`,
+      'When the campaign agent drafts a text or call on the Free plan, the card keeps the draft and its button reads Join Pro to send (Join Team to send for a large race). It opens the plan pitch',
       'The current plan is marked, and its button is off',
       'Pro and Team each have a button that starts the upgrade. A Pro campaign pays only the difference to join Team',
     ],
@@ -348,6 +355,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Only the owner can remove members or change roles',
       'A member can also leave on their own: Leave campaign in the sidebar of their volunteer view',
+      `On campaigns created after plans launched, inviting people needs the Team plan. Invite opens the Team pitch (${usd(PLAN_PRICING.teamCents)} from Free, ${usd(PLAN_PRICING.teamCents - PLAN_PRICING.proCents)} from Pro), and after paying the invite drawer opens. Only the owner can buy the plan. Older campaigns invite on any plan`,
     ],
   },
 ]

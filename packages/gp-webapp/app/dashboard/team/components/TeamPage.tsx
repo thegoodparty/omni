@@ -39,6 +39,8 @@ import {
   useOrganization,
   useOrganizationRole,
 } from '@shared/organization-picker'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { format, parseISO } from 'date-fns'
 import {
@@ -48,6 +50,8 @@ import {
   teamQueryKey,
   teamStatsQueryKey,
 } from '../team.util'
+import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
+import { useTeamInviteGate } from '../useTeamInviteGate'
 import InviteMemberDrawer from './InviteMemberDrawer'
 
 const TeamPage = (): React.JSX.Element => {
@@ -70,6 +74,14 @@ const TeamPage = (): React.JSX.Element => {
   const [inviteOpen, setInviteOpen] = useState(
     () => searchParams?.get('invite') === '1',
   )
+  const { gated, plan } = useTeamInviteGate()
+  const [pitchOpen, setPitchOpen] = useState(false)
+  // Only the owner can buy the plan, so a manager the API turns away gets
+  // the reason rather than a checkout that would refuse them.
+  const openTeamPitch = () => {
+    if (isOwner) setPitchOpen(true)
+    else errorSnackbar('Only the campaign owner can upgrade to Team.')
+  }
 
   // isPending, not isLoading: in React Query v5 isLoading = isPending &&
   // isFetching, so while the query is disabled (orgSlug not resolved yet)
@@ -274,11 +286,29 @@ const TeamPage = (): React.JSX.Element => {
                   decision recorded on that route in team.controller.ts.
                   Revoke (below) is manager+ for the same reason (delegate
                   review, PR #1688). */}
-              <Button onClick={() => setInviteOpen(true)}>
+              <Button
+                onClick={() =>
+                  gated && isOwner ? setPitchOpen(true) : setInviteOpen(true)
+                }
+              >
                 <PlusIcon />
                 Invite
               </Button>
             </div>
+            {gated && isOwner && plan === 'pro' && (
+              <div className="rounded-lg bg-muted p-4">
+                <p className="m-0 text-sm font-medium text-foreground">
+                  Logins for your team come with Team
+                </p>
+                <p className="m-0 text-sm text-muted-foreground">
+                  Invite opens the upgrade to Team. You pay the{' '}
+                  {formatPlanCents(
+                    PLAN_PRICING.teamCents - PLAN_PRICING.proCents,
+                  )}{' '}
+                  difference, and your outreach credit comes with you.
+                </p>
+              </div>
+            )}
 
             {isError ? (
               <p className="m-0 text-sm text-destructive">
@@ -500,6 +530,14 @@ const TeamPage = (): React.JSX.Element => {
         open={inviteOpen}
         onOpenChange={setInviteOpen}
         onInvited={invalidateTeam}
+        onTeamPlanRequired={openTeamPitch}
+      />
+      <ProPitchDialog
+        open={pitchOpen}
+        onOpenChange={setPitchOpen}
+        source="account_settings"
+        channel="generic"
+        invite
       />
     </DashboardLayout>
   )

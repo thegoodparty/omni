@@ -1,4 +1,5 @@
-import type { PlanPitch } from '../plan/planPitch'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { formatPlanCents, type PlanPitch } from '../plan/planPitch'
 
 export const MEMBERSHIP_COPY = {
   banner: {
@@ -78,3 +79,22 @@ export const membershipPlanCopy = (
   pitchPill: `${pitch.price} for your campaign, with ${pitch.credit} in outreach credit`,
   pitchJoin: `Join ${pitch.name}`,
 })
+
+// Invite on a gated campaign opens the Team pitch (design: Invite). From Pro
+// only the difference is charged, so the pill and the button carry that price.
+export const membershipInviteCopy = (
+  fromPro: boolean,
+): { pitchTitle: string; pitchPill: string; pitchJoin: string } => {
+  const price = formatPlanCents(
+    fromPro
+      ? PLAN_PRICING.teamCents - PLAN_PRICING.proCents
+      : PLAN_PRICING.teamCents,
+  )
+  return {
+    pitchTitle: 'Join Team to invite your campaign team',
+    pitchPill: fromPro
+      ? `${price}, the difference from your Pro plan`
+      : `${price}, one payment for your whole campaign`,
+    pitchJoin: `Join Team for ${price}`,
+  }
+}

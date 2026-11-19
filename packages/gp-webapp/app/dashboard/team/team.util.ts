@@ -77,3 +77,8 @@ export const toInviteErrorMessage = (error: unknown): string => {
   }
   return message || INVITE_ERROR_FALLBACK
 }
+
+export const isTeamPlanRequired = (error: unknown): boolean =>
+  error instanceof FetchError &&
+  error.status === 403 &&
+  (error.data as { code?: unknown } | undefined)?.code === 'TEAM_PLAN_REQUIRED'

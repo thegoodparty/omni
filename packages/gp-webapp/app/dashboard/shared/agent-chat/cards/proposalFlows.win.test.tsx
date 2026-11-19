@@ -7,6 +7,7 @@ import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
+import { OutreachProposalCard } from './OutreachProposalCard'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -73,6 +74,14 @@ vi.mock('app/dashboard/shared/membership/ProPitchDialog', () => ({
         {source}:{channel}
       </div>
     ) : null,
+}))
+
+const planFlag = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: planFlag.enabled,
+  }),
 }))
 
 const campaign = vi.hoisted(() => ({ current: { id: 9, isPro: false } }))
@@ -166,6 +175,7 @@ const openCard = async (proposal: Proposal = card) => {
 
 describe('a Campaign Manager text card', () => {
   beforeEach(() => {
+    planFlag.enabled = false
     smsFlow.props = null
     mockSavedLists()
     campaign.current = { id: 9, isPro: false }
@@ -186,6 +196,46 @@ describe('a Campaign Manager text card', () => {
       { type: 'text' },
     )
     expect(screen.queryByTestId('sms-flow')).toBeNull()
+  })
+
+  it('offers a free campaign to join Pro to send, still opening the pitch', async () => {
+    planFlag.enabled = true
+    api.mock('GET /v1/outreach/by-proposal-key/:proposalKey', {
+      status: 404,
+      data: {},
+    })
+    render(
+      <ProposalFlowsProvider mode="win">
+        <OutreachProposalCard proposal={card} />
+      </ProposalFlowsProvider>,
+    )
+
+    const button = await screen.findByRole('button', {
+      name: 'Join Pro to send',
+    })
+    await waitFor(() => expect(button).toBeEnabled())
+    await userEvent.click(button)
+
+    expect(await screen.findByTestId('pro-pitch')).toBeInTheDocument()
+  })
+
+  it("keeps today's button for a Pro campaign with the flag on", async () => {
+    planFlag.enabled = true
+    campaign.current = { id: 9, isPro: true }
+    api.mock('GET /v1/outreach/by-proposal-key/:proposalKey', {
+      status: 404,
+      data: {},
+    })
+    render(
+      <ProposalFlowsProvider mode="win">
+        <OutreachProposalCard proposal={card} />
+      </ProposalFlowsProvider>,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Start the text' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Join/ })).toBeNull()
   })
 
   it('holds a Pro campaign whose texting registration is not approved', async () => {

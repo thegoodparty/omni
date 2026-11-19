@@ -26,7 +26,11 @@ import {
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { ROLE_DESCRIPTIONS, toInviteErrorMessage } from '../team.util'
+import {
+  ROLE_DESCRIPTIONS,
+  isTeamPlanRequired,
+  toInviteErrorMessage,
+} from '../team.util'
 
 type InviteRole = 'campaignAdmin' | 'volunteer'
 
@@ -58,6 +62,8 @@ interface InviteMemberDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onInvited: (response: InviteMemberResponse) => void
+  // The API turned the invite away because the campaign is not on Team.
+  onTeamPlanRequired: () => void
 }
 
 // The team page's Invite (design correction, ENG-11058): a two-step bottom
@@ -70,6 +76,7 @@ const InviteMemberDrawer = ({
   open,
   onOpenChange,
   onInvited,
+  onTeamPlanRequired,
 }: InviteMemberDrawerProps): React.JSX.Element => {
   const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState('')
@@ -104,6 +111,11 @@ const InviteMemberDrawer = ({
       onInvited(response)
     },
     onError: (error: unknown) => {
+      if (isTeamPlanRequired(error)) {
+        onOpenChange(false)
+        onTeamPlanRequired()
+        return
+      }
       setErrorMessage(toInviteErrorMessage(error))
       // A 400 is InviteTeamMemberDto's own validation failing (e.g. an
       // invalid phone via PhoneSchema) — that field lives on step 1, so
