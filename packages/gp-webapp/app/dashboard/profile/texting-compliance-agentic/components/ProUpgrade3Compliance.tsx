@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Button, Card } from '@styleguide'
 import { MessageSquareIcon } from '@styleguide/components/ui/icons'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   SMS_CUTOFF_COPY,
@@ -31,6 +32,8 @@ import TextingComplianceInReview from './TextingComplianceInReview'
 // `campaigns.service.ts`). A candidate without the offer used to see the
 // promise on the dashboard and then get charged full price — gate the copy on
 // the same column so the two surfaces can never disagree (ENG-10440).
+// With win_per_campaign_pricing on, the PIN unlocks texting, not the credit,
+// so the card makes no offer at all.
 const FREE_TEXTS_APPROVED_DESCRIPTION =
   'Claim up to 5,000 free texts in your first campaign. Schedule your introduction text message today.'
 
@@ -55,7 +58,9 @@ export default function ProUpgrade3Compliance(): React.JSX.Element | null {
     queryFn: getTcrCompliance,
   })
   const [campaign] = useCampaign()
-  const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
+  const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
+  const hasFreeTextsOffer =
+    !planPricingEnabled && Boolean(campaign?.hasFreeTextsOffer)
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
 
   const pinGate = useCvPinGate(tcrCompliance, { isTcrPending: isPending })

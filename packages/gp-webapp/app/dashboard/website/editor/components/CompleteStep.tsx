@@ -1,6 +1,7 @@
 import { Button } from '@styleguide'
 import Link from 'next/link'
 import HighFiveAnimation from '@shared/animations/HighFiveAnimation'
+import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import ShareModal from '../../components/ShareModal'
 import { useState } from 'react'
 import Body2 from '@shared/typography/Body2'
@@ -26,6 +27,7 @@ const CompleteStep = ({
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const { smsCompliance } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
+  const planPitch = usePlanPitch()
   return (
     <div className="text-center flex flex-col items-center gap-4">
       <div className="relative h-24 w-24 cursor-pointer">
@@ -59,7 +61,11 @@ const CompleteStep = ({
                 {!smsClosed && (
                   <div className="flex items-center gap-2 mb-4">
                     <FaCheck />
-                    <Body1>Get 5,000 texts</Body1>
+                    <Body1>
+                      {planPitch.enabled
+                        ? `Get ${planPitch.credit} in outreach credit`
+                        : 'Get 5,000 texts'}
+                    </Body1>
                   </div>
                 )}
                 <div
