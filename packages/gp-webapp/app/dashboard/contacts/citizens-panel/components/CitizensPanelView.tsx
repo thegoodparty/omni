@@ -25,7 +25,11 @@ import {
 import { CitizensPanelStats } from './CitizensPanelStats'
 import { CivicPanelChatDock, useCivicPanelChat } from './CivicPanelChatDock'
 import { CivicPanelHero } from './CivicPanelHero'
-import { CivicPanelFirstJoin, CivicPanelNext } from './CivicPanelNext'
+import {
+  CivicPanelFirstJoin,
+  CivicPanelMakeup,
+  CivicPanelNext,
+} from './CivicPanelNext'
 import { ManagedPanelControls } from './ManagedPanelControls'
 import { buildBloom, buildSeats } from './panelCharts'
 
@@ -132,6 +136,8 @@ export const CitizensPanelView = ({
                 exhausted={stage === 'exhausted'}
                 place={place}
               />
+            ) : stage === 'ready' && composition ? (
+              <CivicPanelMakeup composition={composition} place={place} />
             ) : null}
           </div>
 
