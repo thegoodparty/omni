@@ -1,5 +1,7 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { firstOrThrow } from '@/shared/test-utils/arrays.util'
+import { CampaignPlanPurchaseService } from '@/campaigns/plans/campaignPlanPurchase.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { BadRequestException, ConflictException } from '@nestjs/common'
 import { Campaign, User, UserRole } from '../generated/prisma'
@@ -92,6 +94,10 @@ describe('PurchaseController', () => {
       usersService as unknown as UsersService,
       purchaseService as unknown as PurchaseService,
       campaignsService as unknown as CampaignsService,
+      {} as unknown as CampaignPlanPurchaseService,
+      {
+        isFeatureEnabled: vi.fn().mockResolvedValue(false),
+      } as unknown as FeaturesService,
       createMockLogger(),
     )
   })

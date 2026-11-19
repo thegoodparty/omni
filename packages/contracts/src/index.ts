@@ -611,6 +611,10 @@ export { campaignWasEverPro } from './campaigns/CampaignEverPro'
 export { PLAN_PRICING, TEAM_GATE_START } from './payments/PlanPricing.const'
 export { planEndsAt } from './payments/PlanEndsAt'
 export {
+  PlanReceiptSchema,
+  type PlanReceipt,
+} from './payments/PlanReceipt.schema'
+export {
   CampaignPlanSchema,
   PlanPricingModelSchema,
   PlanPurchaseMetadataSchema,

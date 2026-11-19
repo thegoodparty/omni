@@ -15,6 +15,7 @@ import {
   PaymentType,
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
+import { PurchaseType } from 'src/payments/purchase.types'
 import { serializeError } from 'serialize-error'
 import { addHours, fromUnixTime, getUnixTime, subDays } from 'date-fns'
 import Stripe from 'stripe'
@@ -1015,21 +1016,35 @@ export class StripeService {
         {},
       )
 
+    const isPlan = payload.purchaseType === PurchaseType.PLAN
+
     const session = await this.stripe.checkout.sessions.create({
       ui_mode: 'custom',
       mode: 'payment',
       // Explicit list: Stripe's automatic set adds BNPL options (Klarna,
       // Affirm) that are off-brand for campaign charges (product call,
-      // Aug 19). Bank debit is excluded on purpose: it completes checkout
+      // Aug 19). Afterpay is on for plans only: the PRD wants buy now, pay
+      // later on the plan price (confirmed Nov 18). Bank debit is excluded
+      // on purpose: it completes checkout
       // 'unpaid' and settles days later, which does not fit a text with a
       // send date two days out and left a candidate's paid sends stranded
       // (2026-09-21). Only methods that confirm at checkout stay.
-      payment_method_types: ['card', 'amazon_pay'],
+      payment_method_types: isPlan
+        ? ['card', 'amazon_pay', 'afterpay_clearpay']
+        : ['card', 'amazon_pay'],
       ...(customerId
         ? { customer: customerId }
         : email
           ? { customer_email: email }
           : {}),
+      // A plan buyer gets a Stripe Customer and an invoice so Billing history
+      // can open Stripe's hosted portal.
+      ...(isPlan
+        ? {
+            ...(customerId ? {} : { customer_creation: 'always' as const }),
+            invoice_creation: { enabled: true },
+          }
+        : {}),
       // receipt_email is unchanged; capture_method 'manual' is added only when
       // the caller asked for a hold (Win SMS hold billing), so every other
       // checkout keeps its immediate (automatic) capture byte-for-byte.

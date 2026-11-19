@@ -81,6 +81,7 @@ type PaidSession = {
   plan: CampaignPlanLevel
   subtotalCents: number
   paymentIntentId?: string
+  customerId?: string
 }
 
 // Stripe is mocked at the StripeService boundary only: the session the
@@ -117,6 +118,7 @@ const stubPaidSessions = (sessions: PaidSession[]) => {
         id: s.sessionId,
         amount_subtotal: s.subtotalCents,
         amount_total: s.subtotalCents,
+        customer: s.customerId ?? null,
         payment_intent: s.paymentIntentId
           ? {
               id: s.paymentIntentId,
@@ -305,6 +307,39 @@ describe('PLAN checkout creation', () => {
 })
 
 describe('PLAN checkout completion', () => {
+  it('stores the Stripe customer a first-time buyer got, so the billing portal opens', async () => {
+    const campaign = await seedCampaign()
+    stubPaidSessions([
+      {
+        sessionId: 'cs_customer',
+        campaignId: campaign.id,
+        plan: CampaignPlanLevel.pro,
+        subtotalCents: PLAN_PRICING.proCents,
+        paymentIntentId: 'pi_customer',
+        customerId: 'cus_new_buyer',
+      },
+    ])
+    const portal = vi.spyOn(stripe(), 'createPortalSession').mockResolvedValue({
+      url: 'https://stripe.test/portal',
+    } as unknown as Awaited<ReturnType<StripeService['createPortalSession']>>)
+
+    const res = await complete('cs_customer')
+    expect(res.status).toBe(201)
+
+    const user = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(user.metaData?.customerId).toBe('cus_new_buyer')
+
+    const portalRes = await service.client.post(
+      '/v1/payments/purchase/portal-session',
+      {},
+    )
+    expect(portalRes.status).toBe(201)
+    expect(portalRes.data.redirectUrl).toBe('https://stripe.test/portal')
+    expect(portal).toHaveBeenCalledWith('cus_new_buyer')
+  })
+
   it('fulfils Pro from Free: plan, isPro, credit and one paid row', async () => {
     const campaign = await seedCampaign()
     stubPaidSessions([

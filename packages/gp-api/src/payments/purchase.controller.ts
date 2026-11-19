@@ -8,10 +8,19 @@ import {
   ConflictException,
   Controller,
   Get,
+  GoneException,
   NotFoundException,
   Post,
 } from '@nestjs/common'
-import { ProReceipt, ProReceiptSchema } from '@goodparty_org/contracts'
+import {
+  PlanReceipt,
+  PlanReceiptSchema,
+  ProReceipt,
+  ProReceiptSchema,
+} from '@goodparty_org/contracts'
+import { CampaignPlanPurchaseService } from '@/campaigns/plans/campaignPlanPurchase.service'
+import { FeaturesService } from '@/features/services/features.service'
+import { WIN_PER_CAMPAIGN_PRICING_FLAG } from '@/shared/util/winPerCampaignPricingFlag.util'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { Campaign, Organization, Prisma, User } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
@@ -36,6 +45,8 @@ export class PurchaseController {
     private readonly usersService: UsersService,
     private readonly purchaseService: PurchaseService,
     private readonly campaignsService: CampaignsService,
+    private readonly planPurchase: CampaignPlanPurchaseService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(PurchaseController.name)
@@ -46,6 +57,19 @@ export class PurchaseController {
     @ReqUser() user: User,
     @Body() dto: CreateProCheckoutSessionDto = {},
   ) {
+    // Plans are sold through create-checkout-session; a subscription session
+    // opened now would charge a buyer the plan flow no longer fulfils.
+    const plansEnabled = await this.features.isFeatureEnabled({
+      user: user.id,
+      feature: WIN_PER_CAMPAIGN_PRICING_FLAG,
+    })
+    if (plansEnabled) {
+      throw new GoneException({
+        message: 'Subscription checkout is closed; buy a plan instead',
+        errorCode: 'SUBSCRIPTION_CHECKOUT_CLOSED',
+      })
+    }
+
     // The fulfillment webhooks resolve the campaign via findActiveByUserId
     // and skip with a 2xx when nothing qualifies, so a session sold to a user
     // with no active campaign charges them with no Pro and no cancel path
@@ -191,6 +215,15 @@ export class PurchaseController {
       receiptUrl: invoice.invoice_pdf ?? charge?.receipt_url ?? null,
       paidAt: new Date(paidAt * 1000).toISOString(),
     }
+  }
+
+  @Get('plan-receipt')
+  @UseCampaign()
+  @ResponseSchema(PlanReceiptSchema)
+  async getPlanReceipt(
+    @ReqCampaign() campaign: Campaign,
+  ): Promise<PlanReceipt> {
+    return this.planPurchase.getLatestReceipt(campaign)
   }
 
   @Post('portal-session')

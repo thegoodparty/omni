@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  NotFoundException,
   forwardRef,
   Inject,
   Injectable,
@@ -10,6 +11,8 @@ import {
 import {
   PLAN_PRICING,
   PlanPurchaseMetadataSchema,
+  PlanReceipt,
+  planEndsAt,
 } from '@goodparty_org/contracts'
 import Stripe from 'stripe'
 import { z } from 'zod'
@@ -170,6 +173,47 @@ export class CampaignPlanPurchaseService
     return plan === CampaignPlanLevel.team ? 'Team plan' : 'Pro plan'
   }
 
+  async getLatestReceipt(campaign: Campaign): Promise<PlanReceipt> {
+    const purchase = await this.model.findFirst({
+      where: {
+        campaignId: campaign.id,
+        status: CampaignPlanPurchaseStatus.paid,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (!purchase) {
+      throw new NotFoundException('No plan purchase on record')
+    }
+
+    let session: Stripe.Checkout.Session
+    try {
+      session = await this.stripe.retrieveCheckoutSessionWithCharge(
+        purchase.stripeCheckoutSessionId,
+      )
+    } catch (error) {
+      this.logger.error(
+        { error, sessionId: purchase.stripeCheckoutSessionId },
+        'Failed to read the plan receipt from Stripe',
+      )
+      throw new BadGatewayException('Could not load the receipt from Stripe')
+    }
+    const charge =
+      typeof session.payment_intent === 'object' &&
+      typeof session.payment_intent?.latest_charge === 'object'
+        ? session.payment_intent.latest_charge
+        : null
+    const card = charge?.payment_method_details?.card
+
+    return {
+      amountCents: purchase.amountCents,
+      paidAt: purchase.createdAt.toISOString(),
+      cardBrand: card?.brand ?? null,
+      cardLast4: card?.last4 ?? null,
+      receiptUrl: charge?.receipt_url ?? null,
+      planEndsAt: planEndsAt(campaign)?.toISOString() ?? null,
+    }
+  }
+
   // Runs from both the client's complete call and the webhook, and
   // validatePurchase does not run at completion, so every check that matters
   // is repeated here under the campaign row lock.
@@ -204,6 +248,10 @@ export class CampaignPlanPurchaseService
         ? paymentIntent.latest_charge
         : null
     const paymentMethodType = charge?.payment_method_details?.type ?? null
+    const sessionCustomerId =
+      typeof session.customer === 'string'
+        ? session.customer
+        : (session.customer?.id ?? null)
 
     // The session was priced for the plan the campaign held when it opened.
     // The line item's undiscounted amount says which price it was, so the
@@ -308,6 +356,12 @@ export class CampaignPlanPurchaseService
       // The duplicate path holds the lock across a Stripe refund.
       { timeout: 20_000 },
     )
+
+    // The plan session creates a Stripe Customer when the buyer had none;
+    // portal-session reads it from the user's metadata.
+    if (sessionCustomerId) {
+      await this.users.setCustomerIdIfAbsent(userId, sessionCustomerId)
+    }
 
     if (outcome.kind === 'refunded') {
       this.logger.warn(
