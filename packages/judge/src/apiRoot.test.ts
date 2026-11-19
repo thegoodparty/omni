@@ -38,8 +38,25 @@ describe('resolveApiRoot', () => {
     await close(arm.server)
   })
 
-  it('appends /api when neither answers, so a dead arm still fails loudly', async () => {
+  it('refuses a URL whose API root does not answer, rather than guessing /api', async () => {
     const arm = await serve(() => 404)
+    await expect(resolveApiRoot(arm.baseUrl)).rejects.toThrow('is not an arm')
+    await close(arm.server)
+  })
+
+  it('forgets a failed probe, so the next call asks again', async () => {
+    // A cold preview answers 503 once and 200 on the /api retry: the failure
+    // must not be remembered as the shape of the URL.
+    let failures = 1
+    const arm = await serve((url) => {
+      if (url !== '/api/v1/version') return 404
+      if (failures > 0) {
+        failures -= 1
+        return 503
+      }
+      return 200
+    })
+    await expect(resolveApiRoot(arm.baseUrl)).rejects.toThrow('is not an arm')
     expect(await resolveApiRoot(arm.baseUrl)).toBe(`${arm.baseUrl}/api`)
     await close(arm.server)
   })

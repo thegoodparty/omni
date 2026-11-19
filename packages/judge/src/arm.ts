@@ -1,5 +1,5 @@
 import { createTestUser, type TestUser } from '@goodparty_org/test-users'
-import { probeApiVersion, resolveApiRoot } from './apiRoot'
+import { resolveApiRoot } from './apiRoot'
 import type {
   EvalApi,
   EvalContext,
@@ -129,16 +129,21 @@ export type ArmReachability = {
 }
 
 // Fail before spending anything if an arm cannot be reached, or cannot answer
-// the run route the whole comparison depends on. The check is the arm's `/v1`
-// version route: it 200s on a live gp-api and fails when an origin resolves but
-// serves nothing — a preview that has not rolled out yet, or a URL that is not
-// an arm at all.
+// the run route the whole comparison depends on. The check is `/v1/version` on
+// whichever root the URL resolves to: it 200s on a live gp-api and fails when an
+// origin resolves but serves nothing — a preview that has not rolled out yet, or
+// a URL that is not an arm at all. `resolveApiRoot` probes both shapes and
+// throws rather than guessing, so its refusal IS the unreachability report, and
+// it names what it read the way judge.yml's gate does.
 export const probeArm = async (baseUrl: string): Promise<ArmReachability> => {
-  const apiRoot = await resolveApiRoot(baseUrl)
-  const { ok, status } = await probeApiVersion(apiRoot)
-  return {
-    baseUrl,
-    ok,
-    detail: `GET ${apiRoot}/v1/version returned ${status}`,
+  try {
+    await resolveApiRoot(baseUrl)
+    return { baseUrl, ok: true, detail: '`/v1/version` answered 200' }
+  } catch (error) {
+    return {
+      baseUrl,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    }
   }
 }

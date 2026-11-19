@@ -111,19 +111,19 @@ npx tsx packages/judge/src/run.ts \
   --out ./judge-results
 ```
 
-| File              | What                                                                         |
-| ----------------- | ---------------------------------------------------------------------------- |
-| `src/suite.ts`    | `definePairwiseAgentEvalSuite`, `EvalContext`, `Case`, `grading`             |
-| `src/arm.ts`      | One arm of one attempt: a fresh test user, its org, `ctx`, `probeArm`        |
-| `src/apiRoot.ts`  | Whether an arm is a webapp (gp-api at `/api`) or a gp-api origin (`/v1`)     |
-| `src/runAgent.ts` | The two agent routes, and the poll                                           |
-| `src/execute.ts`  | One shared pool: six runs per case, a pair graded as soon as both sides land |
-| `src/grade.ts`    | The grading call, through the AI SDK's `generateObject`                      |
-| `src/stats.ts`    | The exact sign test and the handledWhen test                                 |
-| `src/report.ts`   | `results.json` and `results.md`                                              |
-| `src/cli.ts`      | Flags                                                                        |
-| `src/discover.ts` | The `packages/gp-api/src/**/*.eval.ts` glob                                  |
-| `src/run.ts`      | The command                                                                  |
+| File              | What                                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `src/suite.ts`    | `definePairwiseAgentEvalSuite`, `EvalContext`, `Case`, `grading`                                                  |
+| `src/arm.ts`      | One arm of one attempt: a fresh test user, its org, `ctx`, `probeArm`                                             |
+| `src/apiRoot.ts`  | Whether an arm is a webapp (gp-api at `/api`) or a gp-api origin (`/v1`); a URL neither answers for is not an arm |
+| `src/runAgent.ts` | The two agent routes, and the poll                                                                                |
+| `src/execute.ts`  | One shared pool: six runs per case, a pair graded as soon as both sides land                                      |
+| `src/grade.ts`    | The grading call, through the AI SDK's `generateObject`                                                           |
+| `src/stats.ts`    | The exact sign test and the handledWhen test                                                                      |
+| `src/report.ts`   | `results.json` and `results.md`                                                                                   |
+| `src/cli.ts`      | Flags                                                                                                             |
+| `src/discover.ts` | The `packages/gp-api/src/**/*.eval.ts` glob                                                                       |
+| `src/run.ts`      | The command                                                                                                       |
 
 ## The grader
 

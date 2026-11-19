@@ -151,10 +151,38 @@ jobs:
       # THE PR HEAD, not the merge commit: the suites are TypeScript in this
       # checkout and the runner's glob reads `packages/gp-api/src/**/*.eval.ts`
       # from it. Nothing in the checkout is deployed; the arms are two URLs.
+      #
+      # AFFIRMATIVE, like judge.yml's own fork check and for the same reason:
+      # omni is public, so a fork's PR carries no secrets, and the steps below it
+      # run `npm ci` and `npx tsx` from this checkout with ours, plus every
+      # `*.eval.ts` the PR added. Written as "stop unless it is exactly false",
+      # so a null, a renamed field or a `gh` that changed its JSON reads as stop.
+      # The commit it returns is what gets checked out, so the commit the wait
+      # step confirms is the commit that actually runs.
+      - name: Refuse a fork, and pin the commit
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          pr="$(gh pr view "$PR_NUMBER" --json isCrossRepository,headRefOid)"
+          fork="$(jq -r '.isCrossRepository' <<<"$pr")"
+          sha="$(jq -r '.headRefOid' <<<"$pr")"
+          if [ "$fork" != "false" ]; then
+            echo "::error::isCrossRepository is '$fork', and only an explicit 'false' means this PR is on the repository itself. omni is public, so a fork carries no secrets and this workflow will not check out or run fork code with ours. Push the branch to this repository to judge it."
+            exit 1
+          fi
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::headRefOid '$sha' is not a 40-character commit SHA."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
       - name: Check out the PR
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: refs/pull/${{ needs.gate.outputs.pr_number }}/head
+          ref: ${{ steps.pin.outputs.sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -168,19 +196,20 @@ jobs:
       # judge.yml use, against the same 10-minute budget, because a first
       # preview deploy runs every migration before the app starts.
       #
-      # EITHER SHA COUNTS, and that is not laxity. The PR names the head commit,
-      # but gp-api tags a preview image with `github.sha`, which on a
-      # `pull_request` event is the MERGE commit, so the two are never equal and
-      # comparing only against the head would time out on every run. The merge
-      # commit is re-read each poll because it moves when the base does.
+      # EITHER SHA COUNTS, and that is not laxity. The PR's head is the commit
+      # checked out above, but gp-api tags a preview image with `github.sha`,
+      # which on a `pull_request` event is the MERGE commit, so the two are never
+      # equal and comparing only against the head would time out on every run.
+      # The merge commit is re-read each poll because it moves when the base
+      # does.
       - name: Wait for the candidate's preview to serve the PR head
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.pin.outputs.sha }}
           CANDIDATE: https://pr-${{ needs.gate.outputs.pr_number }}.preview.goodparty.org
         run: |
           set -euo pipefail
-          HEAD_SHA="$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" --jq .head.sha)"
           echo "Confirming $CANDIDATE is serving $HEAD_SHA or its merge commit"
           deadline=$((SECONDS + 600))
           got=""

@@ -174,7 +174,7 @@ if (require.main === module) {
       process.exitCode = code
     },
     (error) => {
-      console.error(error)
+      console.error(error instanceof Error ? error.message : String(error))
       process.exitCode = 1
     },
   )

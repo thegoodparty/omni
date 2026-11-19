@@ -25,6 +25,9 @@ const startArm = async (artifactText: string): Promise<Arm> => {
           .writeHead(200, { 'content-type': 'application/json' })
           .end(JSON.stringify(body))
       if (request.url === '/') return json({ ok: true })
+      // A webapp root: gp-api is proxied at /api, and resolveApiRoot tells the
+      // two shapes apart by this answer.
+      if (request.url === '/api/v1/version') return json({ commit: 'test' })
       if (
         request.method === 'POST' &&
         request.url === '/api/v1/agents/a/runs'

@@ -237,6 +237,11 @@ meaning. One PR per wave, matching the migration waves in
 - Wave 3: `find_existing_ordinances`, `meeting_briefing`.
 - Not converted: `district_issue_pulse` and `district_issue_snapshot` (to be
   deleted), and `compliance_setup` (blocked: it makes real purchases).
+- Not converted for now: four of `meeting_briefing`'s cases (`a2-thin`,
+  `a5-injection`, `a7-stale` and its control), because each one stages an
+  agenda packet as a file and this framework supplies no input files. Without
+  the packet the stressor is not in front of the run, so every pair ties. They
+  come back when the framework can pass input files.
 
 `top_community_issues` builds a suite in Wave 2 but cannot be judged until
 its data-platform prerequisite lands: its lean annotation reads the `hs_*`
