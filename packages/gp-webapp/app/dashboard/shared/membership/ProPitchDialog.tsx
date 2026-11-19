@@ -31,6 +31,7 @@ import {
   type ProUpgradeSource,
 } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { usePlanPitch } from '../plan/usePlanPitch'
+import { usePlan } from './deriveMembershipState'
 import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 
 const TILE_ICONS = [UsersIcon, MessageSquareIcon, DoorOpenIcon, ShieldCheckIcon]
@@ -65,6 +66,7 @@ export const ProPitchDialog = ({
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
   const planPitch = usePlanPitch()
+  const { plan } = usePlan()
   const copy = planPitch.enabled
     ? membershipPlanCopy(planPitch)
     : {
@@ -84,12 +86,18 @@ export const ProPitchDialog = ({
 
   useEffect(() => {
     if (open) {
-      trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, { channel })
+      trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, {
+        channel,
+        plan,
+      })
     }
-  }, [open, channel])
+  }, [open, channel, plan])
 
   const handleJoin = () => {
-    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, { channel })
+    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, {
+      channel,
+      plan,
+    })
     onOpenChange(false)
     router.push(
       proUpgradeHref({

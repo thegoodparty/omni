@@ -136,6 +136,7 @@ describe('PaymentStep', () => {
 
     expect(trackEventMock).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.PaymentViewed,
+      { plan: 'free' },
     )
   })
 
