@@ -146,10 +146,10 @@ meaning. One PR per wave, matching the migration waves in
   the packet the stressor is not in front of the run, so every pair ties. They
   come back when the framework can pass input files.
 
-`top_community_issues` builds a suite in Wave 2 but cannot be judged until
-its data-platform prerequisite lands: its lean annotation reads the `hs_*`
-scores in the people marts, so its switch stays off everywhere until those
-exist (`cap-consolidation.md`).
+`top_community_issues` has its suite, and its lean annotation reads the `hs_*`
+scores in the people marts. Dev runs it on gp-api's own agents; prod stays on
+the PMF Engine until `/judge-eval top_community_issues` reads the move as same
+or better (`cap-consolidation.md`).
 
 Background suites are judged only by the new framework once their wave lands.
 The old runner stays for chat until the follow-ups below.
