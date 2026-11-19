@@ -4,18 +4,13 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
-// Purchase-only (outreach-pro-gating-v2) "not filed" dead end: status → No →
+// Pro upgrade "not filed" dead end: status → No →
 // filing instructions → Finish later. No Stripe or webhook, so it runs on
 // every PR preview. Isolated: the No answer persists
 // details.hasFiledForRace on the campaign.
 
 const PRO_UPGRADE_PATH = '/dashboard/pro-upgrade'
-
-test.beforeEach(async ({ page }) => {
-  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'on' })
-})
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)

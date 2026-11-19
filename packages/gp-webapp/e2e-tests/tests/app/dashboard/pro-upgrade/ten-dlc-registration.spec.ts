@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { addDays, addYears, format } from 'date-fns'
 import { expect, test, type Page } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
   NavigationHelper,
@@ -334,9 +333,6 @@ const enterPin = async (page: Page, pin: string): Promise<void> => {
 
 test.describe('10DLC registration — M4 vendor mocks', () => {
   test.beforeEach(async ({ page }) => {
-    // The purchase-only wizard (filing details before payment) is the one this
-    // spec walks; pin it so the live flag rollout can't change the steps.
-    await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'on' })
     await blockSlowScripts(page)
   })
 

@@ -49,7 +49,6 @@ describe('FilingInstructionsStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'filing-instructions',
-      purchaseOnly: false,
       channel: null,
       goToStep: vi.fn(),
       goToNextStep: vi.fn(),
@@ -140,38 +139,12 @@ describe('FilingInstructionsStep', () => {
     expect(router.push).not.toHaveBeenCalled()
   })
 
-  it('is a dead-end: offers a dashboard exit and no payment CTA', async () => {
-    render(<FilingInstructionsStep />)
-    await screen.findByText('June 1, 2026 – June 30, 2026')
-
-    expect(
-      screen.getByRole('button', { name: 'Continue to dashboard' }),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/payment/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/continue to payment/i)).not.toBeInTheDocument()
-  })
-
-  it('exits the wizard when the exit is clicked', async () => {
-    render(<FilingInstructionsStep />)
-    await screen.findByText('June 1, 2026 – June 30, 2026')
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Continue to dashboard' }),
-    )
-
-    expect(exit).toHaveBeenCalledTimes(1)
-    expect(router.push).not.toHaveBeenCalled()
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Compliance.FilingInstructionsExit,
-    )
-  })
-
   it('stacks the footer buttons full-width on mobile and rows them at sm+', async () => {
     render(<FilingInstructionsStep />)
     await screen.findByText('June 1, 2026 – June 30, 2026')
 
     const back = screen.getByRole('button', { name: 'Back' })
-    const exit = screen.getByRole('button', { name: 'Continue to dashboard' })
+    const exit = screen.getByRole('button', { name: 'Finish later' })
 
     // The shared footer stacks vertically on mobile, becomes a row at sm+ —
     // this is what keeps the two large buttons inside the mobile viewport.
@@ -216,35 +189,20 @@ describe('FilingInstructionsStep', () => {
     expect(successSnackbar).not.toHaveBeenCalled()
   })
 
-  describe('purchase-only', () => {
-    beforeEach(() => {
-      mockUseProUpgradeWizard.mockReturnValue({
-        currentStep: 'filing-instructions',
-        purchaseOnly: true,
-        channel: null,
-        goToStep: vi.fn(),
-        goToNextStep: vi.fn(),
-        goToPreviousStep,
-        exit,
-        complete: vi.fn(),
-      })
-    })
+  it('exits the flow from the "Finish later" CTA', async () => {
+    render(<FilingInstructionsStep />)
+    await screen.findByText('June 1, 2026 – June 30, 2026')
 
-    it('exits the flow from the "Finish later" CTA', async () => {
-      render(<FilingInstructionsStep />)
-      await screen.findByText('June 1, 2026 – June 30, 2026')
+    expect(
+      screen.queryByRole('button', { name: 'Continue to dashboard' }),
+    ).not.toBeInTheDocument()
 
-      expect(
-        screen.queryByRole('button', { name: 'Continue to dashboard' }),
-      ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Finish later' }))
 
-      fireEvent.click(screen.getByRole('button', { name: 'Finish later' }))
-
-      expect(exit).toHaveBeenCalledTimes(1)
-      expect(router.push).not.toHaveBeenCalled()
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.ProUpgrade.Compliance.FilingInstructionsExit,
-      )
-    })
+    expect(exit).toHaveBeenCalledTimes(1)
+    expect(router.push).not.toHaveBeenCalled()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.FilingInstructionsExit,
+    )
   })
 })

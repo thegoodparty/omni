@@ -1,18 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
-import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { useMembershipState } from 'app/dashboard/shared/membership/useMembershipState'
 import { useOutreachGate } from './useOutreachGate'
 
-vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
-  useOutreachProGatingV2Flag: vi.fn(),
-}))
 vi.mock('app/dashboard/shared/membership/useMembershipState', () => ({
   useMembershipState: vi.fn(),
 }))
 
-const mockUseFlag = vi.mocked(useOutreachProGatingV2Flag)
 const mockUseMembershipState = vi.mocked(useMembershipState)
 
 const baseMembership: MembershipState = {
@@ -32,20 +27,10 @@ const setMembership = (state: MembershipState | null, ready = true): void => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockUseFlag.mockReturnValue({ ready: true, enabled: true })
   setMembership(baseMembership)
 })
 
 describe('useOutreachGate', () => {
-  it('is disabled when the flag is off', () => {
-    mockUseFlag.mockReturnValue({ ready: true, enabled: false })
-
-    const { result } = renderHook(() => useOutreachGate('sms'))
-
-    expect(result.current.enabled).toBe(false)
-    expect(result.current.requirement).toBeNull()
-  })
-
   it('is disabled while membership is not ready', () => {
     setMembership(null, false)
 
@@ -176,13 +161,5 @@ describe('useOutreachGate', () => {
 
     expect(result.current.membership).toEqual(baseMembership)
     expect(result.current.tcrCompliance).toEqual(tcrCompliance)
-  })
-
-  it('threads flagEnabled into useMembershipState as its own enabled option', () => {
-    mockUseFlag.mockReturnValue({ ready: true, enabled: false })
-
-    renderHook(() => useOutreachGate('sms'))
-
-    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: false })
   })
 })

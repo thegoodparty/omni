@@ -14,18 +14,11 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 // keeps this suite about the flow's own state machine.
 vi.mock('./proUpgradeStepComponents', () => {
   const Probe = ({ label }: { label: string }) => {
-    const {
-      goToNextStep,
-      goToPreviousStep,
-      exit,
-      complete,
-      purchaseOnly,
-      channel,
-    } = useProUpgradeWizard()
+    const { goToNextStep, goToPreviousStep, exit, complete, channel } =
+      useProUpgradeWizard()
     return (
       <div>
         <span>{label}</span>
-        <span>purchaseOnly:{String(purchaseOnly)}</span>
         <span>channel:{channel ?? 'none'}</span>
         <button onClick={goToNextStep}>next</button>
         <button onClick={goToPreviousStep}>back</button>
@@ -36,13 +29,11 @@ vi.mock('./proUpgradeStepComponents', () => {
   }
   return {
     PRO_UPGRADE_STEP_COMPONENTS: {
-      'value-prop': () => <Probe label="step:value-prop" />,
       status: () => <Probe label="step:status" />,
       'filing-instructions': () => <Probe label="step:filing-instructions" />,
       guidance: () => <Probe label="step:guidance" />,
       ein: () => <Probe label="step:ein" />,
       'filing-details': () => <Probe label="step:filing-details" />,
-      'candidate-profile': () => <Probe label="step:candidate-profile" />,
       payment: () => <Probe label="step:payment" />,
       success: () => <Probe label="step:success" />,
       interstitial: () => <Probe label="step:interstitial" />,
@@ -53,7 +44,7 @@ vi.mock('./proUpgradeStepComponents', () => {
 import ProUpgradeFlow from './ProUpgradeFlow'
 
 describe('ProUpgradeFlow', () => {
-  it('renders the initial step in purchase-only mode with the launch channel', () => {
+  it('renders the initial step with the launch channel', () => {
     render(
       <ProUpgradeFlow
         initialStep={PRO_UPGRADE_STEP.GUIDANCE}
@@ -64,11 +55,10 @@ describe('ProUpgradeFlow', () => {
     )
 
     expect(screen.getByText('step:guidance')).toBeInTheDocument()
-    expect(screen.getByText('purchaseOnly:true')).toBeInTheDocument()
     expect(screen.getByText('channel:sms')).toBeInTheDocument()
   })
 
-  it('walks the purchase-only order forward and back in state', () => {
+  it('walks the step order forward and back in state', () => {
     render(
       <ProUpgradeFlow
         initialStep={PRO_UPGRADE_STEP.GUIDANCE}
@@ -144,7 +134,7 @@ describe('ProUpgradeFlow', () => {
     expect(screen.getByText('step:guidance')).toBeInTheDocument()
   })
 
-  it('exits from the interstitial on back, since it is off the purchase-only order', () => {
+  it('exits from the interstitial on back, since it is off the step order', () => {
     const onExit = vi.fn()
     render(
       <ProUpgradeFlow

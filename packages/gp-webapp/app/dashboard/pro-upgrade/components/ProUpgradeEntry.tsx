@@ -12,45 +12,23 @@ import {
   fetchCampaign,
 } from '@shared/hooks/CampaignProvider'
 import { Spinner } from '@styleguide'
-import {
-  USER_WEBSITE_QUERY_KEY,
-  getUserWebsite,
-} from 'app/dashboard/website/util/website.util'
-import {
-  TCR_COMPLIANCE_QUERY_KEY,
-  getTcrCompliance,
-  getTcrComplianceStatusCompletions,
-} from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
-import { isCandidateProfileComplete } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
-import { checkEinSanity } from '@shared/inputs/EinSanityCheck'
 import { PRO_COMPLIANCE_SUPPORT_EMAIL as SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
 import { clientRequest } from 'gpApi/typed-request'
 import type { Eligibility } from 'gpApi/api-endpoints'
-import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { parseProUpgradeAttribution } from '../proUpgradeAttribution'
-import {
-  deriveProUpgradeStep,
-  filingStatusFromDetails,
-  proUpgradeStepPath,
-} from '../proUpgradeStep'
+import { deriveProUpgradeStep, proUpgradeStepPath } from '../proUpgradeStep'
 
 // Wizard index: derives the resume step from canonical state and redirects to
 // it. There is no server-side wizard session (tech doc v2), so every entry
-// re-derives, landing a returning candidate on the first incomplete step.
+// re-derives.
 const ProUpgradeEntry = (): React.JSX.Element | null => {
   const router = useRouter()
   const searchParams = useSearchParams()
   // The redirect effect re-runs whenever a query refetches, and the funnel
   // needs one start per entry.
   const flowStartedRef = useRef(false)
-
-  // Not the treatment surface (the sidebar banner is), so this read doesn't
-  // track exposure. purchaseOnly picks the derivation branch and, with it,
-  // whether the website/TCR reads are needed at all.
-  const { ready: flagReady, enabled: purchaseOnly } =
-    useOutreachProGatingV2Flag(false)
 
   // Observe the shared campaign query (same key as CampaignProvider, deduped)
   // so step derivation waits for it. Reading campaign from context instead
@@ -65,26 +43,6 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
   } = useQuery({
     queryKey: CAMPAIGN_QUERY_KEY,
     queryFn: fetchCampaign,
-  })
-  const {
-    data: website,
-    isPending: websitePending,
-    isError: websiteError,
-    refetch: refetchWebsite,
-  } = useQuery({
-    queryKey: USER_WEBSITE_QUERY_KEY,
-    queryFn: getUserWebsite,
-    enabled: !purchaseOnly,
-  })
-  const {
-    data: tcrCompliance,
-    isPending: tcrPending,
-    isError: tcrError,
-    refetch: refetchTcr,
-  } = useQuery({
-    queryKey: TCR_COMPLIANCE_QUERY_KEY,
-    queryFn: getTcrCompliance,
-    enabled: !purchaseOnly,
   })
   // Server-derived eligibility (the same isActiveCampaign predicate the
   // checkout-session guard runs), so an inactive campaign is caught here with
@@ -101,17 +59,8 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
       clientRequest('GET /v1/eligibility', {}).then((res) => res.data),
   })
 
-  // A disabled TanStack query (website/TCR, in purchase-only mode) reports
-  // isPending: true forever, so purchase-only must not wait on those flags.
-  const ready =
-    flagReady &&
-    !campaignPending &&
-    !eligibilityPending &&
-    (purchaseOnly || (!websitePending && !tcrPending))
-  const hasError =
-    campaignError ||
-    eligibilityError ||
-    (!purchaseOnly && (websiteError || tcrError))
+  const ready = !campaignPending && !eligibilityPending
+  const hasError = campaignError || eligibilityError
   // Already-Pro users have nothing left to buy — let derivation route them to
   // the post-payment SUCCESS surface instead of a purchase-blocked screen.
   const purchaseBlocked =
@@ -119,34 +68,10 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
 
   useEffect(() => {
     // Don't derive a step from partial state: a failed fetch leaves data
-    // undefined, which would mis-derive a returning candidate back to the
-    // value-prop intro as if they had zero progress.
+    // undefined, which would mis-derive a returning Pro candidate as new.
     if (!ready || hasError || purchaseBlocked) return
 
-    const { filingComplete, pinComplete } =
-      getTcrComplianceStatusCompletions(tcrCompliance)
-
-    const step = deriveProUpgradeStep(
-      {
-        isPro: Boolean(campaign?.isPro),
-        filingStatus: filingStatusFromDetails(
-          campaign?.details?.hasFiledForRace,
-        ),
-        // Presence isn't enough: older surfaces persisted shape-valid
-        // placeholder EINs, which would skip the EIN step only to fail
-        // filing-details' sanity validation. A bad EIN routes back to the EIN
-        // step where it can be fixed.
-        hasEin: checkEinSanity(campaign?.details?.einNumber ?? '').valid,
-        // Purchase-only never reads the website/TCR queries, so these two
-        // never factor into that branch's derivation.
-        filingComplete: purchaseOnly ? false : filingComplete,
-        profileComplete: purchaseOnly
-          ? false
-          : isCandidateProfileComplete(website),
-        pinComplete,
-      },
-      { purchaseOnly },
-    )
+    const step = deriveProUpgradeStep({ isPro: Boolean(campaign?.isPro) })
 
     // An already-Pro candidate is routed to success, not into a purchase.
     if (!campaign?.isPro && !flowStartedRef.current) {
@@ -158,17 +83,7 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
     }
 
     router.replace(proUpgradeStepPath(step))
-  }, [
-    ready,
-    hasError,
-    purchaseBlocked,
-    purchaseOnly,
-    campaign,
-    website,
-    tcrCompliance,
-    router,
-    searchParams,
-  ])
+  }, [ready, hasError, purchaseBlocked, campaign, router, searchParams])
 
   // Spinner only while the canonical-state queries are pending.
   if (!ready)
@@ -190,8 +105,6 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
         <Button
           onClick={() => {
             void refetchCampaign()
-            void refetchWebsite()
-            void refetchTcr()
             void refetchEligibility()
           }}
         >

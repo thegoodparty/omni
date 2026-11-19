@@ -5,8 +5,8 @@
 `v2/gate/` holds the in-flow Pro/verification gate that pauses a channel flow
 until the candidate can send. `gateCopy.ts` is every string it (and the
 screens it mounts) use — never add gate copy elsewhere. `useOutreachGate.ts`
-is thin over `useOutreachProGatingV2Flag(false)` +
-`shared/membership/useMembershipState`, mapping flag + `MembershipState` to a
+is thin over
+`shared/membership/useMembershipState`, mapping `MembershipState` to a
 `GateRequirement` (`'pro' | 'verify' | 'in_review' | 'pin' | 'closed' | null`)
 for one channel; a Serve org and texting already cleared both resolve to
 `null`, and only `sms` (`twoStep`) can ever reach
@@ -111,16 +111,15 @@ the same three pieces in front of its single write (no draft, no resume —
 see its row above), and `door-knocking/native/createFlow/CreateListFlow.tsx`
 mounts them in front of Build route, its one paid write.
 
-**The flag also opens the front doors.** Gating inside a flow is only
-reachable if the candidate can get into the flow, so with the flag on the
-tiles (`v2/ChannelTileGrid.tsx`) and the `?compose=` deep link
-(`components/OutreachComposeDeepLink.tsx`) stop refusing a free candidate
-for text, robocall, phone banking and door knocking. Door knocking's page
-(`door-knocking/native/DoorKnockingPageGate.tsx`) admits a free campaign
-under the same flag, since the three reads its map needs (`GET turfs`, `GET
-pack`, `POST audience-check`) are open to one server-side; only the Geoapify
-spends are still gated, and that is where its create flow's in-flow gate
-stands.
+**The front doors are open.** Gating inside a flow is only
+reachable if the candidate can get into the flow, so the tiles
+(`v2/ChannelTileGrid.tsx`) and the `?compose=` deep link
+(`components/OutreachComposeDeepLink.tsx`) never refuse a free candidate for
+text, robocall, phone banking or door knocking. Door knocking's page
+(`door-knocking/page.tsx`) admits a free campaign, since the three reads its map
+needs (`GET turfs`, `GET pack`, `POST audience-check`) are open to one
+server-side; only the Geoapify spends are still gated, and that is where its
+create flow's in-flow gate stands.
 
 **Five outreach routes are relaxed for the build path** (`POST
 /v1/outreach/sms/draft`, `POST /v1/outreach/robocall/draft`, `POST
@@ -141,11 +140,8 @@ card keeps the card's own count against the saved list it becomes
 (`recommendationSnapshot` in the hook), which is what the schedule and review
 steps read until list-detail answers.
 
-**Known limits.** Two rough edges are accepted for this milestone rather than
-overlooked. A mid-session flag flip while the candidate is building changes
-the step order under them (build mode drops the schedule step, so it
-reappears or vanishes between one step and the next). And a robocall re-record
-on a resume orphans the previous audio object and its compliance row: the
+**Known limits.** One rough edge is accepted for this milestone rather than
+overlooked: a robocall re-record on a resume orphans the previous audio object and its compliance row: the
 resume writes a new `audioKey` and nothing cleans up the old one, which only
 the draft-expiry teardown would have reached.
 
