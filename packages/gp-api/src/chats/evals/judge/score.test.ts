@@ -825,7 +825,13 @@ describe('the panel gate', () => {
   it('gates when seats disagree on direction too often', () => {
     const result = score(
       disagreeing(25),
-      noFloor({ panel: { seats: ['a', 'b', 'c'], temperature: 0 } }),
+      noFloor({
+        panel: {
+          ...DEFAULT_JUDGE_CONFIG.panel,
+          seats: ['a', 'b', 'c'],
+          temperature: 0,
+        },
+      }),
     )
     expect(result.panelDisagreementRate).toBeCloseTo(10 / 25, 10)
     expect(result.label).toBe("CAN'T SAY")

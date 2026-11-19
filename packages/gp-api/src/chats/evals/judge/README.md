@@ -1704,6 +1704,28 @@ moment the second seat `config.ts` anticipates is added. Read the
 panel-disagreement rate for a listed agent as a floor: fewer opinions agree
 with each other more easily.
 
+## Grading runs at once, up to `panel.maxConcurrent`
+
+A grading step waits on the provider, not on anything local, so its wall clock
+is the number of calls divided by how many are in flight. `judgeAll` starts
+every planned pair together and `judgeCase` starts every seat of a pair
+together, both drawing from ONE limiter sized by `panel.maxConcurrent` (16),
+so a longer case list or a wider panel cannot open more calls at once than
+that cap — which the provider answers as a rate limit, and a seat lost to one
+is a judgment graded on fewer opinions. The limiter is `createLimiter` in
+`judge.ts`, with no dependency behind it.
+
+Two things stay as they were. Both results are read back in plan order, so
+`judgments[i]` is still `planJudgments(...)[i]` and a judgment's seats are
+still in `panel.seats` order, whatever order the replies arrived in. A seat
+that throws is still collected into `seatFailures` rather than thrown, so the
+failure semantics above hold under concurrency.
+
+A dimension collision is the one thing that still refuses the whole grade, and
+`judgeAll` reads every pair's dimensions before starting any of them: read
+inside the concurrent work it would surface once some of the other pairs'
+calls were already paid for.
+
 ## Records outlive the run
 
 A CI sweep keeps its records at

@@ -777,6 +777,33 @@ const combine = (
 // across every pair and every seat.
 const SEAT_RETRIES = 1
 
+type LimitModelCalls = <T>(call: () => Promise<T>) => Promise<T>
+
+// GRADING WAITS ON THE PROVIDER, so the judge step's wall clock is its calls
+// divided by how many are in flight, and one pair after another made a
+// twenty-four-pair list as slow as its sum. One limiter per grade, shared by
+// every pair and every seat, so neither a long case list nor a wide panel can
+// open more than the cap at once — which the provider answers as a rate
+// limit, and every seat lost to one is a judgment graded on fewer opinions.
+const createLimiter = (max: number): LimitModelCalls => {
+  const bound = Math.max(1, max)
+  const waiting: (() => void)[] = []
+  let active = 0
+  return async (call) => {
+    if (active < bound) active += 1
+    else await new Promise<void>((resolve) => waiting.push(resolve))
+    try {
+      return await call()
+    } finally {
+      // The slot is HANDED OVER rather than freed, so a call that arrives
+      // between the release and the waiter waking cannot take it as well.
+      const next = waiting.shift()
+      if (next === undefined) active -= 1
+      else next()
+    }
+  }
+}
+
 // One seat, one pinned model. Passing a list would let jsonCompletion fall
 // back down a shared default and every seat would converge on the same
 // first model, which is not a panel.
@@ -785,18 +812,21 @@ const runSeat = async (
   payload: JudgePayload,
   model: string,
   config: JudgeConfig,
+  limit: LimitModelCalls,
 ): Promise<SeatVerdict> => {
   try {
-    const { object } = await llm.jsonCompletion({
-      messages: buildMessages(payload, config),
-      schema: caseVerdictSchemaFor(
-        dimensionsFor(payload, config),
-        payload.handledWhen !== undefined,
-      ),
-      models: [model],
-      temperature: config.panel.temperature,
-      retries: SEAT_RETRIES,
-    })
+    const { object } = await limit(() =>
+      llm.jsonCompletion({
+        messages: buildMessages(payload, config),
+        schema: caseVerdictSchemaFor(
+          dimensionsFor(payload, config),
+          payload.handledWhen !== undefined,
+        ),
+        models: [model],
+        temperature: config.panel.temperature,
+        retries: SEAT_RETRIES,
+      }),
+    )
     return { model, verdict: object }
   } catch (err) {
     // Auth, rate limits, network: their own message already says what
@@ -832,30 +862,41 @@ const runSeat = async (
 // Takes the payload and the key, never a NormalizedCase: the slot map is
 // not reachable from here, so there is no code path that could put it on
 // the wire.
-export const judgeCase = async (
+const judgePlanned = async (
   llm: JsonJudgeModel,
   planned: PlannedJudgment,
-  config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+  config: JudgeConfig,
+  limit: LimitModelCalls,
 ): Promise<Judgment> => {
   // Before any seat, and outside the per-seat catch: a collision is a case
   // list that cannot be judged, not a seat that failed, and caught there it
   // would read as an ungraded judgment after every seat had been paid for.
   const dimensions = dimensionsFor(planned.payload, config)
+  // Settled in config order whatever order the seats answer in, so `seats`
+  // and `seatFailures` name the panel the same way they did when the seats
+  // ran one after another.
+  const settled = await Promise.allSettled(
+    config.panel.seats.map((model) =>
+      runSeat(llm, planned.payload, model, config, limit),
+    ),
+  )
   const seats: SeatVerdict[] = []
   const seatFailures: SeatFailure[] = []
-  for (const model of config.panel.seats) {
-    try {
-      seats.push(await runSeat(llm, planned.payload, model, config))
-    } catch (err) {
-      // Collected, not returned. Returning here on the first failure threw
-      // away every seat already collected and paid for, so one 429 on the
-      // last of three seats binned two clean verdicts and left `modal`
-      // without the majority the panel exists to produce.
-      seatFailures.push({
-        model,
-        message: err instanceof Error ? err.message : String(err),
-      })
+  for (const [index, model] of config.panel.seats.entries()) {
+    const one = settled[index]
+    if (one?.status === 'fulfilled') {
+      seats.push(one.value)
+      continue
     }
+    // Collected, not returned. Returning here on the first failure threw
+    // away every seat already collected and paid for, so one 429 on the
+    // last of three seats binned two clean verdicts and left `modal`
+    // without the majority the panel exists to produce.
+    const err: unknown = one?.reason
+    seatFailures.push({
+      model,
+      message: err instanceof Error ? err.message : String(err),
+    })
   }
   if (seats.length === 0) {
     // No seat answered, so there is no comparison: ungraded rather than a
@@ -896,15 +937,31 @@ const withHandled = (
   handled: CombinedHandled | undefined,
 ): { handled?: CombinedHandled } => (handled === undefined ? {} : { handled })
 
+// One case graded on its own, so it gets a limiter of its own: a caller
+// judging a single case has no other pair to share a cap with.
+export const judgeCase = async (
+  llm: JsonJudgeModel,
+  planned: PlannedJudgment,
+  config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+): Promise<Judgment> =>
+  judgePlanned(llm, planned, config, createLimiter(config.panel.maxConcurrent))
+
+// One cap for the whole grade: every pair draws from the same limiter, so a
+// long list cannot open more calls at once than `panel.maxConcurrent`.
+//
+// Every pair's dimensions are read first, because a collision refuses the
+// whole list rather than one pair: read inside the concurrent work it would
+// surface after the other pairs' calls were already paid for.
 export const judgeAll = async (
   llm: JsonJudgeModel,
   cases: readonly NormalizedCase[],
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
   alwaysSwapped: ReadonlySet<string> = new Set(),
 ): Promise<Judgment[]> => {
-  const judgments: Judgment[] = []
-  for (const planned of planJudgments(cases, config, alwaysSwapped)) {
-    judgments.push(await judgeCase(llm, planned, config))
-  }
-  return judgments
+  const planned = planJudgments(cases, config, alwaysSwapped)
+  for (const one of planned) dimensionsFor(one.payload, config)
+  const limit = createLimiter(config.panel.maxConcurrent)
+  return Promise.all(
+    planned.map((one) => judgePlanned(llm, one, config, limit)),
+  )
 }

@@ -124,6 +124,14 @@ export interface JudgePanelConfig {
   seats: readonly string[]
   // Nondeterminism belongs to the arms, not to the judge.
   temperature: number
+  // ONE CAP ON MODEL CALLS IN FLIGHT for a whole grade, shared by every pair
+  // and every seat, so neither a long case list nor a wide panel can open
+  // more than this at once. Grading waits on the provider rather than on
+  // anything local, so a sweep's judge step costs roughly calls / this in
+  // wall clock; the cap is what keeps that from arriving as a rate limit
+  // instead. 16 splits the reference chat list — 8 cases, 3 attempts, 24
+  // pairs — into two waves.
+  maxConcurrent: number
 }
 
 export interface RenderConfig {
@@ -243,6 +251,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
   panel: {
     seats: ['claude-sonnet-4-6'],
     temperature: 0,
+    maxConcurrent: 16,
   },
   gates: {
     bootstrapMinCases: 8,

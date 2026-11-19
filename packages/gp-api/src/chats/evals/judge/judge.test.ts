@@ -181,7 +181,11 @@ describe('what reaches the model', () => {
     // on, and a coincidence like that is how a leak hides.
     await judgeCase(llm, plan(normalized), {
       ...DEFAULT_JUDGE_CONFIG,
-      panel: { seats: ['judge-seat-model'], temperature: 0 },
+      panel: {
+        ...DEFAULT_JUDGE_CONFIG.panel,
+        seats: ['judge-seat-model'],
+        temperature: 0,
+      },
     })
 
     const wire = JSON.stringify(calls)
@@ -260,7 +264,11 @@ describe('what reaches the model', () => {
   it('pins one model per seat at the set temperature', async () => {
     const config: JudgeConfig = {
       ...DEFAULT_JUDGE_CONFIG,
-      panel: { seats: ['model-a', 'model-b'], temperature: 0.2 },
+      panel: {
+        ...DEFAULT_JUDGE_CONFIG.panel,
+        seats: ['model-a', 'model-b'],
+        temperature: 0.2,
+      },
     }
     const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
     const { llm, calls } = fake([reply()])
@@ -364,7 +372,11 @@ describe('judgeCase', () => {
   it('is ungraded when no seat is configured', async () => {
     const config: JudgeConfig = {
       ...DEFAULT_JUDGE_CONFIG,
-      panel: { seats: [], temperature: 0 },
+      panel: {
+        ...DEFAULT_JUDGE_CONFIG.panel,
+        seats: [],
+        temperature: 0,
+      },
     }
     const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
     const { llm } = fake([reply()])
@@ -440,7 +452,11 @@ describe('an ungraded judgment', () => {
   it('keeps the slot map, so its stored ruling names the arms', async () => {
     const config: JudgeConfig = {
       ...DEFAULT_JUDGE_CONFIG,
-      panel: { seats: [], temperature: 0 },
+      panel: {
+        ...DEFAULT_JUDGE_CONFIG.panel,
+        seats: [],
+        temperature: 0,
+      },
     }
     const planned = plan(blindCase(BASE, CANDIDATE, X_IS_BASE))
     const { llm } = fake([reply()])
@@ -455,7 +471,11 @@ describe('an ungraded judgment', () => {
 describe('the panel', () => {
   const threeSeats: JudgeConfig = {
     ...DEFAULT_JUDGE_CONFIG,
-    panel: { seats: ['a', 'b', 'c'], temperature: 0 },
+    panel: {
+      ...DEFAULT_JUDGE_CONFIG.panel,
+      seats: ['a', 'b', 'c'],
+      temperature: 0,
+    },
   }
 
   it('takes a 2-of-3 majority and records the disagreement', async () => {
@@ -509,7 +529,11 @@ describe('the panel', () => {
   it('cannot determine when two seats split', async () => {
     const config: JudgeConfig = {
       ...DEFAULT_JUDGE_CONFIG,
-      panel: { seats: ['a', 'b'], temperature: 0 },
+      panel: {
+        ...DEFAULT_JUDGE_CONFIG.panel,
+        seats: ['a', 'b'],
+        temperature: 0,
+      },
     }
     const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
     const { llm } = fake([reply({ overall: 'X' }), reply({ overall: 'Y' })])
@@ -564,6 +588,57 @@ describe('the panel', () => {
     ])
     const result = graded(await judgeCase(llm, plan(normalized), threeSeats))
     expect(result.dimensions[OVERALL]?.magnitude).toBe('slight')
+  })
+
+  // Seats answer concurrently now, so the order they settle in is the
+  // provider's, not the config's. Both lists have to stay in `panel.seats`
+  // order anyway: the report names a lost seat by position beside the seats
+  // that answered, and a slow first seat must not read as the last one.
+  it('keeps the seats and the failures in panel order', async () => {
+    const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    const delays: Record<string, number> = { a: 20, b: 1, c: 10 }
+    const outOfOrder: JsonJudgeModel = {
+      jsonCompletion: async (options) => {
+        const model = options.models?.[0] ?? ''
+        await new Promise((resolve) => setTimeout(resolve, delays[model]))
+        if (model === 'b') throw new Error('rate limited')
+        return {
+          object: options.schema.parse(reply({ overall: 'X' })),
+          tokens: 0,
+          model: 'fake',
+        }
+      },
+    }
+    const result = graded(
+      await judgeCase(outOfOrder, plan(normalized), threeSeats),
+    )
+    expect(result.seats.map((s) => s.model)).toEqual(['a', 'c'])
+    expect(result.seatFailures).toEqual([
+      { model: 'b', message: 'rate limited' },
+    ])
+  })
+
+  // The seats of one pair are calls the panel can run beside each other; if
+  // they did not overlap the panel would cost its seats' sum in wall clock.
+  it('runs the seats of one case at once', async () => {
+    const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
+    let open = 0
+    let peak = 0
+    const overlapping: JsonJudgeModel = {
+      jsonCompletion: async (options) => {
+        open += 1
+        peak = Math.max(peak, open)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        open -= 1
+        return {
+          object: options.schema.parse(reply({ overall: 'X' })),
+          tokens: 0,
+          model: 'fake',
+        }
+      },
+    }
+    await judgeCase(overlapping, plan(normalized), threeSeats)
+    expect(peak).toBe(3)
   })
 })
 
@@ -694,6 +769,162 @@ describe('the order-swap subsample', () => {
     const judgments = await judgeAll(llm, cases(5))
     expect(judgments).toHaveLength(6)
     expect(calls).toHaveLength(6)
+  })
+})
+
+// Grading used to be one pair after another, and one seat after another
+// inside it, so a sweep's judge step cost the sum of its calls. It now waits
+// on the provider at `panel.maxConcurrent` calls at once, which makes three
+// things load-bearing: the judgments still line up with the planned pairs,
+// nothing opens more calls than the cap, and a seat that throws is still
+// collected rather than thrown.
+describe('grading concurrently', () => {
+  const cases = (n: number): NormalizedCase[] =>
+    Array.from({ length: n }, (_, i) =>
+      blindCase(
+        { ...BASE, caseId: `case-${i}`, runId: `b${i}` },
+        {
+          ...CANDIDATE,
+          caseId: `case-${i}`,
+          runId: `c${i}`,
+          output: { kind: 'text', value: `candidate answer ${i}` },
+        },
+        X_IS_BASE,
+      ),
+    )
+
+  // Answers off the payload, so a judgment that came back on the wrong pair
+  // names a verdict the case did not earn. `delayFor` makes a later pair
+  // answer first, which is what separates "read back in plan order" from
+  // "read back as they finish".
+  const byCase = (
+    delayFor: (index: number) => number = () => 0,
+  ): JsonJudgeModel => ({
+    jsonCompletion: async (options) => {
+      const user = String(options.messages[1]?.content ?? '')
+      const index = Number(/candidate answer (\d+)/.exec(user)?.[1] ?? 0)
+      await new Promise((resolve) => setTimeout(resolve, delayFor(index)))
+      return {
+        object: options.schema.parse(
+          reply({ overall: index % 2 === 0 ? 'X' : 'Y' }),
+        ),
+        tokens: 0,
+        model: 'fake',
+      }
+    },
+  })
+
+  // EVERY PAIR OUT OF ORDER AT THE PROVIDER: case 0 is the slowest, so the
+  // pairs finish in reverse. A judgment carries the key it was planned for,
+  // so this is the report's order and the stored ruling's order — a result
+  // list read back as the replies arrived would be exactly reversed here.
+  it('returns a judgment per planned pair, in the order they were planned', async () => {
+    const planned = planJudgments(cases(6))
+    const judgments = await judgeAll(
+      byCase((index) => (index === 0 ? 20 : 20 - index)),
+      cases(6),
+    )
+    expect(judgments.map((j) => j.key)).toEqual(planned.map((p) => p.key))
+  })
+
+  it('keeps each judgment on the pair it was planned for', async () => {
+    const judgments = await judgeAll(
+      byCase((index) => (index === 0 ? 20 : 20 - index)),
+      cases(6),
+    )
+    const primary = judgments.filter((j) => j.key.order === 'primary')
+    expect(primary.map((j) => j.key.caseId)).toEqual([
+      'case-0',
+      'case-1',
+      'case-2',
+      'case-3',
+      'case-4',
+      'case-5',
+    ])
+    for (const judgment of primary) {
+      const index = Number(judgment.key.caseId.replace('case-', ''))
+      expect(judgment).toMatchObject({
+        kind: 'graded',
+        dimensions: { [OVERALL]: { verdict: index % 2 === 0 ? 'X' : 'Y' } },
+      })
+    }
+  })
+
+  const countingModel = (observed: { open: number; peak: number }) =>
+    ({
+      jsonCompletion: async (options) => {
+        observed.open += 1
+        observed.peak = Math.max(observed.peak, observed.open)
+        await new Promise((resolve) => setTimeout(resolve, 1))
+        observed.open -= 1
+        return {
+          object: options.schema.parse(reply()),
+          tokens: 0,
+          model: 'fake',
+        }
+      },
+    }) satisfies JsonJudgeModel
+
+  // The cap, measured rather than assumed: the fake counts how many calls
+  // are open at once and the test reads the peak. Five cases plan six pairs,
+  // which would open six at once unbounded.
+  it('opens no more model calls at once than panel.maxConcurrent', async () => {
+    const observed = { open: 0, peak: 0 }
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      panel: { ...DEFAULT_JUDGE_CONFIG.panel, maxConcurrent: 2 },
+    }
+    const judgments = await judgeAll(countingModel(observed), cases(5), config)
+    expect(judgments).toHaveLength(planJudgments(cases(5), config).length)
+    expect(judgments).toHaveLength(6)
+    expect(observed.peak).toBe(2)
+  })
+
+  // One limiter per grade, not one per pair: a panel wider than the cap is
+  // what a per-pair limiter would let past it.
+  it('caps the whole grade, not one pair', async () => {
+    const observed = { open: 0, peak: 0 }
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      panel: {
+        ...DEFAULT_JUDGE_CONFIG.panel,
+        seats: ['a', 'b', 'c', 'd'],
+        maxConcurrent: 2,
+      },
+    }
+    await judgeAll(countingModel(observed), cases(3), config)
+    expect(observed.peak).toBe(2)
+  })
+
+  // The semantics the panel's failure collection exists for, held under
+  // concurrency: a rejected seat is collected and the seats that answered
+  // still decide the judgment.
+  it('still collects a failed seat instead of throwing', async () => {
+    const failing: JsonJudgeModel = {
+      jsonCompletion: async (options) => {
+        if (options.models?.[0] === 'b') throw new Error('rate limited')
+        return {
+          object: options.schema.parse(reply({ overall: 'X' })),
+          tokens: 0,
+          model: 'fake',
+        }
+      },
+    }
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      panel: { ...DEFAULT_JUDGE_CONFIG.panel, seats: ['a', 'b', 'c'] },
+    }
+    const judgments = await judgeAll(failing, cases(2), config)
+    expect(judgments).toHaveLength(planJudgments(cases(2), config).length)
+    for (const judgment of judgments) {
+      expect(judgment).toMatchObject({
+        kind: 'graded',
+        dimensions: { [OVERALL]: { verdict: 'X' } },
+      })
+      expect(judgment.kind === 'graded' && judgment.seatFailures).toEqual([
+        { model: 'b', message: 'rate limited' },
+      ])
+    }
   })
 })
 
@@ -959,7 +1190,11 @@ describe('the handled field', () => {
     const judgment = graded(
       await judgeCase(llm, plan(normalized), {
         ...DEFAULT_JUDGE_CONFIG,
-        panel: { seats: ['a', 'b'], temperature: 0 },
+        panel: {
+          ...DEFAULT_JUDGE_CONFIG.panel,
+          seats: ['a', 'b'],
+          temperature: 0,
+        },
       }),
     )
     expect(judgment.handled).toEqual({ X: 'partly', Y: 'yes' })
