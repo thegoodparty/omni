@@ -82,7 +82,7 @@ successful production traffic, not a merged PR.
    no task serving during that rollout was still reading them.
 3. **The remaining background agents, in waves.** Each agent is one PR: its
    definition, its readers moved from `ExperimentRun` to `AgentRun`, its judge
-   in-process arm, and its `qa/` manifest deleted. Its switch flips only after
+   suite ([`judge-eval-framework-plan.md`](judge-eval-framework-plan.md)), and its `qa/` manifest deleted. Its switch flips only after
    the universal judge says same or better. Rollback is the switch.
    - **Wave 1, web tools only:** `race_opponent_summary`,
      `opposition_research`, `opportunities_and_challenges`,
