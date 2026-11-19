@@ -32,11 +32,8 @@ before payment for every channel: a candidate who has already paid has no reason
 to come back for it. `/dashboard/campaign-verification`
 (`app/dashboard/campaign-verification/`; intro → the same form → its own submitted
 screen) is where a candidate who is already Pro with no filing on record submits it.
-The old `outreach-pro-gating-v2` flag that chose between this order and the
-original value-prop → candidate-profile one (and its `ValuePropStep` /
-`CandidateProfileStep` screens) was removed once it reached 100%.
 `MembershipBanner` and `MembershipChip` render whenever
-`isMembershipSurfaceVisible` says so, and fire no flag exposure.
+`isMembershipSurfaceVisible` says so.
 
 ## SMS compliance cutoff
 
