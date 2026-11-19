@@ -4,7 +4,7 @@ import { cn } from '@styleguide/lib/utils'
 import { PlanCta } from './PlanCta'
 import { PlanName } from './PlanName'
 import {
-  PLAN_COLUMNS,
+  planColumnsFor,
   PLAN_FEATURES,
   planIncludes,
   type PlanKey,
@@ -24,7 +24,7 @@ export const PlanCards = ({
   hrefFor,
 }: PlanCardsProps): React.JSX.Element => (
   <div className="flex flex-col gap-4">
-    {PLAN_COLUMNS.map((column) => (
+    {planColumnsFor(currentPlan).map((column) => (
       <Card
         key={column.plan}
         data-testid={`plan-card-${column.plan}`}

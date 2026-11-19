@@ -36,6 +36,19 @@ export const PLAN_COLUMNS: PlanColumn[] = [
   },
 ]
 
+// A Pro campaign pays only the difference to move to Team.
+export const planColumnsFor = (currentPlan: PlanKey): PlanColumn[] =>
+  PLAN_COLUMNS.map((column) =>
+    column.plan === 'team' && currentPlan === 'pro'
+      ? {
+          ...column,
+          cta: `Join Team for ${formatPlanCents(
+            PLAN_PRICING.teamCents - PLAN_PRICING.proCents,
+          )}`,
+        }
+      : column,
+  )
+
 export interface PlanFeature {
   title: string
   caption: string

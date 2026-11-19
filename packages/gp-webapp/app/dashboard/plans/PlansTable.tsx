@@ -10,7 +10,7 @@ import { CheckIcon, GiftIcon, MinusIcon } from '@styleguide/components/ui/icons'
 import { PlanCta } from './PlanCta'
 import { PlanName } from './PlanName'
 import {
-  PLAN_COLUMNS,
+  planColumnsFor,
   PLAN_FEATURES,
   PLANS_COPY,
   planIncludes,
@@ -35,7 +35,7 @@ export const PlansTable = ({
             {PLANS_COPY.compare}
           </span>
         </TableHead>
-        {PLAN_COLUMNS.map((column) => (
+        {planColumnsFor(currentPlan).map((column) => (
           <TableHead key={column.plan} className="text-center align-top">
             <div className="flex flex-col items-center gap-1 py-2">
               <PlanName plan={column.plan} name={column.name} />
@@ -66,7 +66,7 @@ export const PlansTable = ({
               </span>
             </div>
           </TableCell>
-          {PLAN_COLUMNS.map((column) => {
+          {planColumnsFor(currentPlan).map((column) => {
             const included = planIncludes(column.plan, feature)
             return (
               <TableCell key={column.plan} className="text-center">

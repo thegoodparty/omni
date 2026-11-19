@@ -78,6 +78,16 @@ describe('PlansPage', () => {
     render(<PlansPage highlightTeam={false} />)
 
     expect(screen.getAllByText('Current plan').length).toBeGreaterThan(0)
+    expect(
+      screen.getAllByRole('link', {
+        name: `Join Team for $${(PLAN_PRICING.teamCents - PLAN_PRICING.proCents) / 100}`,
+      }).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.queryAllByRole('link', {
+        name: `Join Team for $${PLAN_PRICING.teamCents / 100}`,
+      }),
+    ).toHaveLength(0)
     for (const button of screen.getAllByRole('button', {
       name: `Join Pro for $${PLAN_PRICING.proCents / 100}`,
     })) {

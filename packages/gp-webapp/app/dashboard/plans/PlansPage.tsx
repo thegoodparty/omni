@@ -9,7 +9,7 @@ import { usePlan } from '../shared/membership/deriveMembershipState'
 import { PlanCards } from './PlanCards'
 import { PlansTable } from './PlansTable'
 import { planCheckoutHref } from './planCheckoutHref'
-import { PLAN_COLUMNS, PLANS_COPY, planRank, type PlanKey } from './plansCopy'
+import { planColumnsFor, PLANS_COPY, planRank, type PlanKey } from './plansCopy'
 
 interface PlansPageProps {
   highlightTeam: boolean
@@ -18,7 +18,7 @@ interface PlansPageProps {
 const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
   const { plan: currentPlan } = usePlan()
   const hrefFor = (plan: PlanKey): string | null => {
-    const column = PLAN_COLUMNS.find((c) => c.plan === plan)
+    const column = planColumnsFor(currentPlan).find((c) => c.plan === plan)
     if (plan === 'free' || !column?.cta) return null
     return planRank(plan) > planRank(currentPlan)
       ? planCheckoutHref(plan, column.cta)
