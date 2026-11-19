@@ -1,10 +1,11 @@
 // Mounts each option's flow on the review page, or one flow alone in ?view= mode.
-// Page: [data-gp-head="option-a"] gets Restart, Desktop preview and, with both products,
-// the Serve / Win switch; [data-gp-flow="option-a"] gets the phone frame;
+// Page: [data-gp-head="option-a"] gets Restart, Desktop preview, Show how it's built when
+// the option has a build shape, and, with both products, the Serve / Win switch; [data-gp-flow="option-a"] gets the phone frame;
 // [data-gp-states="option-a"] gets Other states. Any [data-go] outside a frame drives
 // the flow of the option it sits in.
 // ?view=phone|desktop[&option=b][&step=2|&state=upload-failed] shows one frame alone at
 // the window's size, for the Desktop preview tab and for screenshots.
+// ?view=build[&option=b] shows the option's build shape alone, for the Show how it's built tab.
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
@@ -125,6 +126,9 @@ const Option = ({
   const preview = `?view=desktop${one ? '' : `&option=${x}`}${
     flow.products && flow.products.length > 1 ? `&product=${product}` : ''
   }`
+  const build = document.querySelector(`#${oid} .build-shape`)
+    ? `?view=build${one ? '' : `&option=${x}`}`
+    : null
   return (
     <ProductContext.Provider value={product}>
       {nodes.head
@@ -148,6 +152,18 @@ const Option = ({
                   Desktop preview
                 </a>
               </Button>
+              {build ? (
+                <Button
+                  id={`${x}-build-shape`}
+                  variant="outline"
+                  size="small"
+                  asChild
+                >
+                  <a href={build} target="_blank" rel="noopener">
+                    Show how it&apos;s built
+                  </a>
+                </Button>
+              ) : null}
               {flow.products && flow.products.length > 1 ? (
                 <ToggleGroup
                   id={`${x}-product`}
@@ -229,6 +245,18 @@ const View = ({
 export const mount = (flows: Record<string, FlowModule>) => {
   const params = new URLSearchParams(location.search)
   const view = params.get('view')
+  if (view === 'build') {
+    const shape = document.querySelector(
+      `#option-${params.get('option') ?? 'a'} .build-shape`,
+    )
+    document.body.dataset.view = view
+    const host = document.createElement('div')
+    host.id = 'gp-view'
+    document.body.append(host)
+    if (shape) host.append(shape)
+    else createRoot(host).render(<Missing what="build shape" />)
+    return
+  }
   if (view === 'phone' || view === 'desktop') {
     const oid = `option-${params.get('option') ?? 'a'}`
     const flow = flows[oid]
