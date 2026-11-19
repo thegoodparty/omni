@@ -1,6 +1,6 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { Test, TestingModule } from '@nestjs/testing'
-import { Campaign, User } from '../../generated/prisma'
+import { Campaign, CampaignPlanLevel, User } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { FeaturesService } from '@/features/services/features.service'
@@ -121,6 +121,12 @@ describe('PurchaseService', () => {
     completedTaskIds: [],
     hasFreeTextsOffer: true,
     freeTextsOfferRedeemedAt: null,
+    plan: CampaignPlanLevel.free,
+    planPricingModel: null,
+    planPaidAt: null,
+    planEndsAtOverride: null,
+    planEndedAt: null,
+    outreachCreditCents: 0,
   }
 
   // Defaults OFF (pre-feature behavior, matching the old env var's default);

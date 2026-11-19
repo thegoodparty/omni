@@ -1,3 +1,14 @@
+enum CampaignPlanLevel {
+  free
+  pro
+  team
+}
+
+enum PlanPricingModel {
+  subscription
+  one_time
+}
+
 enum CampaignTier {
   WIN
   LOSE
@@ -45,6 +56,13 @@ model Campaign {
   completedTaskIds         String[]                @default([]) @map("completed_task_ids")
   hasFreeTextsOffer        Boolean                 @default(false) @map("has_free_texts_offer")
   freeTextsOfferRedeemedAt DateTime?               @map("free_texts_offer_redeemed_at")
+  plan                     CampaignPlanLevel       @default(free)
+  planPricingModel         PlanPricingModel?       @map("plan_pricing_model")
+  planPaidAt               DateTime?               @map("plan_paid_at")
+  planEndsAtOverride       DateTime?               @map("plan_ends_at_override")
+  planEndedAt              DateTime?               @map("plan_ended_at")
+  outreachCreditCents      Int                     @default(0) @map("outreach_credit_cents")
+  planPurchases            CampaignPlanPurchase[]
   ScheduledMessage         ScheduledMessage[]
   tcrCompliance            TcrCompliance?
   website                  Website?

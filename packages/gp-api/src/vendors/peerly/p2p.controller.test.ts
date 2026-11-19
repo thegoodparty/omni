@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common'
 import { FastifyReply } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
-import { Campaign, User } from '../../generated/prisma'
+import { Campaign, CampaignPlanLevel, User } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
 import { P2pController } from './p2p.controller'
@@ -38,6 +38,12 @@ const mockCampaign: Campaign = {
   completedTaskIds: [],
   hasFreeTextsOffer: false,
   freeTextsOfferRedeemedAt: null,
+  plan: CampaignPlanLevel.free,
+  planPricingModel: null,
+  planPaidAt: null,
+  planEndsAtOverride: null,
+  planEndedAt: null,
+  outreachCreditCents: 0,
   createdAt: new Date('2025-01-01'),
   updatedAt: new Date('2025-01-01'),
   data: {},

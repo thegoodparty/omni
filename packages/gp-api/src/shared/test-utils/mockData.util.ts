@@ -1,4 +1,9 @@
-import { Campaign, User, UserRole } from '../../generated/prisma'
+import {
+  CampaignPlanLevel,
+  Campaign,
+  User,
+  UserRole,
+} from '../../generated/prisma'
 
 export const createMockUser = (overrides?: Partial<User>): User =>
   ({
@@ -50,5 +55,11 @@ export const createMockCampaign = (
   completedTaskIds: [],
   hasFreeTextsOffer: false,
   freeTextsOfferRedeemedAt: null,
+  plan: CampaignPlanLevel.free,
+  planPricingModel: null,
+  planPaidAt: null,
+  planEndsAtOverride: null,
+  planEndedAt: null,
+  outreachCreditCents: 0,
   ...overrides,
 })
