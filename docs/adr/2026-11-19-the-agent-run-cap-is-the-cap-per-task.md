@@ -38,10 +38,11 @@ scarce things are the provider's rate limit and the spend behind it, and
 both are counted in runs running, which is exactly what one cap counts.
 
 Where it costs something is that a task can now be handed all 100 runs, so
-100 model loops can land on one task's heap. Previews and prod carry 4096 MB
-and dev 2048 MB (`deploy/components/service.ts`). A loop holds its
-conversation in memory — up to 120 steps of a reply of up to 64k output
-tokens — so this is the number to watch before raising the cap further.
+100 model loops can land on one task's heap. Every environment carries
+4096 MB for that (`deploy/components/service.ts`), dev included. A loop
+holds its conversation in memory — up to 120 steps of a reply of up to 64k
+output tokens — so this is the number to watch before raising the cap
+further.
 
 The queue also stops showing claimable backlog: a job the cap holds back is
 not backlog a new task could start, so wait pressure leaves it out and the

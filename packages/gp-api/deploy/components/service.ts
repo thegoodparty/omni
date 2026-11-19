@@ -339,9 +339,10 @@ export function createService({
   // loops, each holding its conversation and a reply of up to 64k output
   // tokens. The loops wait on the provider, so the vCPU above still carries
   // them; the heap is what 100 of them need, and an OOM kills that task's
-  // live traffic and every other job it holds with it. A preview is one
-  // task with no autoscaling, so it takes the prod heap too.
-  const memory = select({ preview: '4096', dev: '2048', prod: '4096' })
+  // live traffic and every other job it holds with it. Every environment
+  // takes 4096 for that, dev included: its judge sweeps queue 42 runs at
+  // once, and dev is where a memory-heavy job has OOM'd a task before.
+  const memory = '4096'
 
   const taskDefinition = new aws.ecs.TaskDefinition('taskDefinition', {
     family: `gp-${stage}-fargateCluster-gp-api-${stage}`,
