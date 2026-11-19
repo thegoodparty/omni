@@ -40,6 +40,7 @@ const { data: poll } = await clientRequest('GET /v1/polls/:pollId', {
 
 - Cookie-based JWT. `clientRequest` sets `credentials: 'include'`. `serverRequest` reads `getServerToken()` and adds `Authorization: Bearer …`.
 - The current organization slug (when impersonating) is read from the `goodparty-org-slug` cookie and forwarded as the `x-organization` header.
+- **A 401 from `clientRequest` means the tab no longer has a session** (Clerk ended it, or it expired), not that the call was wrong: gp-api answers 401 on a route that needs a session only when the request carried none, and the `/api` rewrite mints the Bearer from that session. `clientRequest` therefore sends the user to `/login?redirect_url=<current path>` once per page load (`gpApi/unauthorized.ts`) and still throws, and react-query does not retry a 401. Before this, one dead session failed every query on a page — 76 requests across 14 endpoints from one page load (ENG-11674). A 401 is also not reported through `reportClientError`: it is a signed-out state, not a defect.
 
 ## Testing
 
