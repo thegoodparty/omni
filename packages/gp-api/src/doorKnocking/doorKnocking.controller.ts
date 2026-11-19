@@ -77,7 +77,7 @@ import {
 // EXCEPT the two suppression writes below and the three reads the create flow
 // needs before its one paid write (GET turfs, GET pack, POST audience-check).
 // Those are open so a free campaign can draw and shape a list behind
-// outreach-pro-gating-v2's in-flow gate; the two writes that spend real
+// the outreach in-flow gate; the two writes that spend real
 // Geoapify routing credits — POST turfs and POST turfs/:id/route — and every
 // read that returns a person's address stay gated.
 //

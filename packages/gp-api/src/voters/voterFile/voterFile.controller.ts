@@ -96,7 +96,7 @@ export class VoterFileController {
     await this.voterFileService.streamCsv(organization, query, res)
   }
 
-  // Not Pro-gated (outreach-pro-gating-v2): a free candidate can save a
+  // Not Pro-gated: a free candidate can save a
   // recommended list as a named list before upgrading. Update/delete and
   // any outreach use of the saved filter still go through
   // `filterAccessCheck`.

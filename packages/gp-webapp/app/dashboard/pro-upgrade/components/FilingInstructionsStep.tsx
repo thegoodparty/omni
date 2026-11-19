@@ -41,7 +41,7 @@ const InstructionRow = ({
 )
 
 const FilingInstructionsStep = (): React.JSX.Element => {
-  const { purchaseOnly, goToPreviousStep, exit } = useProUpgradeWizard()
+  const { goToPreviousStep, exit } = useProUpgradeWizard()
   const { errorSnackbar, successSnackbar } = useSnackbar()
   const [emailing, setEmailing] = useState(false)
 
@@ -121,14 +121,12 @@ const FilingInstructionsStep = (): React.JSX.Element => {
   return (
     <div>
       <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        {purchaseOnly
-          ? 'You are not eligible for Pro yet, but here is how to file for this election'
-          : "You're not eligible for Pro yet, but here's how to file for this election"}
+        You are not eligible for Pro yet, but here is how to file for this
+        election
       </h1>
       <Body2 className="text-base-muted-foreground mb-6">
-        {purchaseOnly
-          ? 'Once done, you can come right back and we will have everything ready to go. In the meantime, you still have access to our free campaign tools.'
-          : "Once done, you can come right back and we'll have everything ready to go. In the meantime, you still have access to our free campaign tools."}
+        Once done, you can come right back and we will have everything ready to
+        go. In the meantime, you still have access to our free campaign tools.
       </Body2>
 
       <div className="rounded-xl border border-base-border">
@@ -197,7 +195,7 @@ const FilingInstructionsStep = (): React.JSX.Element => {
           Back
         </Button>
         <Button size="large" className="w-full sm:w-auto" onClick={handleExit}>
-          {purchaseOnly ? 'Finish later' : 'Continue to dashboard'}
+          Finish later
         </Button>
       </div>
     </div>
