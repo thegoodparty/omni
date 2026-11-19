@@ -32,7 +32,7 @@ session cap and the marker but are never sent to a model.
 | `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                              |
 | `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist |
 | `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                       |
-| `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy, contact patterns, second read, schema                                                   |
+| `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy, contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
 | `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                  |
 | `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                     |
 
@@ -89,29 +89,47 @@ judge's sweep records; unset skips them). Set in `deploy/index.ts`, with the
 task role's grants on the bucket and the Lambda. Only prod drops staff and
 test accounts (`OTEL_SERVICE_ENVIRONMENT`), as the Python reader did.
 
-## The gate's eval suite
+## Eval suites
 
-`caseScoutGate.eval.ts` grades `gateDraft` against results a person already
-ruled correct: a clean draft passes, a draft carrying a name, an address, a
-phone number or an email is blocked, a draft repeating a run of the user's own
-words is caught, and a denylisted term is refused. It is an expected-result
-suite (`defineExpectedResultEvalSuite` in `@goodparty_org/judge`); that package's
-`AGENTS.md` has the shape.
+Two expected-result suites (`defineExpectedResultEvalSuite` in
+`@goodparty_org/judge`; that package's `AGENTS.md` has the shape). Each case
+runs three attempts, and every attempt must deep-equal `expected`.
+
+| Suite                                                       | In                                       | Judgment                                                                                               |
+| ----------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `case_scout_deidentifier` (`caseScoutDeidentifier.eval.ts`) | An invented source session               | `{ draft, released }`, each `{ leaksPlanted, copiesSource, revealsSensitiveFact }`; expected all false |
+| `case_scout_gate` (`caseScoutGate.eval.ts`)                 | A hand-written draft or needs-setup line | `{ blocked, rule }`, as a person rules it                                                              |
+
+The de-identifier suite runs the job's own drafter (`draftCandidate`), the
+gate with its live second read, and `outboundStrings`, the one list of
+drafter-written strings that can leave prod. `draft` grades the drafter's raw
+output; `released` is the same result, kept only when the gate let it through.
+`leaksPlanted` and `copiesSource` are code (an 8-word run from any role or tool
+input, not just the user's); `revealsSensitiveFact` is one `judgeModel` call,
+counted only when its quoted span is in the text. The drafter's outcome and the
+gate rule are annotations, never the judgment. The gate suite expects today's
+misses to be caught (a seven-digit phone, a draft with no name that still
+identifies a place), so its red cases are the gate's work list.
 
 ```bash
-npm run eval -w packages/gp-api    # JUDGE_MODEL and ANTHROPIC_API_KEY, live
+JUDGE_MODEL=anthropic/claude-sonnet-5-5 npm run eval -w packages/gp-api
+npm run eval -w packages/gp-api -- caseScoutGate   # second read only, no JUDGE_MODEL
 ```
 
-**Every draft in that file is invented.** omni is public, so a name, an address
-and a number there are fiction: 555 numbers, example.com addresses, people who
-do not exist. A case that needs a real sample loads it **at run time from a
-private location** — a bucket the eval reads with its own credentials — and never
-commits it. Nothing that came out of a real chat belongs in `src/`.
+Both need `ANTHROPIC_API_KEY`, and the model calls honor `ANTHROPIC_BASE_URL`,
+so unset it if your shell points it at a proxy. A full run of both takes about
+six minutes and an estimated $4.
 
-A case is `{ id, input, expected }`, where the input is the draft, the
-denylist, the user messages and the strings the case planted. `leaksPlanted` is
-a string match, not a judgment; `containsPii` is the one `judgeModel` call. Every
-attempt's judgment must deep-equal `expected`.
+**Prod stays off until** the de-identifier suite shows zero leaks, raw and
+released, on three consecutive full runs; the gate suite is fully green; the
+quality bench's released-case count is no lower than its last run; and a person
+reads the first 20 prod payloads before anything is sent onward.
+
+**Every session and draft in both files is invented.** omni is public, so a
+name, a town and a number there are fiction: 555-01xx numbers, example.com
+addresses, people and towns that do not exist in real US states. Never commit a
+real sample, and never load one into a report: the annotations record the
+drafter's output.
 
 ## Gotchas
 
@@ -122,5 +140,10 @@ attempt's judgment must deep-equal `expected`.
   Model spans record neither inputs nor outputs.
 - **Prompts are graded.** The quality bench
   (`src/chats/evals/caseScoutBench/README.md`) drives these prompts, the
-  model calls and the gate. Run it before and after any prompt change, and
-  keep its `runner.ts` in step with the draft job's per-candidate rules.
+  model calls and the gate. Run it and the eval suites before and after any
+  prompt or gate change. The bench, the job and the eval share
+  `draftCandidate` and `buildDraftedCase` (`util/drafting.util.ts`); keep the
+  bench's `runner.ts` in step with the job's other per-candidate rules.
+- **A needs-setup line is gated too.** One that fails leaves as
+  `WITHHELD_NEEDS_SETUP`, in the bundle and the ledger, with the rule in
+  `gateFailures`. That is a second second-read call, counted in the spend.

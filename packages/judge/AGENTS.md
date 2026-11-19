@@ -48,8 +48,11 @@ export default definePairwiseAgentEvalSuite<{ organizationSlug: string }>(
 )
 ```
 
-A suite file may `import type` from gp-api and nothing else. The runner imports
-no gp-api runtime code: the two URLs are the whole of its input.
+A pairwise suite needs nothing from gp-api but types: the two URLs are the whole
+of its input. The runner still loads every `*.eval.ts` with tsx from the repo
+root, expected-result suites included, so a suite that imports gp-api runtime
+code must reach it through relative paths. gp-api's `@/` alias does not resolve
+there, and one that fails to load breaks `/judge-eval` for every suite.
 
 ## `EvalContext`
 
@@ -98,29 +101,31 @@ chat and for the guards' pricing.
 ## Expected-result suites
 
 The other kind of suite grades one run against a result a person already ruled
-correct, rather than comparing two builds. Danny's case scout de-identification
-evals are the first.
+correct, rather than comparing two builds. The case scout's two suites are the
+first: `case_scout_gate` grades the PII gate alone, and
+`case_scout_deidentifier` grades the whole exit path from source chat to
+released case (`packages/gp-api/src/caseScout/AGENTS.md`).
 
 ```ts
 // packages/gp-api/src/<feature>/<thing>.eval.ts
 import { defineExpectedResultEvalSuite } from '@goodparty_org/judge'
 
-export default defineExpectedResultEvalSuite('case_scout_gate', {
-  run: async (input, ctx) => {
-    // Input is inferred from this parameter.
-    await ctx.annotate(`gating ${input.draft.caseId}`, 'step')
-    return gateDraft(input.draft, input.denylist, input.userMessages)
+export default defineExpectedResultEvalSuite('case_scout_deidentifier', {
+  run: async (input: CaseInput, ctx) => {
+    const draft = await draftCandidate(model, toSession(input), prompt, signal)
+    await ctx.annotate(`drafter: ${draft.outcome}`, 'outcome')
+    return { outbound: outbound(draft), gate: await gate(draft) }
   },
-  // ctx.input is the case's own input; ctx.judgeModel is the only model call.
+  // ctx.input is the case's own input; ctx.judgeModel is its model call.
   judge: async (output, ctx) => {
-    const { containsPii } = await ctx.judgeModel(PiiSchema, prompt(ctx.input))
-    return { passed: output.passed, containsPii }
+    const { facts } = await ctx.judgeModel(FactsSchema, prompt(ctx.input))
+    return { leaksPlanted: leaked(output), revealsFact: found(facts) }
   },
   cases: [
     {
-      id: 'planted-name',
-      input: { draft, denylist: [], userMessages: ['...'] },
-      expected: { passed: false, containsPii: true },
+      id: 'third-party-opponent',
+      input: { scope, denylist, turns, planted, sensitiveFacts },
+      expected: { leaksPlanted: false, revealsFact: false },
     },
   ],
 })

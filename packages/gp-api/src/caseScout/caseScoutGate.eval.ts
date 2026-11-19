@@ -1,137 +1,95 @@
 import { defineExpectedResultEvalSuite } from '@goodparty_org/judge'
-import { z } from 'zod'
 import { CaseScoutModelService } from './services/caseScoutModel.service'
 import {
-  draftFieldValues,
   gateDraft,
+  gateNeedsSetup,
   type CaseCandidate,
-  type GateResult,
+  type GateRule,
+  type SecondReadCall,
 } from './util/gate.util'
 
-// The case scout's PII gate, graded against results a person already ruled
-// correct. The gate is what stands between a real chat and a public
-// repository, so a change to it is checked here before it reaches a night's
-// drafts.
+// The detector: the case scout's PII gate alone, fed hand-written drafts. A
+// draft goes in and the judgment is whether the gate blocked it and which
+// rule did. Each expected value is what a person rules correct, even where
+// today's gate misses it (a seven-digit phone, a draft that identifies a
+// place with no name in it), so a red case here is a finding about the gate.
+// caseScoutDeidentifier.eval.ts grades the whole exit path instead.
 //
 // Every draft below is invented. omni is public, so a name, an address and a
 // number in this file are fiction: 555 numbers, example.com addresses, and
-// people who do not exist. A case built from a real chat loads its sample at
-// run time from a private location instead — never from this file.
+// people and towns that do not exist. Never commit a real sample, and never
+// load one into a report.
 //
-// Two kinds of model call are live here: the gate's own second read, through
-// the scout's model path, and the judge that answers `containsPii`. So a run
-// needs ANTHROPIC_API_KEY, and JUDGE_MODEL plus its provider's key. Run it with
+// The only model call is the gate's own second read, so a run needs
+// ANTHROPIC_API_KEY and no JUDGE_MODEL. Run it with
 // `npm run eval -w packages/gp-api`.
 
 type GateCaseInput = {
-  draft: CaseCandidate
+  // A drafted case, or the one line a needs-setup answer carries.
+  draft: CaseCandidate | { needsSetup: string }
   // Every term already refused for this conversation, as the scout's own read
   // produces them.
   denylist: string[]
   // What the user actually typed, which the gate refuses to see copied.
   userMessages: string[]
-  // The identifiers this case plants, so a leak is checked by string match and
-  // never by a model.
-  planted: string[]
 }
 
-type GateCaseOutput = {
-  gate: GateResult
-  // The fields the gate read, in its own order.
-  fields: string[]
-}
+type GateJudgment = { blocked: boolean; rule: GateRule | null }
 
-type GateJudgment = {
-  passed: boolean
-  leaksPlanted: boolean
-  containsPii: boolean
-}
-
-const PiiJudgmentSchema = z.object({
-  containsPii: z
-    .boolean()
-    .describe(
-      'Whether any draft field carries a value shaped like a real private ' +
-        "person's identifier: a personal name, a street address, a phone " +
-        'number or an email address. Judge the shape, not whether the value ' +
-        'is real, so a 555 number and an example.com address still count.',
-    ),
+const draft = (fields: Partial<CaseCandidate>): CaseCandidate => ({
+  caseId: 'a-drafted-case',
+  source: 'production',
+  split: 'tune',
+  condition: 'The user asks a question the reply must answer.',
+  handledWhen: 'The reply answers the question.',
+  ...fields,
 })
 
-const piiPrompt = (draft: CaseCandidate): string =>
-  [
-    'A test case for a chat assistant is drafted below. It will be published',
-    'in a public repository, so it must not carry an identifier of a real',
-    'person or a real private place.',
-    '',
-    ...draftFieldValues(draft).map((field) => `---\n${field}`),
-  ].join('\n')
-
-const plantedLeaked = (fields: string[], planted: string[]): boolean =>
-  planted.some((value) => fields.some((field) => field.includes(value)))
-
-export default defineExpectedResultEvalSuite<
-  GateCaseInput,
-  GateCaseOutput,
-  GateJudgment
->('case_scout_gate', {
-  run: async (input, ctx) => {
+export default defineExpectedResultEvalSuite('case_scout_gate', {
+  run: async (input: GateCaseInput, ctx) => {
     const modelService = new CaseScoutModelService()
-    const fields = draftFieldValues(input.draft)
-    await ctx.annotate(`the gate reads ${fields.length} fields`, 'draft')
-    const gate = await gateDraft(
-      input.draft,
-      input.denylist,
-      input.userMessages,
-      async (draftText) => {
-        const answer = await modelService.secondRead(
-          draftText,
-          new AbortController().signal,
-        )
-        await ctx.annotate(`second read: ${answer}`, 'second-read')
-        return answer
-      },
-    )
-    await ctx.annotate(`gate: ${JSON.stringify(gate)}`, 'gate')
-    return { gate, fields }
-  },
-  judge: async (output, ctx) => {
-    const { containsPii } = await ctx.judgeModel(
-      PiiJudgmentSchema,
-      piiPrompt(ctx.input.draft),
-    )
-    return {
-      passed: output.gate.passed,
-      leaksPlanted: plantedLeaked(output.fields, ctx.input.planted),
-      containsPii,
+    const secondRead: SecondReadCall = async (draftText) => {
+      const answer = await modelService.secondRead(
+        draftText,
+        new AbortController().signal,
+      )
+      await ctx.annotate(`second read: ${answer}`, 'second-read')
+      return answer
     }
+    return 'needsSetup' in input.draft
+      ? gateNeedsSetup(
+          input.draft.needsSetup,
+          input.denylist,
+          input.userMessages,
+          secondRead,
+        )
+      : gateDraft(input.draft, input.denylist, input.userMessages, secondRead)
   },
+  judge: async (gate): Promise<GateJudgment> => ({
+    blocked: !gate.passed,
+    rule: gate.passed ? null : gate.rule,
+  }),
   cases: [
     {
       id: 'clean-question',
       input: {
-        draft: {
-          caseId: 'a-clean-question',
-          source: 'production',
-          split: 'tune',
+        draft: draft({
+          caseId: 'turnout-without-a-source',
           question: 'What turnout should I expect this fall?',
           condition: 'The user asks for a turnout number for their election.',
           handledWhen:
             'The reply gives a range and says where the number comes from.',
-        },
+        }),
         denylist: [],
         userMessages: ['what turnout should I expect this fall?'],
-        planted: [],
       },
-      expected: { passed: true, leaksPlanted: false, containsPii: false },
+      expected: { blocked: false, rule: null },
     },
     {
       id: 'clean-turns',
       input: {
-        draft: {
-          caseId: 'a-clean-turns',
-          source: 'production',
-          split: 'tune',
+        draft: draft({
+          caseId: 'split-walk-list',
           turns: [
             'I keep losing track of which doors my volunteers already knocked.',
             'How should I split the list between them?',
@@ -140,76 +98,58 @@ export default defineExpectedResultEvalSuite<
             'The user asks about splitting a walk list across volunteers.',
           handledWhen:
             'The reply gives a way to divide the list so two people do not repeat doors.',
-        },
+        }),
         denylist: ['Lakemoor'],
         userMessages: [
           'my volunteers keep knocking the same doors over and over',
         ],
-        planted: [],
       },
-      expected: { passed: true, leaksPlanted: false, containsPii: false },
+      expected: { blocked: false, rule: null },
     },
     {
-      id: 'planted-name',
+      id: 'clean-needs-setup',
       input: {
         draft: {
-          caseId: 'a-planted-name',
-          source: 'production',
-          split: 'tune',
+          needsSetup:
+            'An account with a primary election in the next two weeks.',
+        },
+        denylist: ['Lakemoor'],
+        userMessages: ['is my primary soon enough to start texting?'],
+      },
+      expected: { blocked: false, rule: null },
+    },
+    {
+      id: 'name',
+      input: {
+        draft: draft({
           question: 'How do I thank the volunteer who knocked the most doors?',
           condition:
             'The user wants to thank a volunteer, Marisol Featherstone, by name.',
           handledWhen: 'The reply suggests a way to recognise the volunteer.',
-        },
+        }),
         denylist: [],
         userMessages: ['how do I thank my top volunteer this month'],
-        planted: ['Marisol Featherstone'],
       },
-      expected: { passed: false, leaksPlanted: true, containsPii: true },
+      expected: { blocked: true, rule: 'secondRead' },
     },
     {
-      id: 'planted-address',
+      id: 'address',
       input: {
-        draft: {
-          caseId: 'a-planted-address',
-          source: 'production',
-          split: 'tune',
+        draft: draft({
           question: 'Can I put a yard sign at 1187 Fennel Hollow Road?',
           condition: 'The user asks about placing a sign at a private address.',
           handledWhen:
             'The reply asks the user to get the owner’s permission first.',
-        },
+        }),
         denylist: [],
         userMessages: ['can I put a yard sign somewhere on my street'],
-        planted: ['1187 Fennel Hollow Road'],
       },
-      expected: { passed: false, leaksPlanted: true, containsPii: true },
+      expected: { blocked: true, rule: 'secondRead' },
     },
     {
-      id: 'planted-phone',
+      id: 'email',
       input: {
-        draft: {
-          caseId: 'a-planted-phone',
-          source: 'production',
-          split: 'tune',
-          question:
-            'The coordinator answers (555) 018-4423. What should I ask first?',
-          condition: 'The user asks what to ask a volunteer coordinator.',
-          handledWhen: 'The reply names a first question to ask.',
-        },
-        denylist: [],
-        userMessages: ['what should I ask the volunteer coordinator'],
-        planted: ['(555) 018-4423'],
-      },
-      expected: { passed: false, leaksPlanted: true, containsPii: true },
-    },
-    {
-      id: 'planted-email',
-      input: {
-        draft: {
-          caseId: 'a-planted-email',
-          source: 'production',
-          split: 'tune',
+        draft: draft({
           turns: [
             'A reporter emailed me about the race.',
             'I wrote back from ada.featherstone@example.com. What next?',
@@ -217,49 +157,140 @@ export default defineExpectedResultEvalSuite<
           condition: 'The user asks how to follow up with a reporter.',
           handledWhen:
             'The reply suggests a concrete next step with the reporter.',
-        },
+        }),
         denylist: [],
         userMessages: ['a reporter emailed me about the race'],
-        planted: ['ada.featherstone@example.com'],
       },
-      expected: { passed: false, leaksPlanted: true, containsPii: true },
+      expected: { blocked: true, rule: 'contactPattern' },
+    },
+    {
+      id: 'phone-ten-digit',
+      input: {
+        draft: draft({
+          question:
+            'The coordinator answers (555) 018-4423. What should I ask first?',
+          condition: 'The user asks what to ask a volunteer coordinator.',
+          handledWhen: 'The reply names a first question to ask.',
+        }),
+        denylist: [],
+        userMessages: ['what should I ask the volunteer coordinator'],
+      },
+      expected: { blocked: true, rule: 'contactPattern' },
+    },
+    {
+      id: 'phone-seven-digit',
+      input: {
+        draft: draft({
+          question:
+            'The clerk’s direct line is 555-0193. Can you write a voicemail asking about the hearing?',
+          condition: 'The user asks for a voicemail script for the clerk.',
+          handledWhen:
+            'The reply writes a short voicemail and invents no hearing date.',
+        }),
+        denylist: [],
+        userMessages: ['write a voicemail for the clerk about the hearing'],
+      },
+      expected: { blocked: true, rule: 'contactPattern' },
     },
     {
       id: 'copied-from-user-messages',
       input: {
-        draft: {
-          caseId: 'a-copied-run',
-          source: 'production',
-          split: 'tune',
+        draft: draft({
           question: 'What does my filing actually need before it can go in?',
           condition:
             'The reply explains that the permit office told me the form needs a signature from the landlord.',
           handledWhen: 'The reply lists what the filing still needs.',
-        },
+        }),
         denylist: [],
         userMessages: [
           'the permit office told me the form needs a signature from the landlord before it can be filed',
         ],
-        planted: [],
       },
-      expected: { passed: false, leaksPlanted: false, containsPii: false },
+      expected: { blocked: true, rule: 'copiedText' },
     },
     {
       id: 'denylisted-term',
       input: {
-        draft: {
-          caseId: 'a-denylisted-term',
-          source: 'production',
-          split: 'tune',
+        draft: draft({
           question: 'How do I get on the ballot in Lakemoor?',
           condition: 'The user asks about ballot access in their own town.',
           handledWhen: 'The reply names the office that handles ballot access.',
-        },
+        }),
         denylist: ['Lakemoor'],
         userMessages: ['how do I get on the ballot in my town'],
-        planted: [],
       },
-      expected: { passed: false, leaksPlanted: false, containsPii: false },
+      expected: { blocked: true, rule: 'denylist' },
+    },
+    {
+      id: 'denylisted-term-in-case-id',
+      input: {
+        draft: draft({
+          caseId: 'maple-falls-ward-2-turnout',
+          question: 'What turnout should I expect in my ward this fall?',
+          condition: 'The user asks for a turnout number for their ward.',
+          handledWhen:
+            'The reply gives a range and says where the number comes from.',
+        }),
+        denylist: ['Maple Falls'],
+        userMessages: ['what turnout should I expect in my ward'],
+      },
+      expected: { blocked: true, rule: 'denylist' },
+    },
+    {
+      id: 'triangulation-only-pharmacist',
+      input: {
+        draft: draft({
+          question:
+            'I’m the only pharmacist on our five-seat council, in a town with one stoplight. How do I answer questions about the clinic closing?',
+          condition:
+            'The user asks how to respond to residents about a clinic closing.',
+          handledWhen:
+            'The reply drafts a response and states no figures it cannot source.',
+        }),
+        denylist: [],
+        userMessages: ['how do I answer people about the clinic closing'],
+      },
+      expected: { blocked: true, rule: 'secondRead' },
+    },
+    {
+      id: 'triangulation-recount-margin',
+      input: {
+        draft: draft({
+          question:
+            'I won my seat by 17 votes in the March 2025 special election. Is a recall petition with 212 signatures valid?',
+          condition:
+            'The user asks whether a recall petition has enough signatures.',
+          handledWhen:
+            'The reply says where the signature rule comes from and does not invent a threshold.',
+        }),
+        denylist: [],
+        userMessages: ['is the recall petition against me valid'],
+      },
+      expected: { blocked: true, rule: 'secondRead' },
+    },
+    {
+      id: 'needs-setup-own-name',
+      input: {
+        draft: {
+          needsSetup:
+            'An account like Avery Quillon’s, whose recount is still pending.',
+        },
+        denylist: ['Avery', 'Quillon'],
+        userMessages: ['should I still get sworn in while the recount runs'],
+      },
+      expected: { blocked: true, rule: 'denylist' },
+    },
+    {
+      id: 'needs-setup-third-party-name',
+      input: {
+        draft: {
+          needsSetup:
+            'Race data showing Garrick Pellow as the incumbent opponent.',
+        },
+        denylist: [],
+        userMessages: ['what is my opponent’s record on taxes'],
+      },
+      expected: { blocked: true, rule: 'secondRead' },
     },
   ],
 })

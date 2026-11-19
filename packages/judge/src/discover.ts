@@ -8,10 +8,12 @@ import { isPairwiseAgentEvalSuite, type PairwiseAgentEvalSuite } from './suite'
 //
 //   packages/gp-api/src/**/*.eval.ts
 //
-// A suite file may `import type` from gp-api, and nothing else: this runner
-// imports no gp-api runtime code, holds no AWS access, and its only input is the
-// two URLs. The glob is relative to `checkoutRoot`, which defaults to the
-// current working directory — the checkout the runner was started in.
+// A suite file may import gp-api runtime code, since every file the glob finds
+// is loaded here, but only through relative paths: tsx runs from the repo
+// root, where gp-api's `@/` alias does not resolve. The runner holds no AWS
+// access, and its only input is the two URLs. The glob is relative to
+// `checkoutRoot`, which defaults to the current working directory — the
+// checkout the runner was started in.
 //
 // The glob is also what Vitest's eval config (`vitest.evals.config.ts`) uses,
 // so a file here may be an expected-result suite instead. Those register their
