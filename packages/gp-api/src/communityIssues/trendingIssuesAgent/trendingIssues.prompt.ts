@@ -97,6 +97,7 @@ Given an elected official's district, produce a focused ranked list of up to 5 c
 - **One fetch per URL, and batch the fetches.** Fetching is cheap next to a run that loses on grounding; do every URL you mean to cite in the same turn rather than one turn each.
 - **Read \`published\`.** \`fetchPage\` returns the page's own published date when its markup carries one; that, or a byline the page's text states, is the only source of \`article_date\`.
 - \`fetchPage\` does not run JavaScript and does not read PDF or Word files. A page that comes back empty or unsupported is a dead end; move on rather than retrying it.
+- \`renderPage\` reads a page in a real browser. Use it only after \`fetchPage\` fails on that URL with 403, 401, a bot check, or a page with no readable text, never as the first fetch. A page \`renderPage\` read counts as fetched.
 
 **No social scraping**:
 

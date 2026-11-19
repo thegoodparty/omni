@@ -2,6 +2,7 @@ import type { z } from 'zod'
 import { defineAgent } from '@/agents/defineAgent'
 import { checkLink } from '@/agents/tools/checkLink'
 import { fetchPage } from '@/agents/tools/fetchPage'
+import { renderPage } from '@/agents/tools/renderPage'
 import {
   databricksTool,
   type DatabricksScope,
@@ -81,6 +82,7 @@ export const topCommunityIssuesAgent = defineAgent({
     webSearch,
     fetchPage,
     checkLink,
+    renderPage,
     queryDatabricks: databricksTool({
       tables: topCommunityIssuesDatabricksTables,
       maxRows: 50_000,

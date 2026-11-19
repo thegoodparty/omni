@@ -6,7 +6,7 @@ import {
 } from './agentWeb.service'
 import { defineTool } from './tool'
 
-const PAGE_CHARS = 10_000
+export const PAGE_CHARS = 10_000
 
 const fetchPageInput = z.object({
   url: z.string().describe('Absolute http(s) URL'),
@@ -50,7 +50,7 @@ const dayIn = (value: string): string | undefined => {
 
 // Meta tags, then <time datetime>, then JSON-LD. Undefined when the page
 // carries no date this can trust.
-const publishedIn = (html: string): string | undefined => {
+export const publishedIn = (html: string): string | undefined => {
   const dates: string[] = []
   for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
     const field = /\b(?:property|name|itemprop)\s*=\s*["']([^"']+)["']/i.exec(

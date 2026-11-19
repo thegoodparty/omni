@@ -9,11 +9,11 @@ import { AgentPageReplayService } from './judgeReplay'
 import type { ToolContext } from './tool'
 
 const TIMEOUT_MS = 30_000
-const MAX_BYTES = 10 * 1024 * 1024
+export const MAX_BYTES = 10 * 1024 * 1024
 const MAX_REDIRECTS = 5
 // The broker's browser user agent, so a plain fetch looks like the rendered
 // ones sites already allow.
-const USER_AGENT =
+export const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 // sanitize-html and turndown block the event loop; a page past this is cut
 // before converting.
@@ -62,7 +62,7 @@ const literalHostBlocked = (hostname: string): boolean => {
   return looksLikeIp && !isPublicAddress(bare)
 }
 
-const urlRefusal = (url: string): WebFailure | undefined => {
+export const urlRefusal = (url: string): WebFailure | undefined => {
   let parsed: URL
   try {
     parsed = new URL(url)

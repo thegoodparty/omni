@@ -127,6 +127,7 @@ Coverage varies by state — some columns return near-zero coverage and are drop
 - **Every cited source is fetched.** \`webSearch\` finds a URL, \`fetchPage\` reads it. A URL that stops at \`checkLink\` is a live link, not a source you have read — it may not be cited, and \`retrieved_text_or_snapshot\` may not be invented for it. Use \`checkLink\` only for a link you are not citing and whose status you need.
 - **Read \`published\`.** \`fetchPage\` returns the page's own published date when its markup carries one; that, or a byline the page's text states, is the only source of \`article_date\`.
 - \`fetchPage\` does not run JavaScript and does not read PDF or Word files. A page that comes back empty or unsupported is a dead end; move on rather than retrying it.
+- \`renderPage\` reads a page in a real browser. Use it only after \`fetchPage\` fails on that URL with 403, 401, a bot check, or a page with no readable text, never as the first fetch. A page \`renderPage\` read counts as fetched.
 
 **Jurisdiction — the place has to be the place asked for**:
 
