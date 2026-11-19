@@ -141,7 +141,9 @@ export const CitizensPanelView = ({
             className="flex w-full flex-col gap-4 lg:w-[320px] lg:shrink-0"
             data-testid="civic-panel-aside"
           >
-            {active ? <ManagedPanelControls panel={active} /> : null}
+            {active && stage !== 'ready' ? (
+              <ManagedPanelControls panel={active} />
+            ) : null}
             <CitizensPanelStats summary={summary} />
             {summary.members > 0 ? (
               <Button asChild variant="outline" className="self-start">

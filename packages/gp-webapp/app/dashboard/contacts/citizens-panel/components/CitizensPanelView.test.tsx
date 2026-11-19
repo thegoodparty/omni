@@ -389,11 +389,31 @@ describe('CitizensPanelView', () => {
       screen.getByRole('heading', { name: 'Your civic panel is ready' }),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('civic-panel-next')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('managed-panel-controls')).toBeNull()
+  })
+
+  it('drops the invites once members reach the goal, before the status turns', () => {
+    render(
+      <CitizensPanelView
+        summary={{
+          ...SUMMARY,
+          members: 247,
+          progress: { ...SUMMARY.progress, members: 247, goal: 243 },
+        }}
+        managed={managed('building')}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Your civic panel is ready' }),
+    ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Your civic panel is full. No new invites are going out.',
+        '247 Asheville residents are on your civic panel. Ask them what they think whenever you want to hear from all of Asheville.',
       ),
     ).toBeInTheDocument()
+    expect(screen.queryByTestId('managed-panel-controls')).toBeNull()
+    expect(screen.queryByText('Next invites')).toBeNull()
   })
 
   it('puts the invites, numbers and See members in the rail', () => {

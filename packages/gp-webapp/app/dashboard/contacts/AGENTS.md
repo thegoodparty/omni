@@ -31,8 +31,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   card), else `start` at 0 members, else `building`.
 - **Hero** (`CivicPanelHero`): the stage's title and line
   (`COPY.hero`; building names the place, "{members} {place} residents
-  are ready to share their views, on the way to {goal}."; ready names it
-  too, "Ask them what they think whenever you want to hear from all of
+  are ready to share their views, on the way to {goal}."; ready counts the
+  members, never the goal, "{members} {place} residents are on your civic
+  panel. Ask them what they think whenever you want to hear from all of
   {place}.", never only before a vote), the goal as 100 seats from `lg`
   (`sourceSeats`: filled is members over goal as in `plainSeats`, split by
   how members joined, text then door then phone, each in its color) with a
@@ -83,7 +84,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   records as a door or phone join. A 422 says nobody there is left to
   reach that way.
 - **Rail**: the Invites card (`ManagedPanelControls`, only with a managed
-  panel that is not stopped): one status line, while building Next invites
+  panel that is not stopped and a stage that is not `ready`, so it goes as
+  soon as members reach the goal, before the wave job turns the status):
+  one status line, while building Next invites
   (`managedPanelNextInvitesAt`: `nextWaveAt`, else `firstSendDate` before
   the first wave) and Ready around (`readyWeekOf`, dropped once that week
   has passed), and Pause invites while building or Resume invites while

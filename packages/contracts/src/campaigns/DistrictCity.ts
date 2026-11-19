@@ -14,6 +14,7 @@
  *   "West Mifflin Boro"            → "West Mifflin"
  *   "Alvin City Cncl D"            → "Alvin"
  *   "Dubuque City Ward 3"          → "Dubuque"
+ *   "Mona Shores Public Schls"     → "Mona Shores Public Schools"
  *
  * Returns null if the result is empty or looks like a non-city name.
  */
@@ -40,6 +41,14 @@ export const cityFromDistrictName = (districtName: string): string | null => {
   // Strip trailing municipality type: "Johnstown City" → "Johnstown"
   // Includes "Boro" as a short form of "Borough"
   name = name.replace(/\s+(City|Town|Village|Borough|Boro|Township)$/i, '')
+
+  // L2 abbreviates school districts ("MONA SHORES PUBLIC SCHLS", "LEE CNTY
+  // SCHL BD DIST 1"); Serve copy names the place, so it spells the word out,
+  // in the name's own casing so cityNameCase still title-cases it.
+  name = name.replace(/\bSchl(s?)\b/gi, (word, plural: string) => {
+    const full = `School${plural ? 's' : ''}`
+    return word === word.toUpperCase() ? full.toUpperCase() : full
+  })
 
   name = name.trim()
 

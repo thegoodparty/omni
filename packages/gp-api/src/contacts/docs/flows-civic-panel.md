@@ -242,7 +242,14 @@ products) leaves out anyone the org reached on any channel in the last
 unions the four interaction tables on `occurred_at` into an `id: { notIn }`
 constraint, applied before the Win/Serve split in
 `resolveIdFilterWithContactsMade` and in `resolveSavedFilterSets`. It is read
-when the list is read, so people come back in as their window passes.
+when the list is read, so people come back in as their window passes. It
+counts asks, so a text from a send that asks to join the civic panel
+(`asks_to_join_civic_panel`) or the managed panel's thank-you
+(`managed_panel_confirmation_for_id`) is left out, here and in every read
+built on the same rule (`countContactedSinceAmong`,
+`personIdsLastReachedBetween`, `lastReachedAt`): a new member is ready to
+ask the day they join. The never-invited criterion, not the rest window,
+keeps a wave from inviting someone twice.
 
 **The panel as a whole.** `CivicPanelSummaryService` backs the Serve
 Contacts page's "Your civic panel" section and its page. Members are

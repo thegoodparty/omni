@@ -67,7 +67,7 @@ describe('CivicPanelStanding', () => {
     const link = await screen.findByTestId('priority-civic-panel')
     expect(link).toHaveTextContent('Your civic panel is ready')
     expect(link).toHaveTextContent(
-      'All 240 seats are filled. Ask them what they think whenever you want to hear from your whole district.',
+      '240 residents are on your civic panel. Ask them what they think whenever you want to hear from your whole district.',
     )
   })
 
