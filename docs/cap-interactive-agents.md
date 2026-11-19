@@ -372,12 +372,6 @@ string `boundarySavedMessage` sends — change one and change the other.
   is an `Annotation(kind=chat)` pointing at a `ChatConversation` — which is why
   briefing-chat endpoints key on `:annotationId`.
   Stores: `chatStore.prisma.ts`, `generalChatStore.prisma.ts`.
-- **Ratings** — `ChatMessageFeedback` (`chatMessageFeedback.prisma`), one row per
-  user's thumbs on an assistant `AgentMessage`. `agent_message_id` is still
-  nullable for ratings the #3872 backfill could not key, so
-  `ChatMessageFeedbackService` logs `chat_message_feedback unkeyed count`
-  (`{ unkeyed }`) on boot; both the column and that log go when the NOT NULL
-  migration lands.
 
 ## Prompt management
 
