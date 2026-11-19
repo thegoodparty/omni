@@ -57,11 +57,11 @@ const walked = (entry: AgentEntry): string[] =>
 describe('the background budget', () => {
   // A literal on purpose: this is the one place the chosen numbers are
   // written down as a decision rather than read back from the config.
-  it('is 1 attempt over the first 5 cases, 12 runs at once', () => {
+  it('is 1 attempt over the first 5 cases, 40 runs at once', () => {
     expect(background).toEqual({
       attemptsPerCase: 1,
       maxCases: 5,
-      maxInFlight: 12,
+      maxInFlight: 40,
     })
   })
 
@@ -96,11 +96,13 @@ describe('what it makes possible, with every run started at once', () => {
     expect(sweepable.length).toBe(15)
   })
 
-  // TOGETHER IS NOT THE SUM OF ALONE. One arm fills twelve slots in registry
-  // order, five runs an agent, so two agents share an arm and the rest are
-  // refused by name. Judging all fifteen takes eight sweeps; the migration
-  // this cap serves judges one agent a PR.
-  it('runs the first two when every agent shares an arm', () => {
+  // TOGETHER IS NOT THE SUM OF ALONE. One arm fills forty slots in registry
+  // order, five runs an agent, so eight agents share an arm and the rest are
+  // refused by name. Forty is sized against the dev scheduler's shared
+  // fifty-task cap: one sweep's TWO arms — which run at the same time now —
+  // fit, and a third concurrent sweep is a wait rather than a pile of runs
+  // whose polls time out.
+  it('runs the first eight when every agent shares an arm', () => {
     const shared = armCaseLoader(
       SWEEP_VALUES,
       ARM_BUDGET_MS,
@@ -117,6 +119,12 @@ describe('what it makes possible, with every run started at once', () => {
     expect(admitted.map((one) => one.agentId)).toEqual([
       'campaign_tracker_tasks',
       'district_issue_pulse',
+      'district_issue_snapshot',
+      'find_existing_ordinances',
+      'meeting_briefing',
+      'meeting_schedule',
+      'opponent_research',
+      'opportunities_and_challenges',
     ])
   })
 })

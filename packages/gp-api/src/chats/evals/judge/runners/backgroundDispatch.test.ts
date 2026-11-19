@@ -982,19 +982,29 @@ describe('armDeps', () => {
   })
 
   // ONE loader for the arm, so the slots are spent across agents. At the
-  // default five runs each against twelve slots, two agents fit and the
-  // third does not — which only holds if every call shares one set.
+  // default five runs each against forty slots, eight agents fit and the
+  // ninth does not — which only holds if every call shares one set.
   it('spends one set of slots across every agent the arm walks', () => {
     const { loadCases } = armDeps(
       env({ fixtureValues: SWEEP_VALUES }),
       DEFAULT_JUDGE_CONFIG,
       ARM_BUDGET_MS,
     )
-    for (const id of ['opportunities_and_challenges', 'opposition_research']) {
+    const fits = [
+      'opportunities_and_challenges',
+      'opposition_research',
+      'race_opponent_summary',
+      'district_issue_pulse',
+      'district_issue_snapshot',
+      'meeting_briefing',
+      'meeting_schedule',
+      'opponent_research',
+    ]
+    for (const id of fits) {
       expect(() => loadCases(real(id))).not.toThrow()
     }
     expect(() => loadCases(real('race_opponent_actions'))).toThrow(
-      /needs 5 runs in flight at once, and 2 of the arm's 12 slots/,
+      /needs 5 runs in flight at once, and 0 of the arm's 40 slots/,
     )
   })
 

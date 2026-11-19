@@ -103,8 +103,11 @@ saying the figure can run slightly low.
 **A second request on the same PR cancels the first**, from a comment or from
 Actions. That includes a plan-only `/judge`: posting one while a live sweep is
 running throws away what that sweep already spent, and no verdict comes out.
+Two different PRs no longer queue behind each other; what keeps their
+background runs from overrunning the shared dev scheduler is
+`config.background.maxInFlight`, not the workflow.
 
-## Running a sweep: THREE PROCESSES, NOT ONE
+## Running a sweep: THREE PROCESSES, IN FOUR JOBS
 
 This is the shape of the whole thing, and it is forced rather than chosen. An
 arm is a worktree, two worktrees are two module graphs, and one Node process
@@ -122,8 +125,37 @@ authenticated app, and those hooks exist only inside a vitest process. Step 3
 must NOT be: it is pure functions over stored records, and pure functions in a
 vitest file cannot be invoked from a workflow step cleanly.
 
-`.github/workflows/judge.yml` drives all three. The arms meet in the record
-store and nowhere else.
+`.github/workflows/judge.yml` drives all three, in FOUR JOBS. Nothing forces
+the two captures to be one after the other — the only ordering that matters is
+"both arms before the grading" — so they are separate jobs and run at the same
+time:
+
+| Job            | What it does                                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `prepare`      | Everything both arms must agree on: the sweep id, the Delta version, the records bucket, the background budget and admitted list, the identifiers. Admitted background agents are decided here because `armBudget.ts` reads BOTH checkouts. |
+| `base-arm`     | Step 1.                                                                                                            |
+| `candidate-arm`| Step 2, plus the preview wait on an HTTP arm.                                                                       |
+| `grade`        | Step 3, the guard trailer, the ledger line and the summary.                                                         |
+
+THE ARMS MEET IN THE RECORD STORE AND NOWHERE ELSE, which is what makes the
+split possible: each writes under `JUDGE_SWEEP_ID` and `grade` reads both.
+Two things follow from a job boundary and are worth knowing before editing the
+secrets:
+
+- **A secret cannot be a job output.** GitHub drops one, so the minted Clerk
+  session is not published by `prepare`; each arm job that needs one mints its
+  own from a checkout of the base ref.
+- **Records are ALWAYS S3.** They used to fall back to a local directory when
+  the AWS role could not be assumed, and that was fine while one job wrote and
+  read them. With the arms in other jobs than the grading, a local directory is
+  a sweep that gets billed and cannot be graded — so `prepare` fails, naming the
+  role, before anything spends.
+
+Each job also carries its own concurrency group, keyed on the PR and the job
+name and cancelling rather than queueing. The single repo-wide queue this
+replaced was the only thing capping how many background runs two concurrent
+sweeps put on the shared dev scheduler; `config.background.maxInFlight` is that
+cap now, and it is sized for two sweeps' two arms rather than for one.
 
 **Step 3 is not checkout-neutral**, which is easy to assume because it reads
 the records rather than driving an agent. It also reads the checkout it runs
@@ -137,7 +169,7 @@ worktree, with `JUDGE_BASE_DIR` pointing at the other one. Grade from any
 third checkout and both comparisons compare a tree with itself: a branch that
 changes a manifest's required fields is judged against the old contract with
 no disclosure line, and a branch that edits a case's condition is judged
-without it and the report says nothing. See the note above the sweep job's
+without it and the report says nothing. See the note above the `grade` job's
 `steps:` in `judge.yml` for why the hardening that would want a third
 checkout does not pay for itself here.
 
@@ -252,8 +284,9 @@ call fails, as it does for every caller. Harmless here, because the payload is
 canned and carries no record. One call costs about two cents. It runs in two
 places:
 
-- **Before a live sweep spends anything**, as the sweep job's first step after
-  credentials. A branch that predates the entry skips it.
+- **Before a live sweep spends anything**, as `prepare`'s first step after
+  credentials, so it clears the schema both arms are about to send. A branch
+  that predates the entry skips it.
 - **After a judge change reaches main**, in `judge-schema-check.yml`. That
   workflow runs on push to `main` only. A pull request trigger would hand the
   Anthropic key to unreviewed code, because omni gives same-repo pull request
@@ -263,16 +296,22 @@ Run it locally with `JUDGE_SPEND=true npx tsx
 src/chats/evals/judge/schemaPreflight.ts` from `packages/gp-api`. Without the
 switch it makes no call.
 
-## The arms are sequential, and the TDD says otherwise
+## The arms run at the same time, and the TDD asks for more than that
 
 The TDD claims the orchestrator alternates arms in time — "base, candidate,
 base, candidate" — so that a mid-sweep deploy or shifting data cannot pass for
-a variant difference. **For chat that is not achievable**, for the reason above:
-each arm is a separate process in a separate checkout. All of base runs, then
-all of candidate. **The doc needs correcting.**
+a variant difference. **For chat that is not achievable**, for the reason
+above: each arm is a separate process in a separate checkout, so a case cannot
+be re-run on the other arm while the first is still open. **The doc needs
+correcting.**
 
-What happens instead (`armGap.ts`): each arm stamps when its capture started
-and finished, the report prints the distance between the two windows, and a
+The two arms ARE separate jobs now and capture at the same time, which closes
+most of the window without pretending the alternation happened. What it does
+not close is the difference between the two measurements: one arm is a
+throwaway database and the branch's code, the other the same, and anything
+that moved while they overlapped moved for both. So the report still says how
+far apart they were (`armGap.ts`): each arm stamps when its capture started and
+finished, the report prints the distance between the two windows, and a
 comparison whose arms are further apart than `config.armGap.maxHours` is
 flagged. The reader is told how long the world had to move rather than
 reassured it was zero. This is the same treatment the background runner's
@@ -533,9 +572,9 @@ chat sweep reads the interval as before unless exclusions cut it under 8.
 attempt, a sweep is five votes: 5 of 5 one way is p = 1/32 and reads BETTER
 or WORSE; 4 of 5 is p = 0.19 and reads CAN'T SAY, too few comparisons. The
 cap was 3, where 3 of 3 is p = 1/8 and nothing could ever decide. Five costs
-two more runs an arm per agent, and an arm's twelve in-flight slots now take
-two background agents a sweep rather than four. The handling signal is
-unchanged and still decides on its own test.
+two more runs an arm per agent, and an arm's forty in-flight slots take eight
+background agents a sweep. The handling signal is unchanged and still decides
+on its own test.
 
 A background case's `params` is what the dispatch Lambda is called with, and
 fourteen of the sixteen manifests set `additionalProperties: false`, so a
@@ -1398,14 +1437,16 @@ reason they share the slug. It is not urgent: `briefing_annotation` is one of
 the cases the HTTP runtime refuses outright, and in-process arms each get
 their own throwaway database.
 
-`judge.yml` does not call this yet. Wiring it is a `sweep`-job step after the
-base arm's workspace is installed and before either arm runs, in the shape
+`judge.yml` mints it, ONCE PER ARM JOB THAT NEEDS ONE, after the base
+worktree's workspace is installed and before the arm runs, in the shape
 `judgeIdentifiers.ts` already uses — into a file first, so a mint that failed
-part way leaves no half of it in the outputs — plus the mask. **It runs from
-the base worktree, not from `${{ env.WORKSPACE }}`**: that directory is
-`origin/<base ref>`, which on a PR targeting `main` is a reviewed checkout of
-`main`, and running the branch's copy of this file with the key in its
-environment would give away the thing the step exists to protect.
+part way leaves no half of it in the outputs — plus the mask. It is not
+published by `prepare` and read by the arms, because GitHub drops a job output
+that looks like a secret. **It runs from the base worktree, not from
+`${{ env.WORKSPACE }}`**: that directory is `origin/<base ref>`, which on a PR
+targeting `main` is a reviewed checkout of `main`, and running the branch's
+copy of this file with the key in its environment would give away the thing
+the step exists to protect.
 
 ```yaml
 - name: Mint the judge's Clerk session
@@ -1429,13 +1470,12 @@ ${{ steps.clerk.outputs.judge_session_token }}` and
 ${{ steps.clerk.outputs.judge_session_expires_at }}`, and nothing else from
 Clerk.
 
-The base worktree is the best boundary available inside this job and it is
+The base worktree is the best boundary available inside the arm job and it is
 not a perfect one: `setup-node-workspace` has already run `npm ci` from the
-branch's lockfile, with the branch's lifecycle scripts, as the same user, as
-the note above the sweep job's `steps:` says. A grading-style job of its own
-that never checks out or installs the candidate is the real boundary, and
-this step is shaped to move into one unchanged — it reads two variables and
-writes two outputs.
+branch's lockfile, with the branch's lifecycle scripts, as the same user. A
+mint job of its own would be a real boundary and would cost each arm a whole
+`prepare`, so the step stays where it is; it reads two variables and writes
+two outputs, which is what moving it would cost.
 
 ## A background agent on gp-api's own agents: the candidate runs in the arm
 
@@ -2136,9 +2176,9 @@ new case too.
 **The guard ledger and spend CLI (ENG-11593).** Every guard sweep — floor
 only, picker-expanded, capped, failed or cancelled — appends one line to
 `_judge/guard/<yyyy-mm>.jsonl` (`guard/guardLedger.ts`), written from
-`judge.yml`'s own sweep job: that is the one job in the judge trigger chain
-that holds the pull-request AWS role, so `judge-guard.yml` itself never writes
-it (same "No AWS" rule as the rest of this section). A completed run records
+`judge.yml`'s `grade` job: that is the job in the judge trigger chain that
+holds the pull-request AWS role and has both the report and the records, so
+`judge-guard.yml` itself never writes it (same "No AWS" rule as the rest of this section). A completed run records
 its actual spend; a cancelled or failed run with no measured spend records
 its pre-sweep estimate and says so in `spendSource`. `guard/guardLedgerCli.ts`
 builds that line from the job's own env; the guard's own spend cap

@@ -186,20 +186,22 @@ export interface ShapeBudget {
   // admitted agent starts together, so this is also how many runs an arm may
   // walk at all: admission fills the slots and refuses the rest by name.
   //
-  // Bounded well below the platform's own cap, which is shared. The dev
-  // scheduler launches at most MAX_CONCURRENT_AGENTS tasks (50 by default)
-  // across everything running there, and a run queued behind that cap is
-  // waiting outside its own timeout, so the sweep's poll can give up on a run
-  // that never started. Twelve leaves the rest of dev most of the room.
+  // Bounded by the platform's own cap rather than by one arm's appetite. The
+  // dev scheduler launches at most MAX_CONCURRENT_AGENTS tasks (50 by
+  // default) across everything running there, and a run queued behind that
+  // cap is waiting outside its own timeout, so the sweep's poll can give up
+  // on a run that never started.
   //
-  // PER SWEEP, NOT IN TOTAL, and one live sweep at a time is what keeps
-  // those the same number. judge.yml's `sweep` job takes a single group for
-  // the whole repository when the request is live, so a second PR's sweep
-  // queues behind the first instead of running beside it. Before that, four
-  // PRs judged at once could put 48 runs out, and with anything else on dev
-  // that reaches the cap: runs queue, their polls time out as infra errors,
-  // and the task still launches and bills with nothing waiting for it. So
-  // raise this against the shared cap, not against one sweep's appetite.
+  // NOTHING SERIALISES SWEEPS ANY MORE. judge.yml used to hold one
+  // repository-wide group on the sweep job, so at most one sweep's arms were
+  // out at a time and this number was also the repository's total. The two
+  // arms are separate jobs that run BESIDE each other now, and the
+  // repo-wide queue is gone with the single job, so two PRs judged at once
+  // put two sweeps' worth of runs on the shared cap. Forty is sized for
+  // exactly that: one sweep's two arms fit under the fifty-task default with
+  // room for everything else running in dev, and a third concurrent sweep is
+  // a wait rather than a pile of runs whose polls time out as infra errors.
+  // Raise this against the shared cap, never against one sweep's appetite.
   maxInFlight: number
 }
 
@@ -247,8 +249,8 @@ export interface JudgeConfig {
   // `gates.bootstrapMinCases` is a sign test over those pairs: 5 of 5 one
   // way is p = 1/32, under `gates.sign.alpha`; 3 of 3 was 1/8, so at the old
   // cap of 3 no background agent could ever read anything but CAN'T SAY.
-  // Five costs two more runs an arm per agent, and fills an arm's twelve
-  // in-flight slots with two agents rather than four.
+  // Five costs two more runs an arm per agent, and fills an arm's forty
+  // in-flight slots with eight agents.
   background: ShapeBudget
   // How many of the CHAT cases above may run at once. See ChatBudget for why
   // only an HTTP arm is allowed more than one.
@@ -271,7 +273,7 @@ export interface JudgeConfig {
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
   attemptsPerCase: 3,
-  background: { attemptsPerCase: 1, maxCases: 5, maxInFlight: 12 },
+  background: { attemptsPerCase: 1, maxCases: 5, maxInFlight: 40 },
   chat: { maxInFlight: 8 },
   dimensions: ['task_success', 'instruction_adherence', 'user_utility'],
   panel: {

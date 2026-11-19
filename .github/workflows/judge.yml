@@ -89,7 +89,7 @@ on:
       guard_context:
         # ENG-11593. judge-request.yml's own input, threaded through
         # unchanged — this file never reads its fields itself, only passes
-        # the raw string to the sweep job's "Parse the guard context" step,
+        # the raw string to the grading job's "Parse the guard context" step,
         # which validates it against GuardContextSchema. Empty (the default)
         # means "not a guard sweep": no ledger line, no baseline trailer, and
         # the plan/sweep behaviour this file already has for a person's
@@ -104,7 +104,7 @@ on:
       ruling_kind:
         # ENG-11594: `/judge agree` / `/judge dispute <reason>`. Non-empty
         # means this call is a ruling, not a sweep — the ONE flag the `plan`
-        # job below reads to skip itself entirely (and, with it, `sweep` and
+        # job below reads to skip itself entirely (and, with it, `prepare`,
         # `verdict`, both gated on `plan` having actually run). A ruling
         # checks out no PR code and calls no model, so none of that machinery
         # applies to it.
@@ -131,7 +131,7 @@ on:
       ANTHROPIC_API_KEY:
         # required: false so the plan path works in a context with no secrets
         # at all, rather than the caller failing before it can report that it
-        # was only ever going to print a plan. The sweep job checks for it on
+        # was only ever going to print a plan. `prepare` checks for it on
         # its first step, where it is fatal.
         required: false
       DATABRICKS_CLIENT_ID:
@@ -190,57 +190,39 @@ env:
 jobs:
   # GUARD 2 of 3, second layer. Both callers declare a workflow-level group on
   # the same PR key, and THAT is the layer that cancels a run which is already
-  # spending: a workflow-level group covers the whole run, `sweep` included, and
-  # it is reachable by a request that spends nothing itself — a bare `/judge`,
-  # or a push on the `pull_request` path. These job-level groups exist for the
-  # caller added later that forgets to declare one.
+  # spending: a workflow-level group covers the whole run — `prepare`, both
+  # arms and `grade` — and it is reachable by a request that spends nothing
+  # itself, a bare `/judge` or a push on the `pull_request` path. These
+  # job-level groups exist for the caller added later that forgets to declare
+  # one.
   #
-  # THE TWO GROUPS BELOW ARE NOT THE SAME KIND OF GUARD, and reading them as
-  # one is the mistake this paragraph exists to prevent. `plan` is keyed per PR
-  # and cancels. `sweep` is keyed on a single repo-wide constant and queues.
-  # They are split by job in any case, because a single group shared by two
-  # jobs of one run has them cancelling each other, the trap gp-api.yml's test
-  # matrix documents.
+  # ONE GROUP PER JOB, KEYED ON THE PR AND THE JOB'S OWN NAME, AND EVERY ONE OF
+  # THEM CANCELS. A second request for the same PR therefore cancels each job
+  # of the first request in turn — its `prepare`, its base arm, its candidate
+  # arm and its grading — instead of running a second sweep beside the first.
+  # The job name is in the key because concurrency groups are repository-wide:
+  # one group shared by four jobs of one run has them cancelling each other,
+  # the trap gp-api.yml's test matrix documents.
+  #
+  # THIS REPLACES A REPO-WIDE QUEUE, and the trade it made is worth recording
+  # because it will look tempting again. `sweep` used to hold ONE group for the
+  # whole repository when the request was live, and QUEUE, because a running
+  # sweep had already spent and could not be resumed (SWEEP_ID carries
+  # `run_attempt` precisely so a re-run reads none of the first run's records).
+  # That was the right shape while both arms and the grading shared a job: the
+  # only way to keep two PRs from putting two sweeps' worth of background runs
+  # on the dev scheduler at once was one sweep per repository. It cost an hour
+  # of waiting for every PR behind the first, and it was never the real cap —
+  # the cap is `maxInFlight` in src/chats/evals/judge/config.ts, which is sized
+  # against that shared scheduler and not against one sweep's appetite. With the
+  # arms in separate jobs the group cannot be repo-wide anyway: it would queue
+  # the second arm of a run behind the first run's arms, which is the one wait
+  # this change exists to remove.
   #
   # `plan` SPENDS NOTHING, so its group is only about not leaving two stale
-  # estimates racing to write the same comment: a second request's `plan`
-  # contends only with another `plan`, and cancels nothing that is spending.
-  # Cross-request cancellation of a live sweep still comes from the callers,
-  # not from here. The run_id fallback keeps the key unique if a caller ever
-  # passes an empty pr_number, so the group never matches and nothing cancels.
-  #
-  # `sweep` IS THE MONEY, AND ITS GROUP IS GLOBAL ON PURPOSE. Keyed per PR, as
-  # it was, two PRs judged at once put two sweeps out at up to twelve
-  # background runs per arm each. The dev scheduler's concurrent-agent cap is
-  # shared across everything running there, so past it runs queue, their polls
-  # give up as infra errors, and the task still launches and bills with nothing
-  # waiting for it. `maxInFlight` in src/chats/evals/judge/config.ts says the
-  # same thing from the other side and asks for exactly this. One constant
-  # group is what makes that arithmetic per repository rather than per PR.
-  #
-  # AND IT QUEUES, WHERE EVERY OTHER GROUP HERE CANCELS. A running sweep has
-  # already spent, and it cannot be resumed: SWEEP_ID carries `run_attempt`
-  # precisely so a re-run does not read the first run's records, so cancelling
-  # one buys money already burned and no verdict. Queueing costs a wait;
-  # cancelling costs the sweep. The per-PR layers above still cancel, so a
-  # superseded request for the SAME PR is killed rather than run twice. What
-  # queues here is only another PR's turn.
-  #
-  # Note the one thing queueing does drop: a group holds at most one pending
-  # entry, so a third live request arriving while one sweep runs and one waits
-  # cancels the waiting one. That is a request that never started and therefore
-  # never spent, which is the right thing to lose.
-  #
-  # A PLAN MUST NEVER QUEUE BEHIND A SWEEP. Seventy minutes of wait for a step
-  # that costs nothing is not a trade worth making, which is why the group is a
-  # conditional and not a bare constant even though the `if:` on this job
-  # already skips it unless the request is live. Whether a job skipped by `if:`
-  # takes a place in its concurrency group is documented neither way, and being
-  # wrong about it would park every plan-only request behind a live sweep. The
-  # non-live arm keys on run_id, so it matches nothing and waits for nothing.
-  # `inputs` and `github` are both available to `jobs.<job_id>.concurrency`,
-  # which is checked; `needs.*` is listed as available there too, but this
-  # expression deliberately depends on neither it nor a job output.
+  # estimates racing to write the same comment. The run_id fallback keeps the
+  # key unique if a caller ever passes an empty pr_number, so the group never
+  # matches and nothing cancels.
   #
   # Cancelling is not a refund, at any layer — whatever a cancelled sweep
   # already burned is already billed.
@@ -251,14 +233,13 @@ jobs:
     timeout-minutes: 20
     # ENG-11594: a ruling call (inputs.ruling_kind != '') is not a sweep
     # request at all — it checks out no PR code and calls no model — so it
-    # skips this job entirely. `sweep` (needs.plan.result == 'success') and
-    # `verdict` (needs.sweep.result != 'skipped') already key off this job's
-    # own result, so skipping `plan` alone is enough to skip the whole
-    # sweep/verdict chain with no change to either of their own `if:`.
+    # skips this job entirely. Every spending job below carries its own
+    # `needs.plan.outputs.*` gate, so skipping `plan` alone skips the whole
+    # prepare/arm/grade/verdict chain with no change to any of their `if:`.
     if: inputs.ruling_kind == ''
     # Spelled out at the job rather than inherited: this is the job that writes
     # the plan comment, so it needs the write, and saying so here is what lets
-    # `sweep` below drop it.
+    # the spending jobs below drop it.
     permissions:
       contents: read
       pull-requests: write
@@ -269,12 +250,12 @@ jobs:
       skip: ${{ steps.gate.outputs.skip }}
       cli_present: ${{ steps.cli.outputs.present }}
       # Whether the CLI on this branch implements a sweep at all, as opposed to
-      # only the plan. Gates the sweep job and the verdict wording.
+      # only the plan. Gates `prepare` and the verdict wording.
       sweep_capable: ${{ steps.cli.outputs.sweep_capable }}
       # The agents the sweep should actually run, which is narrower than the
       # selection: the estimate step drops anything it will not price, and an
       # agent it cannot price is an agent with nothing to compare. Empty means
-      # "nothing to judge", and `sweep` is gated on it being non-empty.
+      # "nothing to judge", and `prepare` is gated on it being non-empty.
       agents: ${{ steps.estimate.outputs.sweep_agents }}
       # `explicit` when a person named the agents, `auto` when the diff
       # derived them. The word the three judge processes read as
@@ -741,7 +722,7 @@ jobs:
               # turn — and this is the EXPENSIVE direction, because the base
               # arm runs first: `main` has the handoff, spends a full arm,
               # and only then does the candidate fail. The base side is
-              # guarded in the sweep job; this is the side that has to be
+              # guarded in `prepare`; this is the side that has to be
               # refused before the plan comment promises anything.
               if grep -qF "$ARM_KEY_CALL" "$SWEEP_SUITE"; then
                 echo "sweep_capable=true" >> "$GITHUB_OUTPUT"
@@ -1255,7 +1236,7 @@ jobs:
             # The set that will actually be swept, whenever it is narrower
             # than the selection. This table exists to make an accidental
             # `all` visible; a row naming a WIDER list than the run will use is
-            # the same failure pointing the other way, and the sweep job's own
+            # the same failure pointing the other way, and `prepare`'s own
             # summary prints the narrow list, so without this "agents" would
             # name two different sets in two summaries of one run.
             if [ "$sweep_agents" != "$AGENTS" ]; then
@@ -1455,7 +1436,7 @@ jobs:
       #     this class, and it is a step failure rather than a refusal the file
       #     writes, so answering it would mean a post-hoc reporter step rather
       #     than another `refuse()`.
-      #   * the whole `sweep` job, which holds `contents: read` and no
+      #   * every spending job, each of which holds `contents: read` and no
       #     `pull-requests` write on purpose — see the note on its summary
       #     step, which owns that decision.
       - name: Upsert the plan comment
@@ -1532,23 +1513,40 @@ jobs:
               await post(github.rest.issues.createComment, { issue_number, body })
             }
 
-  # The only job that can spend. Everything it needs was decided and published
-  # by `plan`, which means the estimate is on the PR before this is eligible to
-  # start — the guard is the job graph, not step ordering inside one job.
+  # The sweep's four jobs, split so the two arms run at the same time.
   #
-  # `needs.plan.result == 'success'` is spelled out for a reader, NOT because it
-  # is load-bearing. GitHub applies a default `success()` to any `if:` that
+  # It used to be one `sweep` job that captured the base arm, then the
+  # candidate arm, then graded — three processes an hour or more apart, where
+  # the only ordering that matters is "both arms before the grading". Splitting
+  # them is what lets the two captures overlap: `prepare` decides everything
+  # both arms must agree on, `base-arm` and `candidate-arm` run beside each
+  # other, and `grade` waits for both.
+  #
+  # THE ONE THING THAT MUST NOT MOVE IS THE DECIDING. The Delta version, the
+  # background budget, the admitted list and the identifiers are all computed
+  # from BOTH checkouts, and two arms deciding for themselves disagree the
+  # moment a branch changes either — so `prepare` decides once and publishes
+  # the answers, and the arms read them. That is also why `prepare` still
+  # makes the base worktree: `armBudget.ts` reads the base ref's config and
+  # manifests.
+  #
+  # SECRETS DO NOT CROSS A JOB BOUNDARY. GitHub drops any job output that
+  # looks like a secret, so the minted Clerk session cannot be published by
+  # `prepare` and read by the arms; each arm job that needs one mints its own,
+  # from a checkout of the base ref, exactly as the single job did before.
+  # AWS credentials are the same shape: `configure-aws-credentials` exports
+  # into the JOB environment, so every job that touches S3 or SQS assumes the
+  # role itself.
+  #
+  # `needs.plan.result == 'success'` is spelled out for a reader, NOT because
+  # it is load-bearing. GitHub applies a default `success()` to any `if:` that
   # contains no status function, so a failed or skipped `plan` already blocks
-  # this job — which is also what guards the bare `if:`s on the steps above.
-  # (The parent commit had `!cancelled()` here, which is a status function and
-  # did switch the default off; that is gone, and so is the reason to imply the
-  # rule works the other way round.) Keeping the check explicit is free and
-  # says out loud that a job which spends must not run on empty outputs.
-  #
+  # `prepare` — and every arm and `grade` inherits that through `needs`.
   # `inputs.live == true` is the affirmative form: see the note at the top of
   # the file for why it is not `dry_run == false`.
-  sweep:
-    name: Sweep
+
+  prepare:
+    name: Prepare
     needs: plan
     if: >-
       needs.plan.result == 'success'
@@ -1558,104 +1556,46 @@ jobs:
       && needs.plan.outputs.agents != ''
       && inputs.live == true
     runs-on: ubuntu-latest
-    timeout-minutes: 180
-    # Narrower than the workflow. This job writes no comment, and it is the one
-    # that runs the branch's own code with the Anthropic key and the Databricks
-    # credentials in its environment — so it does not also get a token that can
-    # write to pull requests. Permissions are workflow-level by default, which
-    # is exactly how a job ends up holding what it never asked for.
+    timeout-minutes: 40
     permissions:
       contents: read
-      # TO ASSUME THE AWS ROLE, and nothing more. A background agent is
-      # dispatched by staging a config in S3 and sending one SQS message, so
-      # the sweep needs AWS the way every other job that touches it does:
-      # short-lived credentials from an OIDC exchange, never a stored key.
-      # Still no `pull-requests: write` — this job writes no comment.
+      # TO ASSUME THE AWS ROLE. Short-lived credentials from an OIDC exchange,
+      # never a stored key. Still no `pull-requests: write` — none of these
+      # jobs writes a comment.
       id-token: write
-    # ONE LIVE SWEEP AT A TIME, REPOSITORY-WIDE, and queued rather than
-    # cancelled. The non-live arm is a group of this run's own, so a plan-only
-    # request contends with nothing even if a skipped job turns out to hold a
-    # place. Full reasoning in the note above `plan`.
+    # Keyed on the PR and this job's own name, and it CANCELS. See the
+    # note above `plan`.
     concurrency:
-      group: >-
-        ${{ inputs.live == true && 'universal-judge-live-sweep'
-        || format('judge-sweep-not-live-{0}', github.run_id) }}
-      cancel-in-progress: false
+      group: judge-sweep-${{ inputs.pr_number || github.run_id }}-prepare
+      cancel-in-progress: true
     env:
-      # ONE ID FOR ALL THREE PROCESSES. It is the directory the two arms meet
-      # in, so an id that differed between them would leave each arm stored
-      # where the other cannot see it — and the judging step would refuse for
-      # a reason that looked like a missing arm. Derived from the run rather
-      # than generated, so it is the same in every step and reproducible from
-      # the run's own URL. `run_attempt` is in it because a re-run is a
-      # different sweep that must not read the first one's records.
+      # ONE ID FOR BOTH ARMS AND THE GRADING. It is the directory the two
+      # arms meet in, so an id that differed between them would leave each
+      # arm stored where the other cannot see it — and the grading would
+      # refuse for a reason that looked like a missing arm. Derived from
+      # the run rather than generated, and `run_attempt` is in it because a
+      # re-run is a different sweep that must not read the first one.
       SWEEP_ID: judge-${{ github.run_id }}-${{ github.run_attempt }}
-    # WHY THE JUDGE MACHINERY RUNS THE BRANCH'S OWN CODE, which reads as an
-    # oversight and is not. This job holds the Anthropic key, the Databricks
-    # credentials and the role's session credentials, and it runs the
-    # candidate checkout in six steps. Three of those are pure judge
-    # machinery that needs nothing from the branch to do its job: the schema
-    # preflight, the mart resolver and the judging step. Moving them to a
-    # checkout of `main` so that only merged code ever holds a key is the
-    # obvious idea, it has been worked through, and it does not hold up. The
-    # reasons are here rather than left to be rediscovered.
-    #
-    # THE ARMS CANNOT MOVE, BY CONSTRUCTION, AND THAT SETTLES THE REST.
-    # "Capture the candidate arm" IS the branch's code: running it is the
-    # question the sweep exists to answer. It is handed the real Anthropic
-    # key (under JUDGE_ANTHROPIC_API_KEY), DATABRICKS_CLIENT_ID and
-    # DATABRICKS_CLIENT_SECRET, and `.env.test` stubs neither Databricks name,
-    # so the real values reach branch code there whatever the other steps do.
-    # The role's credentials are worse than per-step: configure-aws-credentials
-    # exports them into the JOB environment, so every step after it holds them
-    # whether its own `env:` names them or not. Every secret the three
-    # machinery steps carry is therefore already carried by a step that cannot
-    # be moved, so moving them would cut the number of invocations and not the
-    # exposure. judgeWorkflow.test.ts pins that equality, so a later change
-    # cannot claim a boundary it does not create.
-    #
-    # THE JUDGING STEP IS NOT CHECKOUT-NEUTRAL. `sweep.ts` reads three things
-    # from the checkout it runs in, not only the stored records: the agent
-    # registry, each agent's case list (`CASES_DIR` resolves from the module's
-    # own directory, and a case's condition, handling sentence, dimensions and
-    # `scored` flag all come from there) and the output-contract manifest
-    # (`CANDIDATE_ROOT`, resolved the same way). Two of those exist precisely
-    # to compare the candidate's copy against the base ref's: `readBaseControls`
-    # and `readOutputContracts`. Run from `main`, on a PR whose base IS `main`,
-    # both comparisons compare a tree with itself and can only ever agree. A
-    # branch that changes a manifest's required fields would be judged against
-    # the old contract with no "produced under different output contracts"
-    # line, and a branch that edits a case's condition would be judged without
-    # it and nothing in the report would say so. It would also put `main`'s
-    # record parser in front of records the branch wrote, which is a
-    # forward-compatibility requirement nothing in the judge has today.
-    #
-    # THE PREFLIGHT HAS TO BE THE BRANCH'S COPY. Its contract is that the
-    # schema the judging step is about to send is one the API accepts, and the
-    # judging step sends the branch's. From `main` it would validate a schema
-    # this sweep never sends, and it would duplicate judge-schema-check.yml,
-    # which already makes the same call on `main` after every judge change. A
-    # branch that changes the verdict schema is the one case #2534 is about and
-    # the one case a main-side preflight would stop covering.
-    #
-    # THE MART RESOLVER COULD MOVE, AND IT IS NOT WORTH THE MOVE. The base
-    # worktree below is a full install of `origin/<base ref>`, which for a PR
-    # that targets `main` is a reviewed checkout of `main`, so running the
-    # resolver there would cost no extra wall clock. It would buy nothing: the
-    # candidate arm a few steps later holds the same two Databricks secrets. It
-    # would cost the early annotation, which is the whole reason this step sits
-    # before the base install, plus a second code path for a base ref that is
-    # not `main`.
-    #
-    # WHAT WOULD ACTUALLY HELP IS A JOB BOUNDARY, not a second checkout inside
-    # this one. There is no boundary within a job: `setup-node-workspace` runs
-    # `npm ci` from the branch's own lockfile, with its own lifecycle scripts,
-    # as the same user, before any of these steps. A grading job of its own
-    # that never checks out or installs the candidate would be a real boundary
-    # and is reachable, because the records are already in S3 under SWEEP_ID.
-    # It needs the case lists and the manifests handed to it as DATA from a
-    # checkout that is never installed, which is a change to `sweep.ts` rather
-    # than to this file.
+    outputs:
+      # Everything both arms and the grading have to agree on. Secrets are
+      # never among these: GitHub drops an output that looks like one, so the
+      # Clerk session and the AWS credentials are re-minted per job instead.
+      sweep_id: ${{ steps.sweep_id.outputs.value }}
+      data_version: ${{ steps.mart.outputs.data_version }}
+      records_bucket: ${{ steps.records.outputs.bucket }}
+      metadata_bucket: ${{ steps.destination.outputs.metadata_bucket }}
+      artifact_bucket: ${{ steps.destination.outputs.artifact_bucket }}
+      dispatch_queue_url: ${{ steps.destination.outputs.dispatch_queue_url }}
+      attempts: ${{ steps.budget.outputs.attempts }}
+      max_cases: ${{ steps.budget.outputs.max_cases }}
+      admitted: ${{ steps.budget.outputs.admitted }}
+      refused: ${{ steps.budget.outputs.refused }}
+      extra_cases: ${{ steps.budget.outputs.extra_cases }}
+      agent_attempts: ${{ steps.budget.outputs.agent_attempts }}
+      arm_budget_ms: ${{ steps.budget.outputs.arm_budget_ms }}
+      org_slug: ${{ steps.identifiers.outputs.org_slug }}
+      race_id: ${{ steps.identifiers.outputs.race_id }}
+      user_email: ${{ steps.identifiers.outputs.user_email }}
     steps:
       # First, before the checkout and the workspace build. Without it the
       # missing key surfaces minutes in, several frames deep inside the SDK, on
@@ -1735,70 +1675,6 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
 
-      # ENG-11593. First thing after the workspace is built, before either
-      # arm spends, so its outputs are ready even on cancellation — the
-      # ledger-write step at the end of this job still has to carry the real
-      # floor/added/picker rather than nothing. No `continue-on-error`: a
-      # malformed `guard_context` is a bug in judge-guard.yml's own dispatch,
-      # and silently reading it as "not a guard sweep" would write no ledger
-      # line for a sweep that really did spend — failing here, before
-      # anything is billed, is cheap; failing silently later is not.
-      - name: Parse the guard context
-        id: guard_context
-        if: always()
-        working-directory: ${{ env.WORKSPACE }}
-        env:
-          GUARD_CONTEXT: ${{ inputs.guard_context }}
-        run: npx tsx src/chats/evals/judge/guard/parseGuardContextCli.ts
-
-      # ONE VERSION FOR BOTH ARMS, resolved here because here is the only place
-      # that can be. `pinDeltaVersion` rewrites the agent's SQL to
-      # `VERSION AS OF <n>` so a verdict cannot be an artifact of the voter
-      # data moving between the captures — and the captures are two processes
-      # in two checkouts, run one after the other, which on a full sweep is an
-      # hour or more apart. An arm that resolved "current" itself would
-      # therefore resolve a different version, which is worse than no pin: the
-      # arms would each report a version and they would not be the same one.
-      # So it is resolved once, outside both arm processes, published as a step
-      # output, and read by both.
-      #
-      # Before the base worktree and its second `npm ci`, so an unresolvable
-      # mart is annotated in the first two minutes of the job rather than
-      # twenty in. That position is also why it is not run from the base
-      # worktree, which on a PR targeting `main` is a reviewed checkout of
-      # `main` that is already installed: see the note above `steps:` for why
-      # the move would buy nothing anyway.
-      #
-      # IT DOES NOT FAIL THE SWEEP. Most agents never touch the mart, so
-      # killing a live sweep over an unpinnable table would be the wrong
-      # trade — but proceeding silently as though pinned would be worse. The
-      # resolver exits 0 with an empty stdout when it cannot resolve, this step
-      # turns that into a warning annotation and an empty output, the arms read
-      # an empty `JUDGE_DATA_VERSION` as "not pinned", and the report names
-      # every run that then queried the mart anyway.
-      # WHERE A BACKGROUND DISPATCH GOES, derived rather than configured.
-      #
-      # These are not credentials and they are not free-form: terraform names
-      # them `agent-experiment-metadata-${environment}`,
-      # `gp-agent-artifacts-${environment}` and
-      # `agent-dispatch-${environment}.fifo`. Putting them in repository
-      # variables would mean a human step on first use, a second place they
-      # can drift from terraform, and no review when one changes. The two
-      # buckets are therefore literals built from the same scheme, and the
-      # queue URL — the only one that needs the account id — is resolved from
-      # the queue NAME by the role this job already assumes.
-      #
-      # dev, hardcoded, because the judge override path is dev-only: the
-      # broker refuses it unless ENVIRONMENT is 'dev' and the dispatch Lambda
-      # refuses it again. A sweep that could name another environment could
-      # only name one that would refuse it.
-      #
-      # IT DOES NOT FAIL THE JOB. Most sweeps are chat-only and need none of
-      # this; `parseArmEnv` takes all three as optional and
-      # `backgroundDestinationFrom` refuses by name — listing every missing
-      # one at once — when a background agent is actually captured. So a
-      # resolution failure costs a background sweep and leaves a chat sweep
-      # working, which is the same trade the mart resolver makes above.
       # THE OTHER HALF OF `id-token: write`. The permission mints an OIDC
       # token; this is what exchanges it for credentials. Without it the job
       # holds a token nothing accepts, and every AWS call below fails with no
@@ -1814,16 +1690,15 @@ jobs:
       # thegoodparty/ops, deploy/components/ci-roles/policies.ts,
       # `githubActionsPullRequestJobs`.
       #
-      # continue-on-error, deliberately. A chat-only sweep needs no AWS at all,
-      # and failing the whole job here would turn "the judge role is not
-      # deployed yet" into "no sweep of any kind runs". When the exchange
-      # fails, the queue lookup below fails too, the warning fires, and a
-      # background agent is refused by name at capture before anything is
-      # staged or billed — which is the behaviour that warning already
-      # describes.
+      # NOT continue-on-error here. A chat-only sweep needs no AWS, but the
+      # two arms and the grading are OTHER JOBS now, and they read the records
+      # from the bucket; a sweep with no bucket is one that gets billed and
+      # cannot be judged. So this job fails, before anything spends, and the
+      # "Choose where records are kept" step names the role. The arms keep
+      # continue-on-error for their own AWS work — the queue lookup warns and
+      # a background agent is refused by name at capture.
       - name: Get credentials for staging and dispatching
         id: judge_credentials
-        continue-on-error: true
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
@@ -1876,49 +1751,74 @@ jobs:
       # gone. The role's KeepJudgeRecords grant covers exactly that prefix
       # (thegoodparty/ops `githubActionsPullRequestJobs`).
       #
-      # Written to $GITHUB_ENV as the ONE variable the judge processes read,
-      # never as both. The base arm runs the base ref's parser, which refuses
-      # a blank JUDGE_RECORDS_DIR rather than reading it as unset, so a step
-      # `env` that passed both with one empty would fail every base arm.
+      # ALWAYS S3, AND PREPARE FAILS WITHOUT IT. There used to be a fallback to
+      # a job-local directory for the case where the role was not assumed, and
+      # it was right while both arms and the grading shared one job: the
+      # records were read by the same runner that wrote them. Split into four
+      # jobs they are not — an arm's records are read by `grade` on a different
+      # runner — so a local directory is no longer a degraded mode but a sweep
+      # that cannot be graded after being billed for. Refused here, before
+      # anything spends, naming the role that has to be assumable.
       #
-      # Falls back to a job-local directory when the role was not assumed.
-      # The credentials step continues on error so a chat-only sweep still
-      # runs, and a bucket nobody can write to would turn that into a sweep
-      # that fails at its first record. The fallback says so: those records
-      # die with the job.
-      #
-      # Never an Actions artifact. omni is public, an artifact on a public
-      # repository is downloadable by anyone who can see the run, and a
-      # record carries the agent's whole answer and every SQL statement it
-      # ran against the constituent tables.
+      # Never an Actions artifact either way. omni is public, an artifact on a
+      # public repository is downloadable by anyone who can see the run, and a
+      # record carries the agent's whole answer and every SQL statement it ran
+      # against the constituent tables.
       - name: Choose where records are kept
+        id: records
         env:
           CREDENTIALS: ${{ steps.judge_credentials.outcome }}
         run: |
           set -euo pipefail
-          if [ "$CREDENTIALS" = success ]; then
-            echo "JUDGE_RECORDS_BUCKET=gp-agent-artifacts-dev" >> "$GITHUB_ENV"
-            echo "records for sweep $SWEEP_ID go in s3://gp-agent-artifacts-dev/_judge/$SWEEP_ID/"
-          else
-            echo "JUDGE_RECORDS_DIR=$RUNNER_TEMP/judge-records" >> "$GITHUB_ENV"
-            echo "::warning::the judge role was not assumed, so records for sweep $SWEEP_ID stay in this job and are lost when it ends"
+          if [ "$CREDENTIALS" != success ]; then
+            echo "::error::the AWS role github-actions-preview-deploy could not be assumed, so sweep $SWEEP_ID has nowhere to keep its records. Records always go to the private bucket and the grading job reads them from there, so a local directory is not a fallback. Check that the role is deployed and assumable by judge.yml on main (thegoodparty/ops, githubActionsPullRequestJobs)."
+            exit 1
           fi
+          echo "bucket=gp-agent-artifacts-dev" >> "$GITHUB_OUTPUT"
+          echo "records for sweep $SWEEP_ID go in s3://gp-agent-artifacts-dev/_judge/$SWEEP_ID/"
 
+      # WHERE A BACKGROUND DISPATCH GOES, derived rather than configured.
+      #
+      # These are not credentials and they are not free-form: terraform names
+      # them `agent-experiment-metadata-${environment}`,
+      # `gp-agent-artifacts-${environment}` and
+      # `agent-dispatch-${environment}.fifo`. Putting them in repository
+      # variables would mean a human step on first use, a second place they can
+      # drift from terraform, and no review when one changes. The two buckets
+      # are therefore literals built from the same scheme, and the queue URL —
+      # the only one that needs the account id — is resolved from the queue
+      # NAME by the role this job already assumes.
+      #
+      # dev, hardcoded, because the judge override path is dev-only: the broker
+      # refuses it unless ENVIRONMENT is 'dev' and the dispatch Lambda refuses
+      # it again. A sweep that could name another environment could only name
+      # one that would refuse it.
+      #
+      # IT DOES NOT FAIL THE JOB. Most sweeps are chat-only and need none of
+      # this; `parseArmEnv` takes all three as optional and
+      # `backgroundDestinationFrom` refuses by name — listing every missing one
+      # at once — when a background agent is actually captured. So a resolution
+      # failure costs a background sweep and leaves a chat sweep working.
+      #
+      # PUBLISHED AS OUTPUTS rather than written to $GITHUB_ENV, because the
+      # arms are other jobs now and $GITHUB_ENV does not cross one.
       - name: Resolve where a background dispatch goes
+        id: destination
         env:
           JUDGE_ENVIRONMENT: dev
         run: |
           set -euo pipefail
-          echo "JUDGE_METADATA_BUCKET=agent-experiment-metadata-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
-          echo "JUDGE_ARTIFACT_BUCKET=gp-agent-artifacts-$JUDGE_ENVIRONMENT" >> "$GITHUB_ENV"
+          echo "metadata_bucket=agent-experiment-metadata-$JUDGE_ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          echo "artifact_bucket=gp-agent-artifacts-$JUDGE_ENVIRONMENT" >> "$GITHUB_OUTPUT"
           queue="agent-dispatch-$JUDGE_ENVIRONMENT.fifo"
           # Keep the CLI's error: a refused lookup otherwise reads the same
           # whether the role, the queue or the permission is what is wrong.
           err="$(mktemp)"
           if url="$(aws sqs get-queue-url --queue-name "$queue" --output text --query QueueUrl 2>"$err")"; then
-            echo "JUDGE_DISPATCH_QUEUE_URL=$url" >> "$GITHUB_ENV"
+            echo "dispatch_queue_url=$url" >> "$GITHUB_OUTPUT"
             echo "background runs dispatch to $url"
           else
+            echo "dispatch_queue_url=" >> "$GITHUB_OUTPUT"
             echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries GitHubActionsPullRequestJobs (thegoodparty/ops). AWS said: $(tr '\n' ' ' < "$err")"
           fi
 
@@ -1966,10 +1866,9 @@ jobs:
             echo "both arms will read the voter mart at Delta version $version"
           fi
 
-      # THE SECOND CHECKOUT, and the reason the sweep is three processes
-      # rather than one. An arm is a worktree, and two worktrees are two
-      # module graphs — a single Node process cannot import both, so all of
-      # base runs, then all of candidate, then the judging reads both.
+      # THE BASE REF'S OWN CHECKOUT, and the reason an arm is a worktree
+      # rather than a flag. Two worktrees are two module graphs, so the base
+      # arm always runs from its own; one Node process cannot import both.
       #
       # Outside the repository tree, in RUNNER_TEMP. A worktree under
       # `.worktrees/` would sit inside this checkout, and npm's node_modules
@@ -2112,6 +2011,214 @@ jobs:
           fi
           cat "$out" >> "$GITHUB_OUTPUT"
 
+      - name: Publish the sweep id
+        id: sweep_id
+        run: echo "value=$SWEEP_ID" >> "$GITHUB_OUTPUT"
+
+
+  # ARM 1 OF 2, in a job of its own so it overlaps the candidate arm. The
+  # two are otherwise identical: one suite, two invocations, one record
+  # store, differing only in JUDGE_ARM, JUDGE_ARM_COMMIT and the directory.
+  base-arm:
+    name: Base Arm
+    needs: [plan, prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      # TO ASSUME THE AWS ROLE. Short-lived credentials from an OIDC exchange,
+      # never a stored key. Still no `pull-requests: write` — none of these
+      # jobs writes a comment.
+      id-token: write
+    # Keyed on the PR and this job's own name, and it CANCELS. See the
+    # note above `plan`.
+    concurrency:
+      group: judge-sweep-${{ inputs.pr_number || github.run_id }}-base-arm
+      cancel-in-progress: true
+    steps:
+      # DATABRICKS_HOST CARRIES A SCHEME and gp-api's hostname does not.
+      # `vars.DATABRICKS_HOST` is `https://dbc-....cloud.databricks.com`,
+      # which is the form the Python side wants; @databricks/sql prefixes
+      # `https://` itself, so passing it straight through produced
+      # `https://https//dbc-...` and `getaddrinfo EAI_AGAIN https`. The first
+      # live sweep ran unpinned because of it. Stripped once here rather than
+      # at each of the three steps that read it — GitHub expressions have no
+      # `replace`, so this is the only place it can be done once.
+      - name: Normalize the Databricks host
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+        run: |
+          set -euo pipefail
+          # Defaulted, because `set -u` is on and the variable is a
+          # repository setting this job does not control.
+          host="${DATABRICKS_HOST:-}"
+          host="${host#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+          # ANYTHING THAT IS NOT A HOSTNAME BECOMES EMPTY, which routes it
+          # into the warning below instead of into the rest of the job.
+          # `HTTPS://` and a leading space both survive the strips above and
+          # are non-empty, so a "did we get something" check would pass them
+          # through and reproduce the getaddrinfo failure this step exists to
+          # fix. A newline matters more than a wrong host: `%%/*` does not
+          # strip one, and $GITHUB_ENV is line-oriented, so a value carrying
+          # one would inject an arbitrary variable into every later step of
+          # this job — including the two that run the branch's own code.
+          case "$host" in
+            '' | *[!A-Za-z0-9.-]*) host='' ;;
+          esac
+          echo "DATABRICKS_SERVER_HOSTNAME=$host" >> "$GITHUB_ENV"
+          if [ -z "$host" ]; then
+            echo "::warning::DATABRICKS_HOST is empty or is not a hostname, so the voter mart cannot be pinned and any agent that queries it runs against the live table. The sweep continues; the report names the runs that queried it."
+          else
+            echo "gp-api will reach Databricks at $host"
+          fi
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.plan.outputs.candidate_sha }}
+          # Full history and every branch, unlike `plan` above. The runners
+          # compare two arms by checking the base ref out into a second
+          # worktree, so `origin/<base ref>` has to already be here — a shallow
+          # clone at the candidate SHA does not have it, and the credentials to
+          # go and get it are deliberately not persisted.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      # THE BASE REF'S OWN CHECKOUT, and the reason an arm is a worktree
+      # rather than a flag. Two worktrees are two module graphs, so the base
+      # arm always runs from its own; one Node process cannot import both.
+      #
+      # Outside the repository tree, in RUNNER_TEMP. A worktree under
+      # `.worktrees/` would sit inside this checkout, and npm's node_modules
+      # resolution walks upward: the base arm would silently resolve the
+      # CANDIDATE's built `contracts` and `nest-common`, which is the one
+      # thing the two arms must not share.
+      - name: Check out the base arm into its own worktree
+        id: base
+        env:
+          BASE_REF: ${{ needs.plan.outputs.base_ref }}
+        run: |
+          set -euo pipefail
+          base_dir="$RUNNER_TEMP/judge-base"
+
+          # Checked before `git worktree add`, which would otherwise fail with
+          # a bare "invalid reference". The checkout above uses
+          # `fetch-depth: 0` so every branch is here — and
+          # `persist-credentials: false`, so if one is missing this job cannot
+          # go and get it and the fix is upstream, not a retry.
+          if ! git rev-parse --verify --quiet "refs/remotes/origin/$BASE_REF" \
+            >/dev/null; then
+            echo "::error::origin/$BASE_REF is not in this checkout, so the base arm cannot be captured. The sweep checkout uses fetch-depth: 0 to bring every branch; if that changed, this is where it shows up."
+            exit 1
+          fi
+
+          git worktree add --detach "$base_dir" "origin/$BASE_REF"
+
+          # AND DOES THE BASE REF HAVE THE SUITE? `sweep_capable` upstream
+          # only ever looked at the candidate checkout, so it green-lit a
+          # live sweep on the strength of one of the two arms. A base ref
+          # that predates the harness — which `universal-judge` itself did
+          # while this was being built, and which any older base still does —
+          # would then take the "This is a live sweep. It starts now" comment,
+          # a second npm ci, contracts, nest-common, prisma and route-types,
+          # and die on "No test files found".
+          #
+          # Checked here rather than in `plan`, which has a shallow checkout
+          # at the candidate SHA and cannot see the base ref's tree at all.
+          # Before the install below, so the failure is cheap.
+          if ! git cat-file -e \
+            "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE" 2>/dev/null; then
+            echo "::error::origin/$BASE_REF does not carry $WORKSPACE/$SWEEP_SUITE, so the base arm cannot be captured and there is nothing to compare against. The judge has to be on both sides of a comparison: judge a PR whose base already has it, or merge the harness to $BASE_REF first."
+            exit 1
+          fi
+
+          # AND DOES THE BASE REF'S SUITE MOVE THE KEY INTO PLACE? See
+          # ARM_KEY_CALL at the top of this file. Without this the base arm
+          # spends its way through every case collecting authentication
+          # failures, the capture step fails red, and the candidate arm has
+          # already been billed in full for a sweep that can produce no
+          # verdict — every pair excluded as an infraError. Refused here, one
+          # step before the base install and two before the first dial, so it
+          # costs nothing. Grepped from the base ref's own blob rather than
+          # from the worktree, so it reads the same tree the arm will run.
+          if ! git cat-file -p "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE" \
+            2>/dev/null | grep -qF "$ARM_KEY_CALL"; then
+            echo "::error::origin/$BASE_REF's $SWEEP_SUITE does not call $ARM_KEY_CALL, so the base arm would authenticate with the stub key in .env.test and fail every turn — after the candidate arm had been billed. Judge a PR whose base carries the key handoff, or bring $BASE_REF up to date first."
+            exit 1
+          fi
+
+          # The base arm's commit is not in the plan's outputs and cannot be:
+          # only this worktree knows what `origin/<base ref>` resolved to. It
+          # goes on the record as `variant.commit`, so a verdict names the two
+          # commits it compared rather than a branch name that has since moved.
+          commit="$(git -C "$base_dir" rev-parse HEAD)"
+          {
+            echo "dir=$base_dir"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+          echo "base arm: origin/$BASE_REF at $commit"
+
+      # THE OTHER HALF OF `id-token: write`. The permission mints an OIDC
+      # token; this is what exchanges it for credentials. Without it the job
+      # holds a token nothing accepts, and every AWS call below fails with no
+      # credentials rather than with a denial.
+      #
+      # THE PULL-REQUEST ROLE, not `vars.AWS_ROLE_ARN`. That variable names
+      # github-actions-pulumi-deploy, which carries AdministratorAccess, and
+      # this job runs the pull request's own code with these credentials in
+      # its environment. So it is a pull-request job, whatever ref starts it,
+      # and it assumes github-actions-preview-deploy, which trusts judge.yml
+      # on main for exactly this. The grants it uses (stage under _judge/,
+      # send to the dev dispatch queue, keep records under _judge/) live in
+      # thegoodparty/ops, deploy/components/ci-roles/policies.ts,
+      # `githubActionsPullRequestJobs`.
+      #
+      # continue-on-error in both arms and in `grade`, so a chat-only sweep
+      # still runs when the role is not assumable — the queue lookup warns and
+      # a background agent is refused by name at capture, before anything is
+      # staged or billed. NOT in `prepare`, which reads the same outcome to
+      # decide where the records go: with the arms in other jobs there is no
+      # degraded answer, so `prepare` names the role and fails before anything
+      # spends.
+      - name: Get credentials for staging and dispatching
+        id: judge_credentials
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
+          role-session-name: judge-sweep-${{ github.run_id }}
+          aws-region: us-west-2
+          # LONGER THAN THE JOB, because this one waits rather than deploys.
+          # A background case dispatches a Fargate run and then polls S3 until
+          # the artifact lands, and the agents declare timeouts of up to an
+          # hour each. At the action's one-hour default the credentials expire
+          # mid-poll — after the dispatch, so the task keeps running and
+          # billing while the poll dies on an auth error the sweep records as
+          # an infraError. Paid for, then excluded from the comparison.
+          #
+          # Capped by the role's own max session duration, four hours, set in
+          # thegoodparty/ops for this job, which is why this cannot be raised
+          # here alone.
+          role-duration-seconds: 14400
+
+
+      # WHERE THE RECORDS GO, decided once by `prepare`. Written to
+      # $GITHUB_ENV rather than mapped in the capture step's `env`: the base
+      # ref's parser refuses a blank JUDGE_RECORDS_DIR, so a step env that
+      # passed both names with one empty would fail every base arm.
+      - name: Apply the sweep's record store
+        run: echo "JUDGE_RECORDS_BUCKET=${{ needs.prepare.outputs.records_bucket }}" >> "$GITHUB_ENV"
+
       # Mirrors setup-node-workspace, which cannot be pointed at another
       # directory. Every step the action runs that the base arm needs, run
       # there instead: its own install, its own contracts and nest-common
@@ -2178,9 +2285,15 @@ jobs:
       - name: Capture the base arm
         working-directory: ${{ steps.base.outputs.dir }}/${{ env.WORKSPACE }}
         env:
+          # WHERE A DISPATCH GOES, decided once by `prepare`. Mapped here
+          # rather than exported, because these three are read by the arm's
+          # own env schema and nothing else.
+          JUDGE_METADATA_BUCKET: ${{ needs.prepare.outputs.metadata_bucket }}
+          JUDGE_ARTIFACT_BUCKET: ${{ needs.prepare.outputs.artifact_bucket }}
+          JUDGE_DISPATCH_QUEUE_URL: ${{ needs.prepare.outputs.dispatch_queue_url }}
           JUDGE_ARM: base
           JUDGE_ARM_COMMIT: ${{ steps.base.outputs.commit }}
-          JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
+          JUDGE_SWEEP_ID: ${{ needs.prepare.outputs.sweep_id }}
           JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
           JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
@@ -2219,21 +2332,21 @@ jobs:
           # could not be reached, which `parseArmEnv` reads as "not pinned" —
           # the sweep then runs against the live mart and the report says so,
           # rather than a whole paid sweep dying over an unpinnable table.
-          JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_DATA_VERSION: ${{ needs.prepare.outputs.data_version }}
           JUDGE_ARM_RUNTIME: ${{ inputs.arm_runtime }}
           JUDGE_CLERK_SESSION_TOKEN: ${{ steps.clerk.outputs.judge_session_token }}
           JUDGE_CLERK_SESSION_EXPIRES_AT: ${{ steps.clerk.outputs.judge_session_expires_at }}
           JUDGE_TARGET_BASE_URL: ${{ inputs.arm_runtime == 'http' && 'https://gp-api-dev.goodparty.org' || '' }}
-          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
-          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
-          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
-          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
-          JUDGE_BACKGROUND_EXTRA_CASES: ${{ steps.budget.outputs.extra_cases }}
-          JUDGE_BACKGROUND_AGENT_ATTEMPTS: ${{ steps.budget.outputs.agent_attempts }}
-          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
-          JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
-          JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
-          JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
+          JUDGE_BACKGROUND_ATTEMPTS: ${{ needs.prepare.outputs.attempts }}
+          JUDGE_BACKGROUND_MAX_CASES: ${{ needs.prepare.outputs.max_cases }}
+          JUDGE_BACKGROUND_ADMITTED: ${{ needs.prepare.outputs.admitted }}
+          JUDGE_BACKGROUND_REFUSED: ${{ needs.prepare.outputs.refused }}
+          JUDGE_BACKGROUND_EXTRA_CASES: ${{ needs.prepare.outputs.extra_cases }}
+          JUDGE_BACKGROUND_AGENT_ATTEMPTS: ${{ needs.prepare.outputs.agent_attempts }}
+          JUDGE_ARM_BUDGET_MS: ${{ needs.prepare.outputs.arm_budget_ms }}
+          JUDGE_FIXTURE_ORG_SLUG: ${{ needs.prepare.outputs.org_slug }}
+          JUDGE_FIXTURE_RACE_ID: ${{ needs.prepare.outputs.race_id }}
+          JUDGE_FIXTURE_USER_EMAIL: ${{ needs.prepare.outputs.user_email }}
           # THE ROLE'S CREDENTIALS, under names `.env.test` does not define.
           # vitest applies that file over this environment, and it stubs
           # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, so the names the
@@ -2253,15 +2366,284 @@ jobs:
           # vitest, never tsx — see SWEEP_SUITE at the top of this file.
           npx vitest run "$SWEEP_SUITE"
 
-      # ARM 2 OF 2, in the checkout this job started in.
+  # ARM 2 OF 2, in the checkout this job starts in. It no longer runs
+  # after the base arm, so it does not wait for the base install; it does
+  # still make a base worktree of its own, because the Clerk mint must run
+  # from the reviewed base ref rather than from the pull request's code.
+  candidate-arm:
+    name: Candidate Arm
+    needs: [plan, prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      # TO ASSUME THE AWS ROLE. Short-lived credentials from an OIDC exchange,
+      # never a stored key. Still no `pull-requests: write` — none of these
+      # jobs writes a comment.
+      id-token: write
+    # Keyed on the PR and this job's own name, and it CANCELS. See the
+    # note above `plan`.
+    concurrency:
+      group: judge-sweep-${{ inputs.pr_number || github.run_id }}-candidate-arm
+      cancel-in-progress: true
+    steps:
+      # DATABRICKS_HOST CARRIES A SCHEME and gp-api's hostname does not.
+      # `vars.DATABRICKS_HOST` is `https://dbc-....cloud.databricks.com`,
+      # which is the form the Python side wants; @databricks/sql prefixes
+      # `https://` itself, so passing it straight through produced
+      # `https://https//dbc-...` and `getaddrinfo EAI_AGAIN https`. The first
+      # live sweep ran unpinned because of it. Stripped once here rather than
+      # at each of the three steps that read it — GitHub expressions have no
+      # `replace`, so this is the only place it can be done once.
+      - name: Normalize the Databricks host
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+        run: |
+          set -euo pipefail
+          # Defaulted, because `set -u` is on and the variable is a
+          # repository setting this job does not control.
+          host="${DATABRICKS_HOST:-}"
+          host="${host#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+          # ANYTHING THAT IS NOT A HOSTNAME BECOMES EMPTY, which routes it
+          # into the warning below instead of into the rest of the job.
+          # `HTTPS://` and a leading space both survive the strips above and
+          # are non-empty, so a "did we get something" check would pass them
+          # through and reproduce the getaddrinfo failure this step exists to
+          # fix. A newline matters more than a wrong host: `%%/*` does not
+          # strip one, and $GITHUB_ENV is line-oriented, so a value carrying
+          # one would inject an arbitrary variable into every later step of
+          # this job — including the two that run the branch's own code.
+          case "$host" in
+            '' | *[!A-Za-z0-9.-]*) host='' ;;
+          esac
+          echo "DATABRICKS_SERVER_HOSTNAME=$host" >> "$GITHUB_ENV"
+          if [ -z "$host" ]; then
+            echo "::warning::DATABRICKS_HOST is empty or is not a hostname, so the voter mart cannot be pinned and any agent that queries it runs against the live table. The sweep continues; the report names the runs that queried it."
+          else
+            echo "gp-api will reach Databricks at $host"
+          fi
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.plan.outputs.candidate_sha }}
+          # Full history and every branch, unlike `plan` above. The runners
+          # compare two arms by checking the base ref out into a second
+          # worktree, so `origin/<base ref>` has to already be here — a shallow
+          # clone at the candidate SHA does not have it, and the credentials to
+          # go and get it are deliberately not persisted.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      # THE BASE REF'S OWN CHECKOUT, and the reason an arm is a worktree
+      # rather than a flag. Two worktrees are two module graphs, so the base
+      # arm always runs from its own; one Node process cannot import both.
       #
-      # Sequential, not interleaved, and the report says so rather than
-      # claiming otherwise: each arm stamps its capture window and the report
-      # prints the gap between them, flagging a comparison whose arms are far
-      # apart. The TDD asks for "base, candidate, base, candidate" in time,
-      # which two worktrees cannot deliver.
+      # Outside the repository tree, in RUNNER_TEMP. A worktree under
+      # `.worktrees/` would sit inside this checkout, and npm's node_modules
+      # resolution walks upward: the base arm would silently resolve the
+      # CANDIDATE's built `contracts` and `nest-common`, which is the one
+      # thing the two arms must not share.
+      - name: Check out the base arm into its own worktree
+        id: base
+        env:
+          BASE_REF: ${{ needs.plan.outputs.base_ref }}
+        run: |
+          set -euo pipefail
+          base_dir="$RUNNER_TEMP/judge-base"
+
+          # Checked before `git worktree add`, which would otherwise fail with
+          # a bare "invalid reference". The checkout above uses
+          # `fetch-depth: 0` so every branch is here — and
+          # `persist-credentials: false`, so if one is missing this job cannot
+          # go and get it and the fix is upstream, not a retry.
+          if ! git rev-parse --verify --quiet "refs/remotes/origin/$BASE_REF" \
+            >/dev/null; then
+            echo "::error::origin/$BASE_REF is not in this checkout, so the base arm cannot be captured. The sweep checkout uses fetch-depth: 0 to bring every branch; if that changed, this is where it shows up."
+            exit 1
+          fi
+
+          git worktree add --detach "$base_dir" "origin/$BASE_REF"
+
+          # AND DOES THE BASE REF HAVE THE SUITE? `sweep_capable` upstream
+          # only ever looked at the candidate checkout, so it green-lit a
+          # live sweep on the strength of one of the two arms. A base ref
+          # that predates the harness — which `universal-judge` itself did
+          # while this was being built, and which any older base still does —
+          # would then take the "This is a live sweep. It starts now" comment,
+          # a second npm ci, contracts, nest-common, prisma and route-types,
+          # and die on "No test files found".
+          #
+          # Checked here rather than in `plan`, which has a shallow checkout
+          # at the candidate SHA and cannot see the base ref's tree at all.
+          # Before the install below, so the failure is cheap.
+          if ! git cat-file -e \
+            "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE" 2>/dev/null; then
+            echo "::error::origin/$BASE_REF does not carry $WORKSPACE/$SWEEP_SUITE, so the base arm cannot be captured and there is nothing to compare against. The judge has to be on both sides of a comparison: judge a PR whose base already has it, or merge the harness to $BASE_REF first."
+            exit 1
+          fi
+
+          # AND DOES THE BASE REF'S SUITE MOVE THE KEY INTO PLACE? See
+          # ARM_KEY_CALL at the top of this file. Without this the base arm
+          # spends its way through every case collecting authentication
+          # failures, the capture step fails red, and the candidate arm has
+          # already been billed in full for a sweep that can produce no
+          # verdict — every pair excluded as an infraError. Refused here, one
+          # step before the base install and two before the first dial, so it
+          # costs nothing. Grepped from the base ref's own blob rather than
+          # from the worktree, so it reads the same tree the arm will run.
+          if ! git cat-file -p "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE" \
+            2>/dev/null | grep -qF "$ARM_KEY_CALL"; then
+            echo "::error::origin/$BASE_REF's $SWEEP_SUITE does not call $ARM_KEY_CALL, so the base arm would authenticate with the stub key in .env.test and fail every turn — after the candidate arm had been billed. Judge a PR whose base carries the key handoff, or bring $BASE_REF up to date first."
+            exit 1
+          fi
+
+          # The base arm's commit is not in the plan's outputs and cannot be:
+          # only this worktree knows what `origin/<base ref>` resolved to. It
+          # goes on the record as `variant.commit`, so a verdict names the two
+          # commits it compared rather than a branch name that has since moved.
+          commit="$(git -C "$base_dir" rev-parse HEAD)"
+          {
+            echo "dir=$base_dir"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+          echo "base arm: origin/$BASE_REF at $commit"
+
+      # THE OTHER HALF OF `id-token: write`. The permission mints an OIDC
+      # token; this is what exchanges it for credentials. Without it the job
+      # holds a token nothing accepts, and every AWS call below fails with no
+      # credentials rather than with a denial.
+      #
+      # THE PULL-REQUEST ROLE, not `vars.AWS_ROLE_ARN`. That variable names
+      # github-actions-pulumi-deploy, which carries AdministratorAccess, and
+      # this job runs the pull request's own code with these credentials in
+      # its environment. So it is a pull-request job, whatever ref starts it,
+      # and it assumes github-actions-preview-deploy, which trusts judge.yml
+      # on main for exactly this. The grants it uses (stage under _judge/,
+      # send to the dev dispatch queue, keep records under _judge/) live in
+      # thegoodparty/ops, deploy/components/ci-roles/policies.ts,
+      # `githubActionsPullRequestJobs`.
+      #
+      # continue-on-error in both arms and in `grade`, so a chat-only sweep
+      # still runs when the role is not assumable — the queue lookup warns and
+      # a background agent is refused by name at capture, before anything is
+      # staged or billed. NOT in `prepare`, which reads the same outcome to
+      # decide where the records go: with the arms in other jobs there is no
+      # degraded answer, so `prepare` names the role and fails before anything
+      # spends.
+      - name: Get credentials for staging and dispatching
+        id: judge_credentials
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
+          role-session-name: judge-sweep-${{ github.run_id }}
+          aws-region: us-west-2
+          # LONGER THAN THE JOB, because this one waits rather than deploys.
+          # A background case dispatches a Fargate run and then polls S3 until
+          # the artifact lands, and the agents declare timeouts of up to an
+          # hour each. At the action's one-hour default the credentials expire
+          # mid-poll — after the dispatch, so the task keeps running and
+          # billing while the poll dies on an auth error the sweep records as
+          # an infraError. Paid for, then excluded from the comparison.
+          #
+          # Capped by the role's own max session duration, four hours, set in
+          # thegoodparty/ops for this job, which is why this cannot be raised
+          # here alone.
+          role-duration-seconds: 14400
+
+
+      # WHERE THE RECORDS GO, decided once by `prepare`. Written to
+      # $GITHUB_ENV rather than mapped in the capture step's `env`: the base
+      # ref's parser refuses a blank JUDGE_RECORDS_DIR, so a step env that
+      # passed both names with one empty would fail every base arm.
+      - name: Apply the sweep's record store
+        run: echo "JUDGE_RECORDS_BUCKET=${{ needs.prepare.outputs.records_bucket }}" >> "$GITHUB_ENV"
+
+      # THE BASE WORKTREE'S WORKSPACE, installed only when the Clerk mint needs
+      # it. This job captures the CANDIDATE and builds nothing from the base
+      # ref; the mint is the one step that runs the base ref's code, and it
+      # runs there because that code is reviewed. `if: http` because the mint
+      # is http-only, and an install nobody reads is fifteen minutes.
+      - name: Install the base arm's workspace
+        if: inputs.arm_runtime == 'http'
+        working-directory: ${{ steps.base.outputs.dir }}
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --no-fund
+          npm run build -w packages/contracts
+          npm run build -w packages/nest-common
+          # Same retry as the action's generate: a base arm on another Prisma
+          # version misses the engine cache it restored and downloads.
+          for attempt in 1 2 3; do
+            if npm run generate:prisma:gp-api; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::prisma generate failed after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::prisma generate attempt $attempt failed; retrying"
+            sleep $((attempt * 15))
+          done
+          (cd "$WORKSPACE" && npx tsx scripts/generate-route-types.ts)
+
+      # HTTP ARMS ONLY. Mints the one Clerk session both arms present to the
+      # deployed targets.
+      #
+      # IT RUNS FROM THE BASE WORKTREE, not from ${{ env.WORKSPACE }}. That
+      # directory is the pull request's own code, and this step holds a key
+      # that mints a session for ANY user in the dev instance. The base
+      # worktree is `origin/<base ref>`, which on a PR targeting main is a
+      # reviewed checkout. That is the best boundary available inside this
+      # job and not a perfect one — setup-node-workspace has already run
+      # `npm ci` from the branch's lockfile with its lifecycle scripts — and
+      # the step is shaped to move into a job of its own unchanged, taking
+      # two inputs and producing two outputs.
+      #
+      # The token goes to a file rather than stdout, so the single line it
+      # reaches a log stream on is the one `::add-mask::` redacts at source.
+      # The file is removed in the same step whether or not the mask lands.
+      - name: Mint the judge's Clerk session
+        id: clerk
+        if: inputs.arm_runtime == 'http'
+        working-directory: ${{ steps.base.outputs.dir }}/packages/gp-api
+        env:
+          JUDGE_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          # Optional. Unset, the step finds the judge's account by email and
+          # creates it if it is not there, so nothing waits on a person.
+          JUDGE_CLERK_USER_ID: ${{ vars.JUDGE_CLERK_USER_ID }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/judge-clerk"
+          trap 'rm -f "$out"' EXIT
+          npx tsx src/chats/evals/judge/judgeClerkSession.ts "$out"
+          echo "::add-mask::$(sed -n 's/^judge_session_token=//p' "$out")"
+          cat "$out" >> "$GITHUB_OUTPUT"
+
+      # ARM 2 OF 2, in the checkout this job started in, and it runs BESIDE
+      # the base arm rather than after it.
+      #
+      # The report still prints the distance between the two capture windows
+      # and flags a pair that is far apart, because overlapping in wall clock
+      # does not make the two one measurement: each arm is still its own
+      # process against its own checkout, so whatever moved during the overlap
+      # moved for both arms rather than for neither. The TDD's "base,
+      # candidate, base, candidate" alternation is still not deliverable, for
+      # the module-graph reason README.md gives.
+      #
       # HTTP ARMS ONLY, and the reason this job cannot simply assume a
-      # preview exists: the sweep job needs only `plan`, so nothing here has
+      # preview exists: `candidate-arm` needs only `prepare`, so nothing here has
       # waited for the gp-api preview workflow. A candidate arm pointed at a
       # preview that is absent, still rolling, or still serving the previous
       # commit would compare the branch against itself and report it as a
@@ -2310,9 +2692,15 @@ jobs:
       - name: Capture the candidate arm
         working-directory: ${{ env.WORKSPACE }}
         env:
+          # WHERE A DISPATCH GOES, decided once by `prepare`. Mapped here
+          # rather than exported, because these three are read by the arm's
+          # own env schema and nothing else.
+          JUDGE_METADATA_BUCKET: ${{ needs.prepare.outputs.metadata_bucket }}
+          JUDGE_ARTIFACT_BUCKET: ${{ needs.prepare.outputs.artifact_bucket }}
+          JUDGE_DISPATCH_QUEUE_URL: ${{ needs.prepare.outputs.dispatch_queue_url }}
           JUDGE_ARM: candidate
           JUDGE_ARM_COMMIT: ${{ needs.plan.outputs.candidate_sha }}
-          JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
+          JUDGE_SWEEP_ID: ${{ needs.prepare.outputs.sweep_id }}
           JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
           JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
@@ -2328,21 +2716,21 @@ jobs:
           # The same step output the base arm read, and it HAS to be the same
           # expression: two arms on different versions is worse than two arms
           # on none, because each would report a pin nothing held.
-          JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_DATA_VERSION: ${{ needs.prepare.outputs.data_version }}
           JUDGE_ARM_RUNTIME: ${{ inputs.arm_runtime }}
           JUDGE_CLERK_SESSION_TOKEN: ${{ steps.clerk.outputs.judge_session_token }}
           JUDGE_CLERK_SESSION_EXPIRES_AT: ${{ steps.clerk.outputs.judge_session_expires_at }}
           JUDGE_TARGET_BASE_URL: ${{ inputs.arm_runtime == 'http' && format('https://pr-{0}.preview.goodparty.org', inputs.pr_number) || '' }}
-          JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
-          JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
-          JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
-          JUDGE_BACKGROUND_REFUSED: ${{ steps.budget.outputs.refused }}
-          JUDGE_BACKGROUND_EXTRA_CASES: ${{ steps.budget.outputs.extra_cases }}
-          JUDGE_BACKGROUND_AGENT_ATTEMPTS: ${{ steps.budget.outputs.agent_attempts }}
-          JUDGE_ARM_BUDGET_MS: ${{ steps.budget.outputs.arm_budget_ms }}
-          JUDGE_FIXTURE_ORG_SLUG: ${{ steps.identifiers.outputs.org_slug }}
-          JUDGE_FIXTURE_RACE_ID: ${{ steps.identifiers.outputs.race_id }}
-          JUDGE_FIXTURE_USER_EMAIL: ${{ steps.identifiers.outputs.user_email }}
+          JUDGE_BACKGROUND_ATTEMPTS: ${{ needs.prepare.outputs.attempts }}
+          JUDGE_BACKGROUND_MAX_CASES: ${{ needs.prepare.outputs.max_cases }}
+          JUDGE_BACKGROUND_ADMITTED: ${{ needs.prepare.outputs.admitted }}
+          JUDGE_BACKGROUND_REFUSED: ${{ needs.prepare.outputs.refused }}
+          JUDGE_BACKGROUND_EXTRA_CASES: ${{ needs.prepare.outputs.extra_cases }}
+          JUDGE_BACKGROUND_AGENT_ATTEMPTS: ${{ needs.prepare.outputs.agent_attempts }}
+          JUDGE_ARM_BUDGET_MS: ${{ needs.prepare.outputs.arm_budget_ms }}
+          JUDGE_FIXTURE_ORG_SLUG: ${{ needs.prepare.outputs.org_slug }}
+          JUDGE_FIXTURE_RACE_ID: ${{ needs.prepare.outputs.race_id }}
+          JUDGE_FIXTURE_USER_EMAIL: ${{ needs.prepare.outputs.user_email }}
           # The role's credentials under the arm names — see the base arm.
           JUDGE_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
           JUDGE_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
@@ -2350,6 +2738,194 @@ jobs:
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"
+
+  # THE GRADING. It reads both arms' stored records and the two checkouts,
+  # so it needs the candidate checkout, the base worktree beside it and the
+  # role (the guard trailer and the ledger line both read S3).
+  grade:
+    name: Grade
+    needs: [plan, prepare, base-arm, candidate-arm]
+    # RUNS EVEN WHEN AN ARM FAILED, because by then the money was spent. One
+    # flaky turn fails a capture job, and under the default `success()` this
+    # job would be skipped — both arms billed and no verdict at all. Not
+    # `always()`: a cancelled sweep must stop spending, and the grading calls
+    # the panel.
+    #
+    # `needs.prepare.result == 'success'` is what keeps that from going too
+    # far. `!cancelled()` is a status function, so it turns the default
+    # `success()` off for every job in `needs` — which without this line would
+    # run the grading on a plan-only request, where `prepare` never ran and
+    # every output is empty.
+    if: >-
+      !cancelled()
+      && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # TO ASSUME THE AWS ROLE. Short-lived credentials from an OIDC exchange,
+      # never a stored key. Still no `pull-requests: write` — none of these
+      # jobs writes a comment.
+      id-token: write
+    # Keyed on the PR and this job's own name, and it CANCELS. See the
+    # note above `plan`.
+    concurrency:
+      group: judge-sweep-${{ inputs.pr_number || github.run_id }}-grade
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.plan.outputs.candidate_sha }}
+          # Full history and every branch, unlike `plan` above. The runners
+          # compare two arms by checking the base ref out into a second
+          # worktree, so `origin/<base ref>` has to already be here — a shallow
+          # clone at the candidate SHA does not have it, and the credentials to
+          # go and get it are deliberately not persisted.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      # ENG-11593. First thing after the workspace is built, before either
+      # arm spends, so its outputs are ready even on cancellation — the
+      # ledger-write step at the end of this job still has to carry the real
+      # floor/added/picker rather than nothing. No `continue-on-error`: a
+      # malformed `guard_context` is a bug in judge-guard.yml's own dispatch,
+      # and silently reading it as "not a guard sweep" would write no ledger
+      # line for a sweep that really did spend — failing here, before
+      # anything is billed, is cheap; failing silently later is not.
+      - name: Parse the guard context
+        id: guard_context
+        if: always()
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          GUARD_CONTEXT: ${{ inputs.guard_context }}
+        run: npx tsx src/chats/evals/judge/guard/parseGuardContextCli.ts
+
+      # THE OTHER HALF OF `id-token: write`. The permission mints an OIDC
+      # token; this is what exchanges it for credentials. Without it the job
+      # holds a token nothing accepts, and every AWS call below fails with no
+      # credentials rather than with a denial.
+      #
+      # THE PULL-REQUEST ROLE, not `vars.AWS_ROLE_ARN`. That variable names
+      # github-actions-pulumi-deploy, which carries AdministratorAccess, and
+      # this job runs the pull request's own code with these credentials in
+      # its environment. So it is a pull-request job, whatever ref starts it,
+      # and it assumes github-actions-preview-deploy, which trusts judge.yml
+      # on main for exactly this. The grants it uses (stage under _judge/,
+      # send to the dev dispatch queue, keep records under _judge/) live in
+      # thegoodparty/ops, deploy/components/ci-roles/policies.ts,
+      # `githubActionsPullRequestJobs`.
+      #
+      # continue-on-error in both arms and in `grade`, so a chat-only sweep
+      # still runs when the role is not assumable — the queue lookup warns and
+      # a background agent is refused by name at capture, before anything is
+      # staged or billed. NOT in `prepare`, which reads the same outcome to
+      # decide where the records go: with the arms in other jobs there is no
+      # degraded answer, so `prepare` names the role and fails before anything
+      # spends.
+      - name: Get credentials for staging and dispatching
+        id: judge_credentials
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
+          role-session-name: judge-sweep-${{ github.run_id }}
+          aws-region: us-west-2
+          # LONGER THAN THE JOB, because this one waits rather than deploys.
+          # A background case dispatches a Fargate run and then polls S3 until
+          # the artifact lands, and the agents declare timeouts of up to an
+          # hour each. At the action's one-hour default the credentials expire
+          # mid-poll — after the dispatch, so the task keeps running and
+          # billing while the poll dies on an auth error the sweep records as
+          # an infraError. Paid for, then excluded from the comparison.
+          #
+          # Capped by the role's own max session duration, four hours, set in
+          # thegoodparty/ops for this job, which is why this cannot be raised
+          # here alone.
+          role-duration-seconds: 14400
+
+
+      # THE BASE REF'S OWN CHECKOUT, and the reason an arm is a worktree
+      # rather than a flag. Two worktrees are two module graphs, so the base
+      # arm always runs from its own; one Node process cannot import both.
+      #
+      # Outside the repository tree, in RUNNER_TEMP. A worktree under
+      # `.worktrees/` would sit inside this checkout, and npm's node_modules
+      # resolution walks upward: the base arm would silently resolve the
+      # CANDIDATE's built `contracts` and `nest-common`, which is the one
+      # thing the two arms must not share.
+      - name: Check out the base arm into its own worktree
+        id: base
+        env:
+          BASE_REF: ${{ needs.plan.outputs.base_ref }}
+        run: |
+          set -euo pipefail
+          base_dir="$RUNNER_TEMP/judge-base"
+
+          # Checked before `git worktree add`, which would otherwise fail with
+          # a bare "invalid reference". The checkout above uses
+          # `fetch-depth: 0` so every branch is here — and
+          # `persist-credentials: false`, so if one is missing this job cannot
+          # go and get it and the fix is upstream, not a retry.
+          if ! git rev-parse --verify --quiet "refs/remotes/origin/$BASE_REF" \
+            >/dev/null; then
+            echo "::error::origin/$BASE_REF is not in this checkout, so the base arm cannot be captured. The sweep checkout uses fetch-depth: 0 to bring every branch; if that changed, this is where it shows up."
+            exit 1
+          fi
+
+          git worktree add --detach "$base_dir" "origin/$BASE_REF"
+
+          # AND DOES THE BASE REF HAVE THE SUITE? `sweep_capable` upstream
+          # only ever looked at the candidate checkout, so it green-lit a
+          # live sweep on the strength of one of the two arms. A base ref
+          # that predates the harness — which `universal-judge` itself did
+          # while this was being built, and which any older base still does —
+          # would then take the "This is a live sweep. It starts now" comment,
+          # a second npm ci, contracts, nest-common, prisma and route-types,
+          # and die on "No test files found".
+          #
+          # Checked here rather than in `plan`, which has a shallow checkout
+          # at the candidate SHA and cannot see the base ref's tree at all.
+          # Before the install below, so the failure is cheap.
+          if ! git cat-file -e \
+            "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE" 2>/dev/null; then
+            echo "::error::origin/$BASE_REF does not carry $WORKSPACE/$SWEEP_SUITE, so the base arm cannot be captured and there is nothing to compare against. The judge has to be on both sides of a comparison: judge a PR whose base already has it, or merge the harness to $BASE_REF first."
+            exit 1
+          fi
+
+          # AND DOES THE BASE REF'S SUITE MOVE THE KEY INTO PLACE? See
+          # ARM_KEY_CALL at the top of this file. Without this the base arm
+          # spends its way through every case collecting authentication
+          # failures, the capture step fails red, and the candidate arm has
+          # already been billed in full for a sweep that can produce no
+          # verdict — every pair excluded as an infraError. Refused here, one
+          # step before the base install and two before the first dial, so it
+          # costs nothing. Grepped from the base ref's own blob rather than
+          # from the worktree, so it reads the same tree the arm will run.
+          if ! git cat-file -p "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE" \
+            2>/dev/null | grep -qF "$ARM_KEY_CALL"; then
+            echo "::error::origin/$BASE_REF's $SWEEP_SUITE does not call $ARM_KEY_CALL, so the base arm would authenticate with the stub key in .env.test and fail every turn — after the candidate arm had been billed. Judge a PR whose base carries the key handoff, or bring $BASE_REF up to date first."
+            exit 1
+          fi
+
+          # The base arm's commit is not in the plan's outputs and cannot be:
+          # only this worktree knows what `origin/<base ref>` resolved to. It
+          # goes on the record as `variant.commit`, so a verdict names the two
+          # commits it compared rather than a branch name that has since moved.
+          commit="$(git -C "$base_dir" rev-parse HEAD)"
+          {
+            echo "dir=$base_dir"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+          echo "base arm: origin/$BASE_REF at $commit"
 
       # STEP 3: the verdict. Under tsx, not vitest, because it needs no
       # `useTestService()` — it reads both arms' stored records and runs pure
@@ -2378,7 +2954,7 @@ jobs:
         if: '!cancelled()'
         working-directory: ${{ env.WORKSPACE }}
         env:
-          JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
+          JUDGE_SWEEP_ID: ${{ needs.prepare.outputs.sweep_id }}
           JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
           # Who asked for these agents, and THE STEP THAT ACTS ON IT: the arms
@@ -2414,6 +2990,16 @@ jobs:
           mkdir -p "$(dirname "$REPORT_FILE")"
           trap 'cp "$GITHUB_STEP_SUMMARY" "$REPORT_FILE" 2>/dev/null || true' EXIT
           npx tsx "$JUDGING_ENTRY"
+
+      # WHERE THE RECORDS AND THE GUARD LEDGER LIVE, for the three bookkeeping
+      # steps below. `prepare` decided it once for the whole sweep. Written to
+      # $GITHUB_ENV here rather than mapped per step, which is the shape
+      # judgeWorkflow.test.ts forbids for the arms and permits for these: the
+      # guard CLIs read it from the job environment themselves, and one of them
+      # runs on `always()` where a step that had not run would leave a step env
+      # entry resolving to nothing anyway.
+      - name: Choose where records are kept
+        run: echo "JUDGE_RECORDS_BUCKET=${{ needs.prepare.outputs.records_bucket }}" >> "$GITHUB_ENV"
 
       # ENG-11593, guard sweeps only. Reads report.md's own agent headings
       # back into `agentId:OUTCOME` pairs (for the ledger line's `verdicts`
@@ -2584,9 +3170,9 @@ jobs:
 
   # ENG-11594: `/judge agree` / `/judge dispute <reason>`. The ONE job that
   # runs for a ruling call (inputs.ruling_kind != ''), while `plan` above
-  # skips itself for the same input and takes `sweep`/`verdict` with it (see
+  # skips itself for the same input and takes the whole sweep chain with it (see
   # `plan`'s own `if:`). A ruling checks out no PR code and calls no model —
-  # it mutates one existing line in the same guard ledger `sweep` appends to
+  # it mutates one existing line in the same guard ledger `grade` appends to
   # — so none of the plan/sweep/verdict machinery applies to it. Lives above
   # `verdict` on purpose: that job's own test slices the file from
   # `verdict:` to the end and asserts no checkout and no `npx` appear in that
@@ -2606,7 +3192,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write # to assume the pull-request AWS role, same as `sweep`
+      id-token: write # to assume the pull-request AWS role, same as `grade`
     outputs:
       cli_outcome: ${{ steps.record.outputs.outcome }}
       cli_message: ${{ steps.record.outputs.message }}
@@ -2630,7 +3216,7 @@ jobs:
           fi
           echo "head_sha=$sha" >> "$GITHUB_OUTPUT"
 
-      # Same role as the sweep job's own credentials step, for the same
+      # Same role as the grading job's own credentials step, for the same
       # prefix (`_judge/guard/`, under the `_judge/` the role's
       # KeepJudgeRecords grants) — but NOT `continue-on-error`, unlike there: a chat-only
       # sweep still has useful work to do with no AWS at all, while a ruling
@@ -2658,7 +3244,7 @@ jobs:
       # WHERE THE RULING IS RECORDED — the same bucket and prefix the sweep
       # job's own "Choose where records are kept" step chooses, kept as a
       # separate step rather than mapped in "Record the ruling"'s own `env`:
-      # $GITHUB_ENV is job-scoped, so the sweep job's export never reaches
+      # $GITHUB_ENV is job-scoped, so `prepare`'s export never reaches
       # this job, and a step env mapping the variable directly is exactly
       # the shape the workflow tests forbid (judgeWorkflow.test.ts: "leaves
       # no step mapping a records variable itself").
@@ -2674,7 +3260,7 @@ jobs:
           RULING_KIND: ${{ inputs.ruling_kind }}
           RULING_REASON: ${{ inputs.ruling_reason }}
           # Remapped from configure-aws-credentials' own names to the names
-          # judgeAwsClientConfig() reads — same remapping the sweep job's
+          # judgeAwsClientConfig() reads — same remapping the grading job's
           # ledger-write step does, and for the same reason: .env.test stubs
           # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, so this CLI's S3 client
           # reads a name `.env.test` never touches.
@@ -2687,14 +3273,18 @@ jobs:
   # THE VERDICT ON THE THREAD. A separate job because the sweep runs the
   # branch's own code with the Anthropic key and so holds no token that can
   # write to pull requests. This one checks out nothing and runs no code from
-  # the branch: it reads the report the judging step saved and posts it, or
+  # the branch: it reads the report the grading step saved and posts it, or
   # says the sweep ended without one.
+  #
+  # KEYED ON `grade`, which is the job that writes the report. It needs `plan`
+  # and `prepare` as well so their results are in hand for the `if:` below —
+  # `needs.<job>.result` is only readable for a job this one declares.
   verdict:
     name: Post the verdict
-    needs: [plan, sweep]
+    needs: [plan, prepare, grade]
     if: >-
       always()
-      && needs.sweep.result != 'skipped'
+      && needs.grade.result != 'skipped'
       && inputs.pr_number != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2712,7 +3302,7 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
-          SWEEP_RESULT: ${{ needs.sweep.result }}
+          SWEEP_RESULT: ${{ needs.grade.result }}
           REPORT_PATH: ${{ runner.temp }}/judge-report/report.md
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
@@ -2788,7 +3378,7 @@ jobs:
   # ENG-11594: `/judge agree` / `/judge dispute <reason>`. The reply half of
   # the ruling call (inputs.ruling_kind != ''): posts the one comment a
   # person asked for by reading the `ruling` job's outputs. Split from the
-  # job that does the recording so that job (defined between `sweep` and
+  # job that does the recording so that job (defined between `grade` and
   # `verdict`, with its own checkout of `main` to run the CLI) never has to
   # live after `verdict` — the "verdict job checks out nothing" invariant is
   # enforced on everything from `verdict:` to the end of this file, so a job

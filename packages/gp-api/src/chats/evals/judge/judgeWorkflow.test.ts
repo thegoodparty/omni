@@ -120,6 +120,39 @@ const stepsOf = (yaml: string): Step[] => {
   }))
 }
 
+// ONE JOB'S TEXT, from its `  name:` line to the next job's. The sweep is four
+// jobs now (`prepare`, `base-arm`, `candidate-arm`, `grade`), so a slice from
+// one job's name to the end of the file would swallow the others — which was
+// how these scans read the single `sweep` job they replaced.
+// The first credentials step in the file, which is `prepare`'s. Kept as a
+// helper rather than a slice because the jobs are read by name now.
+const credentialsIn = (yaml: string): Step | undefined =>
+  stepsOf(yaml).find((step) =>
+    step.name.startsWith('Get credentials for staging'),
+  )
+
+// The two arm jobs, named once. Both run the same suite against different
+// checkouts, so every assertion about "both arms" is about these two.
+const ARMS = ['base-arm', 'candidate-arm']
+
+const JOB_NAMES = [
+  'plan',
+  'prepare',
+  'base-arm',
+  'candidate-arm',
+  'grade',
+  'ruling',
+  'verdict',
+  'ruling-reply',
+]
+const jobOf = (yaml: string, name: string): string => {
+  const at = yaml.indexOf(`\n  ${name}:\n`)
+  if (at < 0) throw new Error(`judge.yml has no job named "${name}"`)
+  const later = JOB_NAMES.map((other) => yaml.indexOf(`\n  ${other}:\n`, at + 1))
+    .filter((index) => index > at)
+  return yaml.slice(at, later.length === 0 ? undefined : Math.min(...later))
+}
+
 describe('judge.yml spend switches', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const steps = stepsOf(yaml)
@@ -308,10 +341,10 @@ describe('judge.yml pins both arms to one voter-mart version', () => {
     const values = arms.map((arm) => envValue(arm.body, 'JUDGE_DATA_VERSION'))
     expect(values).toHaveLength(2)
     for (const value of values) {
-      // A step output, which is the only shape resolved outside the arms. A
-      // literal or a `vars.` reference here would mean nobody looked the
-      // version up for this sweep.
-      expect(value).toMatch(/^\$\{\{ steps\.\w+\.outputs\.\w+ \}\}$/)
+      // A job output, which is the only shape resolved outside the arms now
+      // that they are jobs of their own. A literal or a `vars.` reference here
+      // would mean nobody looked the version up for this sweep.
+      expect(value).toMatch(/^\$\{\{ needs\.prepare\.outputs\.\w+ \}\}$/)
     }
     expect(new Set(values).size).toBe(1)
   })
@@ -574,61 +607,87 @@ describe('judge.yml normalizes the Databricks host', () => {
   })
 })
 
-// RECORDS GO TO THE PRIVATE BUCKET, through ONE variable. The base arm runs
-// the base ref's parser, which refuses a blank JUDGE_RECORDS_DIR, so the
-// choice is written to $GITHUB_ENV rather than mapped in each step's `env`
-// with one side empty. Run as the step's own bash, both ways.
+// RECORDS ALWAYS GO TO THE PRIVATE BUCKET, and `prepare` FAILS WITHOUT IT.
+// There is no local fallback any more: an arm job writes the records and the
+// grading job reads them on a different runner, so a job-local directory is
+// not a degraded mode but a sweep that gets billed and cannot be graded.
+// Run as the step's own bash, both ways.
 describe('judge.yml keeps records in the private bucket', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
-  const steps = stepsOf(yaml)
+  const prepareJob = jobOf(yaml, 'prepare')
+  const steps = stepsOf(prepareJob)
   const names = steps.map((step) => step.name)
   const choose = steps.find(
     (step) => step.name === 'Choose where records are kept',
   )
-  const run = (credentials: string): { env: string; stdout: string } => {
+  const run = (
+    credentials: string,
+  ): { outputs: string; stdout: string; status: number } => {
     const script = runBlockOf(choose?.body ?? '')
     expect(script.split('\n')[0]).toBe('set -euo pipefail')
     const dir = mkdtempSync(path.join(tmpdir(), 'judge-records-'))
-    const envFile = path.join(dir, 'github-env')
-    writeFileSync(envFile, '')
-    const stdout = execFileSync('bash', ['-c', script], {
-      env: {
-        ...process.env,
-        CREDENTIALS: credentials,
-        GITHUB_ENV: envFile,
-        RUNNER_TEMP: dir,
-        SWEEP_ID: 'judge-1-1',
-      },
-      encoding: 'utf8',
-    })
-    return { env: readFileSync(envFile, 'utf8').trim(), stdout }
+    const output = path.join(dir, 'github-output')
+    writeFileSync(output, '')
+    let status = 0
+    let stdout = ''
+    try {
+      stdout = execFileSync('bash', ['-c', script], {
+        env: {
+          ...process.env,
+          CREDENTIALS: credentials,
+          GITHUB_OUTPUT: output,
+          RUNNER_TEMP: dir,
+          SWEEP_ID: 'judge-1-1',
+        },
+        encoding: 'utf8',
+      })
+    } catch (err) {
+      status = (err as { status?: number }).status ?? -1
+      stdout = String((err as { stdout?: string }).stdout ?? '')
+    }
+    return { outputs: readFileSync(output, 'utf8').trim(), stdout, status }
   }
 
-  it('uses the bucket when the judge role was assumed', () => {
-    const { env, stdout } = run('success')
-    expect(env).toBe('JUDGE_RECORDS_BUCKET=gp-agent-artifacts-dev')
-    expect(stdout).not.toContain('::warning::')
+  it('publishes the bucket when the judge role was assumed', () => {
+    const { outputs, stdout, status } = run('success')
+    expect(status).toBe(0)
+    expect(outputs).toBe('bucket=gp-agent-artifacts-dev')
+    expect(stdout).not.toContain('::error::')
   })
 
-  it('falls back to the job, and says so, when it was not', () => {
-    const { env, stdout } = run('failure')
-    expect(env).toMatch(/^JUDGE_RECORDS_DIR=\S+\/judge-records$/)
-    expect(stdout).toContain('::warning::')
+  // THE WHOLE POINT OF DROPPING THE FALLBACK. A silent local directory here
+  // was the shape that lost a paid sweep's records when the arms moved into
+  // jobs of their own, so failing is the behaviour to pin.
+  it('fails, naming the role, when it was not', () => {
+    const { outputs, stdout, status } = run('failure')
+    expect(status).not.toBe(0)
+    expect(outputs).toBe('')
+    expect(stdout).toContain('::error::')
+    expect(stdout).toContain('github-actions-preview-deploy')
   })
 
-  it('leaves no step mapping a records variable itself', () => {
-    const mapped = steps
-      .filter((step) => /^ {10}JUDGE_RECORDS_(DIR|BUCKET):/m.test(step.body))
-      .map((step) => step.name)
-    expect(mapped).toEqual([])
+  // Neither variable may be mapped in an ARM step's `env`: the base ref's
+  // parser refuses a blank JUDGE_RECORDS_DIR, and a step env passing one of
+  // the pair empty fails every arm. The grading job's own "Choose where
+  // records are kept" step exports it instead.
+  it('leaves no arm step mapping a records variable itself', () => {
+    for (const arm of ARMS) {
+      const mapped = stepsOf(jobOf(yaml, arm))
+        .filter((step) => /^ {10}JUDGE_RECORDS_(DIR|BUCKET):/m.test(step.body))
+        .map((step) => step.name)
+      expect(mapped).toEqual([])
+      expect(jobOf(yaml, arm)).toMatch(
+        /^ {8}run: echo "JUDGE_RECORDS_BUCKET=\$\{\{ needs\.prepare\.outputs\.records_bucket \}\}" >> "\$GITHUB_ENV"$/m,
+      )
+    }
   })
 
-  it('chooses after the role is assumed and before the first capture', () => {
+  it('chooses after the role is assumed, before anything spends', () => {
     const at = names.indexOf('Choose where records are kept')
     expect(at).toBeGreaterThan(
       names.indexOf('Get credentials for staging and dispatching'),
     )
-    expect(at).toBeLessThan(names.indexOf('Capture the base arm'))
+    expect(yaml).not.toContain('JUDGE_RECORDS_DIR=')
   })
 })
 
@@ -724,34 +783,52 @@ describe('judge.yml tells both arms where a background run goes', () => {
     step.name.startsWith('Resolve where a background dispatch goes'),
   )
 
-  const DESTINATION = [
-    'JUDGE_METADATA_BUCKET',
-    'JUDGE_ARTIFACT_BUCKET',
-    'JUDGE_DISPATCH_QUEUE_URL',
+  const DESTINATION_OUTPUTS = [
+    'metadata_bucket',
+    'artifact_bucket',
+    'dispatch_queue_url',
   ]
 
-  // A $GITHUB_ENV write, which `setsEnv` cannot see: that matcher looks for a
-  // `NAME:` entry under a step's own `env:` block, and these are exported by
-  // an earlier step instead.
+  const DESTINATION_ENV: [string, string][] = [
+    ['metadata_bucket', 'JUDGE_METADATA_BUCKET'],
+    ['artifact_bucket', 'JUDGE_ARTIFACT_BUCKET'],
+    ['dispatch_queue_url', 'JUDGE_DISPATCH_QUEUE_URL'],
+  ]
+
+  // An output write, which `setsEnv` cannot see: that matcher looks for a
+  // `NAME:` entry under a step's own `env:` block, and these are published by
+  // `prepare` and read by the arm jobs.
   //
   // Anchored on `echo "` immediately followed by the name, and on the
   // redirect, so a comment cannot satisfy it and neither can a line that
   // merely contains the name inside some other string — a `::warning::`
   // mentioning a variable, or a `NAME_OLD=` prefix collision.
   //
-  // WHAT IT STILL CANNOT SEE: that the line RUNS. The queue URL is exported
+  // WHAT IT STILL CANNOT SEE: that the line RUNS. The queue URL is written
   // inside the success branch of an `if url="$(aws sqs get-queue-url …)"`,
   // so a line moved into the `else` branch satisfies every assertion here.
   const exportsVar = (body: string, name: string): boolean =>
-    new RegExp(`^\\s*echo "${name}=.*>> "\\$GITHUB_ENV"`, 'm').test(body)
+    new RegExp(`^\\s*echo "${name}=.*>> "\\$GITHUB_OUTPUT"`, 'm').test(body)
 
   it('finds both arm steps and the resolver', () => {
     expect(arms).toHaveLength(2)
     expect(resolver).toBeDefined()
   })
 
-  it.each(DESTINATION)('exports %s to the job environment', (name) => {
+  it.each(DESTINATION_OUTPUTS)('publishes %s', (name) => {
     expect(exportsVar(resolver?.body ?? '', name)).toBe(true)
+  })
+
+  // THE ARM JOBS READ THEM THROUGH `needs`, because $GITHUB_ENV does not
+  // cross a job boundary and neither does a step output. A misspelled output
+  // resolves to '' and reads as "not resolved", which refuses every
+  // background agent for no visible reason.
+  it.each(DESTINATION_ENV)('gives both arms %s, from prepare', (key, name) => {
+    for (const arm of arms) {
+      expect(envValue(arm.body, name)).toBe(
+        `\${{ needs.prepare.outputs.${key} }}`,
+      )
+    }
   })
 
   // ONE resolver for both arms, which is how they are guaranteed the same
@@ -761,14 +838,9 @@ describe('judge.yml tells both arms where a background run goes', () => {
   // one step, so there is one value.
   it('resolves the destination once, not per arm', () => {
     const resolvers = steps.filter((step) =>
-      DESTINATION.every((name) => exportsVar(step.body, name)),
+      DESTINATION_OUTPUTS.every((name) => exportsVar(step.body, name)),
     )
     expect(resolvers).toHaveLength(1)
-    for (const arm of arms) {
-      for (const name of DESTINATION) {
-        expect(setsEnv(arm.body, name)).toBe(false)
-      }
-    }
   })
 
   // Derived, not hardcoded. A literal bucket name here would be a second
@@ -777,11 +849,11 @@ describe('judge.yml tells both arms where a background run goes', () => {
   // step sets once.
   it('names one environment and derives every destination from it', () => {
     expect(resolver?.body).toMatch(/^ {10}JUDGE_ENVIRONMENT: dev$/m)
-    for (const name of DESTINATION) {
+    for (const name of DESTINATION_OUTPUTS) {
       const line = new RegExp(`echo "${name}=([^"]*)"`).exec(
         resolver?.body ?? '',
       )?.[1]
-      expect(line, `${name} is not exported`).toBeDefined()
+      expect(line, `${name} is not published`).toBeDefined()
     }
     expect(resolver?.body).toContain(
       'agent-experiment-metadata-$JUDGE_ENVIRONMENT',
@@ -809,19 +881,25 @@ describe('judge.yml tells both arms where a background run goes', () => {
   })
 })
 
-// THE ROLE IS THE WHOLE BLAST RADIUS. Both jobs that take credentials run
-// from main but act on a pull request, and the sweep runs the pull request's
-// own code with them in its environment. So they assume the pull-request role
-// (thegoodparty/ops, which trusts judge.yml on main for this), and the
+// THE ROLE IS THE WHOLE BLAST RADIUS. Every job that takes credentials runs
+// from main but acts on a pull request, and the arms run the pull request's
+// own code with them in their environment. So they assume the pull-request
+// role (thegoodparty/ops, which trusts judge.yml on main for this), and the
 // convenient wrong answer, the admin deploy role every main job uses, is one
 // word away.
 describe('judge.yml assumes the pull-request role', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
   const PULL_REQUEST_ROLE =
     'arn:aws:iam::333022194791:role/github-actions-preview-deploy'
-  const credentials = stepsOf(yaml).find((step) =>
-    step.name.startsWith('Get credentials for staging'),
-  )
+  // `prepare` decides where the records go, both arms stage and dispatch, and
+  // `grade` reads them back for the trailer and the ledger. Four jobs, one
+  // role, and the ruling job is the fifth (its own credentials step).
+  const WITH_CREDENTIALS = ['prepare', ...ARMS, 'grade']
+  const credentialsOf = (job: string): Step | undefined =>
+    stepsOf(jobOf(yaml, job)).find((step) =>
+      step.name.startsWith('Get credentials for staging'),
+    )
+  const credentials = credentialsIn(yaml)
   const ruling = stepsOf(yaml).find((step) =>
     step.name.startsWith('Get credentials for the guard ledger'),
   )
@@ -836,7 +914,19 @@ describe('judge.yml assumes the pull-request role', () => {
     const assumed = [...yaml.matchAll(/role-to-assume: (\S+)/g)].map(
       (match) => match[1],
     )
-    expect(assumed).toEqual([PULL_REQUEST_ROLE, PULL_REQUEST_ROLE])
+    // One per job that needs it: the four sweep jobs and the ruling job.
+    expect(assumed).toEqual([
+      PULL_REQUEST_ROLE,
+      PULL_REQUEST_ROLE,
+      PULL_REQUEST_ROLE,
+      PULL_REQUEST_ROLE,
+      PULL_REQUEST_ROLE,
+    ])
+    for (const job of WITH_CREDENTIALS) {
+      expect(credentialsOf(job)?.body).toContain(
+        `role-to-assume: ${PULL_REQUEST_ROLE}`,
+      )
+    }
     for (const step of [credentials, ruling]) {
       expect(step?.body).toContain(`role-to-assume: ${PULL_REQUEST_ROLE}`)
       expect(step?.body).not.toContain('AWS_ROLE_ARN')
@@ -844,11 +934,22 @@ describe('judge.yml assumes the pull-request role', () => {
     }
   })
 
-  // A chat-only sweep touches no AWS. Failing the job on a role that is not
-  // available would mean one missing IAM grant stops every sweep of every
-  // shape, rather than the background ones that actually need it.
-  it('does not fail a chat-only sweep when the role is unavailable', () => {
-    expect(credentials?.body).toContain('continue-on-error: true')
+  // A chat-only sweep touches no AWS for its CAPTURES, so an unassumable role
+  // must not take a chat sweep down with it — in the arms or in `grade`.
+  it('does not fail a chat-only arm when the role is unavailable', () => {
+    for (const job of [...ARMS, 'grade']) {
+      expect(credentialsOf(job)?.body).toContain('continue-on-error: true')
+    }
+  })
+
+  // `prepare` IS the exception, and it is the records decision that makes it
+  // one: with the arms in other jobs, an unassumable role means the records
+  // have nowhere to go and the sweep cannot be graded. Failing there is
+  // before anything spends.
+  it('fails prepare, before it spends, when the role is unavailable', () => {
+    expect(credentialsOf('prepare')?.body).not.toContain(
+      'continue-on-error: true',
+    )
   })
 
   // THE SESSION HAS TO OUTLAST THE JOB. A background case polls S3 until a
@@ -857,18 +958,18 @@ describe('judge.yml assumes the pull-request role', () => {
   // after the dispatch, so the task keeps billing while the poll dies on an
   // auth error recorded as an infraError: paid for, then excluded.
   //
-  // THE SWEEP JOB'S TIMEOUT, not the first one in the file. Written as a bare
-  // search for `timeout-minutes` this read the PLAN job's 20 minutes, so a
-  // one-hour session cleared a 20-minute bar and the assertion passed on
-  // exactly the bug it was written for. The sweep job is the one holding
-  // these credentials.
+  // AGAINST THE LONGEST JOB HOLDING THEM, not the first `timeout-minutes` in
+  // the file. Written as a bare search this read the PLAN job's 20 minutes, so
+  // a one-hour session cleared the bar and the assertion passed on exactly the
+  // bug it was written for. It is the arms and `grade` that hold these longest.
   //
   // AND NO MORE THAN FOUR HOURS, the role's own cap in thegoodparty/ops. A
   // longer request makes the assume FAIL, not shorten.
   it('holds credentials longer than the job, within the role cap', () => {
-    const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
-    const jobMinutes = Number(
-      /timeout-minutes: (\d+)/.exec(sweepJob)?.[1] ?? '0',
+    const jobMinutes = Math.max(
+      ...['prepare', ...ARMS, 'grade'].map((job) =>
+        Number(/timeout-minutes: (\d+)/.exec(jobOf(yaml, job))?.[1] ?? '0'),
+      ),
     )
     expect(jobMinutes).toBeGreaterThan(0)
     const seconds = Number(
@@ -892,7 +993,9 @@ describe('judge.yml assumes the pull-request role', () => {
 // every way it can go wrong here leaves both arms quietly walking their own.
 describe('judge.yml hands both arms one background budget', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
-  const steps = stepsOf(yaml)
+  const sweepYaml = [jobOf(yaml, 'prepare'), ...ARMS.map((arm) => jobOf(yaml, arm))]
+    .join('\n')
+  const steps = stepsOf(sweepYaml)
   const names = steps.map((step) => step.name)
   const resolver = steps.find((step) =>
     step.name.startsWith('Resolve the background case and attempt budget'),
@@ -930,7 +1033,7 @@ describe('judge.yml hands both arms one background budget', () => {
       expect(arms).toHaveLength(2)
       for (const arm of arms) {
         expect(envValue(arm.body, name)).toBe(
-          `\${{ steps.budget.outputs.${key} }}`,
+          `\${{ needs.prepare.outputs.${key} }}`,
         )
       }
     },
@@ -992,22 +1095,22 @@ describe('judge.yml hands both arms one background budget', () => {
   })
 })
 
-// THE ARM BUDGET HAS TO FIT TWICE IN THE JOB. Both arms run one after the
-// other inside the one sweep job, then the judging step. If two arm budgets
-// exceed the job's timeout, an arm that is inside its own budget is still
-// killed by GitHub — with no manifest written, so judging fails on a missing
-// arm. The budget is a constant in TypeScript and the timeout is a number in
-// YAML, and nothing else connects them.
-describe('the arm budget fits the sweep job', () => {
-  it('leaves room for both arms and the judging step', () => {
+// THE ARM BUDGET HAS TO FIT THE ARM JOB. Each arm now runs in a job of its
+// own, beside the other, so one arm budget has to fit ONE job's timeout rather
+// than two fitting inside a shared one. An arm that is inside its own budget
+// is still killed by GitHub when the JOB is shorter — with no manifest
+// written, so grading fails on a missing arm. The budget is a constant in
+// TypeScript and the timeout is a number in YAML, and nothing else connects
+// them.
+describe('the arm budget fits the arm jobs', () => {
+  it.each(ARMS)('%s leaves room for the workspace build', (arm) => {
     const yaml = readFileSync(WORKFLOW, 'utf8')
-    const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
     const jobMinutes = Number(
-      /timeout-minutes: (\d+)/.exec(sweepJob)?.[1] ?? '0',
+      /timeout-minutes: (\d+)/.exec(jobOf(yaml, arm))?.[1] ?? '0',
     )
     expect(jobMinutes).toBeGreaterThan(0)
-    // Twenty minutes for the workspace build and the judging step.
-    expect(2 * (ARM_BUDGET_MS / 60_000) + 20).toBeLessThanOrEqual(jobMinutes)
+    // Twenty minutes for the workspace build and the base install.
+    expect(ARM_BUDGET_MS / 60_000 + 20).toBeLessThanOrEqual(jobMinutes)
   })
 })
 
@@ -1016,8 +1119,13 @@ describe('the arm budget fits the sweep job', () => {
 // is involved, and these hold it that way.
 describe('judge.yml resolves one set of identifiers for both arms', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
-  const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:\n'))
-  const steps = stepsOf(sweepJob)
+  // The resolver lives in `prepare`; the arms are two other jobs. Read across
+  // all three, because what is under test is the seam between them.
+  const prepareJob = jobOf(yaml, 'prepare')
+  const sweepYaml = [jobOf(yaml, 'base-arm'), jobOf(yaml, 'candidate-arm')].join(
+    '\n',
+  )
+  const steps = [...stepsOf(prepareJob), ...stepsOf(sweepYaml)]
   const names = steps.map((step) => step.name)
   const resolver = steps.find(
     (step) => step.name === "Resolve the background agents' identifiers",
@@ -1052,7 +1160,7 @@ describe('judge.yml resolves one set of identifiers for both arms', () => {
       expect(arms).toHaveLength(2)
       for (const arm of arms) {
         expect(envValue(arm.body, name)).toBe(
-          `\${{ steps.identifiers.outputs.${key} }}`,
+          `\${{ needs.prepare.outputs.${key} }}`,
         )
       }
     },
@@ -1094,7 +1202,7 @@ describe('judge.yml resolves one set of identifiers for both arms', () => {
     expect(yaml).not.toContain('JUDGE_CLERK_MACHINE_SECRET')
     expect(yaml).not.toMatch(/^ {4}environment:/m)
     expect(yaml).not.toMatch(/^ {2}fixture(-cleanup)?:$/m)
-    expect(sweepJob).toMatch(/^ {4}needs: plan$/m)
+    expect(prepareJob).toMatch(/^ {4}needs: plan$/m)
   })
 
   // THE RESOLVER'S RUN BLOCK, EXECUTED against a stand-in `npx` that refuses
@@ -1724,27 +1832,24 @@ describe('the arms reach AWS on the role, not on the stub', () => {
   })
 })
 
-// ONE LIVE SWEEP AT A TIME, ACROSS THE WHOLE REPOSITORY. Keyed per PR, as it
-// first was, two PRs judged at once put two sweeps out at up to twelve
-// background runs per arm each, against a dev scheduler cap that is shared
-// with everything else running there. Past that cap a run waits outside its
-// own timeout: the sweep's poll gives up as an infra error and the task still
-// launches and bills with nothing reading its result. `maxInFlight` in
-// config.ts asks for this guard by name.
+// ONE CONCURRENCY GROUP PER JOB, KEYED ON THE PR, AND EVERY ONE OF THEM
+// CANCELS. This replaced a single repo-wide group on the sweep job that
+// QUEUED, and the two properties it bought are now bought differently.
 //
-// Three properties, and the group is useless without all three: the live key
-// is a constant, so it is one slot for the repository and not one per PR; it
-// queues rather than cancels, because a sweep that is running has already
-// spent and cannot be resumed (SWEEP_ID carries `run_attempt` so a re-run
-// reads none of the first run's records); and a plan-only run must stay out
-// of it, because a plan spends nothing and has no business waiting an hour.
-describe('judge.yml runs one live sweep at a time', () => {
+// What the old group was for was keeping two PRs from putting two sweeps'
+// worth of background runs on the dev scheduler. That is `maxInFlight` in
+// config.ts's job, and it is still the number that has to stay under the
+// shared cap — the group was never the cap. What the old group also did, as a
+// side effect, was serialise every PR behind the first for an hour; with the
+// arms in separate jobs it cannot do that without also queueing a run's
+// second arm behind its first, which is the very wait this change removes.
+//
+// The caller layers still cancel, so a superseded request for the SAME PR is
+// killed rather than run twice, and now each of its four jobs is killed in
+// turn rather than only the one shared job.
+describe('judge.yml gives each spending job its own concurrency group', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
-  const planJob = yaml.slice(
-    yaml.indexOf('\n  plan:\n'),
-    yaml.indexOf('\n  sweep:\n'),
-  )
-  const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:\n'))
+  const SPENDING = ['prepare', ...ARMS, 'grade']
 
   // A job's `concurrency:` sits at four spaces and its keys at six, with a
   // folded `>-` group continuing at eight. Collapsed to one line so the
@@ -1754,55 +1859,52 @@ describe('judge.yml runs one live sweep at a time', () => {
       .replace(/\s+/g, ' ')
       .trim()
 
-  const sweepGroup = concurrencyOf(sweepJob)
-
-  it('finds a concurrency group on both jobs', () => {
-    expect(sweepGroup).not.toBe('')
-    expect(concurrencyOf(planJob)).not.toBe('')
+  it.each(SPENDING)('%s has a group of its own', (job) => {
+    const group = concurrencyOf(jobOf(yaml, job))
+    expect(group).not.toBe('')
+    expect(group).toContain(`judge-sweep-`)
+    expect(group).toContain(`-${job}`)
+    expect(group).toContain('inputs.pr_number || github.run_id')
+    expect(group).toContain('cancel-in-progress: true')
   })
 
-  it('keys a live sweep on one constant, not on the PR', () => {
-    expect(sweepGroup).toContain("'universal-judge-live-sweep'")
-    expect(sweepGroup).not.toContain('inputs.pr_number')
+  // NO REPO-WIDE CONSTANT ANYWHERE. A group with no PR in its key is the
+  // shared slot this change exists to remove, and it would queue a run's
+  // second arm behind its own first.
+  it('leaves no repository-wide group behind', () => {
+    expect(yaml).not.toContain('universal-judge-live-sweep')
+    for (const job of SPENDING) {
+      expect(concurrencyOf(jobOf(yaml, job))).not.toContain(
+        'cancel-in-progress: false',
+      )
+    }
   })
 
-  it('queues the second sweep rather than cancelling the first', () => {
-    expect(sweepGroup).toContain('cancel-in-progress: false')
-    // The reason it cannot cancel: a re-run reads none of the cancelled
-    // run's records, so the money it spent buys nothing.
-    expect(sweepJob).toMatch(
-      /^ {6}SWEEP_ID: judge-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}$/m,
-    )
-  })
-
-  // BOTH HALVES. The `if:` is what normally keeps a plan-only run out, but
-  // whether a job skipped by `if:` still takes a place in its concurrency
-  // group is documented neither way — so the group itself also has to gate
-  // on `live`, and its other arm has to be unique per run.
-  it('leaves a plan-only run out of the group entirely', () => {
-    expect(sweepJob).toMatch(/^ {6}&& inputs\.live == true$/m)
-    expect(sweepGroup).toContain('inputs.live == true &&')
-    expect(sweepGroup).toContain('github.run_id')
-  })
-
-  it('never makes a plan wait behind a sweep', () => {
-    const plan = concurrencyOf(planJob)
-    expect(plan).toContain('judge-plan-')
-    expect(plan).toContain('cancel-in-progress: true')
-    expect(plan).not.toContain('universal-judge-live-sweep')
+  // THE FOUR JOBS OF ONE RUN MUST NOT SHARE A KEY, or each would cancel the
+  // others. The job name is what keeps them apart.
+  it('keys each job apart within one run', () => {
+    const groups = SPENDING.map((job) => concurrencyOf(jobOf(yaml, job)))
+    expect(new Set(groups).size).toBe(SPENDING.length)
   })
 
   // `jobs.<job_id>.concurrency` is evaluated before a job runs, so it reaches
   // `github`, `inputs`, `vars`, `needs`, `strategy` and `matrix` and nothing
   // else. A group written against `env` or `steps` is not an error anyone
-  // sees: it resolves empty, every live sweep lands in the same degenerate
-  // key by accident or none of them do, and the guard silently stops being
-  // one. `needs` is available but deliberately unused here.
-  it('builds the group from contexts a job group can actually read', () => {
-    const contexts = [...sweepGroup.matchAll(/\b([a-z]+)\.[a-z_]+/g)].map(
-      (match) => match[1],
-    )
-    expect([...new Set(contexts)].sort()).toEqual(['github', 'inputs'])
+  // sees: it resolves empty and the guard silently stops being one.
+  it('builds every group from contexts a job group can actually read', () => {
+    for (const job of SPENDING) {
+      const contexts = [
+        ...concurrencyOf(jobOf(yaml, job)).matchAll(/\b([a-z]+)\.[a-z_]+/g),
+      ].map((match) => match[1])
+      expect([...new Set(contexts)].sort()).toEqual(['github', 'inputs'])
+    }
+  })
+
+  it('never makes a plan wait behind a sweep', () => {
+    const plan = concurrencyOf(jobOf(yaml, 'plan'))
+    expect(plan).toContain('judge-plan-')
+    expect(plan).toContain('cancel-in-progress: true')
+    expect(plan).not.toContain('judge-sweep-')
   })
 })
 
@@ -2045,11 +2147,7 @@ describe('judge-schema-check.yml', () => {
 // job that does run it holds the Anthropic key and no pull-requests token.
 describe('judge.yml posts the verdict on the PR', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
-  const sweepJob = yaml.slice(
-    yaml.indexOf('\n  sweep:'),
-    yaml.indexOf('\n  verdict:'),
-  )
-  const verdictJob = yaml.slice(yaml.indexOf('\n  verdict:'))
+  const verdictJob = jobOf(yaml, 'verdict')
 
   it('saves the report where the verdict job can fetch it', () => {
     const judging = stepsOf(yaml).find(
@@ -2066,7 +2164,9 @@ describe('judge.yml posts the verdict on the PR', () => {
   })
 
   it('posts from a job that checks out and runs nothing from the branch', () => {
-    expect(verdictJob).toMatch(/^ {4}needs: \[plan, sweep\]$/m)
+    // `grade` is the job that writes the report, and `plan`/`prepare` are
+    // there so their results are readable in this job's own `if:`.
+    expect(verdictJob).toMatch(/^ {4}needs: \[plan, prepare, grade\]$/m)
     expect(verdictJob).toMatch(/^ {6}pull-requests: write$/m)
     expect(verdictJob).not.toContain('actions/checkout')
     expect(verdictJob).not.toContain('npx ')
@@ -2087,9 +2187,14 @@ describe('judge.yml posts the verdict on the PR', () => {
     expect(verdictJob).toContain('so this report may be incomplete')
   })
 
-  it('keeps the pull-requests token away from the sweep job', () => {
-    expect(sweepJob.length).toBeGreaterThan(0)
-    expect(sweepJob).not.toMatch(/^ {6}pull-requests: write$/m)
+  // NONE of the jobs that run branch code holds a pull-requests write, which
+  // is the reason the verdict is a job of its own at all.
+  it('keeps the pull-requests token away from every spending job', () => {
+    for (const job of ['prepare', ...ARMS, 'grade']) {
+      const text = jobOf(yaml, job)
+      expect(text.length).toBeGreaterThan(0)
+      expect(text).not.toMatch(/^ {6}pull-requests: write$/m)
+    }
   })
 })
 
@@ -2124,8 +2229,12 @@ describe('judge_context is optional everywhere it is declared', () => {
     expect(requestYaml).toContain('guard_context: ${{ inputs.guard_context }}')
   })
 
-  it('the sweep job parses guard_context before either arm can spend', () => {
-    const steps = stepsOf(judgeYaml)
+  // IT IS PARSED IN `grade`, which is where its two readers are, and that is
+  // still before anything it reports on is lost: the parsing step is the first
+  // one after the workspace build, and the ledger line it feeds is written by
+  // the same job on `always()`.
+  it('the grading job parses guard_context before it can spend', () => {
+    const steps = stepsOf(jobOf(judgeYaml, 'grade'))
     const names = steps.map((step) => step.name)
     const parse = steps.find((step) => step.name === 'Parse the guard context')
     expect(parse).toBeDefined()
@@ -2133,7 +2242,7 @@ describe('judge_context is optional everywhere it is declared', () => {
       'npx tsx src/chats/evals/judge/guard/parseGuardContextCli.ts',
     )
     expect(names.indexOf('Parse the guard context')).toBeLessThan(
-      names.indexOf('Capture the base arm'),
+      names.indexOf('Judge both arms'),
     )
   })
 

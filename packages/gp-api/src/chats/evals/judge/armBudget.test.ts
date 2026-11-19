@@ -606,7 +606,7 @@ describe('the resolver run against a base tree that differs', () => {
     expect(written).toMatch(new RegExp(`^admitted=${admitted}$`, 'm'))
     expect(stderr).toMatch(
       concurrent
-        ? /up to 12 runs at once/
+        ? /up to 40 runs at once/
         : /one run after another, as the base ref does/,
     )
   })
@@ -625,10 +625,10 @@ describe('the resolver run against a base tree that differs', () => {
     expect(stderr).toMatch(
       /refused opposition_research: would take 80 minutes for a single run/,
     )
-    expect(stderr).toMatch(/up to 12 runs at once/)
+    expect(stderr).toMatch(/up to 40 runs at once/)
   })
 
-  // Five agents of five runs against twelve slots: the third is refused and
+  // Nine agents of five runs against forty slots: the ninth is refused and
   // says so, rather than being started and queued behind the platform's cap.
   it('fills the slots in walk order and refuses the rest by name', () => {
     const ids = [
@@ -637,6 +637,10 @@ describe('the resolver run against a base tree that differs', () => {
       'race_opponent_summary',
       'opportunities_and_challenges',
       'district_issue_pulse',
+      'district_issue_snapshot',
+      'meeting_briefing',
+      'meeting_schedule',
+      'opponent_research',
     ]
     const { written, stderr } = runEntry({
       BASE_DIR: baseTree({
@@ -646,10 +650,10 @@ describe('the resolver run against a base tree that differs', () => {
       JUDGE_AGENTS: ids.join(','),
     })
     expect(written).toMatch(
-      new RegExp(`^admitted=${ids.slice(0, 2).join(',')}$`, 'm'),
+      new RegExp(`^admitted=${ids.slice(0, 8).join(',')}$`, 'm'),
     )
     expect(stderr).toMatch(
-      /refused race_opponent_summary: needs 5 runs in flight at once, and 2 of the arm's 12 slots/,
+      /refused opponent_research: needs 5 runs in flight at once, and 0 of the arm's 40 slots/,
     )
   })
 
@@ -970,7 +974,7 @@ describe('resolveAdmission', () => {
   it('multiplies the base arm by attempts too', () => {
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
-      background: { attemptsPerCase: 2, maxCases: 1, maxInFlight: 12 },
+      background: { attemptsPerCase: 2, maxCases: 1, maxInFlight: 40 },
     }
     const result = resolveAdmission(
       ['opposition_research'],
@@ -990,7 +994,7 @@ describe('resolveAdmission', () => {
   it('multiplies the candidate arm by attempts when the candidate is slower', () => {
     const config = {
       ...DEFAULT_JUDGE_CONFIG,
-      background: { attemptsPerCase: 2, maxCases: 1, maxInFlight: 12 },
+      background: { attemptsPerCase: 2, maxCases: 1, maxInFlight: 40 },
     }
     const result = resolveAdmission(
       ['find_existing_ordinances'],
