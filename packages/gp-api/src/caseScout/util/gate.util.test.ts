@@ -4,6 +4,8 @@ import {
   checkCopiedText,
   checkDenylist,
   gateDraft,
+  gateNeedsSetup,
+  outboundStrings,
   runSecondRead,
   SecondReadCallError,
   type CaseCandidate,
@@ -182,5 +184,116 @@ describe('gateDraft', () => {
     expect(
       await gateDraft({ ...clean, handledWhen: 'x'.repeat(601) }, [], [], pass),
     ).toMatchObject({ passed: false, rule: 'schema' })
+  })
+})
+
+describe('outboundStrings', () => {
+  it('lists every drafter-written field, the caseId de-slugged', () => {
+    expect(
+      outboundStrings({
+        case: {
+          ...clean,
+          caseId: 'maple-falls_ward-2',
+          question: undefined,
+          turns: ['a', 'b'],
+        },
+      }),
+    ).toEqual([
+      clean.condition,
+      clean.handledWhen,
+      'a',
+      'b',
+      'maple falls ward 2',
+    ])
+    expect(outboundStrings({ needsSetup: 'a line' })).toEqual(['a line'])
+  })
+})
+
+describe('the caseId', () => {
+  const pass = async () => '[]'
+
+  it('blocks a multi-word denylist term in its slug form', async () => {
+    expect(
+      await gateDraft(
+        { ...clean, caseId: 'maple-falls-ward-2-turnout' },
+        ['Maple Falls'],
+        [],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'denylist' })
+    expect(
+      await gateDraft(
+        { ...clean, caseId: 'maple_falls_turnout' },
+        ['Maple Falls'],
+        [],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'denylist' })
+  })
+
+  it('blocks a phone number carried in the slug', async () => {
+    expect(
+      await gateDraft({ ...clean, caseId: 'call-555-018-4423' }, [], [], pass),
+    ).toMatchObject({ passed: false, rule: 'contactPattern' })
+  })
+
+  it('is part of what the second read sees', async () => {
+    const call = vi.fn(pass)
+    await gateDraft({ ...clean, caseId: 'a-clean-case' }, [], [], call)
+    expect(call).toHaveBeenCalledWith(expect.stringContaining('a clean case'))
+  })
+})
+
+describe('gateNeedsSetup', () => {
+  const pass = async () => '[]'
+
+  it('passes a clean line', async () => {
+    expect(
+      await gateNeedsSetup(
+        'An account with a primary next week.',
+        [],
+        [],
+        pass,
+      ),
+    ).toEqual({ passed: true })
+  })
+
+  it('runs the text layers on the line', async () => {
+    expect(
+      await gateNeedsSetup(
+        'The council seat in Lakemoor.',
+        ['Lakemoor'],
+        [],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'denylist' })
+    expect(
+      await gateNeedsSetup(
+        'A volunteer reachable at 555-123-4567.',
+        [],
+        [],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'contactPattern' })
+    expect(
+      await gateNeedsSetup(
+        'An account whose treasurer filed the report two days after the deadline',
+        [],
+        ['our treasurer filed the report two days after the deadline again'],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'copiedText' })
+    expect(
+      await gateNeedsSetup(
+        'Data for one town.',
+        [],
+        [],
+        async () => '["one town"]',
+      ),
+    ).toMatchObject({ passed: false, rule: 'secondRead' })
+  })
+
+  it('has no schema layer', async () => {
+    expect(await gateNeedsSetup('x', [], [], pass)).toEqual({ passed: true })
   })
 })

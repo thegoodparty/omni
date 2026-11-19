@@ -55,13 +55,34 @@ export class SecondReadCallError extends Error {}
 
 export type SecondReadCall = (draftText: string) => Promise<string>
 
-// The fields that reach GitHub, in the order the Python gate read them.
-export const draftFieldValues = (draft: CaseCandidate): string[] => [
-  draft.condition,
-  draft.handledWhen,
-  ...(draft.question ? [draft.question] : []),
-  ...(draft.turns ?? []),
-]
+export type CaseText = Pick<
+  CaseCandidate,
+  'caseId' | 'condition' | 'handledWhen' | 'question' | 'turns'
+>
+
+export type OutboundDraft = { case: CaseText } | { needsSetup: string }
+
+// Stands in for a needs-setup line that failed the gate, in the bundle and
+// the ledger alike.
+export const WITHHELD_NEEDS_SETUP = '(withheld: the line failed the PII gate)'
+
+// A denylist term matches across spaces only, so "Maple Falls" would miss
+// maple-falls-ward-2 in its slug form.
+const deslug = (caseId: string): string => caseId.replace(/[-_]+/gu, ' ').trim()
+
+// Every drafter-written string that can leave prod, as the gate reads it. The
+// gate checks exactly this list and caseScoutDeidentifier.eval.ts grades
+// exactly this list, so a new outbound field goes here and nowhere else.
+export const outboundStrings = (draft: OutboundDraft): string[] =>
+  'needsSetup' in draft
+    ? [draft.needsSetup]
+    : [
+        draft.case.condition,
+        draft.case.handledWhen,
+        ...(draft.case.question ? [draft.case.question] : []),
+        ...(draft.case.turns ?? []),
+        deslug(draft.case.caseId),
+      ]
 
 const normalize = (text: string): string =>
   text
@@ -170,23 +191,51 @@ export const validateAgainstSchema = (
     : (result.error.issues[0]?.message ?? 'schema validation failed')
 }
 
-export const gateDraft = async (
-  draft: CaseCandidate,
+const gateStrings = async (
+  fields: string[],
   denylist: string[],
   userMessages: string[],
   secondRead: SecondReadCall,
+  schema?: () => string | undefined,
 ): Promise<GateResult> => {
-  const fields = draftFieldValues(draft)
   const layers: Array<[GateRule, () => Promise<string | undefined>]> = [
     ['denylist', async () => checkDenylist(fields, denylist)],
     ['copiedText', async () => checkCopiedText(fields, userMessages)],
     ['contactPattern', async () => checkContactPatterns(fields)],
     ['secondRead', () => runSecondRead(fields, secondRead)],
-    ['schema', async () => validateAgainstSchema(draft)],
   ]
+  if (schema) layers.push(['schema', async () => schema()])
   for (const [rule, check] of layers) {
     const reason = await check()
     if (reason !== undefined) return { passed: false, rule, reason }
   }
   return { passed: true }
 }
+
+export const gateDraft = (
+  draft: CaseCandidate,
+  denylist: string[],
+  userMessages: string[],
+  secondRead: SecondReadCall,
+): Promise<GateResult> =>
+  gateStrings(
+    outboundStrings({ case: draft }),
+    denylist,
+    userMessages,
+    secondRead,
+    () => validateAgainstSchema(draft),
+  )
+
+// The text layers only: a needs-setup line has no case schema.
+export const gateNeedsSetup = (
+  what: string,
+  denylist: string[],
+  userMessages: string[],
+  secondRead: SecondReadCall,
+): Promise<GateResult> =>
+  gateStrings(
+    outboundStrings({ needsSetup: what }),
+    denylist,
+    userMessages,
+    secondRead,
+  )
