@@ -284,8 +284,10 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   and its `shapeHash`, `input`) with the input as its first `AgentMessage`
   row, then sends the `agentRun` job.
 - The `agentRun` job (one queue for every agent, `maxConcurrent: 10`
-  fleet-wide, 120-minute attempts, 5 attempts) loads the run's messages and
-  calls the loop. Every message the loop writes is one `AgentMessage` row, in
+  fleet-wide: 2 a task on dev and prod, all 10 on a preview, which is one
+  task with no autoscaling — `src/jobs/agentRunConcurrency.util.ts`;
+  120-minute attempts, 5 attempts) loads the run's messages and calls the
+  loop. Every message the loop writes is one `AgentMessage` row, in
   order: the assistant message (its text and tool calls) and, when tools ran,
   the tool message holding their results. Only assistant rows carry the model
   and its four token counts, because only they are a model call.

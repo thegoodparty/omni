@@ -334,7 +334,14 @@ export function createService({
   // it ran at its CPU quota for the whole run, gp-api medians went from ~5ms
   // to ~600ms, and webapp server renders hit Vercel's function timeout.
   const cpu = '1024'
-  const memory = isProd ? '4096' : '2048'
+  // Preview carries on its one task what dev spreads over five: agentRun runs
+  // the queue's whole fleet cap there (src/jobs/agentRunConcurrency.util.ts),
+  // so ten model loops share the task, each holding a reply of up to 64k
+  // output tokens and a page body of up to 10 MB. The loops wait on the
+  // provider, so the vCPU above still carries them; the heap is what ten of
+  // them need, and an OOM would kill the one task the preview (and the eval
+  // running on it) lives on.
+  const memory = select({ preview: '4096', dev: '2048', prod: '4096' })
 
   const taskDefinition = new aws.ecs.TaskDefinition('taskDefinition', {
     family: `gp-${stage}-fargateCluster-gp-api-${stage}`,

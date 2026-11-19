@@ -82,6 +82,11 @@ import { CaseScoutNightlyService } from '@/caseScout/services/caseScoutNightly.s
 import { CaseScoutScoreService } from '@/caseScout/services/caseScoutScore.service'
 import { AgentsService } from '@/agents/agents.service'
 import { AgentRunReplaySchema } from '@/agents/tools/judgeReplay'
+import { OTEL_SERVICE_ENVIRONMENT } from '@/shared/util/appEnvironment.util'
+import {
+  AGENT_RUN_MAX_CONCURRENT,
+  agentRunConcurrency,
+} from './agentRunConcurrency.util'
 
 // The fields a worker may read.
 export type JobRun<T extends object> = Pick<
@@ -330,9 +335,10 @@ export const JOBS = {
     alertAfterWaitingMinutes: 60,
     timeoutMinutes: 120,
     attempts: 5,
-    concurrency: 2,
+    // A preview is one task with no autoscaling, so it runs the whole cap.
+    concurrency: agentRunConcurrency(OTEL_SERVICE_ENVIRONMENT),
     // Every agent shares this queue and this one fleet-wide cap.
-    maxConcurrent: 10,
+    maxConcurrent: AGENT_RUN_MAX_CONCURRENT,
   }),
   // Agent-run dispatchers fanned out by their daily schedules, one office,
   // org, row or campaign each. The agent platform queues the runs themselves.

@@ -53,6 +53,8 @@ NOTIFY wake-ups, and the tracing, dashboard and alerts below.
   Set it to the longest a user or a downstream step can wait.
 - `concurrency`: per task. Autoscaling adds tasks, so without
   `maxConcurrent` the fleet runs up to `concurrency` times the task count.
+  It can be read from `OTEL_SERVICE_ENVIRONMENT` where one environment has
+  no autoscaling to add slots: `agentRun` does (§ Fleet-wide cap).
 - `maxConcurrent` (optional): at most this many jobs of the queue run at
   once across the whole fleet, however many tasks there are. Use it when a
   job shares something that does not scale with tasks: a vendor rate limit,
@@ -327,6 +329,14 @@ so the cap holds under concurrent fetches. FIFO per group is unchanged.
   it. `jobs-backed-up` still pages when it has waited past
   `alertAfterWaitingMinutes`, since a cap too low for the work is a
   problem; set the wait with the cap in mind.
+- **A preview is one task with no autoscaling**, so a cap there is also the
+  per-task concurrency: nothing else can add slots. `agentRun` therefore
+  takes its queue's whole cap on a preview (10) where dev and prod run 2 a
+  task and reach 10 across 5 tasks
+  (`src/jobs/agentRunConcurrency.util.ts`). It reads the deploy from
+  `OTEL_SERVICE_ENVIRONMENT`, which `deploy/index.ts` sets, and any other
+  value keeps 2. The cap itself is unchanged, so a preview's runs still
+  cannot outnumber what the same queue does fleet-wide on dev.
 
 ## Dead letters
 
