@@ -30,7 +30,11 @@ Give the subagent this brief, with the paths filled in:
 > kind of screen.
 >
 > Review it the way a senior designer would. Does it solve the task and follow
-> every clause of the designer's direction? Does it follow the rulebook and the
+> every clause of the designer's direction? Read `<work>/notes/coverage.md`:
+> is every clause of the ticket and the direction on it, and is each one
+> really drawn on the screen it names or asked in #questions? Does any option
+> reverse or drop an active ADR a person decided without a quoted task clause
+> asking for it? That is a Do. Does it follow the rulebook and the
 > design system, built only from existing components through their documented
 > props, with no undeclared restyles and no hardcoded colors, sizes or
 > spacing? Check every declared mutation (the Mutations list): is there an

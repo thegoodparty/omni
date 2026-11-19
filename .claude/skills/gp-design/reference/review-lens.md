@@ -1,7 +1,7 @@
 # Review lens: the questions the page has to answer
 
 These are the questions our head of product asks in every design review. The page
-answers them before anyone has to ask. Use them twice: to write the design summary at the
+answers them before anyone has to ask. Use them twice: to write How we read the task at the
 top of the page (step 4), and as the checklist for the review round (step 8).
 
 When the ticket, the code or the data can't answer a question, write "Unknown" on
@@ -90,6 +90,7 @@ Check every option against `docs/product-design.md` and
   really makes for this person: read the handler first (a save that runs
   only `if (campaign)` never fails for someone who has no campaign yet).
 - Is every rulebook-vs-code conflict, dropped behavior and ADR reversal on the
-  page?
+  page, and does each reversal of a record a person decided quote the task
+  clause that asks for it?
 - Small type, low contrast, or a flow only a technical user would get through are
   accessibility problems. Fix them.
