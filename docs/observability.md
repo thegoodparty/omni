@@ -208,8 +208,8 @@ Background agents (`packages/gp-api/src/agents`) reach the same app on their own
 path: `agentRunSpanProcessor` stamps the run's id and agent on every span, so a
 run's `execute_tool <name>` spans answer whether that agent's tools worked. Each
 one carries `gen_ai.tool.ok` and, when the tool failed, `gen_ai.tool.reason` — the
-tool's own code (`rejected`, `timeout`, `no_scope`), `schema` for a refused
-`submitOutput`, `thrown` for a throw. Both are codes only, never a URL, SQL or
+tool's own code (`rejected`, `timeout`, `no_scope`), `schema` or `no_data`
+for a refused `submitOutput`, `thrown` for a throw. Both are codes only, never a URL, SQL or
 message text; see `src/agents/AGENTS.md` § Observability.
 
 Grafana Cloud must have Agent Observability enabled on the stack before
