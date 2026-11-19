@@ -102,9 +102,13 @@ values, never throws, so one bad URL does not end a run.
 `aws.browser.v1` for each render and stops it in a `finally`, whatever
 happened. A run's renders queue, so it holds one session at a time, and it
 gets five (`MAX_RENDERS_PER_RUN`, counted in the process). Every document
-request the browser makes, each redirect hop included, is paused over CDP
-(`Fetch.enable`) and refused unless its URL passes `fetchPage`'s checks and
-its hostname resolves only to public addresses; the final URL is checked
+request the rendered page's target makes, each redirect hop included, is
+paused over CDP (`Fetch.enable`) and refused unless its URL passes
+`fetchPage`'s checks and its hostname resolves to public addresses only.
+Popups, out-of-process frames and the page's own XHRs are not intercepted,
+and the browser does its own DNS lookup; that is acceptable because the
+browser runs in AWS's network, not gp-api's, and only the page's text comes
+back. The final URL is checked
 again. The page is cut at 10 MB and the render ends at 60 seconds or on
 `ctx.signal`. A judge run reads the recorded page first, as `fetchPage`
 does. Failures are values (`blocked_host`, `render_limit`, `timeout`,
