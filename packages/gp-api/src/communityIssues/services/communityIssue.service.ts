@@ -121,7 +121,8 @@ export class CommunityIssueService extends createPrismaBase(
     await this.ingestArtifact(run, parsed)
   }
 
-  // The trending_issues agent's onArtifact (src/agents). Its run is an
+  // The trending_issues and top_community_issues agents' onArtifact
+  // (src/agents). Its run is an
   // AgentRun, not an ExperimentRun, but the artifact, the validation and the
   // upsert are the PMF Engine's. onArtifact can run twice for one run, and the
   // upsert is one transaction that stamps every issue it writes with the run,

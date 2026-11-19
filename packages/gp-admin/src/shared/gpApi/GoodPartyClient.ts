@@ -1,5 +1,6 @@
 import { HttpClient } from './http/HttpClient'
 import { AdminAgentRunsResource } from './resources/AdminAgentRunsResource'
+import { AdminBackgroundAgentRunsResource } from './resources/AdminBackgroundAgentRunsResource'
 import { EmailOutreachAdminResource } from './resources/EmailOutreachAdminResource'
 import { SmsOutreachAdminResource } from './resources/SmsOutreachAdminResource'
 import { OutreachResultsAdminResource } from './resources/OutreachResultsAdminResource'
@@ -23,6 +24,7 @@ export type GoodPartyClientConfig = {
 export class GoodPartyClient {
   readonly admin: AdminResource
   readonly adminAgentRuns: AdminAgentRunsResource
+  readonly adminBackgroundAgentRuns: AdminBackgroundAgentRunsResource
   readonly smsOutreachAdmin: SmsOutreachAdminResource
   readonly emailOutreachAdmin: EmailOutreachAdminResource
   readonly outreachResultsAdmin: OutreachResultsAdminResource
@@ -41,6 +43,9 @@ export class GoodPartyClient {
     const httpClient = new HttpClient(gpApiRootUrl, getToken)
     this.admin = new AdminResource(httpClient)
     this.adminAgentRuns = new AdminAgentRunsResource(httpClient)
+    this.adminBackgroundAgentRuns = new AdminBackgroundAgentRunsResource(
+      httpClient
+    )
     this.smsOutreachAdmin = new SmsOutreachAdminResource(httpClient)
     this.emailOutreachAdmin = new EmailOutreachAdminResource(httpClient)
     this.outreachResultsAdmin = new OutreachResultsAdminResource(httpClient)

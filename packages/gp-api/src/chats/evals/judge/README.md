@@ -1440,7 +1440,7 @@ writes two outputs.
 ## A background agent on gp-api's own agents: the candidate runs in the arm
 
 An agent in `IN_PROCESS_AGENTS` (`runners/backgroundInProcess.ts`; today
-`trending_issues`) has moved onto gp-api's own agents (`src/agents/`). Its
+`trending_issues` and `top_community_issues`) has moved onto gp-api's own agents (`src/agents/`). Its
 candidate arm runs it inside the arm's app instead of dispatching to Fargate,
 so the comparison is the PMF Engine (base) against gp-api (candidate). The
 base arm is unchanged.
@@ -1455,6 +1455,10 @@ base arm is unchanged.
   nothing to the product, as on the base arm. For a `readsGpApi` agent the
   arm seeds the same `judge-fixture` rows the broker reads in dev
   (`judgeFixtureSeed.ts`), so both arms read the same issue feed.
+- `installBraveKey` and `installPeopleDbxKeys` (`braveKey.ts`) copy
+  `BRAVE_API_KEY` and gp-api dev's own `PEOPLE_DATABRICKS_*` identity out of
+  `GP_API_DEV`, so `webSearch` searches and `queryDatabricks` reads what the
+  deployed agent can read.
 - Page replay: the candidate's replay ticket rides on the run, and
   `fetchPage` and `checkLink` serve the base arm's recordings, read with the
   `JUDGE_AWS_*` credentials, and leave the hit and miss markers the report
@@ -1836,7 +1840,7 @@ needs its cache rates in `pricing.ts` before a cached run can be priced.
 Interactive chats cache their prompts (`llm.service.ts`
 `streamChatCompletion`). An in-process chat run reads the split from the AI
 SDK's usage and records `input` as uncached input only. An HTTP chat run
-reads `chat_message.input_tokens`, which folds cache tokens into input, so
+reads `agent_message.input_tokens`, which folds cache tokens into input, so
 it records zero cache tokens and its cost is an upper bound.
 
 A background record's counts come from the `type: result` line of the run's

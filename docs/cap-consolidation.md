@@ -4,8 +4,11 @@ The plan for moving every in-product agent into gp-api, on one engine.
 ClickUp ticket 17tnw2b5rd0, "Consolidate In-Product Agent Architecture".
 Status: in progress. The core, `AgentMessage` and `trending_issues` are on
 main; `trending_issues` runs on gp-api's own agents in dev and prod, and
-preview still sends it to the PMF Engine. Every other agent still runs on the
-PMF Engine in every environment. Until an agent moves, it runs as
+preview still sends it to the PMF Engine. `top_community_issues` is built on
+gp-api's agents with its switch off everywhere: its lean annotation needs the
+`hs_*` scores in the people marts, which a data-platform change adds before it
+can be judged. Every other agent still runs on the PMF Engine in every
+environment. Until an agent moves, it runs as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
@@ -71,14 +74,12 @@ successful production traffic, not a merged PR.
    Dev's value landed with #3871, prod's with #3875, and preview stays unset.
    Done when prod runs complete, land on the dashboard, never re-dispatch,
    never dead-letter, and show in Grafana Agent Observability.
-2. **Every chat agent on `AgentMessage` in prod.** Chat wrote both tables
-   behind the `chat-agent-message` flag, with a backfill and a parity check,
-   until every reader and writer was on `AgentMessage`; that flag, the
-   backfill and the reads of `ChatMessage` are now gone, with the client
-   supplying each user message's id (a UUID, so a retry is caught by the
-   primary key). `ChatMessage` and `ChatMessageSegment` are dropped in a later
-   deploy. Done when all five scopes serve prod traffic from `AgentMessage`,
-   checked in Grafana and by one judge run.
+2. **Every chat agent on `AgentMessage` in prod.** ✅ Every chat scope reads
+   and writes only `AgentMessage`: the client supplies each user message's id
+   (a UUID, so a retry is caught by the primary key), and a rating names the
+   `AgentMessage` turn it was left on. Nothing uses `ChatMessage` or
+   `ChatMessageSegment`; dropping the two tables is the next deploy, staged
+   separately so no task serving during that rollout is still reading them.
 3. **The remaining background agents, in waves.** Each agent is one PR: its
    definition, its readers moved from `ExperimentRun` to `AgentRun`, its judge
    in-process arm, and its `qa/` manifest deleted. Its switch flips only after
@@ -89,8 +90,8 @@ successful production traffic, not a merged PR.
      opponent chain runs collection, then summary, then actions, and those
      three flip together, so collection and summary are built in wave 1 but
      wait for actions before they flip.
-   - **Wave 2, needs a Databricks tool** (a table allowlist and a row cap per
-     agent, built first): `race_opponent_actions`, `opponent_research`,
+   - **Wave 2, needs a Databricks tool** (a table allowlist, a row cap and
+     the run's jurisdiction filter per agent, built first): `race_opponent_actions`, `opponent_research`,
      `top_community_issues`, `campaign_tracker_tasks`.
    - **Wave 3, its own design each:** `find_existing_ordinances` (PDF
      reading, the code-capture files, the heaviest traffic),

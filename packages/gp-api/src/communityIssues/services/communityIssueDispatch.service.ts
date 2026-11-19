@@ -3,6 +3,8 @@ import { runsOnGpApi } from '@/agents/agents.registry'
 import { AgentsService } from '@/agents/agents.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
+import { peopleTable as peopleTableFor } from '@/peopleDb/databricks/databricksVoterSql.util'
 import { WrapperType } from '@/shared/types/utility.types'
 import { JobsService } from '@/jobs/jobs.service'
 import { isTestUser } from '@/users/util/users.util'
@@ -31,6 +33,14 @@ const EXPERIMENT_TYPES = ['top_community_issues', 'trending_issues'] as const
 
 type CommunityIssueExperimentType = (typeof EXPERIMENT_TYPES)[number]
 
+const LIST_FOR_EXPERIMENT_TYPE: Record<
+  CommunityIssueExperimentType,
+  CommunityIssueList
+> = {
+  top_community_issues: CommunityIssueList.top_community,
+  trending_issues: CommunityIssueList.trending,
+}
+
 // Per-cron-tick cap: limits how many dispatches can fire in a single run of
 // the daily cron (both trending and top share this constant).
 const DISPATCH_CAP_PER_TICK = 200
@@ -48,6 +58,9 @@ type ResolvedDispatchContext = {
   districtDescriptor: string
   l2DistrictType?: string
   l2DistrictName?: string
+  // The people mart the org reads, from PeopleDatasetService. Only
+  // top_community_issues takes it: it is the table its tool may query.
+  peopleTable?: string
   lastVisitedMs?: number
 }
 
@@ -91,6 +104,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     // dependency at DI time. forwardRef + WrapperType defers resolution.
     @Inject(forwardRef(() => AnalyticsService))
     private readonly analytics: WrapperType<AnalyticsService>,
+    private readonly peopleDatasets: PeopleDatasetService,
   ) {
     super()
   }
@@ -346,16 +360,18 @@ export class CommunityIssueDispatchService extends createPrismaBase(
             select: { updatedAt: true },
           }),
         ])
-        // Cutover: trending_issues last ran on the PMF Engine, so an org with
-        // no AgentRun yet carries only that engine's rows, and the ingest that
+        // Cutover: the type last ran on the PMF Engine, so an org with no
+        // AgentRun yet carries only that engine's rows, and the ingest that
         // wrote them is when the user's list last refreshed. Removed at teardown.
         const newestOrgRow =
-          anyRun === null && experimentType === 'trending_issues'
+          anyRun === null
             ? await this.client.communityIssue.findFirst({
                 where: {
                   organizationSlug: orgSlug,
-                  list: CommunityIssueList.trending,
+                  list: LIST_FOR_EXPERIMENT_TYPE[experimentType],
                   archivedAt: null,
+                  // A starter row (communityIssueStarter) is not a run.
+                  lastRefreshedRunId: { not: null },
                 },
                 orderBy: { updatedAt: Prisma.SortOrder.desc },
                 select: { updatedAt: true },
@@ -413,7 +429,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     ctx: ResolvedDispatchContext,
     priority?: 'HIGH',
   ): Promise<void> {
-    if (experimentType === 'trending_issues' && runsOnGpApi(experimentType)) {
+    if (runsOnGpApi(experimentType)) {
       // The PMF Engine's dispatchRun makes the same check.
       const organization = await this.client.organization.findUnique({
         where: { slug: organizationSlug },
@@ -432,13 +448,30 @@ export class CommunityIssueDispatchService extends createPrismaBase(
         )
         return
       }
-      await this.agents.run(experimentType, {
+      const input = {
         organizationSlug,
         state: ctx.state,
         office: ctx.positionName,
         districtDescriptor: ctx.districtDescriptor,
         today: new Date().toISOString().slice(0, 10),
-      })
+      }
+      // As in buildDispatchParams: only top_community_issues takes the L2
+      // pair, and only as a pair. It is also the only type that reads the
+      // people mart, so only it carries the table.
+      await this.agents.run(
+        experimentType,
+        experimentType === 'top_community_issues'
+          ? {
+              ...input,
+              ...(ctx.l2DistrictType &&
+                ctx.l2DistrictName && {
+                  l2DistrictType: ctx.l2DistrictType,
+                  l2DistrictName: ctx.l2DistrictName,
+                }),
+              ...(ctx.peopleTable && { peopleTable: ctx.peopleTable }),
+            }
+          : input,
+      )
       return
     }
     await this.experimentRuns.dispatchRun({
@@ -607,6 +640,12 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       ? `${serveCtx.l2DistrictName}, ${serveCtx.state}`
       : `${serveCtx.positionName}, ${serveCtx.state}`
 
+    // The same choice every other people read makes for this org, so the agent
+    // reads exactly the mart its product surfaces read.
+    const peopleTable = organization
+      ? peopleTableFor(await this.peopleDatasets.resolve(organization))
+      : undefined
+
     return {
       userId: eo.user.id,
       clerkUserId: eo.user.clerkId,
@@ -615,6 +654,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       districtDescriptor,
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
+      peopleTable,
       lastVisitedMs: eo.user.metaData?.lastVisited,
     }
   }

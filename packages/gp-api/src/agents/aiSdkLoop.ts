@@ -17,6 +17,7 @@ import {
   type StepUsage,
   stepRows,
 } from './agentMessages'
+import { isRecord } from '@/llm/tools/util/isRecord.util'
 import { instrumentTool } from './agentRunSpans'
 import type { AgentTool, ToolContext } from './tools/tool'
 
@@ -63,6 +64,57 @@ const SubmitResultSchema = z.object({
   toolName: z.literal(SUBMIT_TOOL),
   output: z.object({ type: z.enum(['text', 'json']) }),
 })
+
+// Every warehouse tool reports its outcome as `ok`, so this reads what the run
+// actually got back rather than what it asked for: a rejected query, a timeout
+// and a warehouse error all carry `ok: false`.
+export const warehouseQuerySucceeded = (value: unknown): boolean =>
+  isRecord(value) && value.ok === true
+
+// A warehouse tool's result already in the run's saved messages.
+const WarehouseResultSchema = z.object({
+  type: z.literal('tool-result'),
+  toolName: z.string(),
+  output: z.object({ type: z.literal('json'), value: z.unknown() }),
+})
+
+// How many warehouse queries a run has already had back, counting the rows a
+// killed attempt left behind. The loop counts the rest as they happen: inside
+// one streamText the model queries and submits without the outer message list
+// being rebuilt, so a count taken from it would read zero for every run.
+export const savedWarehouseQueriesSucceeded = (
+  messages: ModelMessage[],
+  warehouseTools: readonly string[],
+): number => {
+  let succeeded = 0
+  for (const message of messages) {
+    if (typeof message.content === 'string') continue
+    for (const part of message.content) {
+      const result = WarehouseResultSchema.safeParse(part)
+      if (
+        result.success &&
+        warehouseTools.includes(result.data.toolName) &&
+        warehouseQuerySucceeded(result.data.output.value)
+      ) {
+        succeeded++
+      }
+    }
+  }
+  return succeeded
+}
+
+// The manifest's `data_required_unless`, applied as the broker applies it: the
+// gate is skipped only when the named top-level field of the artifact carries
+// one of the listed values. A malformed carve-out fails closed, so a typo
+// costs a refused submit rather than an ungated one.
+const carveOutApplies = (
+  output: unknown,
+  carveOut: { field: string; values: readonly string[] } | undefined,
+): boolean => {
+  if (!carveOut || !isRecord(output)) return false
+  const value = output[carveOut.field]
+  return typeof value === 'string' && carveOut.values.includes(value)
+}
 
 // The run's output is the input of the last accepted submitOutput call,
 // whether it was made in this attempt or found in the saved rows.
@@ -140,6 +192,9 @@ export type AgentLoopArgs = {
   messages: ModelMessage[]
   tools: Record<string, AgentTool>
   output: z.ZodType
+  // The agent's anti-fabrication carve-out (defineAgent.ts). Absent means the
+  // gate never applies, which is every agent that reads no warehouse table.
+  dataRequiredUnless?: { field: string; values: readonly string[] }
   toolContext: Omit<ToolContext, 'stepKey'>
   savedSteps: number
   maxSteps: number
@@ -167,6 +222,14 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
     return `${currentStep}:${toolName}:${n}`
   }
 
+  const messages = [...args.messages]
+  const warehouseTools = Object.entries(args.tools)
+    .filter(([, agentTool]) => agentTool.readsWarehouse === true)
+    .map(([name]) => name)
+  let warehouseQueries = savedWarehouseQueriesSucceeded(
+    messages,
+    warehouseTools,
+  )
   const submitJsonSchema: unknown = z.toJSONSchema(
     z.object({ output: args.output }),
     { unrepresentable: 'any' },
@@ -191,6 +254,20 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
             `The output does not match the schema. Fix these and call ${SUBMIT_TOOL} again:\n${problems.join('\n')}`,
           )
         }
+        // The anti-fabrication gate. Distinct from the schema check above on
+        // purpose: an invented output is schema-valid, and the only evidence
+        // that this one is not is that no warehouse query returned a row.
+        if (
+          warehouseTools.length > 0 &&
+          warehouseQueries === 0 &&
+          !carveOutApplies(parsed.data, args.dataRequiredUnless)
+        ) {
+          throw new Error(
+            `No warehouse query succeeded, so this output cannot be submitted: ` +
+              `it would report data this run never read. Run ${warehouseTools.join(' or ')} ` +
+              `and read its result before calling ${SUBMIT_TOOL} again.`,
+          )
+        }
         return 'accepted'
       },
     }),
@@ -201,15 +278,19 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
     tools[name] = dynamicTool({
       description: agentTool.description,
       inputSchema: agentTool.input,
-      execute: (input) =>
-        instrumented.execute(input, {
+      execute: async (input) => {
+        const value = await instrumented.execute(input, {
           ...args.toolContext,
           stepKey: stepKey(name),
-        }),
+        })
+        if (warehouseTools.includes(name) && warehouseQuerySucceeded(value)) {
+          warehouseQueries++
+        }
+        return value
+      },
     })
   }
 
-  const messages = [...args.messages]
   let saveError: unknown
   let cutOff = 0
   for (let nudges = 0; ; nudges++) {

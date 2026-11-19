@@ -284,6 +284,9 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
       messages,
       tools: definition.tools,
       output: definition.output,
+      ...(definition.dataRequiredUnless && {
+        dataRequiredUnless: definition.dataRequiredUnless,
+      }),
       toolContext: {
         runId: run.id,
         organizationSlug: run.organizationSlug,

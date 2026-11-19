@@ -26,6 +26,7 @@ renamed onto this clean name once the dead module was removed.
 | `communityIssueBucketing.ts`                   | FNV-1a bucket assignment (deterministic slug → list)           |
 | `communityIssueArtifact.validation.ts`         | Zod validation for S3 artifact JSON                            |
 | `trendingIssuesAgent/`                         | `trending_issues` on gp-api's own agents (see below)           |
+| `topCommunityIssuesAgent/`                     | `top_community_issues` on gp-api's own agents (see below)      |
 
 ## Prisma model
 
@@ -85,24 +86,29 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   context and skips; with the flag on, this is the dispatch that actually
   fires for those users.
 
-## trending_issues on gp-api's agents
+## Both lists on gp-api's agents
 
-`trending_issues` runs on either engine; `AGENTS_ON_GP_API` (contains
-`trending_issues`) picks gp-api's own agents (`src/agents/AGENTS.md`), and
-unset leaves it on the PMF Engine. `startRun` in the dispatch service is the
+`trending_issues` and `top_community_issues` each run on either engine;
+`AGENTS_ON_GP_API` (a comma-separated list of the two ids) picks gp-api's own
+agents (`src/agents/AGENTS.md`) per type, and a type left out stays on the PMF
+Engine. `trending_issues` is on in dev and prod; `top_community_issues` is off
+everywhere. `startRun` in the dispatch service is the
 one dispatch fork: on gp-api's agents the run is an `AgentRun` with
-`agentName: 'trending_issues'`, on the PMF Engine an `ExperimentRun` with
-`experimentType: 'trending_issues'`. Every gate and reader picks its table by
+`agentName` set to the type, on the PMF Engine an `ExperimentRun` with that
+`experimentType`. Every gate and reader picks its table by
 that same switch, because a gate that queried the other engine's table would
 see nothing and let the type dispatch again: the signup check, the in-flight
 check and the freshness check in `communityIssueDispatch.service.ts`, and the
-refresh status in `communityIssueRead.service.ts`. `top_community_issues`
-stays on the PMF Engine; it also queries Databricks.
+refresh status in `communityIssueRead.service.ts`. The
+`topCommunityIssuesDaily` 28-day bucket and the `trendingIssuesDaily` 7-day
+one go through the same `startRun`, so both schedules work on either engine.
 
 While both engines hold history, the `AgentRun` branch has one cutover
-fallback: an org whose `trending_issues` last ran on the PMF Engine has no
+fallback: an org whose type last ran on the PMF Engine has no
 `AgentRun` yet, so it is judged by its own `CommunityIssue` rows instead — the
-newest `updatedAt` among its non-archived `trending` rows (every ingest stamps
+newest `updatedAt` among its non-archived rows on that type's list that an
+ingest wrote (`lastRefreshedRunId` set, so onboarding's starter rows do not
+count as a refresh; every ingest stamps
 `lastRefreshedRunId` on every row it keeps, which bumps `updatedAt`, unchanged
 ones included). Without it, the first day after the switch re-dispatches every
 active org on landing (the freshness gate finds no completion) and the read path
@@ -141,6 +147,43 @@ accepted.
   the PMF Engine publishes, and the same validation and upsert run.
 - `ingestAgentArtifact` skips a run that already stamped issues, because
   `onArtifact` can run twice for one run.
+
+### top_community_issues
+
+- `topCommunityIssues.prompt.ts` is the experiment's `instruction.md` with the
+  runtime swapped (input message, `getCommunityIssues`, `webSearch`,
+  `fetchPage`, `checkLink`, `queryDatabricks`, `submitOutput`). Like
+  trending's copy it requires a `fetchPage` for every cited source and takes
+  `article_date` off the page, and it carries trending's office-exists gate.
+- `queryDatabricks` reads the org's own people mart (50,000 rows max),
+  `mart_gp_api.gp_api_voters` or `gp_api_constituents`: gp-api's Databricks
+  principal reads `mart_gp_api` only, and which of the two a run may read is
+  `PeopleDatasetService`'s choice for its org, exactly as for every other people
+  read. The dispatcher resolves it and puts it in the run's input as
+  `peopleTable`; `topCommunityIssuesDatabricksTables` reads it back by run id
+  and the tool accepts no other table. The model writes the state and L2
+  district clauses itself, and the tool proves them against
+  `topCommunityIssuesDatabricksScope`: the run's stored `AgentRun.input`, read
+  by run id. The dispatcher builds that input from `resolveServeContext`, so in
+  production it equals
+  `orgDatabricksScope`; a judge run, where every case shares the fixture org,
+  is scoped to the case's own district. No state, or half an L2 pair, refuses
+  every query. This is narrower than the PMF Engine's broker scope in practice
+  only where an office has an L2 district: the broker injected
+  `Residence_Addresses_State` plus `Residence_Addresses_City` from the run
+  params, and `top_community_issues`' manifest declares no `city` input
+  (`additionalProperties: false`), so the broker's city clause was never
+  active for this agent. The district column the office's `l2DistrictType`
+  names is narrower than a city, and is the scope the instruction already
+  asked the broker for in its own WHERE.
+- The input carries `l2DistrictType` and `l2DistrictName` only as a pair, as
+  `buildDispatchParams` does for the PMF Engine, plus the `peopleTable` its
+  queries read. Signup's `HIGH` priority is not carried over.
+- `onArtifact` is the same `ingestAgentArtifact` path: the upsert with
+  archive-by-omission, carried `existing_issue_id`s (so a priority made from
+  an issue stays on it), task cards on a refresh, and the Segment events below,
+  including Initial Issues Generated, which drives the HubSpot "your issues are
+  ready" email.
 
 ## Starter issues
 
@@ -187,9 +230,10 @@ comparison, just wired through different dispatch flows.
 
 A real run needs `AGENT_DISPATCH_QUEUE_NAME`, and its result returns on the
 env's shared agent-results queue (`src/agentExperiments/AGENTS.md`). The
-exception is `trending_issues` with `AGENTS_ON_GP_API=trending_issues`: it
+exception is a type named in `AGENTS_ON_GP_API`: it
 runs in gp-api's own `agentRun` worker, so it works anywhere gp-api has a
-real `ANTHROPIC_API_KEY`, locally included.
+real `ANTHROPIC_API_KEY`, locally included (`top_community_issues` also needs
+the `PEOPLE_DATABRICKS_*` identity for its lean query).
 
 - **Local:** no. Don't vend AWS credentials or point a laptop at
   `agent-dispatch-dev.fifo`: dev gp-api consumes the result, finds no

@@ -6,10 +6,10 @@ rather than re-reading the setup.
 
 ## Serve (elected officials)
 
-**Persona: Sarah Chen.** City council member, City of Maplewood, population
+**Persona: Carla Reyes.** City council member, City of Maplewood, population
 32,000. Part-time, relatively new, not a policy expert, time-poor, politically
 exposed. She is the default Serve user in every design and discussion. Use
-"Sarah" in copy, and her full name only where a product would show it: name
+"Carla" in copy, and her full name only where a product would show it: name
 fields, account cards, an email's To line.
 
 **Her priorities:**
@@ -28,8 +28,8 @@ safety, parks, affordable housing, stormwater.
 **Sample constituent: Tom Alvarez.** A Maplewood resident. The recipient in a
 message preview that fills a merge tag ("Hi Tom").
 
-**Her office, for anything that sends:** the sender is "Council Member Sarah
-Chen, City of Maplewood", replies go to `sarah.chen@maplewood.example`, and she
+**Her office, for anything that sends:** the sender is "Council Member Carla
+Reyes, City of Maplewood", replies go to `carla.reyes@maplewood.example`, and she
 has imported 860 contacts with an email address. Use the reserved `.example`
 domain, never a real-looking one.
 

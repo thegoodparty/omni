@@ -49,7 +49,7 @@ details (office, voter file, priorities) live there, not here.
 
 - **Candidates (Win): Dana Ortiz.** Often running for the first time, for a
   local office, with little or no staff.
-- **Elected officials (Serve): Sarah Chen.** Part-time and relatively new,
+- **Elected officials (Serve): Carla Reyes.** Part-time and relatively new,
   serving alongside another job. Not a policy expert, short on time, and
   politically exposed.
 - **Their place: Maplewood.** Small and ordinary on purpose. Data looks like

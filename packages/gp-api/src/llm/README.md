@@ -26,7 +26,7 @@ input price.
   breakpoint on that block instead.
 - `LlmStreamUsage.inputTokens` includes cache reads and writes; the split is
   in `cacheReadTokens` and `cacheWriteTokens`. Anything that prices
-  `inputTokens` at the full input rate (`chat_message.input_tokens`,
+  `inputTokens` at the full input rate (`agent_message.input_tokens`,
   `ordinanceCost.util.ts`) now reports an upper bound.
 
 Message and tool types (`LlmMessage`, `LlmFunctionTool`, `LlmToolChoice`) are local

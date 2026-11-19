@@ -95,6 +95,10 @@ const SECRET_VARS: readonly string[] = [
   ARM_KEY_ENV,
   'DATABRICKS_CLIENT_SECRET',
   'DATABRICKS_CLIENT_ID',
+  // braveKey.ts installs gp-api dev's own voter-file identity for an
+  // in-process agent that queries the warehouse.
+  'PEOPLE_DATABRICKS_CLIENT_SECRET',
+  'PEOPLE_DATABRICKS_CLIENT_ID',
   'DATABASE_URL',
   // The minted Clerk session token an HTTP chat arm calls with. The Clerk
   // SECRET key is deliberately not here: it never enters an arm's

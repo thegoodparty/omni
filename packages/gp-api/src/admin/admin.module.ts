@@ -15,6 +15,8 @@ import { AdminUsersController } from './users/adminUsers.controller'
 import { AdminElectedOfficeController } from './electedOffice/adminElectedOffice.controller'
 import { AdminAgentRunsController } from './agentRuns/adminAgentRuns.controller'
 import { AdminAgentRunsService } from './agentRuns/services/adminAgentRuns.service'
+import { AdminBackgroundAgentRunsController } from './backgroundAgentRuns/adminBackgroundAgentRuns.controller'
+import { AdminBackgroundAgentRunsService } from './backgroundAgentRuns/services/adminBackgroundAgentRuns.service'
 import { AdminBriefingsController } from './briefings/adminBriefings.controller'
 import { AdminBriefingsService } from './briefings/services/adminBriefings.service'
 
@@ -36,11 +38,13 @@ import { AdminBriefingsService } from './briefings/services/adminBriefings.servi
     AdminUsersController,
     AdminElectedOfficeController,
     AdminAgentRunsController,
+    AdminBackgroundAgentRunsController,
     AdminBriefingsController,
   ],
   providers: [
     AdminCampaignsService,
     AdminAgentRunsService,
+    AdminBackgroundAgentRunsService,
     AdminBriefingsService,
   ],
 })

@@ -10,7 +10,7 @@ export const JudgeToolStepsSchema = z.array(JudgeToolStepSchema)
 export const JudgeToolQueriesSchema = z.array(z.string())
 
 // `model`, `inputTokens` and `outputTokens` are joined from the assistant
-// ChatMessage rather than stored on the telemetry row, so a turn's spend can
+// AgentMessage rather than stored on the telemetry row, so a turn's spend can
 // never be reported from two copies that disagree. All three are null for a
 // turn that persisted no assistant row, and for one whose usage never
 // resolved.

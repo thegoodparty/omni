@@ -267,6 +267,16 @@ list (`<details class="mutations" id="a-mutations">`): the element, the kind
 (product, no-component or gap), and the marker's text after its kind.
 `check.py` fails on a marker with no row. "None" when there are none.
 
+**A shared component.** When the design changes a component other screens
+use (a styleguide component, or a product component several screens import:
+the flow shell, a card, a sheet), the change reaches all of them. Its row in
+What changes from today names the file in `<code>`
+(`packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx`), and
+the change is asked under Decisions needed, naming the screens it also
+changes (`grep` its importers). `check.py` fails when a file in `#<x>-drops`
+is imported by two or more other files and `#questions` doesn't name it.
+Change it only for this flow when you can (a prop, a copy object) and say so.
+
 ## Spacing parity
 
 A flow that mirrors an existing screen must measure the same as the real one.
@@ -384,7 +394,7 @@ text in What changes from today ("Every option must have").
   option's letter (`a-office`) and never repeat within a screen.
 - No recommendation anywhere: no stars, "best", "recommended", ranking or order
   that implies one beyond A, B, C.
-- The design comes first, right under the page bar. The design summary (`#brief`)
+- The design comes first, at the top of the page. The design summary (`#brief`)
   follows the options, with `#brief-user`, `#brief-problem`,
   `#brief-solution`, `#brief-data`, `#brief-measure`, `#brief-entry`,
   `#reach`, `#feedback-ask` and `#questions`. One or two sentences each. "Unknown" is a

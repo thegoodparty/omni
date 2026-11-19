@@ -160,6 +160,8 @@ describe('scrubReason', () => {
     ARM_KEY_ENV,
     'DATABRICKS_CLIENT_SECRET',
     'DATABRICKS_CLIENT_ID',
+    'PEOPLE_DATABRICKS_CLIENT_SECRET',
+    'PEOPLE_DATABRICKS_CLIENT_ID',
     'DATABASE_URL',
     JUDGE_CLERK_ENV.sessionToken,
   ])('redacts %s by its value', (name) => {
