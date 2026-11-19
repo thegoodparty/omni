@@ -89,6 +89,30 @@ judge's sweep records; unset skips them). Set in `deploy/index.ts`, with the
 task role's grants on the bucket and the Lambda. Only prod drops staff and
 test accounts (`OTEL_SERVICE_ENVIRONMENT`), as the Python reader did.
 
+## The gate's eval suite
+
+`caseScoutGate.eval.ts` grades `gateDraft` against results a person already
+ruled correct: a clean draft passes, a draft carrying a name, an address, a
+phone number or an email is blocked, a draft repeating a run of the user's own
+words is caught, and a denylisted term is refused. It is an expected-result
+suite (`defineExpectedResultEvalSuite` in `@goodparty_org/judge`); that package's
+`AGENTS.md` has the shape.
+
+```bash
+npm run eval -w packages/gp-api    # JUDGE_MODEL and ANTHROPIC_API_KEY, live
+```
+
+**Every draft in that file is invented.** omni is public, so a name, an address
+and a number there are fiction: 555 numbers, example.com addresses, people who
+do not exist. A case that needs a real sample loads it **at run time from a
+private location** — a bucket the eval reads with its own credentials — and never
+commits it. Nothing that came out of a real chat belongs in `src/`.
+
+A case is `{ id, input, expected }`, where the input is the draft, the
+denylist, the user messages and the strings the case planted. `leaksPlanted` is
+a string match, not a judgment; `containsPii` is the one `judgeModel` call. Every
+attempt's judgment must deep-equal `expected`.
+
 ## Gotchas
 
 - **`ChatCaseSchema` cannot be imported here.** `src/chats/evals/**` is left
