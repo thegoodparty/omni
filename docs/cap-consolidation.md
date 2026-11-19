@@ -78,8 +78,8 @@ successful production traffic, not a merged PR.
    and writes only `AgentMessage`: the client supplies each user message's id
    (a UUID, so a retry is caught by the primary key), and a rating names the
    `AgentMessage` turn it was left on. Nothing uses `ChatMessage` or
-   `ChatMessageSegment`; dropping the two tables is the next deploy, staged
-   separately so no task serving during that rollout is still reading them.
+   `ChatMessageSegment`, and #3893 drops both tables, staged a deploy later so
+   no task serving during that rollout was still reading them.
 3. **The remaining background agents, in waves.** Each agent is one PR: its
    definition, its readers moved from `ExperimentRun` to `AgentRun`, its judge
    in-process arm, and its `qa/` manifest deleted. Its switch flips only after

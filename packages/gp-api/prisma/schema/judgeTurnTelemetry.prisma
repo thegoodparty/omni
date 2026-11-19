@@ -31,8 +31,8 @@ model JudgeTurnTelemetry {
   /// what makes a retried write idempotent instead of a second opinion.
   turnIndex Int @map("turn_index")
 
-  /// The assistant `ChatMessage` this turn produced, when one was persisted.
-  /// There are deliberately no model or token columns here: `ChatMessage`
+  /// The assistant `AgentMessage` this turn produced, when one was persisted.
+  /// There are deliberately no model or token columns here: `AgentMessage`
   /// already carries `model`, `input_tokens` and `output_tokens`, stamped by
   /// `recordAssistantUsage` after the stream drains. The reader joins on this
   /// id rather than duplicating them, so spend can never be reported from two
