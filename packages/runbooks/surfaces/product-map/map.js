@@ -2239,7 +2239,7 @@ var ProductMap = (function () {
       `<div class="mapview">${controlsHTML()}` +
       (tree
         ? `<div class="flows">${tree}</div>`
-        : `<div class="mapempty">No flow on the map matches. The map draws ${mapDrawn().filter((s) => !s.building).length} flows and pages so far, so a match can still be an event on a flow it has not drawn.</div>`) +
+        : `<div class="mapempty">No flow on the map matches. The map draws ${mapDrawn().filter((s) => !s.building && s.kind !== 'list').length} flows and pages so far, so a match can still be an event on a flow it has not drawn.</div>`) +
       (view ? '' : BUILDING_NOTE) +
       `</div>`
     VIEW = null
