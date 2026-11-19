@@ -4,13 +4,13 @@ import {
   Badge,
   Button,
   Card,
+  ExternalLinkIcon,
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@styleguide'
 import Image from 'next/image'
 import Link from 'next/link'
-import { MdOpenInNew } from 'react-icons/md'
 import { PLAN_PRICING } from '@goodparty_org/contracts'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useOrganizationRole } from '@shared/organization-picker'
@@ -91,7 +91,7 @@ export const AccountInformationCard = ({
         {oneTimePlan ? (
           <PaymentPortalButton variant="outline">
             Billing history
-            <MdOpenInNew className="ml-2" />
+            <ExternalLinkIcon className="ml-2 size-4" />
           </PaymentPortalButton>
         ) : showPlansLink ? (
           <Button asChild>
@@ -144,12 +144,13 @@ export const AccountInformationCard = ({
             {formatGoodThrough(planEndsAt)}{' '}
             <Popover>
               <PopoverTrigger asChild>
-                <button
+                <Button
                   type="button"
-                  className="cursor-pointer border-0 bg-transparent p-0 text-sm text-muted-foreground underline"
+                  variant="link"
+                  className="h-auto p-0 text-sm text-muted-foreground"
                 >
                   Why this date?
-                </button>
+                </Button>
               </PopoverTrigger>
               <PopoverContent className="text-sm">
                 <p className="m-0">
