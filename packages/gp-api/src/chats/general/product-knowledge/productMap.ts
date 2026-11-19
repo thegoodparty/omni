@@ -297,8 +297,8 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'Compare the Free, Pro and Team plans and see which one the campaign is on.',
     inside: [
-      'Each plan is one payment for the campaign, with prices shown on its card',
-      'Pro and Team include outreach credit. Team adds inviting teammates',
+      'A table compares what each plan includes (stacked cards on a phone). Each plan is one payment for the campaign',
+      'Pro and Team include outreach credit for texts and robocalls. Team adds logins for teammates',
       'The current plan is marked, and its button is off',
       'Each other plan has a button that starts the upgrade',
     ],

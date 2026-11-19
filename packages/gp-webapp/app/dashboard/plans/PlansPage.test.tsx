@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { PLAN_PRICING } from '@goodparty_org/contracts'
 import PlansPage from './PlansPage'
 
@@ -22,26 +22,52 @@ describe('PlansPage', () => {
     mockPlan.current = 'free'
   })
 
-  it('shows three plans with prices from PLAN_PRICING', () => {
+  it('shows the three plans with prices and credit from PLAN_PRICING', () => {
     render(<PlansPage highlightTeam={false} />)
 
-    expect(screen.getByTestId('plan-card-free')).toHaveTextContent('$0')
-    expect(screen.getByTestId('plan-card-pro')).toHaveTextContent(
-      `$${PLAN_PRICING.proCents / 100}`,
+    const proCard = screen.getByTestId('plan-card-pro')
+    expect(proCard).toHaveTextContent(`$${PLAN_PRICING.proCents / 100}`)
+    expect(proCard).toHaveTextContent(
+      `$${PLAN_PRICING.includedCreditCents / 100} credit`,
     )
     expect(screen.getByTestId('plan-card-team')).toHaveTextContent(
       `$${PLAN_PRICING.teamCents / 100}`,
     )
+    expect(screen.getByTestId('plan-card-free')).toHaveTextContent('$0')
+    expect(
+      screen.getByRole('columnheader', { name: /Compare plans/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('lists Logins for your team on Team only', () => {
+    render(<PlansPage highlightTeam={false} />)
+
+    expect(
+      within(screen.getByTestId('plan-card-team')).getByText(
+        'Logins for your team',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('plan-card-pro')).queryByText(
+        'Logins for your team',
+      ),
+    ).toBeNull()
   })
 
   it('points the CTAs at the Pro upgrade entry with the chosen plan', () => {
     render(<PlansPage highlightTeam={false} />)
 
-    expect(screen.getByRole('link', { name: 'Join Pro' })).toHaveAttribute(
+    const pro = screen.getAllByRole('link', {
+      name: `Join Pro for $${PLAN_PRICING.proCents / 100}`,
+    })
+    const team = screen.getAllByRole('link', {
+      name: `Join Team for $${PLAN_PRICING.teamCents / 100}`,
+    })
+    expect(pro[0]).toHaveAttribute(
       'href',
       expect.stringMatching(/^\/dashboard\/pro-upgrade\?.*&plan=pro$/),
     )
-    expect(screen.getByRole('link', { name: 'Join Team' })).toHaveAttribute(
+    expect(team[0]).toHaveAttribute(
       'href',
       expect.stringMatching(/&plan=team$/),
     )
@@ -51,24 +77,23 @@ describe('PlansPage', () => {
     mockPlan.current = 'pro'
     render(<PlansPage highlightTeam={false} />)
 
-    const pro = screen.getByTestId('plan-card-pro')
-    expect(pro).toHaveTextContent('Current plan')
+    expect(screen.getAllByText('Current plan').length).toBeGreaterThan(0)
+    for (const button of screen.getAllByRole('button', {
+      name: `Join Pro for $${PLAN_PRICING.proCents / 100}`,
+    })) {
+      expect(button).toBeDisabled()
+    }
+    expect(screen.queryAllByRole('link', { name: /Join Pro/ })).toHaveLength(0)
     expect(
-      screen.getByRole('button', { name: 'Your current plan' }),
-    ).toBeDisabled()
-    expect(screen.queryByRole('link', { name: 'Join Pro' })).toBeNull()
-    expect(
-      screen.getByRole('link', { name: 'Upgrade to Team' }),
-    ).toBeInTheDocument()
+      screen.getAllByRole('link', { name: /Join Team/ }).length,
+    ).toBeGreaterThan(0)
   })
 
   it('offers nothing below the current plan', () => {
     mockPlan.current = 'team'
     render(<PlansPage highlightTeam={false} />)
 
-    expect(
-      screen.queryAllByRole('link', { name: /Join|Upgrade/ }),
-    ).toHaveLength(0)
+    expect(screen.queryAllByRole('link', { name: /Join/ })).toHaveLength(0)
   })
 
   it('puts Team first on mobile when highlighted', () => {

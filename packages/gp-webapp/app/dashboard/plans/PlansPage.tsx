@@ -2,16 +2,14 @@
 
 import Link from 'next/link'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
-import { cn } from '@styleguide/lib/utils'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { WIN_PER_CAMPAIGN_PRICING_FLAG_KEY } from '@shared/experiments/winPerCampaignPricingFlag'
 import DashboardLayout from '../shared/DashboardLayout'
 import { usePlan } from '../shared/membership/deriveMembershipState'
-import { PlanCard } from './PlanCard'
-import { planCheckoutHref, type PaidPlanKey } from './planCheckoutHref'
-import { PLAN_CARDS, PLANS_COPY, type PlanKey } from './plansCopy'
-
-const PLAN_RANK: Record<PlanKey, number> = { free: 0, pro: 1, team: 2 }
+import { PlanCards } from './PlanCards'
+import { PlansTable } from './PlansTable'
+import { planCheckoutHref } from './planCheckoutHref'
+import { PLAN_COLUMNS, PLANS_COPY, planRank, type PlanKey } from './plansCopy'
 
 interface PlansPageProps {
   highlightTeam: boolean
@@ -19,6 +17,13 @@ interface PlansPageProps {
 
 const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
   const { plan: currentPlan } = usePlan()
+  const hrefFor = (plan: PlanKey): string | null => {
+    const column = PLAN_COLUMNS.find((c) => c.plan === plan)
+    if (plan === 'free' || !column?.cta) return null
+    return planRank(plan) > planRank(currentPlan)
+      ? planCheckoutHref(plan, column.cta)
+      : null
+  }
 
   return (
     <FeatureFlagGuard
@@ -37,35 +42,16 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
             </Link>
             <h1 className="text-base font-semibold">{PLANS_COPY.title}</h1>
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {PLAN_CARDS.map((card) => {
-              const ctaPlan: PaidPlanKey | null =
-                card.plan !== 'free' &&
-                PLAN_RANK[card.plan] > PLAN_RANK[currentPlan]
-                  ? card.plan
-                  : null
-              const label =
-                currentPlan === 'pro' && card.plan === 'team'
-                  ? 'Upgrade to Team'
-                  : `Join ${card.name}`
-              return (
-                <PlanCard
-                  key={card.plan}
-                  card={card}
-                  isCurrent={card.plan === currentPlan}
-                  cta={
-                    ctaPlan
-                      ? { label, href: planCheckoutHref(ctaPlan, label) }
-                      : null
-                  }
-                  className={cn(
-                    highlightTeam &&
-                      card.plan === 'team' &&
-                      '-order-1 md:order-none',
-                  )}
-                />
-              )
-            })}
+          <p className="text-sm">{PLANS_COPY.intro}</p>
+          <div className="hidden md:block">
+            <PlansTable currentPlan={currentPlan} hrefFor={hrefFor} />
+          </div>
+          <div className="md:hidden">
+            <PlanCards
+              currentPlan={currentPlan}
+              highlightTeam={highlightTeam}
+              hrefFor={hrefFor}
+            />
           </div>
         </div>
       </DashboardLayout>
