@@ -1,8 +1,9 @@
 import { isDeepStrictEqual } from 'node:util'
-import type { SuiteAPI, TestAPI, TestContext } from 'vitest'
+import type { SuiteAPI, TestAPI } from 'vitest'
 import {
   excerpt,
-  redactSecrets,
+  annotateWith,
+  type Annotate,
   renderValue,
   summarizePrompt,
 } from './annotation'
@@ -13,7 +14,7 @@ import { createJudgeModel, type JudgeModel } from './judgeModel'
 // builds of the same agent against each other.
 export const ATTEMPTS_PER_CASE = 3
 
-export type Annotate = (message: string, type: string) => Promise<void>
+export type { Annotate } from './annotation'
 
 // A case's run may record its own steps, so a report says how the output came
 // to be and not just what it was.
@@ -55,11 +56,6 @@ export type ExpectedResultEvalSuiteDefinition<Input, Output, Judgment> = {
   cases: ExpectedResultEvalCase<Input, Judgment>[]
 }
 
-// Vitest injects `describe` and `it` as globals (`globals: true` in
-// `vitest.evals.config.ts`). They are read off `globalThis` rather than
-// imported, because the pairwise runner loads these same files with tsx, and
-// there an import of vitest throws: a suite file has to load there too, and
-// register nothing.
 export type VitestGlobals = { describe: SuiteAPI; it: TestAPI }
 
 export const vitestGlobals = (): VitestGlobals | undefined => {
@@ -68,12 +64,6 @@ export const vitestGlobals = (): VitestGlobals | undefined => {
     ? { describe: globals.describe, it: globals.it }
     : undefined
 }
-
-export const annotateWith =
-  (context: Pick<TestContext, 'annotate'>): Annotate =>
-  async (message, type) => {
-    await context.annotate(redactSecrets(message), type)
-  }
 
 // Wraps a model so every call a suite makes lands in the test's own record: the
 // prompt it was given and the answer it produced.
@@ -170,11 +160,3 @@ export const defineExpectedResultEvalSuite = <Input, Output, Judgment>(
   if (vitest) registerSuite(suite, vitest, createJudgeModel())
   return suite
 }
-
-// The pairwise runner globs the same `*.eval.ts` files, and it owns only the
-// pairwise ones: a file it finds that this helper defined is skipped there.
-export const isExpectedResultEvalSuite = (value: unknown): boolean =>
-  typeof value === 'object' &&
-  value !== null &&
-  (value as { isExpectedResultEvalSuite?: unknown })
-    .isExpectedResultEvalSuite === true

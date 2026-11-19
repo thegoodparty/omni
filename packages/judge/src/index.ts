@@ -11,7 +11,6 @@ export {
 } from './expectedResult'
 export { type JudgeModel } from './judgeModel'
 export {
-  definePairwiseAgentEvalSuite,
   isPairwiseAgentEvalSuite,
   type AgentRunResult,
   type AgentRunStatus,
@@ -24,3 +23,4 @@ export {
   type PairwiseAgentEvalSuiteDefinition,
   type SuiteProfile,
 } from './suite'
+export { definePairwiseAgentEvalSuite } from './pairwise'

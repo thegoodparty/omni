@@ -1,9 +1,9 @@
 import type { TestContext } from 'vitest'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { z } from 'zod'
+import { annotateWith } from './annotation'
 import {
   ATTEMPTS_PER_CASE,
-  annotateWith,
   defineExpectedResultEvalSuite,
   registerSuite,
   vitestGlobals,
