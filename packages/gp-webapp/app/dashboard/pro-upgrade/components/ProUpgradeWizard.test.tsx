@@ -12,6 +12,7 @@ import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsComplianc
 vi.mock('next/navigation', () => ({
   useRouter: () => router,
   usePathname: vi.fn(),
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({

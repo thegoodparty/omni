@@ -10,7 +10,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { eventually } from 'tests/utils/eventually'
-import { applyElectionPreset } from 'tests/utils/headless-user'
+import { applyElectionPreset } from '@goodparty_org/test-users'
 
 // Regression coverage for the ENG-10396 fix: a same-office re-election follow-on
 // derives its electionDate from the held office's termEndAt, so the new campaign

@@ -12,7 +12,13 @@ export interface PlanPitch {
   name: string
   price: string
   credit: string
+  allPlansHref: string
 }
+
+export const ALL_PLANS_PATH = '/dashboard/plans'
+// ?highlight=team lands the comparison page on the Team column.
+export const ALL_PLANS_HIGHLIGHT_PARAM = 'highlight'
+export const SEE_ALL_PLANS_LABEL = 'See all plans'
 
 export const formatPlanCents = (cents: number): string => {
   const whole = cents % 100 === 0
@@ -39,5 +45,9 @@ export const buildPlanPitch = (
       plan === 'team' ? PLAN_PRICING.teamCents : PLAN_PRICING.proCents,
     ),
     credit: formatPlanCents(PLAN_PRICING.includedCreditCents),
+    allPlansHref:
+      plan === 'team'
+        ? `${ALL_PLANS_PATH}?${ALL_PLANS_HIGHLIGHT_PARAM}=team`
+        : ALL_PLANS_PATH,
   }
 }

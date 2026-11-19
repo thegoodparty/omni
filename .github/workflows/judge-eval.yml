@@ -1,0 +1,321 @@
+name: Judge eval
+
+# `/judge-eval <suites>` on a PR, or Run workflow. The framework in
+# packages/judge compares two URLs and posts results.md: dev running main (base)
+# against this PR's gp-api preview (candidate), three attempts a side.
+#
+# SEPARATE FROM judge.yml ON PURPOSE. That file drives the universal judge's
+# sweep: two arm worktrees, S3 staging, SQS dispatch, page replay. Chat suites
+# still need it, so `/judge` and `judge.yml` stay exactly as they are. This one
+# runs one process that holds two URLs and nothing else
+# (docs/adr/2026-11-19-the-judge-reaches-agents-only-through-a-base-url.md).
+#
+# BOTH ARMS ARE gp-api ORIGINS, which is what makes a migration PR judge itself:
+# dev's task definition leaves `AGENTS_ON_GP_API` unset for an agent still on the
+# PMF Engine, and a preview names every agent gp-api has, so the two arms run the
+# two engines on the same input. `packages/judge/src/apiRoot.ts` is what lets a
+# gp-api origin be an arm at all: it serves `/v1` at its own root, where the
+# webapp proxies gp-api at `/api`.
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to judge
+        required: true
+        type: string
+      suites:
+        description: >-
+          One suite name, several comma-separated, or `all`. A suite's name is
+          its agent id (see packages/gp-api/src/**/*.eval.ts).
+        required: false
+        default: all
+        type: string
+
+run-name: 'Judge eval: PR #${{ github.event.issue.number || inputs.pr_number }}'
+
+# One slot per PR, cancelled by a newer request: a re-request compares a newer
+# push, and letting both run spends twice on the one that no longer matches.
+#
+# ONLY A PLAUSIBLE REQUEST SHARES THAT SLOT. GitHub applies workflow-level
+# concurrency when it creates the run, before the `gate` job's `if:` is
+# evaluated, and this workflow triggers on every `issue_comment`. Keyed on the
+# PR number alone, any comment — a teammate's "LGTM", or, since omni is public,
+# anyone's — would cancel an eval that has been spending for up to two hours and
+# leave the PR with no results.md. Every other comment gets its own group, which
+# cancels nothing. The conditions here are a deliberate copy of `gate`'s: they
+# have to run before the job does, so they cannot BE the job's `if:`.
+concurrency:
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch'
+    || (github.event.issue.pull_request != null
+    && startsWith(github.event.comment.body, '/judge-eval')
+    && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)))
+    && format('judge-eval-pr-{0}', github.event.issue.number || inputs.pr_number)
+    || format('judge-eval-noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Only a plausible request from someone who can push reaches the spend.
+  # `issue_comment` runs this file from the default branch with the
+  # repository's secrets and omni is public, so the gate is here, before a
+  # runner is assigned, and not inside the job that spends.
+  gate:
+    name: Gate the request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.issue.pull_request != null
+      && startsWith(github.event.comment.body, '/judge-eval')
+      && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    outputs:
+      pr_number: ${{ steps.request.outputs.pr_number }}
+      suites: ${{ steps.request.outputs.suites }}
+    steps:
+      # `author_association` above is a free pre-filter, not the check that
+      # decides: MEMBER means "in the org", which includes people with no access
+      # to omni. This lookup is the one that answers, and a lookup that errors
+      # denies — a question that cannot be answered must not spend.
+      - name: Check push permission
+        id: perm
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ACTOR: ${{ github.event.comment.user.login }}
+        run: |
+          set -euo pipefail
+          if ! perm="$(gh api "repos/$GH_REPO/collaborators/$ACTOR/permission" \
+            --jq .permission 2>"$RUNNER_TEMP/perm-error")"; then
+            cat "$RUNNER_TEMP/perm-error" >&2
+            echo "::error::Could not read @$ACTOR's permission on $GH_REPO; nothing will run."
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$perm" in
+            admin|maintain|write) echo "allowed=true" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::notice::@$ACTOR has '$perm' on this repository; a judge eval spends on the organisation's model account and needs write."
+              echo "allowed=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      # The comment body reaches bash through `env` and never into the script
+      # text: it is the most untrusted string in this file. What it names is
+      # validated here, and again by the runner when it resolves the name
+      # against the suites the checkout actually has.
+      - name: Read the request
+        id: request
+        env:
+          EVENT: ${{ github.event_name }}
+          BODY: ${{ github.event.comment.body }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          INPUT_SUITES: ${{ inputs.suites }}
+          COMMENT_PR: ${{ github.event.issue.number }}
+          ALLOWED: ${{ steps.perm.outputs.allowed }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            pr="$INPUT_PR"
+            suites="$INPUT_SUITES"
+          else
+            if [ "${ALLOWED:-}" != "true" ]; then
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              echo "suites=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            pr="$COMMENT_PR"
+            # Only the first line counts, so quoting somebody else's
+            # `/judge-eval` in a reply starts nothing.
+            line="${BODY%%$'\n'*}"
+            rest="${line#/judge-eval}"
+            suites="$(printf '%s' "$rest" | tr -d '[:space:]')"
+          fi
+          case "$pr" in
+            ''|*[!0-9]*)
+              echo "::error::No PR number ('$pr')."
+              exit 1
+              ;;
+          esac
+          # `all`, or comma-separated agent ids. Anything else is refused here
+          # rather than reaching a runner.
+          if ! [[ "$suites" =~ ^(all|[a-z0-9_]+(,[a-z0-9_]+)*)$ ]]; then
+            echo "::error::Suites are 'all' or comma-separated agent ids; got '$suites'."
+            exit 1
+          fi
+          echo "pr_number=$pr" >> "$GITHUB_OUTPUT"
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
+
+  judge:
+    name: Judge the two arms
+    needs: gate
+    if: needs.gate.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+    # Two arms x three attempts x a background agent run each, in one shared
+    # pool, plus the grading calls. A background run is minutes; this is a
+    # ceiling for a wedged one.
+    timeout-minutes: 120
+    steps:
+      # THE PR HEAD, not the merge commit: the suites are TypeScript in this
+      # checkout and the runner's glob reads `packages/gp-api/src/**/*.eval.ts`
+      # from it. Nothing in the checkout is deployed; the arms are two URLs.
+      #
+      # AFFIRMATIVE, like judge.yml's own fork check and for the same reason:
+      # omni is public, so a fork's PR carries no secrets, and the steps below it
+      # run `npm ci` and `npx tsx` from this checkout with ours, plus every
+      # `*.eval.ts` the PR added. Written as "stop unless it is exactly false",
+      # so a null, a renamed field or a `gh` that changed its JSON reads as stop.
+      # The commit it returns is what gets checked out, so the commit the wait
+      # step confirms is the commit that actually runs.
+      - name: Refuse a fork, and pin the commit
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # `gh` resolves the repository from the git remote by default, and
+          # there is no checkout yet: this is the job's first step.
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          pr="$(gh pr view "$PR_NUMBER" --json isCrossRepository,headRefOid)"
+          fork="$(jq -r '.isCrossRepository' <<<"$pr")"
+          sha="$(jq -r '.headRefOid' <<<"$pr")"
+          if [ "$fork" != "false" ]; then
+            echo "::error::isCrossRepository is '$fork', and only an explicit 'false' means this PR is on the repository itself. omni is public, so a fork carries no secrets and this workflow will not check out or run fork code with ours. Push the branch to this repository to judge it."
+            exit 1
+          fi
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::headRefOid '$sha' is not a 40-character commit SHA."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the PR
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ steps.pin.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up the workspace
+        uses: ./.github/actions/setup-node-workspace
+        with:
+          app: judge-eval
+          build-contracts: 'true'
+
+      # Polls the same `/v1/version` contract gp-api.yml's own verify step and
+      # judge.yml use, against the same 10-minute budget, because a first
+      # preview deploy runs every migration before the app starts.
+      #
+      # EITHER SHA COUNTS, and that is not laxity. The PR's head is the commit
+      # checked out above, but gp-api tags a preview image with `github.sha`,
+      # which on a `pull_request` event is the MERGE commit, so the two are never
+      # equal and comparing only against the head would time out on every run.
+      # The merge commit is re-read each poll because it moves when the base
+      # does.
+      - name: Wait for the candidate's preview to serve the PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.pin.outputs.sha }}
+          CANDIDATE: https://pr-${{ needs.gate.outputs.pr_number }}.preview.goodparty.org
+        run: |
+          set -euo pipefail
+          echo "Confirming $CANDIDATE is serving $HEAD_SHA or its merge commit"
+          deadline=$((SECONDS + 600))
+          got=""
+          merge=""
+          while [ $SECONDS -lt $deadline ]; do
+            got="$(curl -fsS --max-time 8 "$CANDIDATE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            merge="$(gh pr view "$PR_NUMBER" --json potentialMergeCommit --jq '.potentialMergeCommit.oid // empty' 2>/dev/null || true)"
+            if [ -n "$got" ] && { [ "$got" = "$HEAD_SHA" ] || { [ -n "$merge" ] && [ "$got" = "$merge" ]; }; }; then
+              echo "preview serving $got after ${SECONDS}s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::The candidate's preview is serving ${got:-nothing}, which is neither $HEAD_SHA nor its merge commit ${merge:-unknown}, after 600s. A run against it would judge the previous commit, or compare the branch with itself."
+          exit 1
+
+      # The base is dev, which runs main. It is not waited on: it is already
+      # up, and if it is not, the runner's own probe refuses before spending.
+      - name: Judge
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUITES: ${{ needs.gate.outputs.suites }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          npx tsx packages/judge/src/run.ts \
+            --base https://gp-api-dev.goodparty.org \
+            --candidate "https://pr-$PR_NUMBER.preview.goodparty.org" \
+            --suite "$SUITES" \
+            --judge-model anthropic/claude-sonnet-4-6 \
+            --out ./judge-results
+
+      # Both artifacts, whatever happened: results.json holds every output and
+      # every judgment, which is what a disagreement is read from, and the job
+      # log is not a place to read tens of thousands of characters.
+      - name: Upload the run
+        if: '!cancelled()'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: judge-eval-results
+          path: judge-results/
+          if-no-files-found: warn
+          retention-days: 7
+
+      # One comment per PR, upserted by marker AND author: on a public
+      # repository anyone can post the marker, and this token can edit any
+      # user's comment, so matching the marker alone would have the bot adopt a
+      # stranger's comment and rewrite it from then on.
+      #
+      # `!cancelled()` because a failed run is the one whose reader most needs
+      # the note saying so; a cancelled run is a superseded push, which the
+      # newer run covers.
+      - name: Post results.md
+        if: '!cancelled()'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+        with:
+          script: |
+            const fs = require('fs')
+            const marker = '<!-- judge-eval-results -->'
+            const issue_number = Number(process.env.PR_NUMBER)
+            const results = 'judge-results/results.md'
+
+            const body = fs.existsSync(results)
+              ? `${marker}\n${fs.readFileSync(results, 'utf8')}`
+              : `${marker}\n## Judge eval\n\nThe run wrote no \`results.md\`, so it stopped before it had a verdict — the job log and the \`judge-eval-results\` artifact say why.`
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { ...context.repo, issue_number, per_page: 100 },
+            )
+            const mine = comments.find(
+              (comment) =>
+                comment.user?.login === 'github-actions[bot]' &&
+                comment.body?.includes(marker),
+            )
+            if (mine) {
+              await github.rest.issues.updateComment({
+                ...context.repo,
+                comment_id: mine.id,
+                body,
+              })
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number,
+                body,
+              })
+            }

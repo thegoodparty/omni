@@ -94,6 +94,7 @@ import type {
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  PlanReceipt,
   ProReceipt,
   SmsOutreachReplies,
   SmsOutreachResults,
@@ -2399,6 +2400,14 @@ export type APIEndpoints = {
   'GET /v1/payments/purchase/pro-receipt': {
     Request: {}
     Response: ProReceipt
+  }
+
+  // The plan success screen's "Your receipt", amounts in CENTS. 404 when the
+  // campaign has no paid plan purchase. Card fields and receiptUrl are null
+  // when a promo code covered the plan in full.
+  'GET /v1/payments/purchase/plan-receipt': {
+    Request: {}
+    Response: PlanReceipt
   }
 
   'GET /v1/community-issues': {

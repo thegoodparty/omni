@@ -10,6 +10,7 @@ describe('buildPlanPitch', () => {
       name: 'Pro',
       price: '$299',
       credit: '$175',
+      allPlansHref: '/dashboard/plans',
     })
   })
 
@@ -18,6 +19,7 @@ describe('buildPlanPitch', () => {
       plan: 'team',
       name: 'Team',
       price: '$399',
+      allPlansHref: '/dashboard/plans?highlight=team',
     })
   })
 

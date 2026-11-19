@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BadGatewayException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { AdminCampaignsService } from './adminCampaigns.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
-import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import { Campaign } from '../../generated/prisma'
 import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 
@@ -96,133 +94,44 @@ describe('AdminCampaignsService.proNoVoterFile', () => {
   })
 })
 
-describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro', () => {
-  const findUniqueOrThrow = vi.fn()
+describe('AdminCampaignsService.update', () => {
   const update = vi.fn()
-  const setIsPro = vi.fn()
-  const cancelSubscription = vi.fn()
-  const track = vi.fn()
   const logger = createMockLogger()
+  const reconcile = vi.fn()
 
   const buildService = () =>
     new AdminCampaignsService(
-      {
-        findUniqueOrThrow,
-        update,
-        setIsPro,
-      } as unknown as CampaignsService,
+      { update } as unknown as CampaignsService,
       {} as never,
-      { track } as never,
       {} as never,
-      { cancelSubscription } as unknown as StripeService,
-      { reconcile: vi.fn() } as unknown as WinOfficeService,
+      {} as never,
+      {} as never,
+      { reconcile } as unknown as WinOfficeService,
       logger,
     )
 
   beforeEach(() => {
     vi.clearAllMocks()
-    findUniqueOrThrow.mockResolvedValue({ id: 42, userId: 7, details: {} })
     update.mockResolvedValue({ id: 42, userId: 7 })
-    setIsPro.mockResolvedValue({
-      becamePro: false,
-      campaign: { id: 42, userId: 7 },
-    })
-    cancelSubscription.mockResolvedValue({ id: 'sub_test' })
-    track.mockResolvedValue(undefined)
   })
 
-  it('cancels the Stripe subscription when admin sets isPro:false on a paying campaign', async () => {
-    findUniqueOrThrow.mockResolvedValue({
-      id: 42,
-      details: { subscriptionId: 'sub_live_123' },
-    })
-
-    await buildService().update(42, { isPro: false })
-
-    expect(cancelSubscription).toHaveBeenCalledWith('sub_live_123')
-    // DB write still happens after a successful cancel so admin state moves
-    // immediately; the webhook then clears details.subscriptionId.
-    expect(setIsPro).toHaveBeenCalledWith(42, false, true, {})
-  })
-
-  it('does not touch Stripe for a comped campaign (isPro:false without subscriptionId)', async () => {
-    findUniqueOrThrow.mockResolvedValue({
-      id: 42,
-      details: {},
-    })
-
-    await buildService().update(42, { isPro: false })
-
-    expect(cancelSubscription).not.toHaveBeenCalled()
-    expect(setIsPro).toHaveBeenCalledWith(42, false, true, {})
-  })
-
-  it('surfaces a 502 and skips the DB update when Stripe cancel fails', async () => {
-    findUniqueOrThrow.mockResolvedValue({
-      id: 42,
-      details: { subscriptionId: 'sub_live_123' },
-    })
-    cancelSubscription.mockRejectedValue(
-      new BadGatewayException('Failed to cancel subscription sub_live_123'),
-    )
-
-    await expect(buildService().update(42, { isPro: false })).rejects.toThrow(
-      BadGatewayException,
-    )
-
-    // The whole point: if Stripe failed, we must NOT have written isPro:false.
-    // Otherwise DB says non-Pro while Stripe keeps billing — the exact
-    // divergence this ticket is closing.
-    expect(setIsPro).not.toHaveBeenCalled()
-    expect(update).not.toHaveBeenCalled()
-  })
-
-  it('does not read the campaign or touch Stripe when isPro is not being changed to false', async () => {
+  it('writes verification, with its date, in one update', async () => {
     await buildService().update(42, { isVerified: true })
 
-    expect(findUniqueOrThrow).not.toHaveBeenCalled()
-    expect(cancelSubscription).not.toHaveBeenCalled()
-  })
-
-  it('does not touch Stripe when isPro is being set to true', async () => {
-    await buildService().update(42, { isPro: true })
-
-    expect(findUniqueOrThrow).not.toHaveBeenCalled()
-    expect(cancelSubscription).not.toHaveBeenCalled()
-  })
-
-  // A raw `isPro: true` write skipped the stamp of details.isProUpdatedAt, so
-  // HubSpot showed a comped campaign as Pro with no pro_upgrade_date, forever.
-  // The free-texts grant (ENG-11344) rides the same setIsPro call, and its
-  // guards are covered where it lives, in campaigns.update.integration.test.
-  it('grants Pro through setIsPro, with the other fields in the same commit', async () => {
-    const result = await buildService().update(42, {
-      isPro: true,
-      isVerified: true,
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: { isVerified: true, dateVerified: expect.any(Date) },
     })
-
-    expect(setIsPro).toHaveBeenCalledWith(42, true, true, {
-      isVerified: true,
-      dateVerified: expect.any(Date),
-    })
-    // setIsPro owns the identify and the CRM sync; a second update or sync
-    // here would reopen the partial-write window and publish the row twice.
-    expect(update).not.toHaveBeenCalled()
-    expect(result).toEqual({ id: 42, userId: 7 })
-    expect(track).toHaveBeenCalledWith(
-      7,
-      expect.anything(),
-      expect.objectContaining({ paymentMethod: 'admin' }),
-    )
+    expect(reconcile).not.toHaveBeenCalled()
   })
 
-  it('leaves setIsPro out of it when isPro is not in the body', async () => {
+  it('reconciles the win office when didWin changes', async () => {
     await buildService().update(42, { didWin: true })
 
-    expect(setIsPro).not.toHaveBeenCalled()
     expect(update).toHaveBeenCalledWith({
       where: { id: 42 },
       data: { didWin: true },
     })
+    expect(reconcile).toHaveBeenCalledWith(42, 'staff')
   })
 })

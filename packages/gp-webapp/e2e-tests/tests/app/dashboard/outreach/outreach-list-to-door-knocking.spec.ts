@@ -7,7 +7,7 @@ import {
   listCard,
 } from 'src/helpers/crm-contacts-e2e'
 import { createFlowStepHeading } from 'src/helpers/door-knocking-e2e'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // The cross-feature journey a candidate takes when they press "Send outreach"
 // on a voter list and pick door knocking: Voter Data → the "Choose a channel"

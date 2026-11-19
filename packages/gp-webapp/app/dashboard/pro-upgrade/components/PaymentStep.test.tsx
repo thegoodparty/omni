@@ -36,6 +36,12 @@ const {
   }
 })
 
+// The per-campaign flag decides the checkout; the plan checkout has its own
+// spec (PlanPaymentStep.test.tsx), so this file pins the legacy side.
+vi.mock('app/shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: false }),
+}))
+
 vi.mock('./ProUpgradeWizard', () => ({
   useProUpgradeWizard: vi.fn(),
 }))

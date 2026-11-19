@@ -1,5 +1,6 @@
 import { FetchError } from 'ofetch'
 import { PRO_COMPLIANCE_SUPPORT_EMAIL as SUPPORT_EMAIL } from '@shared/utils/supportContact'
+import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { apiRoutes } from 'gpApi/routes'
 import { clientFetch, ApiResponse } from 'gpApi/clientFetch'
 import { clientRequest } from 'gpApi/typed-request'
@@ -87,6 +88,44 @@ export async function createProSubscriptionCheckoutSession(
   }
 
   return { clientSecret: data.clientSecret }
+}
+
+// gp-api's PLAN purchase guards answer with typed errorCodes, and the
+// provider would otherwise show only the generic failure for them.
+const PLAN_CHECKOUT_ERROR_MESSAGES: Record<string, string> = {
+  PLANS_NOT_AVAILABLE: 'Plans are not available yet.',
+  NOT_CAMPAIGN_OWNER:
+    'Only the campaign owner can change the plan. Ask the owner to upgrade.',
+  NO_ACTIVE_CAMPAIGN:
+    'Your campaign is not currently active, so we could not start this ' +
+    'upgrade. This usually means the election date has passed or an ' +
+    `election result was recorded. Contact us at ${SUPPORT_EMAIL} ` +
+    'and we will get your campaign updated.',
+  SUBSCRIPTION_PLAN:
+    'Your campaign is on a Pro subscription. Contact us to switch plans at ' +
+    SUPPORT_EMAIL +
+    '.',
+  ALREADY_ON_PLAN: 'Your campaign already has this plan.',
+}
+
+export async function createPlanCheckoutSession(
+  campaignId: number,
+  plan: 'pro' | 'team',
+  returnUrl: string,
+): Promise<CheckoutSessionResponse> {
+  const response = await createCheckoutSession(
+    PURCHASE_TYPES.PLAN,
+    { campaignId, plan },
+    undefined,
+    returnUrl,
+  )
+  if (!response.ok) {
+    const body = response.data as { errorCode?: string } | undefined
+    const message =
+      body?.errorCode && PLAN_CHECKOUT_ERROR_MESSAGES[body.errorCode]
+    throw new Error(message || 'Failed to create checkout session')
+  }
+  return response.data
 }
 
 export function completeCheckoutSession(

@@ -48,6 +48,9 @@ export const PRO_UPGRADE_STEP_ORDER: ProUpgradeStep[] = [
 
 export interface ProUpgradeStepInputs {
   isPro: boolean
+  // A Pro holder buying Team: campaign details and verification are already
+  // done, so the flow is the payment alone.
+  upgradeToTeam?: boolean
 }
 
 /**
@@ -63,5 +66,8 @@ export interface ProUpgradeStepInputs {
  */
 export const deriveProUpgradeStep = ({
   isPro,
-}: ProUpgradeStepInputs): ProUpgradeStep =>
-  isPro ? PRO_UPGRADE_STEP.SUCCESS : PRO_UPGRADE_STEP.GUIDANCE
+  upgradeToTeam = false,
+}: ProUpgradeStepInputs): ProUpgradeStep => {
+  if (upgradeToTeam) return PRO_UPGRADE_STEP.PAYMENT
+  return isPro ? PRO_UPGRADE_STEP.SUCCESS : PRO_UPGRADE_STEP.GUIDANCE
+}

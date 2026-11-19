@@ -30,7 +30,6 @@ export type UserFormData = z.infer<typeof userSchema>
 export const campaignSchema = z.object({
   isActive: z.boolean(),
   isVerified: z.boolean().optional(),
-  isPro: z.boolean().optional(),
   isDemo: z.boolean(),
   didWin: z.boolean().nullable().optional(),
   tier: z.nativeEnum(CampaignTier).optional().nullable(),
