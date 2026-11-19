@@ -1,7 +1,29 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { RobocallReviewStep } from './RobocallReviewStep'
+
+const credit = vi.hoisted(() => ({ enabled: false, cents: 0 }))
+
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: credit.enabled,
+  }),
+}))
+
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [{ hasFreeTextsOffer: false }],
+}))
+
+vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
+  usePlan: () => ({ creditCents: credit.cents }),
+}))
+
+beforeEach(() => {
+  credit.enabled = false
+  credit.cents = 0
+})
 
 const baseProps = {
   campaignName: 'Election eve',
@@ -57,5 +79,52 @@ describe('RobocallReviewStep', () => {
   it('falls back to the script when there is no transcript', () => {
     render(<RobocallReviewStep {...withScript} transcript={null} />)
     expect(screen.getByText('AI drafted script text')).toBeInTheDocument()
+  })
+})
+
+// 2,000 calls at $0.045 is $90.00.
+describe('RobocallReviewStep outreach credit', () => {
+  const props = { ...baseProps, reachCount: 2000 }
+
+  it('takes the credit off the cost and says what is left', () => {
+    credit.enabled = true
+    credit.cents = 17500
+    render(<RobocallReviewStep {...props} />)
+
+    expect(screen.getByText('$90.00')).toBeInTheDocument()
+    expect(
+      screen.getByText('From your $175.00 outreach credit'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('\u2212$90.00')).toBeInTheDocument()
+    expect(screen.getByText('Total')).toBeInTheDocument()
+    expect(screen.getByText('$0.00')).toBeInTheDocument()
+    expect(
+      screen.getByText('$85.00 outreach credit left after it sends.'),
+    ).toBeInTheDocument()
+  })
+
+  it('totals what the credit leaves when it covers part', () => {
+    credit.enabled = true
+    credit.cents = 4000
+    render(<RobocallReviewStep {...props} />)
+
+    expect(screen.getByText('\u2212$40.00')).toBeInTheDocument()
+    expect(screen.getByText('$50.00')).toBeInTheDocument()
+    expect(screen.queryByText(/credit left after/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the estimate row with no credit', () => {
+    credit.enabled = true
+    render(<RobocallReviewStep {...props} />)
+
+    expect(screen.queryByText(/From your/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the old rows with the flag off', () => {
+    credit.cents = 17500
+    render(<RobocallReviewStep {...props} />)
+
+    expect(screen.getByText('Estimated cost')).toBeInTheDocument()
+    expect(screen.queryByText(/From your/)).not.toBeInTheDocument()
   })
 })

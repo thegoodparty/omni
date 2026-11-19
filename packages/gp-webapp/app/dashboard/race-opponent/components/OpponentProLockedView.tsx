@@ -22,14 +22,13 @@ import {
 } from '@styleguide/components/ui/icons'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 
 const UPGRADE_CTA = 'Upgrade to Pro'
 
-// $10/mo + 7-day trial are hardcoded here to match the ValuePropStep /
-// ProUpgradeModal copy. The live Stripe price is only available inside the
-// pro-upgrade checkout (OrderSummary reads it from the mounted checkout); there
-// is no shared pricing constant to source from on this static pitch surface.
+// Flag off: $10/mo + 7-day trial are hardcoded to match the legacy
+// ProUpgradeModal copy. Flag on: the price comes from PLAN_PRICING.
 const BENEFITS: ReadonlyArray<{
   icon: React.ComponentType<{ className?: string }>
   label: string
@@ -65,6 +64,10 @@ const OpponentProLockedView = (): React.JSX.Element => {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
+  const planPitch = usePlanPitch()
+  const upgradeCta = planPitch.enabled
+    ? `Upgrade to ${planPitch.name}`
+    : UPGRADE_CTA
 
   // The locked upgrade pitch is the only screen a non-Pro candidate sees here,
   // so its render IS the "viewed the upgrade gate" funnel step. Fire once on
@@ -94,7 +97,7 @@ const OpponentProLockedView = (): React.JSX.Element => {
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="soft" className="gap-1">
               <ProBadge size="small" />
-              Pro feature
+              {planPitch.enabled ? `${planPitch.name} feature` : 'Pro feature'}
             </Badge>
             <Badge variant="outline" className="gap-1">
               <LockIcon />
@@ -103,7 +106,8 @@ const OpponentProLockedView = (): React.JSX.Element => {
           </div>
           <div className="flex flex-col gap-2">
             <CardTitle className="text-2xl font-semibold text-foreground">
-              Unlock opponent research with Pro
+              Unlock opponent research with{' '}
+              {planPitch.enabled ? planPitch.name : 'Pro'}
             </CardTitle>
             <CardDescription className="text-base text-muted-foreground">
               See voting records, finance, vulnerabilities, and ready-to-send
@@ -113,13 +117,26 @@ const OpponentProLockedView = (): React.JSX.Element => {
         </CardHeader>
 
         <CardContent className="flex flex-col gap-6">
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-semibold text-foreground">$10</span>
-            <span className="text-base text-muted-foreground">/ month</span>
-            <span className="text-sm text-muted-foreground">
-              7-day free trial
-            </span>
-          </div>
+          {planPitch.enabled ? (
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-semibold text-foreground">
+                {planPitch.price}
+              </span>
+              <span className="text-base text-muted-foreground">
+                for your campaign
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-semibold text-foreground">
+                $10
+              </span>
+              <span className="text-base text-muted-foreground">/ month</span>
+              <span className="text-sm text-muted-foreground">
+                7-day free trial
+              </span>
+            </div>
+          )}
 
           <Button
             size="large"
@@ -128,16 +145,17 @@ const OpponentProLockedView = (): React.JSX.Element => {
                 proUpgradeHref({
                   source: 'opponent_research',
                   channel: 'generic',
-                  cta: UPGRADE_CTA,
+                  cta: upgradeCta,
                 }),
               )
             }
           >
-            {UPGRADE_CTA}
+            {upgradeCta}
           </Button>
 
           <p className="text-sm text-muted-foreground">
-            Cancel anytime. Already on Pro?{' '}
+            {planPitch.enabled ? '' : 'Cancel anytime. '}Already on{' '}
+            {planPitch.enabled ? planPitch.name : 'Pro'}?{' '}
             <button
               type="button"
               onClick={handleRefresh}

@@ -24,6 +24,6 @@ import { SlackModule } from 'src/vendors/slack/slack.module'
     StripeModule,
     SlackModule,
   ],
-  exports: [PaymentsService, PurchaseService],
+  exports: [PaymentsService, PurchaseService, PaymentEventsService],
 })
 export class PaymentsModule {}

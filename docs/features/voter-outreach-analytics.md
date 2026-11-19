@@ -328,7 +328,7 @@ channel-shaped hole in it:
 | `phoneBanking` | the call list is created                               |
 | `email`        | the draft's first save (look step, or an upload)       |
 
-A **gated** candidate (`outreach-pro-gating-v2`, milestone 2) never reaches the
+A **gated** candidate (milestone 2) never reaches the
 review or pay step, so for text and robocall the event fires off the `draft`
 row the gate saves instead — that row IS the campaign, existing and having
 reached nobody, which is what this event reports. Resuming that draft converts

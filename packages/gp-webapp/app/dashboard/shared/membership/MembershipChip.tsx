@@ -1,15 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { ProBadge } from '@styleguide'
 import { ShieldCheckIcon } from '@styleguide/components/ui/icons'
 import { trackEvent } from 'helpers/analyticsHelper'
-import { useFeatureFlags } from 'app/shared/experiments/FeatureFlagsProvider'
-import {
-  OUTREACH_PRO_GATING_V2_FLAG_KEY,
-  useOutreachProGatingV2Flag,
-} from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import {
   SMS_CUTOFF_COPY,
@@ -18,7 +13,8 @@ import {
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
-import { MEMBERSHIP_COPY } from './membershipCopy'
+import { usePlanPitch } from '../plan/usePlanPitch'
+import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
 import {
@@ -56,24 +52,16 @@ const verificationLabel = (
 export const MembershipChip = (): React.JSX.Element | null => {
   const router = useRouter()
   const pathname = usePathname()
-  const { enabled } = useOutreachProGatingV2Flag(false)
-  const { exposure } = useFeatureFlags()
-  const { ready, state, tcrCompliance } = useMembershipState({ enabled })
+  const { ready, state, tcrCompliance } = useMembershipState()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const planPitch = usePlanPitch()
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
 
-  const visible = Boolean(enabled && ready && isMembershipSurfaceVisible(state))
-
-  // The chip is the phone-only half of the same surface, so it takes the
-  // exposure too (deduped per flag key by the provider) — otherwise a
-  // candidate who never opens the desktop sidebar is treated but uncounted.
-  useEffect(() => {
-    if (!visible) return
-    exposure(OUTREACH_PRO_GATING_V2_FLAG_KEY)
-  }, [visible, exposure])
+  const visible = Boolean(ready && isMembershipSurfaceVisible(state))
 
   if (!visible || !state) return null
+  if (state.tier === 'free' && !planPitch.ready) return null
 
   const action = resolveMembershipAction(state)
   const label = verificationLabel(
@@ -82,7 +70,7 @@ export const MembershipChip = (): React.JSX.Element | null => {
       ? formatSmsCutoffDate(smsCutoffDate)
       : null,
   )
-  if (state.tier === 'pro' && label === null) return null
+  if (state.tier !== 'free' && label === null) return null
 
   const handleClick = () => {
     if (action) {
@@ -98,8 +86,16 @@ export const MembershipChip = (): React.JSX.Element | null => {
     state.tier === 'free' ? (
       <>
         <span>{MEMBERSHIP_COPY.chip.joinLead}</span>
-        <ProBadge size="small" />
-        <span>{MEMBERSHIP_COPY.chip.joinTail}</span>
+        {planPitch.enabled && planPitch.plan === 'team' ? (
+          <span>{planPitch.name}</span>
+        ) : (
+          <ProBadge size="small" />
+        )}
+        <span>
+          {planPitch.enabled
+            ? membershipPlanCopy(planPitch).chipJoinTail
+            : MEMBERSHIP_COPY.chip.joinTail}
+        </span>
       </>
     ) : (
       <>

@@ -1,4 +1,4 @@
-import { Campaign, User } from '../generated/prisma'
+import { CampaignPlanLevel, Campaign, User } from '../generated/prisma'
 import { HttpStatus } from '@nestjs/common'
 import { FastifyReply } from 'fastify'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -41,6 +41,12 @@ const sampleCampaign = {
   completedTaskIds: [],
   hasFreeTextsOffer: false,
   freeTextsOfferRedeemedAt: null,
+  plan: CampaignPlanLevel.free,
+  planPricingModel: null,
+  planPaidAt: null,
+  planEndsAtOverride: null,
+  planEndedAt: null,
+  outreachCreditCents: 0,
   user: sampleUser,
 } as Campaign & { user: User }
 

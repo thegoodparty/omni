@@ -5,6 +5,7 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { addDays, format } from 'date-fns'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CampaignPlanLevel, PlanPricingModel } from '../generated/prisma'
 import { WebhookEventType } from './payments.types'
 
 // Route-level coverage for the *consequences* of a Pro cancellation, driven
@@ -144,6 +145,8 @@ const seedProCampaign = async (subscriptionId: string) => {
       organizationSlug: slug,
       userId: service.user.id,
       isPro: true,
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.subscription,
       details: {
         electionDate: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
         subscriptionId,
@@ -212,6 +215,8 @@ describe('POST /v1/payments/events — customer.subscription.deleted', () => {
 
     const updated = await readCampaign(campaign.id)
     expect(updated.isPro).toBe(false)
+    expect(updated.plan).toBe(CampaignPlanLevel.free)
+    expect(updated.planEndedAt).toBeInstanceOf(Date)
     // Nothing is left billing this campaign as far as the product is
     // concerned: the pointer a renewal webhook would resolve through is gone,
     // and the cancellation is stamped.
@@ -246,6 +251,39 @@ describe('POST /v1/payments/events — customer.subscription.deleted', () => {
   // payments stopped. The handler is reason-agnostic today and this test's job
   // is to keep it that way — a de-Pro conditioned on the customer having
   // *asked* would hand free Pro to everyone whose card simply failed.
+  it('keeps Pro on a campaign that holds a one-time plan', async () => {
+    const seeded = await seedProCampaign('sub_beside_team')
+    const campaign = await service.prisma.campaign.update({
+      where: { id: seeded.id },
+      data: {
+        plan: CampaignPlanLevel.team,
+        planPricingModel: PlanPricingModel.one_time,
+      },
+    })
+    spyOnSlack()
+
+    const res = await deliverStripeEvent(
+      subscriptionEvent({
+        type: WebhookEventType.CustomerSubscriptionDeleted,
+        subscriptionId: 'sub_beside_team',
+        customerId: 'cus_beside_team',
+        status: 'canceled',
+        cancellationReason: 'cancellation_requested',
+        canceledAt: nowInSeconds(),
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const updated = await readCampaign(campaign.id)
+    expect(updated).toMatchObject({
+      isPro: true,
+      plan: CampaignPlanLevel.team,
+      planPricingModel: PlanPricingModel.one_time,
+      planEndedAt: null,
+    })
+    expect(updated.details.subscriptionId).toBeNull()
+  })
+
   it('un-Pros a campaign whose subscription was cancelled by dunning exhaustion', async () => {
     const campaign = await seedProCampaign(DUNNING_EXHAUSTED_SUB)
     const slackMessage = spyOnSlack()

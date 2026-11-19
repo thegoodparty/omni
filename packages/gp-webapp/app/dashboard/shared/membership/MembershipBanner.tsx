@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { ProBadge } from '@styleguide'
 import {
@@ -8,11 +8,6 @@ import {
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useFeatureFlags } from 'app/shared/experiments/FeatureFlagsProvider'
-import {
-  OUTREACH_PRO_GATING_V2_FLAG_KEY,
-  useOutreachProGatingV2Flag,
-} from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import {
   SMS_CUTOFF_COPY,
@@ -22,7 +17,9 @@ import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsComplianc
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
-import { MEMBERSHIP_COPY } from './membershipCopy'
+import type { PlanPitch } from '../plan/planPitch'
+import { usePlanPitch } from '../plan/usePlanPitch'
+import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
 
@@ -71,7 +68,7 @@ export const isMembershipSurfaceVisible = (
   Boolean(
     state &&
     !state.isElectedOffice &&
-    !(state.tier === 'pro' && state.texting === 'closed'),
+    !(state.tier !== 'free' && state.texting === 'closed'),
   )
 
 const BANNER_CLASS_NAME =
@@ -83,8 +80,13 @@ const BANNER_CLASS_NAME =
 const bannerCopy = (
   state: MembershipState,
   countdownCutoff: string | null,
+  planPitch: PlanPitch,
 ): { body: string; cta: string | null } | null => {
-  if (state.tier === 'free') return MEMBERSHIP_COPY.banner.free
+  if (state.tier === 'free') {
+    return planPitch.enabled
+      ? membershipPlanCopy(planPitch).bannerFree
+      : MEMBERSHIP_COPY.banner.free
+  }
   switch (state.texting) {
     case 'needs_verification':
       return countdownCutoff
@@ -107,25 +109,16 @@ const bannerCopy = (
 export const MembershipBanner = (): React.JSX.Element | null => {
   const router = useRouter()
   const pathname = usePathname()
-  const { enabled } = useOutreachProGatingV2Flag(false)
-  const { exposure } = useFeatureFlags()
-  const { ready, state, tcrCompliance } = useMembershipState({ enabled })
+  const { ready, state, tcrCompliance } = useMembershipState()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const planPitch = usePlanPitch()
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
 
-  const visible = Boolean(enabled && ready && isMembershipSurfaceVisible(state))
-
-  // Exposure belongs to the population the experiment can treat, so it waits
-  // for a membership surface to actually render. Reading the flag would expose
-  // every candidate the flag is on for, Serve orgs and closed Pro campaigns
-  // included, diluting the measured effect.
-  useEffect(() => {
-    if (!visible) return
-    exposure(OUTREACH_PRO_GATING_V2_FLAG_KEY)
-  }, [visible, exposure])
+  const visible = Boolean(ready && isMembershipSurfaceVisible(state))
 
   if (!visible || !state) return null
+  if (state.tier === 'free' && !planPitch.ready) return null
 
   const action = resolveMembershipAction(state)
   const copy = bannerCopy(
@@ -133,6 +126,7 @@ export const MembershipBanner = (): React.JSX.Element | null => {
     smsCompliance === 'closing' && smsCutoffDate
       ? formatSmsCutoffDate(smsCutoffDate)
       : null,
+    planPitch,
   )
   if (!copy) return null
 

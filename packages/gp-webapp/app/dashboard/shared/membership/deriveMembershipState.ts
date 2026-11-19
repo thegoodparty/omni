@@ -1,8 +1,14 @@
-import type { PinDelivery, SmsComplianceWindow } from '@goodparty_org/contracts'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import type {
+  CampaignPlanName,
+  PinDelivery,
+  SmsComplianceWindow,
+} from '@goodparty_org/contracts'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import type { TcrCompliance } from 'helpers/types'
 import { isPinIssued } from 'app/dashboard/profile/texting-compliance/shared/useCvPinGate'
 
-export type MembershipTier = 'free' | 'pro'
+export type MembershipTier = 'free' | 'pro' | 'team'
 
 export type TextingState =
   | 'needs_verification'
@@ -20,6 +26,7 @@ export interface MembershipState {
 
 export interface MembershipInputs {
   isPro: boolean
+  plan?: CampaignPlanName
   isElectedOffice: boolean
   tcrStatus: TcrCompliance['status'] | null
   hasPeerlyIdentity: boolean
@@ -35,6 +42,7 @@ export interface MembershipInputs {
 // alone (ENG-10866).
 export const deriveMembershipState = ({
   isPro,
+  plan,
   isElectedOffice,
   tcrStatus,
   hasPeerlyIdentity,
@@ -42,7 +50,13 @@ export const deriveMembershipState = ({
   pinDelivery,
   smsCompliance,
 }: MembershipInputs): MembershipState => {
-  const tier: MembershipTier = isPro || isElectedOffice ? 'pro' : 'free'
+  const tier: MembershipTier = isElectedOffice
+    ? 'pro'
+    : plan === 'team'
+      ? 'team'
+      : isPro || plan === 'pro'
+        ? 'pro'
+        : 'free'
 
   // gp-api reports 'closed' only for a campaign whose verification never
   // started (no kickoff), so it wins over whatever the TCR record says: a
@@ -66,5 +80,40 @@ export const deriveMembershipState = ({
     texting,
     pinDelivery: texting === 'awaiting_pin' ? pinDelivery : null,
     isElectedOffice,
+  }
+}
+
+export interface PlanState {
+  plan: CampaignPlanName
+  isPaid: boolean
+  planEndsAt: Date | null
+  creditCents: number
+  // True above the race-size threshold, where Team is the pitched plan. Stays
+  // false when the voter count is missing, so pitches fall back to Pro.
+  recommendTeam: boolean
+}
+
+// The one place new code reads plan state, so a live resolver can replace
+// isPro here later. isPro still decides `plan` for a campaign that predates
+// the plan columns.
+export const usePlan = (): PlanState => {
+  const [campaign] = useCampaign()
+  // `plan` defaults to free in the database, so a legacy Pro campaign (isPro
+  // set, no plan purchase) reads free there; isPro covers it.
+  const plan: CampaignPlanName =
+    campaign?.plan && campaign.plan !== 'free'
+      ? campaign.plan
+      : campaign?.isPro
+        ? 'pro'
+        : 'free'
+  const voters = campaign?.raceTargetMetrics?.registeredVoters
+  return {
+    plan,
+    isPaid: plan !== 'free',
+    planEndsAt: campaign?.planEndsAt ? new Date(campaign.planEndsAt) : null,
+    creditCents: campaign?.outreachCreditCents ?? 0,
+    recommendTeam:
+      typeof voters === 'number' &&
+      voters > PLAN_PRICING.teamRecommendVoterThreshold,
   }
 }

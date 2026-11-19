@@ -1,3 +1,4 @@
+import type { PlanPitch } from 'app/dashboard/shared/plan/planPitch'
 import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
 
 // Shared copy for the Pro-and-verification "gate" that blocks an outreach
@@ -88,6 +89,28 @@ export const INTERSTITIAL_COPY = {
   dismiss: 'Maybe later',
 }
 
+// Flag on (win_per_campaign_pricing): the plan name and price come from the
+// PlanPitch, never literals. Flag off keeps the strings above.
+export const planInterstitialCopy = (
+  pitch: PlanPitch,
+): typeof INTERSTITIAL_COPY => ({
+  title: `Join ${pitch.name} to send this campaign`,
+  cta: `Join ${pitch.name}`,
+  dismiss: INTERSTITIAL_COPY.dismiss,
+})
+
+export const planPriceBullet = (pitch: PlanPitch): string =>
+  `${pitch.price} for your campaign, with ${pitch.credit} in outreach credit`
+
+// The pitch's first bullet is the price line; flag on swaps it for the plan's.
+export const withPlanPriceBullet = (
+  copy: { headline: string; bullets: [string, string, string] },
+  pitch: PlanPitch,
+): { headline: string; bullets: [string, string, string] } => ({
+  headline: copy.headline,
+  bullets: [planPriceBullet(pitch), copy.bullets[1], copy.bullets[2]],
+})
+
 // A channel a saved draft resumes into. Email has no gate of its own, but
 // its draft takes the same way back.
 export type ResumeChannel = GateChannel | 'email'
@@ -159,12 +182,12 @@ export const EXPLAINER_COPY = {
   // The two list channels name what Pro unlocks (design update 2026-09-24:
   // the "phone banking ad" and "door knocking ad" cards); the sending
   // channels keep the export's title.
-  titleFree: (channel: GateChannel): string =>
+  titleFree: (channel: GateChannel, planName = 'Pro'): string =>
     channel === 'door'
-      ? 'Join Pro to start knocking'
+      ? `Join ${planName} to start knocking`
       : channel === 'phone-bank'
-        ? 'Join Pro to call this list'
-        : 'Join Pro to send this campaign',
+        ? `Join ${planName} to call this list`
+        : `Join ${planName} to send this campaign`,
   titleVerify: (noun: string): string =>
     `One more step before this ${noun} can send`,
   titleInReview: 'Your campaign verification is in review',
@@ -173,6 +196,7 @@ export const EXPLAINER_COPY = {
   bodyInReview:
     'Phone carriers are reviewing your campaign, usually 1 to 2 weeks. We will tell you when it clears.',
   ctaJoin: 'Join Pro',
+  planCtaJoin: (planName: string): string => `Join ${planName}`,
   ctaVerify: 'Start verification',
   ctaPin: 'Enter your PIN',
   dismissPro: 'Later',

@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { Card, IconButton, cn } from '@styleguide'
 import { PauseIcon, PlayIcon } from '@styleguide/components/ui/icons'
+import {
+  creditLeftNote,
+  creditLines,
+  creditSourceLabel,
+  useOutreachCredit,
+} from 'app/dashboard/outreach/util/outreachCredit'
+import { outreachCostCents } from 'app/dashboard/outreach/util/outreachPricing'
 import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
 import { type RobocallRecording } from './useRobocallRecorder'
@@ -90,6 +97,13 @@ export const RobocallReviewStep = ({
   const heardText = transcript?.trim()
   const spokenText = heardText || script.trim()
   const estimatedCost = (reachCount ?? 0) * pricePerContact
+  const credit = useOutreachCredit()
+  const lines = credit.active
+    ? creditLines(
+        outreachCostCents(reachCount ?? 0, pricePerContact),
+        credit.balanceCents,
+      )
+    : null
 
   const rows: [string, string][] = [
     ['Send date', dateStr],
@@ -141,11 +155,36 @@ export const RobocallReviewStep = ({
           hidden={reachCount === null}
         >
           <div className="flex justify-between">
-            <span className="font-medium text-foreground">Estimated cost</span>
+            <span className="font-medium text-foreground">
+              {lines ? 'Cost' : 'Estimated cost'}
+            </span>
             <span className="font-semibold text-foreground">
               ${money(estimatedCost)}
             </span>
           </div>
+          {lines && lines.creditCents > 0 && (
+            <>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {creditSourceLabel(credit.balanceCents)}
+                </span>
+                <span className="text-foreground">
+                  {`\u2212$${money(lines.creditCents / 100)}`}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-medium text-foreground">Total</span>
+                <span className="font-semibold text-foreground">
+                  ${money(lines.totalCents / 100)}
+                </span>
+              </div>
+              {lines.leftCents > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {creditLeftNote(lines.leftCents)}
+                </p>
+              )}
+            </>
+          )}
           <p
             className={cn(
               'text-xs',

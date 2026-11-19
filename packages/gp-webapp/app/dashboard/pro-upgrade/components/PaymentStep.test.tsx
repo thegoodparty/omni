@@ -86,7 +86,6 @@ describe('PaymentStep', () => {
     confirmMock.mockResolvedValue({ type: 'success' })
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'payment',
-      purchaseOnly: false,
       channel: null,
       goToStep,
       goToNextStep: vi.fn(),
@@ -137,6 +136,7 @@ describe('PaymentStep', () => {
 
     expect(trackEventMock).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.PaymentViewed,
+      { plan: 'free' },
     )
   })
 
@@ -242,7 +242,6 @@ describe('PaymentStep', () => {
     const launchFrom = (channel: 'sms' | 'robocall' | null) =>
       mockUseProUpgradeWizard.mockReturnValue({
         currentStep: 'payment',
-        purchaseOnly: true,
         channel,
         goToStep,
         goToNextStep: vi.fn(),

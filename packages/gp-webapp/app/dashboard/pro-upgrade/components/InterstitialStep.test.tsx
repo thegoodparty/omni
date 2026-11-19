@@ -27,7 +27,6 @@ const exit = vi.fn()
 const setChannel = (channel: 'sms' | 'robocall' | 'door' | 'phone-bank') =>
   mockUseProUpgradeWizard.mockReturnValue({
     currentStep: 'interstitial',
-    purchaseOnly: true,
     channel,
     goToStep: vi.fn(),
     goToNextStep,
@@ -108,7 +107,7 @@ describe('InterstitialStep analytics', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.InterstitialViewed,
-      { channel: 'robocall' },
+      { channel: 'robocall', plan: 'free' },
     )
   })
 
@@ -121,7 +120,7 @@ describe('InterstitialStep analytics', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.InterstitialCompleted,
-      { channel: 'robocall' },
+      { channel: 'robocall', plan: 'free' },
     )
     expect(goToNextStep).toHaveBeenCalled()
   })

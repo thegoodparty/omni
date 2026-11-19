@@ -34,6 +34,7 @@ import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
 import { OutreachService } from './outreach.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 
 const mockOutreachCreate = vi.fn()
@@ -227,6 +228,10 @@ describe('OutreachService', () => {
         {
           provide: FeaturesService,
           useValue: { isFeatureEnabled: mockIsFeatureEnabled },
+        },
+        {
+          provide: OutreachCreditsService,
+          useValue: { release: vi.fn() },
         },
         OutreachService,
       ],

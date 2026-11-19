@@ -1,4 +1,8 @@
 import {
+  CampaignPlanState,
+  holdsOneTimePlan,
+} from '@/campaigns/plans/planState.util'
+import {
   CampaignLaunchStatus,
   CampaignStatus,
   type Eligibility,
@@ -16,7 +20,12 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { Campaign, Prisma, User } from '../../generated/prisma'
+import {
+  Campaign,
+  CampaignPlanLevel,
+  Prisma,
+  User,
+} from '../../generated/prisma'
 import { formatISO } from 'date-fns'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -37,7 +46,9 @@ import {
 } from 'src/shared/constants/paginationOptions.consts'
 import { PaginatedResults, WrapperType } from 'src/shared/types/utility.types'
 import { toDateOnlyString } from 'src/shared/util/date.util'
+import { identifyPlan } from 'src/shared/util/identifyPlan.util'
 import { buildSlug } from 'src/shared/util/slug.util'
+import { WIN_PER_CAMPAIGN_PRICING_FLAG } from 'src/shared/util/winPerCampaignPricingFlag.util'
 import { getUserFullName } from 'src/users/util/users.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { BallotStatusSchema } from '../schemas/ballotStatus.schema'
@@ -57,6 +68,11 @@ enum CandidateVerification {
   yes = 'YES',
   no = 'NO',
 }
+
+type SetIsProData = Omit<
+  Prisma.CampaignUpdateInput,
+  'isPro' | 'hasFreeTextsOffer'
+>
 
 @Injectable()
 export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
@@ -396,6 +412,15 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     isPro: boolean
     electionDate: string | null
   }> {
+    // A plan covers one campaign, so under per-campaign pricing a follow-on
+    // starts on Free instead of inheriting Pro from the source campaign.
+    const startsOnFree = await (
+      await this.features()
+    ).isFeatureEnabled({
+      user,
+      feature: WIN_PER_CAMPAIGN_PRICING_FLAG,
+    })
+
     if (body.intent === 'same-office') {
       if (!body.fromOrganizationSlug) {
         throw new BadRequestException(
@@ -454,7 +479,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           overrideDistrictId: sourceOrg.overrideDistrictId ?? undefined,
           customPositionName: sourceOrg.customPositionName ?? undefined,
         },
-        isPro: sourceOrg.electedOffice.campaign?.isPro ?? false,
+        isPro: startsOnFree
+          ? false
+          : (sourceOrg.electedOffice.campaign?.isPro ?? false),
         electionDate:
           nextElection !== null
             ? nextElection.electionDate
@@ -467,10 +494,12 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         ballotReadyPositionId: body.ballotReadyPositionId ?? undefined,
         customPositionName: body.customPositionName ?? undefined,
       },
-      isPro: await this.proFromOfficeOrg(
-        eligibility.reelectionOfficeSlug,
-        user.id,
-      ),
+      isPro: startsOnFree
+        ? false
+        : await this.proFromOfficeOrg(
+            eligibility.reelectionOfficeSlug,
+            user.id,
+          ),
       electionDate: null,
     }
   }
@@ -500,6 +529,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     if (isPro) {
       await this.analytics.identify(campaign?.userId, {
         isPro,
+        plan: identifyPlan(campaign),
         campaignId: campaign?.id,
       })
     }
@@ -774,6 +804,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       if (scalarFields?.isPro) {
         await this.analytics.identify(updatedCampaign.userId, {
           isPro: scalarFields.isPro,
+          plan: identifyPlan(updatedCampaign),
           campaignId: updatedCampaign.id,
         })
       }
@@ -883,8 +914,35 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       },
       false,
     )
-    await this.setIsPro(campaign.id, false, false)
+    // A one-time plan outlives a stray subscription on the same campaign, so
+    // the subscription ending must not take the plan's Pro with it.
+    await this.setIsPro(campaign.id, false, false, (locked) =>
+      holdsOneTimePlan(locked)
+        ? null
+        : { plan: CampaignPlanLevel.free, planEndedAt: new Date() },
+    )
     await this.crm.trackCampaign(campaign.id)
+  }
+
+  // Imported and resolved lazily: FeaturesService sits in an import cycle with
+  // this class, and a static import here changes module load order enough
+  // that Nest reads FeaturesService's constructor metadata as undefined.
+  private async features() {
+    const { FeaturesService } =
+      await import('@/features/services/features.service.js')
+    return this.moduleRef.get(FeaturesService, { strict: false })
+  }
+
+  async isPerCampaignPricingEnabled(campaignId: number): Promise<boolean> {
+    const owner = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      select: { userId: true },
+    })
+    if (!owner) return false
+    return (await this.features()).isFeatureEnabled({
+      user: owner.userId,
+      feature: WIN_PER_CAMPAIGN_PRICING_FLAG,
+    })
   }
 
   // Returns whether this call flipped the campaign from non-Pro to Pro, so a
@@ -901,8 +959,19 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     campaignId: number,
     isPro: boolean = true,
     trackCampaign: boolean = true,
-    data: Omit<Prisma.CampaignUpdateInput, 'isPro' | 'hasFreeTextsOffer'> = {},
+    // A function is decided against the locked row; returning null leaves
+    // that row's Pro state as it is.
+    data:
+      | SetIsProData
+      | ((locked: CampaignPlanState) => SetIsProData | null) = {},
   ): Promise<{ becamePro: boolean; campaign: Campaign }> {
+    // Read outside the transaction: a flag evaluation is a network call and
+    // must not run while the row lock is held. Only a Pro grant can offer
+    // free texts, so a downgrade skips the lookups.
+    const perCampaignPricing = isPro
+      ? await this.isPerCampaignPricingEnabled(campaignId)
+      : false
+
     // The transition detection (read prior isPro) and the write must serialize:
     // Stripe delivers webhooks at-least-once, so two concurrent deliveries for
     // the same subscription could otherwise both read isPro=false, both compute
@@ -932,24 +1001,33 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     const { campaign, isBecomingProFirstTime } = await this.client.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT id FROM campaign WHERE id = ${campaignId} FOR UPDATE`
-        const existingCampaign = await tx.campaign.findUnique({
+        const existingCampaign = await tx.campaign.findUniqueOrThrow({
           where: { id: campaignId },
           select: {
             isPro: true,
             hasFreeTextsOffer: true,
             freeTextsOfferRedeemedAt: true,
+            plan: true,
+            planPricingModel: true,
+            planEndedAt: true,
           },
         })
 
-        const isBecomingProFirstTime = !existingCampaign?.isPro && isPro
+        const resolvedData =
+          typeof data === 'function' ? data(existingCampaign) : data
+        const nextIsPro = resolvedData === null ? existingCampaign.isPro : isPro
+        const isBecomingProFirstTime =
+          !existingCampaign.isPro && nextIsPro === true
         const shouldGrantOffer =
-          isBecomingProFirstTime && !existingCampaign?.freeTextsOfferRedeemedAt
+          isBecomingProFirstTime &&
+          !existingCampaign.freeTextsOfferRedeemedAt &&
+          !perCampaignPricing
 
         const campaign = await tx.campaign.update({
           where: { id: campaignId },
           data: {
-            ...data,
-            isPro,
+            ...resolvedData,
+            isPro: nextIsPro,
             ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
           },
         })
@@ -1015,6 +1093,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       if (updatedIsPro) {
         await this.analytics.identify(campaign?.userId, {
           isPro: updatedIsPro,
+          plan: identifyPlan(campaign),
           campaignId: campaign?.id,
         })
       }

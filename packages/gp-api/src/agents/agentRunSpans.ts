@@ -132,8 +132,8 @@ export const withAgentRunSpan = <T>(
 // A tool reports its own failure as a value, not a throw, so the span reads
 // what it returned. The reason is a code and nothing else: an http failure
 // carries a URL, a rejected query carries SQL, a failed search carries the
-// provider's text. A value that is not already a short code is dropped rather
-// than clipped into whatever its first 40 characters are.
+// provider's text. A value that is not already a short code becomes `_OTHER`
+// rather than clipped into whatever its first 40 characters are.
 const TOOL_REASON = /^[a-z][a-z0-9_]{0,39}$/
 
 const toolReason = (value: unknown): string | undefined => {
@@ -148,16 +148,17 @@ const toolFailed = (value: unknown): boolean =>
   'ok' in value &&
   value.ok === false
 
-const toolOutcome = (value: unknown): Attributes => {
-  if (!toolFailed(value)) return { 'gen_ai.tool.ok': true }
+// The OTel Recording Errors rule, which gen_ai.execute_tool follows: a failed
+// operation sets status ERROR and an `error.type`, and `_OTHER` is that
+// attribute's documented fallback for a failure with no code of its own. A
+// tool that worked sets neither, so its span reads UNSET.
+const toolFailure = (value: unknown): string | undefined => {
+  if (!toolFailed(value)) return undefined
   const reason =
     typeof value === 'object' && value !== null && 'reason' in value
       ? toolReason(value.reason)
       : undefined
-  return {
-    'gen_ai.tool.ok': false,
-    ...(reason === undefined ? {} : { 'gen_ai.tool.reason': reason }),
-  }
+  return reason ?? '_OTHER'
 }
 
 // A refusal that throws, as submitOutput does on a schema miss. Its message is
@@ -179,8 +180,8 @@ const thrownReason = (err: unknown): string =>
     : 'thrown'
 
 // One span per tool call, answering or throwing. A tool that returns ok:false
-// still resolves, so without these attributes a refused call is
-// indistinguishable from a successful one on the run's trace.
+// still resolves, so without the status a refused call is indistinguishable
+// from a successful one on the run's trace.
 export const withToolSpan = <T>(
   name: string,
   call: { runId: string; stepKey: string },
@@ -199,18 +200,15 @@ export const withToolSpan = <T>(
     async (span) => {
       try {
         const value = await fn()
-        span.setAttributes(toolOutcome(value))
+        const failure = toolFailure(value)
+        if (failure !== undefined) {
+          span.setStatus({ code: SpanStatusCode.ERROR })
+          span.setAttribute('error.type', failure)
+        }
         return value
       } catch (err) {
         span.setStatus({ code: SpanStatusCode.ERROR })
-        span.setAttribute(
-          'error.type',
-          err instanceof Error ? err.name : 'unknown',
-        )
-        span.setAttributes({
-          'gen_ai.tool.ok': false,
-          'gen_ai.tool.reason': thrownReason(err),
-        })
+        span.setAttribute('error.type', thrownReason(err))
         throw err
       } finally {
         span.end()

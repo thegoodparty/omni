@@ -25,7 +25,7 @@ body { margin: 0; background: var(--brand-surface-secondary); font-family: 'Open
 .gp-frame--view-phone { width: 375px; max-width: 100%; height: 100dvh; margin: 0 auto; border-top: 0; border-bottom: 0; }
 /* !important: the artifact host adds a bar with inline styles, which a view never shows. */
 body[data-view] > :not(#gp-view) { display: none !important; }
-/* Cards: everything under the frame, and Decisions needed and the summary below the design, all one width. */
+/* Cards: everything under the frame, and Decisions needed and How we read the task below the design, all one width. */
 .option > details, .brief > div, .brief > details { max-width: 960px; margin-top: 16px; padding: 0 24px; background: var(--color-card); color: var(--color-card-foreground); border: 1px solid var(--color-border); border-radius: var(--radius-xl); font-size: var(--text-sm); }
 .option > details:first-of-type { margin-top: 24px; }
 .brief { margin-top: 48px; }
@@ -133,7 +133,7 @@ details[open] > summary::after { transform: rotate(180deg); }
   </details>
 </section>
 
-<!-- Below the options, after option-c. Decisions needed stays open; the summary and the trace are collapsed.
+<!-- Below the options, after option-c. Decisions needed stays open; How we read the task and the trace are collapsed.
      The summary answers the reviewer's questions before they ask. One or two sentences
      each. Write "Unknown" rather than guess. See reference/review-lens.md. -->
 <section class="brief" id="brief">
@@ -154,7 +154,7 @@ details[open] > summary::after { transform: rotate(180deg); }
     </details>
   </div>
   <details id="brief-summary">
-    <summary>Summary</summary>
+    <summary>How we read the task</summary>
     <dl>
       <dt>User</dt><dd id="brief-user">{{BRIEF_USER}}</dd>
       <dt>Problem</dt><dd id="brief-problem">{{BRIEF_PROBLEM}}</dd>

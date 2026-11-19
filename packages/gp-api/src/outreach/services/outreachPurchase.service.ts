@@ -39,6 +39,7 @@ import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { PinoLogger } from 'nestjs-pino'
+import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
 
 // Stripe hands metadata values back as strings.
 const P2pDraftIdSchema = z.coerce.number().int().positive()
@@ -60,6 +61,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly p2pSmsHold: OutreachP2pSmsHoldService,
     private readonly p2pSmsCapture: OutreachP2pSmsCaptureService,
+    private readonly credits: OutreachCreditsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachPurchaseHandlerService.name)
@@ -190,7 +192,63 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       return finalAmount
     }
 
-    return calcTextAmountInCents(billedContactCount)
+    const undiscounted = calcTextAmountInCents(billedContactCount)
+    if (
+      !(await this.campaignsService.isPerCampaignPricingEnabled(campaignId))
+    ) {
+      return undiscounted
+    }
+
+    // Plan credit comes off the same way free texts do. A remainder under
+    // Stripe's 50c minimum is forgiven so the send never mints a session
+    // Stripe would reject.
+    const creditCents = await this.reservableCreditCents(
+      campaignId,
+      undiscounted,
+    )
+    const remainder = undiscounted - creditCents
+    return remainder < WIN_SMS_HOLD_MIN_CENTS && creditCents > 0 ? 0 : remainder
+  }
+
+  // What reserve() would take for this send: min(balance, estimate), and
+  // nothing once the plan has ended.
+  private async reservableCreditCents(
+    campaignId: number,
+    estimateCents: number,
+  ): Promise<number> {
+    const campaign = await this.campaignsService.findUnique({
+      where: { id: campaignId },
+      select: { outreachCreditCents: true, planEndedAt: true },
+    })
+    if (!campaign || campaign.planEndedAt) {
+      return 0
+    }
+    return Math.min(campaign.outreachCreditCents, estimateCents)
+  }
+
+  // The full, undiscounted cost of a draft's send, the estimate credit is
+  // reserved against, read off what checkout already stamped on the build so
+  // the webhook recomputes nothing live: the hold's send cap (hold checkouts,
+  // pre-build or ready), else the count the ready build went ready with, else
+  // billing's own count. A pre-build send with no cap reserves nothing and
+  // the card pays in full.
+  private async estimateUndiscountedCents(
+    build: PeerlyPhoneList | null,
+    campaignId: number,
+  ): Promise<number> {
+    if (!build || build.buildStatus === PhoneListBuildStatus.failed) {
+      return 0
+    }
+    if (build.sendCapTexts !== null) {
+      return calcTextAmountInCents(build.sendCapTexts)
+    }
+    if (build.buildStatus !== PhoneListBuildStatus.ready) {
+      return 0
+    }
+    const count =
+      build.leadsLoaded ??
+      (await this.billedCountFromCapturedList(build, 0, campaignId))
+    return calcTextAmountInCents(count)
   }
 
   // The Win SMS hold amount (cents) for a p2p checkout. One build-row lookup
@@ -688,6 +746,53 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     )
   }
 
+  // Reserves plan credit for a Win p2p send. A campaign still holding the
+  // free-texts offer keeps that path instead, so the two never stack.
+  private async reserveCredit(
+    outreachId: number,
+    campaignId: number,
+    phoneListBuildId: string | undefined,
+    isFreePurchase: boolean,
+  ): Promise<void> {
+    if (
+      !(await this.campaignsService.isPerCampaignPricingEnabled(campaignId))
+    ) {
+      return
+    }
+    if (await this.campaignsService.checkFreeTextsEligibility(campaignId)) {
+      return
+    }
+    const draft = await this.outreachService.findFirst({
+      where: { id: outreachId, campaignId },
+      select: { phoneListId: true, voterFileFilterId: true },
+    })
+    if (!draft) {
+      return
+    }
+    const build = await this.findDraftBuild(draft, phoneListBuildId, campaignId)
+    const estimateCents = await this.estimateUndiscountedCents(
+      build,
+      campaignId,
+    )
+    const reservedCents = await this.outreachService.client.$transaction((tx) =>
+      this.credits.reserve(tx, campaignId, outreachId, estimateCents),
+    )
+
+    // A fully covered send was confirmed free against the balance at that
+    // moment. If a concurrent send drained part of it since, cap this send to
+    // the texts the credit still pays for rather than send unpaid ones.
+    if (
+      build &&
+      isFreePurchase &&
+      estimateCents - reservedCents >= WIN_SMS_HOLD_MIN_CENTS
+    ) {
+      await this.peerlyPhoneListCapture.persistSendCap(
+        build.id,
+        maxTextsForAmountInCents(reservedCents),
+      )
+    }
+  }
+
   async executePostPurchase(
     paymentIntentId: string,
     rawMetadata: unknown,
@@ -731,6 +836,25 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // flag for the per-send free-texts stamp and the post-hold capture
     // attempt. CAS-idempotent, so a webhook retry re-runs it safely.
     let isHoldModelCheckout = false
+
+    // Plan credit is reserved BEFORE the hold is recorded: recordHold makes
+    // the send capturable, and a capture that ran first would bill the card
+    // in full with the credit never settled against it. Idempotent, so a
+    // webhook retry re-runs it safely.
+    if (outreachId) {
+      const phoneListBuildId =
+        'phoneListBuildId' in rawMetadata &&
+        typeof rawMetadata.phoneListBuildId === 'string'
+          ? rawMetadata.phoneListBuildId
+          : undefined
+      await this.reserveCredit(
+        outreachId,
+        campaignId,
+        phoneListBuildId,
+        !paymentIntentId.startsWith('cs_'),
+      )
+    }
+
     if (outreachId && paymentIntentId.startsWith('cs_')) {
       // The satellite is linked to the list the draft sends to, resolved the
       // same way calculateAmount priced it, so the build-ready edge finds a
@@ -768,6 +892,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       // A refused duplicate was canceled and its payment released by the
       // guard: nothing is left to record, redeem or capture.
       if (outcome === 'duplicate_refused') {
+        await this.credits.release(outreachId)
         this.logger.warn(
           { outreachId, campaignId, paymentIntentId },
           'Outreach refused as a duplicate send; payment released',

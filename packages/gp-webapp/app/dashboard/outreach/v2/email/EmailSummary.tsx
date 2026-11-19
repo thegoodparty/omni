@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { PRICE_PER_EMAIL_TENTH_CENTS } from '@goodparty_org/contracts'
 import { Card, cn } from '@styleguide'
+import { creditLeftNote } from 'app/dashboard/outreach/util/outreachCredit'
 import { CHANNEL_META } from '../channelMeta'
 import { formatCount, formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
@@ -16,6 +17,9 @@ interface EmailSummaryProps {
   reach: { count: number; outOf: number } | null
   reachNote?: ReactNode
   priceCents: number | null
+  // The credit this send runs on: what it takes off the price, and the
+  // balance that stays. Review states it as applied, the status page as used.
+  credit?: { label: string; cents: number; leftCents?: number }
   when: string
   children?: ReactNode
 }
@@ -29,6 +33,7 @@ export const EmailSummary = ({
   reach,
   reachNote,
   priceCents,
+  credit,
   when,
   children,
 }: EmailSummaryProps) => {
@@ -94,12 +99,33 @@ export const EmailSummary = ({
           className="space-y-1 border-t border-border px-4 py-4"
           data-testid="email-price"
         >
+          {credit && credit.cents > 0 && (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Cost</span>
+                <span className="text-foreground">
+                  Up to {formatDollars(priceCents)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">{credit.label}</span>
+                <span className="text-foreground">
+                  {`\u2212${formatDollars(credit.cents)}`}
+                </span>
+              </div>
+            </>
+          )}
           <div className="flex items-center justify-between">
             <span className="font-medium text-foreground">Total</span>
             <span className="font-semibold text-foreground">
-              Up to {formatDollars(priceCents)}
+              Up to {formatDollars(priceCents - (credit?.cents ?? 0))}
             </span>
           </div>
+          {credit?.leftCents !== undefined && credit.leftCents > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {creditLeftNote(credit.leftCents)}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             You are charged only for emails that go out.
           </p>

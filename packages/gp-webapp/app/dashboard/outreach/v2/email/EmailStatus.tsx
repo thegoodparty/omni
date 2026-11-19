@@ -30,6 +30,10 @@ import {
   emailSendQueryKey,
   useEmailSend,
 } from './emailApi'
+import {
+  useCreditUsedCents,
+  useOutreachCredit,
+} from 'app/dashboard/outreach/util/outreachCredit'
 import { EmailPreview } from './EmailPreview'
 import { EmailSummary } from './EmailSummary'
 import { formatCount } from './emailFlow.util'
@@ -212,6 +216,11 @@ export const EmailStatus = ({
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const [canceling, setCanceling] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const outreachCredit = useOutreachCredit()
+  const creditUsedCents = useCreditUsedCents(
+    id,
+    outreachCredit.active && !surface.isServe,
+  )
 
   if (isError) {
     return (
@@ -318,6 +327,11 @@ export const EmailStatus = ({
         subtitle={send.content.subject}
         reach={reach}
         priceCents={send.priceCents ?? send.estimate?.priceCents ?? null}
+        credit={
+          creditUsedCents > 0
+            ? { label: 'Outreach credit used', cents: creditUsedCents }
+            : undefined
+        }
         when={
           sendLabel ??
           (send.date ? whenLabel(send.date) : "As soon as it's paid")

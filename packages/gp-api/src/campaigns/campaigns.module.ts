@@ -3,7 +3,12 @@ import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { LlmModule } from '@/llm/llm.module'
-import { forwardRef, Global, Module } from '@nestjs/common'
+import { forwardRef, Global, Inject, Module } from '@nestjs/common'
+import { PaymentsModule } from '@/payments/payments.module'
+import { PurchaseService } from '@/payments/services/purchase.service'
+import { PurchaseType } from '@/payments/purchase.types'
+import { WrapperType } from '@/shared/types/utility.types'
+import { CampaignPlanPurchaseService } from './plans/campaignPlanPurchase.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { ElectionsModule } from 'src/elections/elections.module'
 import { EmailModule } from 'src/email/email.module'
@@ -69,6 +74,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     AgentExperimentsModule,
     ElectedOfficeModule,
     LlmModule,
+    forwardRef(() => PaymentsModule),
   ],
   controllers: [
     CampaignsController,
@@ -99,6 +105,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     WeeklyTasksDigestHandlerService,
     PublicCampaignsService,
     EligibilityService,
+    CampaignPlanPurchaseService,
   ],
   exports: [
     CampaignsService,
@@ -116,6 +123,23 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CvStatusPollService,
     EligibilityService,
     ComplianceStateService,
+    CampaignPlanPurchaseService,
   ],
 })
-export class CampaignsModule {}
+export class CampaignsModule {
+  constructor(
+    @Inject(forwardRef(() => PurchaseService))
+    purchaseService: WrapperType<PurchaseService>,
+    campaignPlanPurchase: CampaignPlanPurchaseService,
+  ) {
+    purchaseService.registerPurchaseHandler(
+      PurchaseType.PLAN,
+      campaignPlanPurchase,
+    )
+    purchaseService.registerCheckoutSessionPostPurchaseHandler(
+      PurchaseType.PLAN,
+      (sessionId, metadata) =>
+        campaignPlanPurchase.handlePlanPostPurchase(sessionId, metadata),
+    )
+  }
+}

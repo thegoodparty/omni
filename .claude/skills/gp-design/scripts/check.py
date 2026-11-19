@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Catch what review misses: banned words, dead links, external requests, design
-system rules in the flows, and a missing summary, open questions list, Sends line,
+system rules in the flows, and a missing How we read the task, open questions list, Sends line,
 flow, Other states, Built from, What changes from today or Mutations list.
 
 Usage: check.py [--skip-build-shape] <index.html>
@@ -383,7 +383,7 @@ def main():
     for bid in ('brief', 'brief-user', 'brief-problem', 'brief-solution', 'brief-data',
                 'brief-measure', 'brief-entry', 'reach', 'feedback-ask', 'questions'):
         if f'id="{bid}"' not in html:
-            problems.append(f'missing summary block id="{bid}"')
+            problems.append(f'missing How we read the task block id="{bid}"')
     if re.search(r'\bopen questions?\b', text, flags=re.I):
         q = element_html(html, 'questions')
         items = re.findall(r'<li\b[^>]*>(.*?)</li>', q or '', flags=re.S)

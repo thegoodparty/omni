@@ -1,0 +1,30 @@
+enum CampaignPlanPurchaseKind {
+  plan
+  team_upgrade
+}
+
+enum CampaignPlanPurchaseStatus {
+  paid
+  refunded
+}
+
+model CampaignPlanPurchase {
+  id                      Int                        @id @default(autoincrement())
+  campaignId              Int                        @map("campaign_id")
+  campaign                Campaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  buyerUserId             Int                        @map("buyer_user_id")
+  kind                    CampaignPlanPurchaseKind
+  plan                    CampaignPlanLevel?
+  amountCents             Int                        @map("amount_cents")
+  creditGrantedCents      Int                        @default(0) @map("credit_granted_cents")
+  stripeCheckoutSessionId String                     @unique @map("stripe_checkout_session_id")
+  stripePaymentIntentId   String?                    @unique @map("stripe_payment_intent_id")
+  paymentMethodType       String?                    @map("payment_method_type")
+  status                  CampaignPlanPurchaseStatus @default(paid)
+  refundedAt              DateTime?                  @map("refunded_at")
+  refundedByUserId        Int?                       @map("refunded_by_user_id")
+  createdAt               DateTime                   @default(now()) @map("created_at")
+
+  @@index([campaignId])
+  @@map("campaign_plan_purchase")
+}

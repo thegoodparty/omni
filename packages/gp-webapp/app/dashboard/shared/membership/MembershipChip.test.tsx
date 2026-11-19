@@ -5,18 +5,17 @@ import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
-import { OUTREACH_PRO_GATING_V2_FLAG_KEY } from 'app/shared/experiments/outreachProGatingV2Flag'
 import type { MembershipState } from './deriveMembershipState'
-import { MEMBERSHIP_COPY } from './membershipCopy'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
+import { buildPlanPitch } from '../plan/planPitch'
 import { MembershipChip } from './MembershipChip'
 
-const { mockUseMembershipState, mockUseFlag, mockExposure } = vi.hoisted(
-  () => ({
-    mockUseMembershipState: vi.fn(),
-    mockUseFlag: vi.fn(),
-    mockExposure: vi.fn(),
-  }),
-)
+const { mockUseMembershipState } = vi.hoisted(() => ({
+  mockUseMembershipState: vi.fn(),
+}))
 
 const { mockSmsCompliance } = vi.hoisted(() => ({
   mockSmsCompliance: {
@@ -35,15 +34,14 @@ vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => mockSmsCompliance.current,
 }))
 
+const { mockPlanFlag } = vi.hoisted(() => ({
+  mockPlanFlag: { ready: true, enabled: false },
+}))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => mockPlanFlag,
+}))
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
-}))
-vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
-  OUTREACH_PRO_GATING_V2_FLAG_KEY: 'outreach-pro-gating-v2',
-  useOutreachProGatingV2Flag: (...args: unknown[]) => mockUseFlag(...args),
-}))
-vi.mock('app/shared/experiments/FeatureFlagsProvider', () => ({
-  useFeatureFlags: () => ({ exposure: mockExposure }),
 }))
 vi.mock('./ProPitchDialog', () => ({
   ProPitchDialog: ({ open }: { open: boolean }) => (
@@ -69,25 +67,34 @@ const membership = (
 })
 
 const setup = ({
-  enabled = true,
   ready = true,
   state = membership(),
+  registeredVoters,
 }: {
-  enabled?: boolean
   ready?: boolean
   state?: MembershipState
+  registeredVoters?: number
 } = {}) => {
-  mockUseFlag.mockReturnValue({ ready: true, enabled })
   mockUseMembershipState.mockReturnValue({
     ready,
     state: ready ? state : null,
     tcrCompliance: ready ? { status: 'submitted' } : null,
   })
-  return render(<MembershipChip />)
+  return render(
+    <CampaignContext.Provider
+      value={[
+        { raceTargetMetrics: { registeredVoters } } as unknown as Campaign,
+      ]}
+    >
+      <MembershipChip />
+    </CampaignContext.Provider>,
+  )
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockPlanFlag.ready = true
+  mockPlanFlag.enabled = false
   mockSmsCompliance.current = {
     smsCompliance: 'open',
     smsCutoffDate: null,
@@ -96,44 +103,10 @@ beforeEach(() => {
 })
 
 describe('MembershipChip', () => {
-  it('renders nothing, and reads nothing, when the flag is off', () => {
-    setup({ enabled: false, state: membership({ tier: 'free' }) })
-
-    expect(screen.queryByRole('button')).toBeNull()
-    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: false })
-  })
-
   it('renders nothing before the membership state is ready', () => {
     setup({ ready: false })
 
     expect(screen.queryByRole('button')).toBeNull()
-  })
-
-  it('exposes the flag once, so phone-only candidates are counted too', () => {
-    setup()
-
-    expect(mockUseFlag).toHaveBeenCalledWith(false)
-    expect(mockExposure).toHaveBeenCalledTimes(1)
-    expect(mockExposure).toHaveBeenCalledWith(OUTREACH_PRO_GATING_V2_FLAG_KEY)
-    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: true })
-  })
-
-  it('does not expose the flag when the surface is hidden', () => {
-    for (const state of [
-      membership({ isElectedOffice: true }),
-      membership({ texting: 'closed' }),
-    ]) {
-      setup({ state })
-
-      expect(mockExposure).not.toHaveBeenCalled()
-      mockExposure.mockClear()
-    }
-  })
-
-  it('does not expose the flag before the membership state is ready', () => {
-    setup({ ready: false })
-
-    expect(mockExposure).not.toHaveBeenCalled()
   })
 
   it('renders the price for a free campaign and opens the pitch dialog', async () => {
@@ -240,5 +213,41 @@ describe('MembershipChip', () => {
     setup({ state: membership({ isElectedOffice: true }) })
 
     expect(screen.queryByRole('button')).toBeNull()
+  })
+})
+
+describe('MembershipChip plan copy', () => {
+  it('renders nothing for a free campaign while the flag is loading', () => {
+    mockPlanFlag.ready = false
+    setup({ state: membership({ tier: 'free' }) })
+
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('reads the Pro price tail with the flag on', () => {
+    mockPlanFlag.enabled = true
+    setup({ state: membership({ tier: 'free' }) })
+
+    expect(
+      screen.getByText(
+        membershipPlanCopy(buildPlanPitch(true, true, false)).chipJoinTail,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(MEMBERSHIP_COPY.chip.joinTail)).toBeNull()
+  })
+
+  it('shows the Team name instead of the Pro badge when Team is recommended', () => {
+    mockPlanFlag.enabled = true
+    setup({
+      state: membership({ tier: 'free' }),
+      registeredVoters: PLAN_PRICING.teamRecommendVoterThreshold + 1,
+    })
+
+    expect(screen.getByText('Team')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        membershipPlanCopy(buildPlanPitch(true, true, true)).chipJoinTail,
+      ),
+    ).toBeInTheDocument()
   })
 })

@@ -32,18 +32,6 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
-const runTextGate = vi.hoisted(() => vi.fn(() => true))
-vi.mock('app/dashboard/outreach/hooks/useTextOutreachGate', () => ({
-  useTextOutreachGate: () => ({ runTextGate, gateModals: null }),
-}))
-
-// Milestone 2's gate flag. Off by default, so every case in this file keeps
-// asserting today's upgrade-at-entry behavior.
-const proGatingV2 = { ready: true, enabled: false }
-vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
-  useOutreachProGatingV2Flag: () => proGatingV2,
-}))
-
 let mockCampaign: {
   id: number
   isPro: boolean
@@ -55,18 +43,15 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [mockCampaign, vi.fn()],
 }))
 
-let mockElectedOffice: {
-  data: { id: number } | null | undefined
-  isPending: boolean
-} = { data: null, isPending: false }
-vi.mock('@shared/hooks/useElectedOffice', () => ({
-  useElectedOffice: () => mockElectedOffice,
-}))
-
 // The free robocall offer, as gp-api answers it. Not offered by default.
 let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
 vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
   useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
+let mockPricingOn = false
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: mockPricingOn }),
 }))
 
 const renderGrid = (
@@ -170,19 +155,6 @@ describe('ChannelTileGrid — SMS tile', () => {
     expect(onCreateSms).toHaveBeenCalledTimes(1)
     expect(mockRouterPush).not.toHaveBeenCalled()
   })
-
-  // Upgrade-at-entry: a non-Pro click goes to the wizard, not the legacy
-  // marketing modal — the same pattern the phone-banking tile set.
-  it('non-Pro campaign: redirects to pro-upgrade instead of opening', async () => {
-    mockCampaign = { id: 9, isPro: false }
-    const onCreateSms = vi.fn()
-    renderGrid({ onCreateSms })
-
-    await userEvent.click(screen.getByText('SMS'))
-
-    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
-    expect(onCreateSms).not.toHaveBeenCalled()
-  })
 })
 
 describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
@@ -192,7 +164,6 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
   })
 
   afterEach(() => {
-    proGatingV2.enabled = false
     mockCampaign = { id: 9, isPro: true }
   })
 
@@ -226,15 +197,10 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
     ).toHaveAccessibleDescription('Verify by Oct. 15')
   })
 
-  it.each([
-    ['off', false, true],
-    ['off', false, false],
-    ['on', true, false],
-  ])(
-    'explains the closed tile on hover and opens the cutoff notice on click (flag %s, Pro %s)',
-    async (_label, flagOn, isPro) => {
+  it.each([[true], [false]])(
+    'explains the closed tile on hover and opens the cutoff notice on click (Pro %s)',
+    async (isPro) => {
       const user = userEvent.setup()
-      proGatingV2.enabled = flagOn
       mockCampaign = {
         id: 9,
         isPro,
@@ -301,10 +267,9 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
 
 // ENG-10920: tile handler matrix — pro / non-pro / electedOffice / pending
 // asserting open vs redirect.
-describe('ChannelTileGrid — phone-banking tile + Pro redirect', () => {
+describe('ChannelTileGrid — phone-banking tile', () => {
   beforeEach(() => {
     mockCampaign = { id: 9, isPro: true }
-    mockElectedOffice = { data: null, isPending: false }
     mockRouterPush.mockClear()
   })
 
@@ -318,72 +283,6 @@ describe('ChannelTileGrid — phone-banking tile + Pro redirect', () => {
     expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
     expect(mockRouterPush).not.toHaveBeenCalled()
   })
-
-  it('non-Pro campaign: redirects to pro-upgrade, no modal', async () => {
-    mockCampaign = { id: 9, isPro: false }
-    mockElectedOffice = { data: null, isPending: false }
-    const onCreatePhoneBanking = vi.fn()
-    renderGrid({ onCreatePhoneBanking })
-
-    await userEvent.click(screen.getByText('Phone banking'))
-
-    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
-    expect(onCreatePhoneBanking).not.toHaveBeenCalled()
-  })
-
-  it('elected official (no Pro sub): opens the flow', async () => {
-    mockCampaign = { id: 9, isPro: false }
-    mockElectedOffice = { data: { id: 1 }, isPending: false }
-    const onCreatePhoneBanking = vi.fn()
-    renderGrid({ onCreatePhoneBanking })
-
-    await userEvent.click(screen.getByText('Phone banking'))
-
-    expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
-    expect(mockRouterPush).not.toHaveBeenCalled()
-  })
-
-  it('elected official (no Pro sub): tile is not visually locked', () => {
-    mockCampaign = { id: 9, isPro: false }
-    mockElectedOffice = { data: { id: 1 }, isPending: false }
-    renderGrid()
-
-    expect(
-      screen.getByText('Phone banking').closest('button'),
-    ).not.toHaveAccessibleDescription('Pro')
-  })
-
-  it('non-Pro + pending elected-office state: tile is not visually locked', () => {
-    mockCampaign = { id: 9, isPro: false }
-    mockElectedOffice = { data: undefined, isPending: true }
-    renderGrid()
-
-    expect(
-      screen.getByText('Phone banking').closest('button'),
-    ).not.toHaveAccessibleDescription('Pro')
-  })
-
-  it('non-Pro, no elected office: tile is visually locked', () => {
-    mockCampaign = { id: 9, isPro: false }
-    mockElectedOffice = { data: null, isPending: false }
-    renderGrid()
-
-    expect(
-      screen.getByText('Phone banking').closest('button'),
-    ).toHaveAccessibleDescription('Pro')
-  })
-
-  it('non-Pro + pending elected-office state: does not redirect', async () => {
-    mockCampaign = { id: 9, isPro: false }
-    mockElectedOffice = { data: undefined, isPending: true }
-    const onCreatePhoneBanking = vi.fn()
-    renderGrid({ onCreatePhoneBanking })
-
-    await userEvent.click(screen.getByText('Phone banking'))
-
-    expect(mockRouterPush).not.toHaveBeenCalled()
-    expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
-  })
 })
 
 // Door knocking is the one tile that navigates rather than opening a flow in
@@ -392,7 +291,6 @@ describe('ChannelTileGrid — phone-banking tile + Pro redirect', () => {
 describe('ChannelTileGrid — door-knocking tile carries the selected list', () => {
   beforeEach(() => {
     mockCampaign = { id: 9, isPro: true }
-    mockElectedOffice = { data: null, isPending: false }
     mockRouterPush.mockClear()
     testQueryClient.clear()
     packFetches.count = 0
@@ -474,20 +372,6 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
 
     expect(onCreatePhoneBanking).toHaveBeenCalledWith(undefined)
   })
-
-  // The tile is Pro-locked, and carrying a list must not become a way past
-  // that: a non-Pro click still gets the upgrade modal and goes nowhere.
-  it('shows the Pro modal instead of navigating for a non-Pro campaign', async () => {
-    mockCampaign = { id: 9, isPro: false }
-    renderGrid({ preselectedListId: 42 })
-
-    await userEvent.click(screen.getByText('Door knocking'))
-
-    expect(mockRouterPush).not.toHaveBeenCalled()
-    expect(
-      await screen.findByText('Get Pro voter data and tools'),
-    ).toBeInTheDocument()
-  })
 })
 
 // ENG-11020: phone banking opens in the hub (not here), so the list travels
@@ -496,7 +380,6 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
 describe('ChannelTileGrid — phone-banking tile carries the selected list', () => {
   beforeEach(() => {
     mockCampaign = { id: 9, isPro: true }
-    mockElectedOffice = { data: null, isPending: false }
     mockRouterPush.mockClear()
   })
 
@@ -519,37 +402,6 @@ describe('ChannelTileGrid — phone-banking tile carries the selected list', () 
     await userEvent.click(screen.getByText('Phone banking'))
 
     expect(onCreatePhoneBanking).toHaveBeenNthCalledWith(2, undefined)
-  })
-
-  // The Pro redirect happens before the hand-off: the candidate never
-  // entered the flow, so the deep-linked list must survive for whichever
-  // tile they press after coming back.
-  it('does not spend the list on a non-Pro redirect', async () => {
-    mockCampaign = { id: 9, isPro: false }
-    const onCreatePhoneBanking = vi.fn()
-    const { rerender } = renderGrid({
-      preselectedListId: 42,
-      onCreatePhoneBanking,
-    })
-
-    await userEvent.click(screen.getByText('Phone banking'))
-    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
-    expect(onCreatePhoneBanking).not.toHaveBeenCalled()
-
-    // Coming back upgraded: the list the deep link carried is still there.
-    mockCampaign = { id: 9, isPro: true }
-    rerender(
-      <ChannelTileGrid
-        preselectedListId={42}
-        onCreateSocial={vi.fn()}
-        onCreateSms={vi.fn()}
-        onCreateRobocall={vi.fn()}
-        onCreatePhoneBanking={onCreatePhoneBanking}
-      />,
-    )
-    await userEvent.click(screen.getByText('Phone banking'))
-
-    expect(onCreatePhoneBanking).toHaveBeenCalledWith({ listId: 42 })
   })
 })
 
@@ -618,19 +470,12 @@ describe('ChannelTileGrid — the preselect reaches every audience-taking tile',
   })
 })
 
-// Milestone 2: the tiles stop being the gate. A free candidate opens the
-// flow, builds their campaign, and meets the gate inside it.
-describe('ChannelTileGrid — flag on: the tiles open the gated flows', () => {
+// The tiles are not the gate. A free candidate opens the flow, builds their
+// campaign, and meets the gate inside it.
+describe('ChannelTileGrid — the tiles open the gated flows', () => {
   beforeEach(() => {
-    proGatingV2.enabled = true
     mockCampaign = { id: 9, isPro: false }
-    mockElectedOffice = { data: null, isPending: false }
     mockRouterPush.mockClear()
-    runTextGate.mockClear()
-  })
-
-  afterEach(() => {
-    proGatingV2.enabled = false
   })
 
   it('leaves the text, robocall and phone-banking tiles unlocked for a free candidate', () => {
@@ -655,8 +500,6 @@ describe('ChannelTileGrid — flag on: the tiles open the gated flows', () => {
 
     expect(onCreateSms).toHaveBeenCalledTimes(1)
     expect(mockRouterPush).not.toHaveBeenCalled()
-    // The flow carries the compliance gate now, so the tile no longer runs it.
-    expect(runTextGate).not.toHaveBeenCalled()
   })
 
   it('opens the robocall flow for a free candidate instead of the Pro modal', async () => {
@@ -710,5 +553,30 @@ describe('ChannelTileGrid — flag on: the tiles open the gated flows', () => {
     expect(
       screen.queryByText('Get Pro voter data and tools'),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('ChannelTileGrid — unit prices', () => {
+  afterEach(() => {
+    mockPricingOn = false
+  })
+
+  it('prices the paid tiles with the pricing flag on', () => {
+    mockPricingOn = true
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    expect(screen.getByText('3.5\u00a2 a text')).toBeInTheDocument()
+    expect(screen.getByText('4.5\u00a2 a call')).toBeInTheDocument()
+    expect(
+      screen.getByText('1\u00a2 each, 50-email minimum'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no prices with the flag off', () => {
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    expect(screen.queryByText(/a text/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/a call/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/50-email/)).not.toBeInTheDocument()
   })
 })

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
+import { OutreachCreditsModule } from '@/outreachCredits/outreachCredits.module'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { PaymentHoldsController } from './paymentHolds.controller'
 import { PaymentHoldsServeController } from './paymentHoldsServe.controller'
@@ -10,7 +11,7 @@ import { PaymentHoldsCardService } from './services/paymentHoldsCard.service'
 import { PaymentHoldsSweepService } from './services/paymentHoldsSweep.service'
 
 @Module({
-  imports: [ElectedOfficeModule, StripeModule],
+  imports: [ElectedOfficeModule, OutreachCreditsModule, StripeModule],
   controllers: [PaymentHoldsController, PaymentHoldsServeController],
   providers: [
     PaymentHoldsService,

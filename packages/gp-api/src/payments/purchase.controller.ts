@@ -93,6 +93,7 @@ export class PurchaseController {
       const { clientSecret, checkoutSessionId } =
         await this.stripeService.createEmbeddedProSubscriptionCheckoutSession(
           user,
+          activeCampaign.id,
           dto.returnUrl,
         )
 
@@ -106,7 +107,7 @@ export class PurchaseController {
     }
 
     const { redirectUrl, checkoutSessionId } =
-      await this.stripeService.createCheckoutSession(user)
+      await this.stripeService.createCheckoutSession(user, activeCampaign.id)
 
     await this.storeCheckoutSessionId(
       user.id,

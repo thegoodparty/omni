@@ -8,23 +8,13 @@ import {
   CalendarIcon,
   ChannelCard,
   GiftIcon,
-  LockIcon,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   cn,
 } from '@styleguide'
-import { useCampaign } from '@shared/hooks/useCampaign'
-import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
-import {
-  OUTREACH_OPTIONS,
-  OUTREACH_TYPES,
-} from 'app/dashboard/outreach/constants'
-import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
-import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
-import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import type { RecommendedListVariant } from '@goodparty_org/contracts'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
@@ -37,10 +27,11 @@ import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffN
 import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { CHANNEL_META } from './channelMeta'
+import { TILE_PRICES } from './channelPrices'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import type { AudiencePreselect } from './audiencePreselect'
 
 interface ChannelTileGridProps {
-  tcrCompliance?: TcrCompliance
   // `?listId=` / `?recommended=` off the voter data page, one or the other.
   preselectedListId?: number
   preselectedRecommendedVariant?: RecommendedListVariant
@@ -72,8 +63,14 @@ const preselectKey = (
   recommendedVariant: RecommendedListVariant | undefined,
 ): string => `${listId ?? ''}|${recommendedVariant ?? ''}`
 
+const tilePrice = (type: OutreachType): string | undefined =>
+  type === OUTREACH_TYPES.text
+    ? TILE_PRICES.text
+    : type === OUTREACH_TYPES.robocall
+      ? TILE_PRICES.robocall
+      : undefined
+
 const SMS_TILE_CLOSED_COPY = 'Not available for this race'
-const PRO_TAG_COPY = 'Pro'
 
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
 // channels. Pricing sub-copy comes from OUTREACH_OPTIONS until phase 2 moves
@@ -87,7 +84,6 @@ const TILE_ORDER: OutreachType[] = [
 ]
 
 export const ChannelTileGrid = ({
-  tcrCompliance,
   preselectedListId,
   preselectedRecommendedVariant,
   onCreateSocial,
@@ -98,32 +94,15 @@ export const ChannelTileGrid = ({
 }: ChannelTileGridProps) => {
   const router = useRouter()
   const queryClient = useQueryClient()
-  const [campaign] = useCampaign()
-  const { isPro } = campaign || {}
-  const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
-  const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
-  // gp-api's texting window, read off the campaign on both sides of the
-  // flag: once it is closed the text tile opens the cutoff notice, never the
-  // flow, the Pro wizard or the compliance modal.
+  // gp-api's texting window, read off the campaign: once it is closed the
+  // text tile opens the cutoff notice, never the flow.
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
   const [showSmsCutoffNotice, setShowSmsCutoffNotice] = useState(false)
   const { offer: freeOffer } = useRobocallFreeOffer()
-  // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
-  // phone-banking flows: the tile stops refusing the click and opens the
-  // flow, which pauses itself once there is something to save. Read without
-  // exposure — pressing a tile is not the treatment surface.
-  const { enabled: gatedFlows } = useOutreachProGatingV2Flag(false)
-  // Own equivalent of ContactsTableProvider's canUseProFeatures — not
-  // imported from there (contacts-scoped, would force an organization
-  // provider onto every tile-grid test). A pending elected-office query must
-  // NOT read as a refusal, or a Serve org's first render redirects to
-  // pro-upgrade before its own entitlement resolves. Backs the phone-banking
-  // tile's upgrade-at-entry: a non-Pro click redirects straight to
-  // /dashboard/pro-upgrade (ENG-10920) instead of the legacy Pro modal.
-  const { data: electedOffice, isPending: electedOfficePending } =
-    useElectedOffice()
-  const canUseProFeatures = !!isPro || !!electedOffice
+  const { enabled: showPrices } = useWinPerCampaignPricingFlag(false)
+  // The Pro/compliance gate lives inside the text, robocall and phone-banking
+  // flows, so the tiles never refuse a click.
 
   // Consume-once preselected audience (ENG-10762 conventions): the deep-link
   // strip's router.replace re-runs the force-dynamic page's server render
@@ -156,7 +135,7 @@ export const ChannelTileGrid = ({
     return spent
   }
 
-  const handleTileClick = (type: OutreachType, requiresPro?: boolean) => {
+  const handleTileClick = (type: OutreachType) => {
     // Not a create: the notice fires its own events, and the carried
     // audience is left for the channel the candidate picks instead.
     if (type === OUTREACH_TYPES.text && smsClosed) {
@@ -170,65 +149,20 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.text) {
-      if (gatedFlows) {
-        onCreateSms(spendPreselect())
-        return
-      }
-      // Upgrade-at-entry (2026-08-28): a non-Pro click goes straight to the
-      // Pro upgrade wizard instead of the legacy marketing modal, the same
-      // pattern the phone-banking tile set. Pro candidates with an
-      // unfinished registration run through the gate's status-aware
-      // ComplianceModal below (legacy semantics: approved passes).
-      if (!isPro) {
-        trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
-        router.push('/dashboard/pro-upgrade')
-        return
-      }
-      if (!runTextGate()) return
-      // Spent only once the gate has passed: a candidate sent to the
-      // compliance modal never entered the flow, so the carried audience must
-      // survive for whichever tile they press after coming back.
       onCreateSms(spendPreselect())
       return
     }
     if (type === OUTREACH_TYPES.phoneBanking) {
-      // A pending elected-office query is not a refusal — wait for it to
-      // settle rather than redirecting a Serve org that will resolve true.
-      if (!gatedFlows && !canUseProFeatures && !electedOfficePending) {
-        trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
-        router.push('/dashboard/pro-upgrade')
-        return
-      }
       // Consumed on hand-off, like door knocking: PhoneBankingFlow is
       // mounted by the hub, not here, so the audience travels through the
       // open callback — and spending it now is what keeps a later SMS/robocall
-      // tile click from inheriting a list chosen for phone banking. The
-      // Pro-redirect above deliberately does NOT spend it: the candidate
-      // never entered the flow, so the deep-linked audience must survive for
-      // whichever tile they press after coming back.
+      // tile click from inheriting a list chosen for phone banking.
       onCreatePhoneBanking(spendPreselect())
       return
     }
 
     if (type === OUTREACH_TYPES.robocall) {
-      if (!gatedFlows && requiresPro && !isPro) {
-        trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
-          source: 'outreach_page',
-        })
-        setShowProUpgradeModal(true)
-        return
-      }
       onCreateRobocall(spendPreselect())
-      return
-    }
-    // Behind the flag door knocking is a door like the other three: its page
-    // admits a free campaign (the map's reads are open to one) and its create
-    // flow gates Build route, the one paid write.
-    if (!gatedFlows && requiresPro && !isPro) {
-      trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
-        source: 'outreach_page',
-      })
-      setShowProUpgradeModal(true)
       return
     }
     if (type === OUTREACH_TYPES.doorKnocking) {
@@ -291,34 +225,15 @@ export const ChannelTileGrid = ({
         )}
       >
         {TILE_ORDER.map((type) => {
-          const option = OUTREACH_OPTIONS.find((o) => o.type === type)
           const meta = CHANNEL_META[type]
-          // The four channels whose flows carry their own gate: the tile is
-          // a door now, not a lock.
-          const gatedInFlow =
-            gatedFlows &&
-            (type === OUTREACH_TYPES.text ||
-              type === OUTREACH_TYPES.robocall ||
-              type === OUTREACH_TYPES.phoneBanking ||
-              type === OUTREACH_TYPES.doorKnocking)
           const isText = type === OUTREACH_TYPES.text
           const textClosed = isText && smsClosed
-          const locked =
-            !textClosed &&
-            !gatedInFlow &&
-            Boolean(
-              option?.requiresPro &&
-              (type === OUTREACH_TYPES.phoneBanking
-                ? !canUseProFeatures && !electedOfficePending
-                : !isPro),
-            )
           const smsCountdown =
             isText && smsCompliance === 'closing' && smsCutoffDate
               ? SMS_CUTOFF_COPY.countdownTag(formatSmsCutoffDate(smsCutoffDate))
               : null
           const hasFreeOffer = type === OUTREACH_TYPES.robocall && !!freeOffer
-          // One tag per tile. The deadline and the offer outrank the lock: the
-          // two only meet when the gating flag falls back to off.
+          // One tag per tile.
           const tag = smsCountdown ? (
             <>
               <CalendarIcon />
@@ -329,11 +244,6 @@ export const ChannelTileGrid = ({
               <GiftIcon />
               {FREE_OFFER_BADGE}
             </>
-          ) : locked ? (
-            <>
-              <LockIcon />
-              {PRO_TAG_COPY}
-            </>
           ) : undefined
           const card = (
             <ChannelCard
@@ -343,11 +253,17 @@ export const ChannelTileGrid = ({
               label={meta.label}
               tag={tag}
               tagTone={hasFreeOffer && !smsCountdown ? 'info' : 'muted'}
-              subCopy={textClosed ? SMS_TILE_CLOSED_COPY : undefined}
+              subCopy={
+                textClosed
+                  ? SMS_TILE_CLOSED_COPY
+                  : showPrices
+                    ? tilePrice(type)
+                    : undefined
+              }
               className={cn(
                 textClosed && 'bg-muted opacity-70 hover:border-border',
               )}
-              onClick={() => handleTileClick(type, option?.requiresPro)}
+              onClick={() => handleTileClick(type)}
             />
           )
           return textClosed ? (
@@ -368,6 +284,7 @@ export const ChannelTileGrid = ({
             icon={CHANNEL_META.email.icon}
             iconClassName={CHANNEL_META.email.iconTint}
             label={CHANNEL_META.email.label}
+            subCopy={showPrices ? TILE_PRICES.email : undefined}
             onClick={() => {
               trackEvent(EVENTS.Outreach.ClickCreate, { type: 'email' })
               onCreateEmail()
@@ -375,14 +292,6 @@ export const ChannelTileGrid = ({
           />
         )}
       </div>
-      <ProUpgradeModal
-        {...{
-          variant: VARIANTS.Second_NonViable,
-          open: showProUpgradeModal,
-          onClose: () => setShowProUpgradeModal(false),
-        }}
-      />
-      {gateModals}
       {showSmsCutoffNotice && (
         <SmsCutoffNoticeDialog
           open

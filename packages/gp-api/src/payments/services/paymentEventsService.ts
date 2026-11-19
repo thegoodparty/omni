@@ -1,3 +1,4 @@
+import { holdsOneTimePlan } from '@/campaigns/plans/planState.util'
 import {
   BadGatewayException,
   BadRequestException,
@@ -13,7 +14,12 @@ import Stripe from 'stripe'
 import { CampaignsService } from '../../campaigns/services/campaigns.service'
 import { UsersService } from '../../users/services/users.service'
 import { SlackService } from '../../vendors/slack/services/slack.service'
-import { Campaign, User } from '../../generated/prisma'
+import {
+  Campaign,
+  CampaignPlanLevel,
+  PlanPricingModel,
+  User,
+} from '../../generated/prisma'
 import { DateFormats, formatDate } from '../../shared/util/date.util'
 import { getUserFullName } from '../../users/util/users.util'
 import { EmailService } from '../../email/email.service'
@@ -44,6 +50,19 @@ const stripeWebsocketSecret = resolveEnvVar('STRIPE_WEBSOCKET_SECRET')
 const UNBILLABLE_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
   'canceled',
   'incomplete_expired',
+])
+
+// A subscription bought while per-campaign plans ramp keeps the plan columns
+// in step with isPro, so the campaign never reads isPro=true, plan=free.
+const SUBSCRIPTION_PLAN_COLUMNS = {
+  plan: CampaignPlanLevel.pro,
+  planPricingModel: PlanPricingModel.subscription,
+  planEndedAt: null,
+}
+
+const PRO_FULFILL_STATUSES = new Set<Stripe.Subscription.Status>([
+  'active',
+  'trialing',
 ])
 
 // How long after Stripe mints a subscription an unmatched lookup is still
@@ -212,14 +231,23 @@ export class PaymentEventsService {
   async customerSubscriptionCreatedHandler(
     event: Stripe.CustomerSubscriptionCreatedEvent,
   ) {
-    const { id: subscriptionId, customer: customerId } = event.data.object
+    const {
+      id: subscriptionId,
+      customer: customerId,
+      status,
+      metadata,
+    } = event.data.object
     if (!subscriptionId) {
       throw new BadRequestException('No subscriptionId found in subscription')
     }
 
+    const metadataUserId = metadata?.userId
     // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const user = await this.usersService.findByCustomerId(customerId as string)
+    const customerIdString = customerId as string
+    const user = metadataUserId
+      ? await this.usersService.findUser({ id: parseInt(metadataUserId) })
+      : await this.usersService.findByCustomerId(customerIdString)
     if (!user) {
       throw new BadGatewayException(
         'No user found with given subscription customerId',
@@ -234,9 +262,48 @@ export class PaymentEventsService {
       return
     }
 
-    return this.campaignsService.patchCampaignDetails(campaign.id, {
+    // Overwriting a different stored sub id is the duplicate-checkout shape
+    // (ENG-11084): the previous sub keeps billing once we stop tracking it, so
+    // neither fulfil nor re-link — alert and leave the campaign as it was.
+    const { id: campaignId, details } = campaign
+    const storedSubscriptionId = details?.subscriptionId
+    if (storedSubscriptionId && storedSubscriptionId !== subscriptionId) {
+      this.logger.error(
+        {
+          campaignId,
+          userId: user.id,
+          previousSubscriptionId: storedSubscriptionId,
+          incomingSubscriptionId: subscriptionId,
+        },
+        '[WEBHOOK] customer.subscription.created for a campaign linked to a ' +
+          'different subscriptionId — possible duplicate Pro subscription',
+      )
+      return
+    }
+
+    await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId,
     })
+
+    // Only a subscription we stamped at checkout names its campaign itself,
+    // and only one that is billing right now fulfils Pro: an `incomplete` or
+    // `past_due` subscription is linked above (so its later events resolve)
+    // but must not hand out Pro before it has been paid for.
+    if (!metadataUserId || !PRO_FULFILL_STATUSES.has(status)) {
+      return
+    }
+
+    const { becamePro } = await this.setProFromSubscription(
+      campaignId,
+      subscriptionId,
+    )
+    if (becamePro) {
+      this.logger.info(
+        { campaignId, userId: user.id, subscriptionId, status },
+        '[WEBHOOK] Fulfilled Pro from customer.subscription.created',
+      )
+      await this.onBecamePro(campaign, user)
+    }
   }
 
   async customerSubscriptionResumedHandler(
@@ -656,23 +723,13 @@ export class PaymentEventsService {
     await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId: incomingSubscriptionId,
     })
-    const { becamePro } = await this.campaignsService.setIsPro(campaignId)
+    const { becamePro } = await this.setProFromSubscription(
+      campaignId,
+      incomingSubscriptionId,
+    )
 
     if (becamePro) {
-      await this.dispatchOpponentCollectionOnProUpgrade(campaignId)
-    }
-
-    // Pre-payment submissions defer the compliance_setup agent
-    // kickoff to here. No-ops when the candidate has no TCR record yet or the
-    // kickoff was already enqueued. Best-effort: a failure here must not fail
-    // the webhook (the stranded-kickoff sweep recovers a rolled-back claim).
-    try {
-      await this.tcrComplianceService.enqueueAgenticKickoffIfNeeded(campaignId)
-    } catch (error) {
-      this.logger.error(
-        { error },
-        `[WEBHOOK] Failed to enqueue agentic compliance kickoff - Campaign: ${campaignId}`,
-      )
+      await this.onBecamePro(campaign, user)
     }
 
     // Track analytics with proper error handling
@@ -689,6 +746,10 @@ export class PaymentEventsService {
     try {
       await this.analytics.track(user.id, EVENTS.Account.ProUpgradeComplete, {
         pro: true,
+        plan: 'pro',
+        pricingModel: 'subscription',
+        paymentMethod: 'card',
+        upgradeFrom: 'free',
       })
     } catch (error) {
       this.logger.error(
@@ -712,8 +773,57 @@ export class PaymentEventsService {
       session.id,
       null,
     )
+  }
 
-    // Non-critical: Send notifications - log failures but don't fail webhook
+  // The one-time side effects of a campaign first becoming Pro, shared by both
+  // subscription fulfilment arms and the one-time PLAN purchase
+  // (CampaignPlanPurchaseService). Callers run it only when setIsPro reports
+  // becamePro, so whichever arm wins the race fires it once. Every step is
+  // best-effort: a failure here must never fail a payment that already
+  // committed.
+  // A campaign that already holds a one-time plan keeps it: the subscription
+  // is the later purchase, and overwriting would demote a paid Team plan.
+  private async setProFromSubscription(
+    campaignId: number,
+    subscriptionId: string,
+  ) {
+    let keptPlan: CampaignPlanLevel | undefined
+    const result = await this.campaignsService.setIsPro(
+      campaignId,
+      true,
+      true,
+      (locked) => {
+        if (!holdsOneTimePlan(locked)) return SUBSCRIPTION_PLAN_COLUMNS
+        keptPlan = locked.plan
+        return {}
+      },
+    )
+    if (keptPlan) {
+      this.logger.warn(
+        { campaignId, subscriptionId, plan: keptPlan },
+        '[WEBHOOK] Subscription on a campaign holding a one-time plan; kept the plan',
+      )
+    }
+    return result
+  }
+
+  async onBecamePro(campaign: Campaign, user: User) {
+    const { id: campaignId } = campaign
+    await this.dispatchOpponentCollectionOnProUpgrade(campaignId)
+
+    // Pre-payment submissions defer the compliance_setup agent
+    // kickoff to here. No-ops when the candidate has no TCR record yet or the
+    // kickoff was already enqueued. The stranded-kickoff sweep recovers a
+    // rolled-back claim.
+    try {
+      await this.tcrComplianceService.enqueueAgenticKickoffIfNeeded(campaignId)
+    } catch (error) {
+      this.logger.error(
+        { error },
+        `[WEBHOOK] Failed to enqueue agentic compliance kickoff - Campaign: ${campaignId}`,
+      )
+    }
+
     const results = await Promise.allSettled([
       this.sendProSignUpSlackMessage(user, campaign),
       (async () => {
@@ -731,14 +841,13 @@ export class PaymentEventsService {
       })(),
     ])
 
-    // Log any notification failures
     results.forEach((result, index) => {
       if (result.status === 'rejected') {
         const action = ['send Slack message', 'send voter file alert'][index]
         this.logger.error(
           // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           { reason: result.reason },
-          `[WEBHOOK] Failed to ${action} - User: ${user.id}, CustomerId: ${customerId}`,
+          `[WEBHOOK] Failed to ${action} - User: ${user.id}, Campaign: ${campaignId}`,
         )
       }
     })

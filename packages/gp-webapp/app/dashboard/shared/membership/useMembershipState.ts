@@ -30,16 +30,11 @@ interface UseMembershipStateResult {
 // the PIN dialog re-reads with staleTime 0 through useCvPinGate before it
 // renders a box.
 //
-// `enabled` is how a flagged-off surface opts out of the reads entirely: the
-// hook is called unconditionally (hooks always are), so without it every user
-// outside the experiment would still pay for the TCR read. The campaign gate
-// does the same for an org that has no campaign at all (Serve, or a user
-// mid-onboarding): no campaign means no membership surface can render, so the
-// reads would be paid for a UI that never appears. The elected-office query
-// stays on — other consumers share it.
-export const useMembershipState = ({
-  enabled = true,
-}: { enabled?: boolean } = {}): UseMembershipStateResult => {
+// The campaign gate keeps an org that has no campaign at all (Serve, or a
+// user mid-onboarding) from paying for the reads: no campaign means no
+// membership surface can render. The elected-office query stays on — other
+// consumers share it.
+export const useMembershipState = (): UseMembershipStateResult => {
   const [campaign] = useCampaign()
   const { smsCompliance } = useSmsCompliance()
   const { data: electedOffice, isPending: electedOfficePending } =
@@ -47,7 +42,7 @@ export const useMembershipState = ({
   const { data: tcrCompliance, isPending: tcrPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
-    enabled: enabled && Boolean(campaign),
+    enabled: Boolean(campaign),
   })
 
   const isAwaitingPinCandidate =
@@ -57,17 +52,17 @@ export const useMembershipState = ({
   const { data: complianceState, isPending: compliancePending } = useQuery({
     queryKey: COMPLIANCE_STATE_QUERY_KEY,
     queryFn: getComplianceState,
-    enabled: enabled && Boolean(campaign) && isAwaitingPinCandidate,
+    enabled: Boolean(campaign) && isAwaitingPinCandidate,
   })
 
   const ready =
-    enabled &&
     Boolean(campaign) &&
     !electedOfficePending &&
     !tcrPending &&
     (!isAwaitingPinCandidate || !compliancePending)
 
   const isPro = Boolean(campaign?.isPro)
+  const plan = campaign?.plan
   const isElectedOffice = Boolean(electedOffice)
   const tcrStatus = tcrCompliance?.status ?? null
   const hasPeerlyIdentity = Boolean(tcrCompliance?.peerlyIdentityId)
@@ -77,11 +72,12 @@ export const useMembershipState = ({
   // Derived on every call otherwise, so `state` was a NEW object on every
   // render of every consumer — and a consumer that keys anything on its
   // identity (the outreach history table's status filters) reset itself on
-  // every unrelated re-render. The derivation is pure over these seven.
+  // every unrelated re-render. The derivation is pure over these eight.
   const state = useMemo(
     () =>
       deriveMembershipState({
         isPro,
+        plan,
         isElectedOffice,
         tcrStatus,
         hasPeerlyIdentity,
@@ -91,6 +87,7 @@ export const useMembershipState = ({
       }),
     [
       isPro,
+      plan,
       isElectedOffice,
       tcrStatus,
       hasPeerlyIdentity,

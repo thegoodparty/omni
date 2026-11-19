@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
 
 // The free-texts (5,000) offer restore for a Win p2p SMS hold that is unwound
 // before it bills — a void (the hold released, nothing captured) or a refund
@@ -20,10 +21,25 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 export class OutreachP2pSmsFreeTextsService extends createPrismaBase(
   MODELS.OutreachP2pSms,
 ) {
+  constructor(private readonly credits: OutreachCreditsService) {
+    super()
+  }
+
   // Idempotent. Returns true when it restored (or had already restored this
   // send's offer), false when this send never consumed the offer so there is
   // nothing to hand back.
   async restore(outreachId: number): Promise<boolean> {
+    // Credit reserved for this send goes back with the offer, even when the
+    // offer restore throws; a no-op for a send that reserved none or already
+    // settled.
+    try {
+      return await this.restoreOffer(outreachId)
+    } finally {
+      await this.credits.release(outreachId)
+    }
+  }
+
+  private async restoreOffer(outreachId: number): Promise<boolean> {
     const sms = await this.model.findUnique({
       where: { outreachId },
       select: {
