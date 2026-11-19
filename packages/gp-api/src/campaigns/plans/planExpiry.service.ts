@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common'
 import { planEndsAt } from '@goodparty_org/contracts'
+import { isBefore } from 'date-fns'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { FeaturesService } from '@/features/services/features.service'
-import { CampaignPlanLevel } from '@/generated/prisma'
+import { PlanPricingModel } from '@/generated/prisma'
 import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { JobsService } from '@/jobs/jobs.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { WIN_PLAN_EXPIRY_SWEEP_FLAG } from '@/shared/util/winPlanExpirySweepFlag.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { CampaignsService } from '../services/campaigns.service'
-import { CrmCampaignsService } from '../services/crmCampaigns.service'
 import { LockedCampaignState } from './planState.util'
 
 // Thrown inside setIsPro's transaction to roll it back when the row, read
@@ -37,7 +37,7 @@ const endsAtOf = ({ planEndsAtOverride, electionDate }: EndsAtInput) =>
 
 const isDue = (input: EndsAtInput, now: Date) => {
   const endsAt = endsAtOf(input)
-  return endsAt !== null && endsAt < now
+  return endsAt !== null && isBefore(endsAt, now)
 }
 
 @Injectable()
@@ -47,7 +47,6 @@ export class PlanExpiryService extends createPrismaBase(MODELS.Campaign) {
     private readonly jobs: JobsService,
     private readonly features: FeaturesService,
     private readonly analytics: AnalyticsService,
-    private readonly crm: CrmCampaignsService,
   ) {
     super()
   }
@@ -117,62 +116,78 @@ export class PlanExpiryService extends createPrismaBase(MODELS.Campaign) {
   async expire(job: JobRun<{ campaignId: number }>): Promise<void> {
     const { campaignId } = job.data
     const now = new Date()
-    let creditExpiredCents = 0
-    let plan: CampaignPlanLevel = CampaignPlanLevel.free
 
-    let userId: number
+    // The event goes out before the commit, from this read, so a Segment
+    // failure fails the job while the plan is still due and the retry redoes
+    // it. After the commit a retry returns at the lock-time check and nothing
+    // could resend it. The messageId dedups a retry that sent it already.
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      select: {
+        userId: true,
+        plan: true,
+        isPro: true,
+        planPricingModel: true,
+        planEndedAt: true,
+        planEndsAtOverride: true,
+        details: true,
+        outreachCreditCents: true,
+      },
+    })
+    if (!campaign || !this.isEndable(campaign, now)) {
+      this.logger.info({ campaignId }, 'Plan not due; left as is')
+      return
+    }
+    await this.analytics.track(
+      campaign.userId,
+      EVENTS.Account.PaidPlanUpdated,
+      {
+        plan: campaign.plan,
+        change: 'ended',
+        reason: 'election_passed',
+        creditExpiredCents: campaign.outreachCreditCents,
+      },
+      undefined,
+      `plan-ended:${campaignId}`,
+    )
+
     try {
-      const { campaign } = await this.campaigns.setIsPro(
-        campaignId,
-        false,
-        false,
-        (locked) => {
-          if (
-            !locked.isPro ||
-            locked.planPricingModel !== 'one_time' ||
-            locked.planEndedAt ||
-            !isDue(
-              {
-                planEndsAtOverride: locked.planEndsAtOverride,
-                electionDate: electionDateOf(locked.details),
-              },
-              now,
-            )
-          ) {
-            throw new NotDueError()
-          }
-          creditExpiredCents = locked.outreachCreditCents
-          plan = locked.plan
-          return {
-            planEndedAt: now,
-            outreachCreditCents: 0,
-          }
-        },
-      )
-      userId = campaign.userId
+      await this.campaigns.setIsPro(campaignId, false, true, (locked) => {
+        if (!this.isEndable(locked, now)) throw new NotDueError()
+        return { planEndedAt: now, outreachCreditCents: 0 }
+      })
     } catch (error) {
       if (error instanceof NotDueError) {
-        this.logger.info({ campaignId }, 'Plan no longer due; left as is')
+        this.logger.info({ campaignId }, 'Plan extended under the lock')
         return
       }
       throw error
     }
+    this.logger.info({ campaignId }, 'Plan ended')
+  }
 
-    this.logger.info({ campaignId, plan, creditExpiredCents }, 'Plan ended')
-    try {
-      await this.analytics.track(userId, EVENTS.Account.PaidPlanUpdated, {
-        plan,
-        change: 'ended',
-        reason: 'election_passed',
-        creditExpiredCents,
-      })
-    } catch (error) {
-      this.logger.error({ error, campaignId }, 'Failed to track the plan end')
-    }
-    try {
-      await this.crm.trackCampaign(campaignId)
-    } catch (error) {
-      this.logger.error({ error, campaignId }, 'Failed to sync the ended plan')
-    }
+  private isEndable(
+    campaign: Pick<
+      LockedCampaignState,
+      | 'isPro'
+      | 'planPricingModel'
+      | 'planEndedAt'
+      | 'planEndsAtOverride'
+      | 'details'
+    >,
+    now: Date,
+  ) {
+    return (
+      campaign.isPro &&
+      campaign.planPricingModel === PlanPricingModel.one_time &&
+      !campaign.planEndedAt &&
+      isDue(
+        {
+          planEndsAtOverride: campaign.planEndsAtOverride,
+          electionDate: electionDateOf(campaign.details),
+        },
+        now,
+      )
+    )
   }
 }

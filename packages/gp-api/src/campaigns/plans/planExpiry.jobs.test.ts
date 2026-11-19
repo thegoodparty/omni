@@ -86,6 +86,8 @@ describe('planExpirySweep', () => {
         reason: 'election_passed',
         creditExpiredCents: 17_500,
       },
+      undefined,
+      `plan-ended:${campaign.id}`,
     )
   })
 
@@ -180,6 +182,31 @@ describe('planExpirySweep', () => {
 
     expect(await readCampaign(campaign.id)).toEqual(first)
     expect(track).toHaveBeenCalledTimes(1)
+  })
+
+  it('dead-letters the job and leaves the plan due when the plan-end event fails', async () => {
+    setSweepFlag(true)
+    vi.spyOn(service.app.get(AnalyticsService), 'track').mockRejectedValue(
+      new Error('Segment down'),
+    )
+    const campaign = await seedPlan({ electionDaysAgo: 20 })
+
+    const { deadLetters } = await service.jobs.runSchedule('planExpirySweep', {
+      allowDeadLetters: true,
+    })
+
+    expect(deadLetters).toEqual([
+      {
+        name: 'planExpire',
+        data: { campaignId: campaign.id },
+        error: 'Segment down',
+      },
+    ])
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: true,
+      planEndedAt: null,
+      outreachCreditCents: 17_500,
+    })
   })
 
   it('re-checks under the lock: a queued job for an extended plan changes nothing', async () => {
