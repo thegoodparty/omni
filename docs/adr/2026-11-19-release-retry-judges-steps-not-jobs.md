@@ -3,7 +3,7 @@ title: Release retry decides on the steps that started, not on the job
 status: active
 decided_by: [agent]
 date: 2026-11-19
-code: ['#PENDING']
+code: ['#3945']
 scope:
   - .github/scripts/release-retry.sh
   - .github/workflows/release-retry.yml
