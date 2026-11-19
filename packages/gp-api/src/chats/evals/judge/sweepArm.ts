@@ -15,6 +15,7 @@ import {
 } from './config'
 import { selectAgents } from './cli'
 import { JUDGE_CLERK_ENV } from './judgeClerkSession'
+import { ARM_GEMINI_KEY_ENV } from './labeled/replyIntent.adapter'
 import { ARM_KEY_ENV } from './modelKey'
 import { isoUtc, RunRecordSchema, type RunRecord } from './record'
 import {
@@ -99,6 +100,9 @@ const SECRET_VARS: readonly string[] = [
   ARM_KEY_ENV,
   'DATABRICKS_CLIENT_SECRET',
   'DATABRICKS_CLIENT_ID',
+  // The real Gemini key reply_intent's spending arm reads; see
+  // labeled/replyIntent.adapter.ts.
+  ARM_GEMINI_KEY_ENV,
   // braveKey.ts installs gp-api dev's own voter-file identity for an
   // in-process agent that queries the warehouse.
   'PEOPLE_DATABRICKS_CLIENT_SECRET',

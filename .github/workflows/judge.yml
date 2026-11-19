@@ -138,6 +138,11 @@ on:
         required: false
       DATABRICKS_CLIENT_SECRET:
         required: false
+      GEMINI_API_KEY:
+        # reply_intent's decision-model arm only, and optional like the rest:
+        # empty, that arm records an infraError naming JUDGE_GEMINI_API_KEY
+        # and every other agent runs as before.
+        required: false
       CLERK_SECRET_KEY:
         # HTTP arms only, and required: false for the same reason as the
         # others: a plan must not fail for want of a key it will not use.

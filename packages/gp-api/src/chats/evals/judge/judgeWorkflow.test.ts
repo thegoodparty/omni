@@ -211,6 +211,29 @@ describe('judge.yml spend switches', () => {
     expect(shadowed).toEqual([])
   })
 
+  // judge.yml is a reusable workflow, so a repository secret reaches its
+  // steps only if judge.yml declares it and every sweep caller passes it.
+  // Without both, the arms read an empty key whatever the repository holds.
+  it('declares the Gemini secret and has every sweep caller pass it', () => {
+    const secretsBlock = /^ {4}secrets:\n((?: {6}.*\n|\s*\n)*)/m.exec(yaml)
+    expect(secretsBlock?.[1]).toMatch(
+      /^ {6}GEMINI_API_KEY:\n {8}(?:#.*\n {8})*required: false$/m,
+    )
+    for (const caller of ['judge-request.yml', 'judge-comment.yml']) {
+      const body = readFileSync(
+        path.resolve(path.dirname(WORKFLOW), caller),
+        'utf8',
+      )
+      const passes = body.match(
+        /^ {6}GEMINI_API_KEY: \$\{\{ secrets\.GEMINI_API_KEY \}\}$/gm,
+      )
+      const passesAnthropic = body.match(
+        /^ {6}ANTHROPIC_API_KEY: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}$/gm,
+      )
+      expect(passes?.length, caller).toBe(passesAnthropic?.length)
+    }
+  })
+
   it('passes the real key to the judging step under its own name', () => {
     expect(judging).toHaveLength(1)
     expect(envValue(judging[0]?.body ?? '', KEY_ENV)).toBe(SECRET)
