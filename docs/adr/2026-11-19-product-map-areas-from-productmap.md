@@ -3,7 +3,7 @@ title: The analytics product map takes its areas from gp-api's productMap.ts
 status: active
 decided_by: [datawithtristan]
 date: 2026-11-19
-code: ['#PR_NUMBER']
+code: ['#3948']
 scope:
   - packages/runbooks/surfaces/product-map/**
   - packages/gp-api/src/chats/general/product-knowledge/productMap.ts
