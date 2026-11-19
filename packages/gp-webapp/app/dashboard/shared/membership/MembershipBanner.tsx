@@ -17,7 +17,9 @@ import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsComplianc
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
-import { MEMBERSHIP_COPY } from './membershipCopy'
+import type { PlanPitch } from '../plan/planPitch'
+import { usePlanPitch } from '../plan/usePlanPitch'
+import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
 
@@ -66,7 +68,7 @@ export const isMembershipSurfaceVisible = (
   Boolean(
     state &&
     !state.isElectedOffice &&
-    !(state.tier === 'pro' && state.texting === 'closed'),
+    !(state.tier !== 'free' && state.texting === 'closed'),
   )
 
 const BANNER_CLASS_NAME =
@@ -78,8 +80,13 @@ const BANNER_CLASS_NAME =
 const bannerCopy = (
   state: MembershipState,
   countdownCutoff: string | null,
+  planPitch: PlanPitch,
 ): { body: string; cta: string | null } | null => {
-  if (state.tier === 'free') return MEMBERSHIP_COPY.banner.free
+  if (state.tier === 'free') {
+    return planPitch.enabled
+      ? membershipPlanCopy(planPitch).bannerFree
+      : MEMBERSHIP_COPY.banner.free
+  }
   switch (state.texting) {
     case 'needs_verification':
       return countdownCutoff
@@ -104,12 +111,14 @@ export const MembershipBanner = (): React.JSX.Element | null => {
   const pathname = usePathname()
   const { ready, state, tcrCompliance } = useMembershipState()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const planPitch = usePlanPitch()
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
 
   const visible = Boolean(ready && isMembershipSurfaceVisible(state))
 
   if (!visible || !state) return null
+  if (state.tier === 'free' && !planPitch.ready) return null
 
   const action = resolveMembershipAction(state)
   const copy = bannerCopy(
@@ -117,6 +126,7 @@ export const MembershipBanner = (): React.JSX.Element | null => {
     smsCompliance === 'closing' && smsCutoffDate
       ? formatSmsCutoffDate(smsCutoffDate)
       : null,
+    planPitch,
   )
   if (!copy) return null
 

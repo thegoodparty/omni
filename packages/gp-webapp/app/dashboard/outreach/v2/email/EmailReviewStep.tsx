@@ -17,6 +17,11 @@ import {
   type EmailComposeState,
 } from './emailForm.util'
 import type { EmailSurface } from './emailSurface'
+import {
+  creditLines,
+  creditSourceLabel,
+  useOutreachCredit,
+} from 'app/dashboard/outreach/util/outreachCredit'
 
 interface EmailReviewStepProps {
   surface: EmailSurface
@@ -64,6 +69,11 @@ export const EmailReviewStep = ({
   }
 
   const estimate = send?.estimate ?? null
+  const outreachCredit = useOutreachCredit()
+  const lines =
+    outreachCredit.active && !surface.isServe && estimate
+      ? creditLines(estimate.priceCents, outreachCredit.balanceCents)
+      : null
   const capped =
     estimate !== null && estimate.audienceCount > estimate.recipientCap
 
@@ -109,6 +119,15 @@ export const EmailReviewStep = ({
           )
         }
         priceCents={estimate?.priceCents ?? null}
+        credit={
+          lines
+            ? {
+                label: creditSourceLabel(outreachCredit.balanceCents),
+                cents: lines.creditCents,
+                leftCents: lines.leftCents,
+              }
+            : undefined
+        }
         when={sendLabel}
       >
         {sender && (

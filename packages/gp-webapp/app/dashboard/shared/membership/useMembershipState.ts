@@ -62,6 +62,7 @@ export const useMembershipState = (): UseMembershipStateResult => {
     (!isAwaitingPinCandidate || !compliancePending)
 
   const isPro = Boolean(campaign?.isPro)
+  const plan = campaign?.plan
   const isElectedOffice = Boolean(electedOffice)
   const tcrStatus = tcrCompliance?.status ?? null
   const hasPeerlyIdentity = Boolean(tcrCompliance?.peerlyIdentityId)
@@ -71,11 +72,12 @@ export const useMembershipState = (): UseMembershipStateResult => {
   // Derived on every call otherwise, so `state` was a NEW object on every
   // render of every consumer — and a consumer that keys anything on its
   // identity (the outreach history table's status filters) reset itself on
-  // every unrelated re-render. The derivation is pure over these seven.
+  // every unrelated re-render. The derivation is pure over these eight.
   const state = useMemo(
     () =>
       deriveMembershipState({
         isPro,
+        plan,
         isElectedOffice,
         tcrStatus,
         hasPeerlyIdentity,
@@ -85,6 +87,7 @@ export const useMembershipState = (): UseMembershipStateResult => {
       }),
     [
       isPro,
+      plan,
       isElectedOffice,
       tcrStatus,
       hasPeerlyIdentity,

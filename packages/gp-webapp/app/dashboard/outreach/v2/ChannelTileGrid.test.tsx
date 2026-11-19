@@ -49,6 +49,11 @@ vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
   useRobocallFreeOffer: () => mockFreeOffer,
 }))
 
+let mockPricingOn = false
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: mockPricingOn }),
+}))
+
 const renderGrid = (
   overrides: Partial<{
     onCreateSocial: () => void
@@ -548,5 +553,30 @@ describe('ChannelTileGrid — the tiles open the gated flows', () => {
     expect(
       screen.queryByText('Get Pro voter data and tools'),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('ChannelTileGrid — unit prices', () => {
+  afterEach(() => {
+    mockPricingOn = false
+  })
+
+  it('prices the paid tiles with the pricing flag on', () => {
+    mockPricingOn = true
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    expect(screen.getByText('3.5\u00a2 a text')).toBeInTheDocument()
+    expect(screen.getByText('4.5\u00a2 a call')).toBeInTheDocument()
+    expect(
+      screen.getByText('1\u00a2 each, 50-email minimum'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no prices with the flag off', () => {
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    expect(screen.queryByText(/a text/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/a call/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/50-email/)).not.toBeInTheDocument()
   })
 })

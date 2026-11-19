@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import {
   Outreach,
   OutreachStatus,
@@ -49,6 +50,7 @@ export class OutreachRobocallCancelService extends createPrismaBase(
     private readonly orphanedHolds: RobocallOrphanedHoldService,
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
     private readonly notification: OutreachNotificationService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -117,6 +119,15 @@ export class OutreachRobocallCancelService extends createPrismaBase(
       this.logger.error(
         { err, outreachId },
         'robocall: failed to restore the promo code after cancel',
+      )
+    }
+
+    try {
+      await this.credits.release(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to release the outreach credit after cancel',
       )
     }
 

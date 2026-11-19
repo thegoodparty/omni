@@ -173,6 +173,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'Where per-campaign pricing is on, the top of Voter Outreach shows your outreach credit left and about how many texts it buys, and the text, robocall and email tiles show their price (3.5¢ a text, 4.5¢ a call, 1¢ an email with a 50-email minimum). Review for a text, robocall or email shows Cost, the outreach credit taken off it and the Total, with the credit left after it sends. A send the credit covers has nothing to pay; a bigger one pays the rest by card. There is no Add credit button. The screen after booking shows the credit used and Charged today',
       'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'Each channel starts by asking who to reach, which reads from your saved lists',
       'A text asks for the message before the date it goes out: purpose, who to reach, message, date, then review and pay. Where the text preview is on for a candidate, an image attached on the message step shows there with corners to drag, to choose what voters see (a GIF is used whole), then a Does this look right? step shows the message and image as they appear on a phone, between the message and the date; Back goes to the message and Continue goes on to the date. Review and pay shows the same phone',

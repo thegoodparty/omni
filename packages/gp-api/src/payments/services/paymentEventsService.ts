@@ -746,6 +746,10 @@ export class PaymentEventsService {
     try {
       await this.analytics.track(user.id, EVENTS.Account.ProUpgradeComplete, {
         pro: true,
+        plan: 'pro',
+        pricingModel: 'subscription',
+        paymentMethod: 'card',
+        upgradeFrom: 'free',
       })
     } catch (error) {
       this.logger.error(

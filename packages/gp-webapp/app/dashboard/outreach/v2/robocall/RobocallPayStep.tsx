@@ -26,6 +26,10 @@ import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { PaymentPortalButton } from '@shared/PaymentPortalButton'
 import PromoCodeSection from 'app/dashboard/purchase/components/PromoCodeSection'
 import { NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY } from 'appEnv'
+import {
+  useCreditUsedCents,
+  useOutreachCredit,
+} from 'app/dashboard/outreach/util/outreachCredit'
 import { Intro } from '../social/Intro'
 import { CHANNEL_META } from '../channelMeta'
 import { timeZoneShortLabel } from './scheduleTimeZone'
@@ -183,6 +187,11 @@ export const RobocallPayStep = ({
   // otherwise drop the already-created draft and leave the pay form spinning.
   // The client secret below is kept in state for the same reason.
   const [draft, setDraft] = useState<RobocallDraftCreateResponse | null>(null)
+  const outreachCredit = useOutreachCredit()
+  const creditUsedCents = useCreditUsedCents(
+    draft?.outreachId ?? null,
+    outreachCredit.active && outcome?.status === 'authorized',
+  )
   const startedRef = useRef(false)
   const [promoCode, setPromoCode] = useState('')
   const [promoError, setPromoError] = useState<string | null>(null)
@@ -409,6 +418,16 @@ export const RobocallPayStep = ({
               <span className="text-muted-foreground">Promo code</span>
               <span className="text-foreground">
                 -${formatCents(promoCents)}
+              </span>
+            </div>
+          )}
+          {creditUsedCents > 0 && (
+            <div className="flex justify-between border-t border-border p-4 text-sm">
+              <span className="text-muted-foreground">
+                Outreach credit used
+              </span>
+              <span className="text-foreground">
+                -${formatCents(creditUsedCents)}
               </span>
             </div>
           )}

@@ -19,6 +19,7 @@ import { VendorDriftProbeModule } from './vendors/vendorDriftProbe.module'
 import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
 import { EmailOutreachModule } from './emailOutreach/emailOutreach.module'
 import { PaymentHoldsModule } from './paymentHolds/paymentHolds.module'
+import { OutreachCreditsModule } from './outreachCredits/outreachCredits.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ConstituentFeedbackModule } from '@/constituentFeedback/constituentFeedback.module'
 import { ContactsModule } from '@/contacts/contacts.module'
@@ -158,6 +159,7 @@ import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult
     PhoneBankingModule,
     EmailOutreachModule,
     PaymentHoldsModule,
+    OutreachCreditsModule,
     PollsModule,
     PrioritiesModule,
     PersonProfilesModule,

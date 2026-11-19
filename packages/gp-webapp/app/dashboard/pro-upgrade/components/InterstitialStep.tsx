@@ -5,9 +5,12 @@ import { Button, ProBadge } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   INTERSTITIAL_COPY,
+  planInterstitialCopy,
   type GateChannel,
 } from 'app/dashboard/outreach/v2/gate/gateCopy'
 import { ProPitchPanel } from 'app/dashboard/outreach/v2/gate/ProPitchPanel'
+import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // The "join Pro to send this campaign" pause screen (design: the pause screen
@@ -20,16 +23,23 @@ const InterstitialStep = (): React.JSX.Element => {
   // whenever an outreach flow launches the wizard on this step — but sms is
   // the safest fallback shape (the two-step texting-plus-verification copy).
   const gateChannel: GateChannel = channel ?? 'sms'
+  const planPitch = usePlanPitch()
+  const { plan } = usePlan()
+  const copy = planPitch.enabled
+    ? planInterstitialCopy(planPitch)
+    : INTERSTITIAL_COPY
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, {
       channel: gateChannel,
+      plan,
     })
-  }, [gateChannel])
+  }, [gateChannel, plan])
 
   const handleJoin = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, {
       channel: gateChannel,
+      plan,
     })
     goToNextStep()
   }
@@ -47,7 +57,7 @@ const InterstitialStep = (): React.JSX.Element => {
     <div className="flex min-h-full flex-1 flex-col items-center justify-center gap-6 py-6 text-center">
       <ProBadge size="large" className="h-[30px] w-[66px]" />
       <h3 className="text-xl font-semibold tracking-tight sm:text-2xl">
-        {INTERSTITIAL_COPY.title}
+        {copy.title}
       </h3>
       <ProPitchPanel channel={gateChannel} />
       <div className="flex w-full flex-col items-center gap-3">
@@ -56,7 +66,7 @@ const InterstitialStep = (): React.JSX.Element => {
           className="w-full sm:w-auto sm:min-w-[360px]"
           onClick={handleJoin}
         >
-          {INTERSTITIAL_COPY.cta}
+          {copy.cta}
         </Button>
         <Button
           variant="ghost"
@@ -64,7 +74,7 @@ const InterstitialStep = (): React.JSX.Element => {
           className="w-full sm:w-auto"
           onClick={handleMaybeLater}
         >
-          {INTERSTITIAL_COPY.dismiss}
+          {copy.dismiss}
         </Button>
       </div>
     </div>

@@ -70,6 +70,18 @@ export const ProDriftClass = {
    * campaign that was never paid for (comped, seeded) looks the same.
    */
   ProNoSubscriptionId: 'PRO_NO_SUBSCRIPTION_ID',
+  /** `isPro = true` while `plan = 'free'`: the two Pro representations disagree. */
+  ProOnFreePlan: 'PRO_ON_FREE_PLAN',
+  /**
+   * A paid plan with `isPro = false` and no `plan_ended_at`: the plan never
+   * ended, yet the Pro flag says it did.
+   */
+  PaidPlanNotPro: 'PAID_PLAN_NOT_PRO',
+  /**
+   * Credit reserved for a send that finished more than
+   * {@link RESERVATION_GRACE_DAYS} days ago and was never settled.
+   */
+  UnsettledCreditReservation: 'UNSETTLED_CREDIT_RESERVATION',
 } as const
 
 export type ProDriftClass = (typeof ProDriftClass)[keyof typeof ProDriftClass]
@@ -86,6 +98,8 @@ export type ProDriftFinding = {
   subscriptionCanceledAt: string | null
   /** Human-readable statement of what contradicts what. */
   reason: string
+  /** Set only on {@link ProDriftClass.UnsettledCreditReservation}. */
+  outreachId?: number
 }
 
 /**
@@ -227,19 +241,96 @@ export function classifyRow(row: CampaignProRow): ProDriftFinding | null {
 const CLASS_PRIORITY: ProDriftClass[] = [
   ProDriftClass.ProAfterCancellation,
   ProDriftClass.ProNoSubscriptionId,
+  ProDriftClass.ProOnFreePlan,
+  ProDriftClass.PaidPlanNotPro,
+  ProDriftClass.UnsettledCreditReservation,
 ]
+
+export const RESERVATION_GRACE_DAYS = 7
+
+/** One campaign row, as selected by {@link PLAN_SQL}. */
+export type PlanRow = {
+  campaignId: number
+  slug: string | null
+  userId: number | null
+  email: string | null
+  isPro: boolean
+  plan: string
+}
+
+/** One outreach row, as selected by {@link RESERVATION_SQL}. */
+export type ReservationRow = {
+  outreachId: number
+  campaignId: number
+  slug: string | null
+  userId: number | null
+  email: string | null
+  creditReservedCents: number
+  /** `outreach.date`, the send's scheduled date, ISO-8601. */
+  sentAt: string
+}
+
+const planBase = (row: PlanRow | ReservationRow) => ({
+  campaignId: row.campaignId,
+  slug: row.slug,
+  userId: row.userId,
+  email: row.email,
+  subscriptionId: null,
+  customerId: null,
+  isProUpdatedAt: null,
+  subscriptionCanceledAt: null,
+})
+
+export const classifyPlanRow = (row: PlanRow): ProDriftFinding | null => {
+  if (row.isPro && row.plan === 'free') {
+    return {
+      ...planBase(row),
+      driftClass: ProDriftClass.ProOnFreePlan,
+      reason: "isPro is true but plan is 'free'",
+    }
+  }
+  if (!row.isPro && row.plan !== 'free') {
+    return {
+      ...planBase(row),
+      driftClass: ProDriftClass.PaidPlanNotPro,
+      reason: `plan is '${row.plan}' and has not ended, but isPro is false`,
+    }
+  }
+  return null
+}
+
+export const classifyReservationRow = (
+  row: ReservationRow,
+): ProDriftFinding => ({
+  ...planBase(row),
+  driftClass: ProDriftClass.UnsettledCreditReservation,
+  outreachId: row.outreachId,
+  reason: `outreach ${row.outreachId} reserved ${row.creditReservedCents} cents and was never settled; it completed ${row.sentAt}, more than ${RESERVATION_GRACE_DAYS} days ago`,
+})
+
+const byClassThenCampaign = (a: ProDriftFinding, b: ProDriftFinding) => {
+  const byClass =
+    CLASS_PRIORITY.indexOf(a.driftClass) - CLASS_PRIORITY.indexOf(b.driftClass)
+  return byClass !== 0 ? byClass : a.campaignId - b.campaignId
+}
+
+export const buildPlanReport = (
+  planRows: PlanRow[],
+  reservationRows: ReservationRow[],
+): ProDriftFinding[] =>
+  [
+    ...planRows
+      .map(classifyPlanRow)
+      .filter((f): f is ProDriftFinding => f !== null),
+    ...reservationRows.map(classifyReservationRow),
+  ].sort(byClassThenCampaign)
 
 export function buildReport(rows: CampaignProRow[]): ProDriftFinding[] {
   const findings = rows
     .map(classifyRow)
     .filter((f): f is ProDriftFinding => f !== null)
 
-  return findings.sort((a, b) => {
-    const byClass =
-      CLASS_PRIORITY.indexOf(a.driftClass) -
-      CLASS_PRIORITY.indexOf(b.driftClass)
-    return byClass !== 0 ? byClass : a.campaignId - b.campaignId
-  })
+  return findings.sort(byClassThenCampaign)
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +367,53 @@ export const SQL = `
   ORDER BY c.id
 `
 
+// Non-demo campaigns whose `plan` and `is_pro` disagree. `plan_ended_at IS
+// NULL` keeps an ended paid plan, which is correctly not Pro, out of the second
+// arm.
+export const PLAN_SQL = `
+  SELECT
+    c.id                         AS campaign_id,
+    c.slug                       AS slug,
+    c.user_id                    AS user_id,
+    u.email                      AS email,
+    COALESCE(c.is_pro, false)    AS is_pro,
+    c.plan::text                 AS plan
+  FROM campaign c
+  LEFT JOIN "user" u ON u.id = c.user_id
+  WHERE COALESCE(c.is_demo, false) = false
+    AND (
+      (COALESCE(c.is_pro, false) = true AND c.plan = 'free')
+      OR (
+        COALESCE(c.is_pro, false) = false
+        AND c.plan <> 'free'
+        AND c.plan_ended_at IS NULL
+      )
+    )
+  ORDER BY c.id
+`
+
+// Outreach has no completion timestamp; `date` is the send's scheduled date,
+// so a completed send whose date is past the grace window is the closest
+// available "finished more than 7 days ago".
+export const RESERVATION_SQL = `
+  SELECT
+    o.id                         AS outreach_id,
+    o."campaignId"               AS campaign_id,
+    c.slug                       AS slug,
+    c.user_id                    AS user_id,
+    u.email                      AS email,
+    o.credit_reserved_cents      AS credit_reserved_cents,
+    o.date                       AS sent_at
+  FROM outreach o
+  JOIN campaign c ON c.id = o."campaignId"
+  LEFT JOIN "user" u ON u.id = c.user_id
+  WHERE o.credit_reserved_cents > 0
+    AND o.credit_settled_at IS NULL
+    AND o.status = 'completed'
+    AND o.date < now() - interval '${RESERVATION_GRACE_DAYS} days'
+  ORDER BY o.id
+`
+
 /** `pg` hands back `unknown`; take the value only when it really is text. */
 function asText(value: unknown): string | null {
   return typeof value === 'string' ? value : null
@@ -298,6 +436,34 @@ export function mapRow(raw: Record<string, unknown>): CampaignProRow {
       canceledRaw === null || canceledRaw === undefined
         ? null
         : Number(canceledRaw),
+  }
+}
+
+export function mapPlanRow(raw: Record<string, unknown>): PlanRow {
+  return {
+    campaignId: Number(raw.campaign_id),
+    slug: asText(raw.slug),
+    userId: raw.user_id === null ? null : Number(raw.user_id),
+    email: asText(raw.email),
+    isPro: raw.is_pro === true,
+    plan: String(raw.plan),
+  }
+}
+
+export function mapReservationRow(
+  raw: Record<string, unknown>,
+): ReservationRow {
+  return {
+    outreachId: Number(raw.outreach_id),
+    campaignId: Number(raw.campaign_id),
+    slug: asText(raw.slug),
+    userId: raw.user_id === null ? null : Number(raw.user_id),
+    email: asText(raw.email),
+    creditReservedCents: Number(raw.credit_reserved_cents),
+    sentAt:
+      raw.sent_at instanceof Date
+        ? raw.sent_at.toISOString()
+        : String(raw.sent_at),
   }
 }
 
@@ -342,7 +508,15 @@ async function main() {
   await client.connect()
   try {
     const { rows } = await client.query(SQL)
-    const findings = buildReport(rows.map(mapRow))
+    const planRows = (await client.query(PLAN_SQL)).rows
+    const reservationRows = (await client.query(RESERVATION_SQL)).rows
+    const findings = [
+      ...buildReport(rows.map(mapRow)),
+      ...buildPlanReport(
+        planRows.map(mapPlanRow),
+        reservationRows.map(mapReservationRow),
+      ),
+    ].sort(byClassThenCampaign)
     // Report to stdout, progress to stderr, so `--json >file` captures only JSON.
     process.stderr.write(`Scanned ${rows.length} Pro campaigns.\n`)
     process.stdout.write(
