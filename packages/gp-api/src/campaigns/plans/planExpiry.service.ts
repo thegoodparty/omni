@@ -9,6 +9,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { WIN_PLAN_EXPIRY_SWEEP_FLAG } from '@/shared/util/winPlanExpirySweepFlag.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { CampaignsService } from '../services/campaigns.service'
+import { CrmCampaignsService } from '../services/crmCampaigns.service'
 import { LockedCampaignState } from './planState.util'
 
 // Thrown inside setIsPro's transaction to roll it back when the row, read
@@ -46,6 +47,7 @@ export class PlanExpiryService extends createPrismaBase(MODELS.Campaign) {
     private readonly jobs: JobsService,
     private readonly features: FeaturesService,
     private readonly analytics: AnalyticsService,
+    private readonly crm: CrmCampaignsService,
   ) {
     super()
   }
@@ -123,7 +125,7 @@ export class PlanExpiryService extends createPrismaBase(MODELS.Campaign) {
       const { campaign } = await this.campaigns.setIsPro(
         campaignId,
         false,
-        true,
+        false,
         (locked) => {
           if (
             !locked.isPro ||
@@ -166,6 +168,11 @@ export class PlanExpiryService extends createPrismaBase(MODELS.Campaign) {
       })
     } catch (error) {
       this.logger.error({ error, campaignId }, 'Failed to track the plan end')
+    }
+    try {
+      await this.crm.trackCampaign(campaignId)
+    } catch (error) {
+      this.logger.error({ error, campaignId }, 'Failed to sync the ended plan')
     }
   }
 }
