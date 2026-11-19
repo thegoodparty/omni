@@ -1,23 +1,12 @@
-import { randomUUID } from 'node:crypto'
-import { uniquePhone } from '../../src/helpers/testIdentifiers.helper'
-import { BrowserContext, type Page, test } from '@playwright/test'
-import axios, { type AxiosInstance } from 'axios'
+import { type BrowserContext, type Page, test } from '@playwright/test'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
-import type { TestModeElectionPreset } from '@goodparty_org/contracts'
-import { TestDataHelper } from 'src/helpers/data.helper'
-import { vercelBypassHeaders } from 'src/helpers/vercelBypass.helper'
-import { clerkThrottle } from './throttle-requests-with-retry'
 import {
-  apiURL,
-  applyElectionPreset,
-  clerkBackend,
+  createTestUser,
   DEFAULT_ELECTION_PRESET,
-  DEFAULT_TEST_RACE,
-  mintApiToken,
-  resolveTestRace,
-  type TestRace,
-  withGatewayRetry,
-} from './headless-user'
+  mintSignInTicket,
+  type CreateTestUserOptions,
+  type TestUser,
+} from '@goodparty_org/test-users'
 
 const baseURL = process.env.BASE_URL
 
@@ -38,24 +27,19 @@ type BaseTestUserOptions = {
    * users older than 3 hours.
    */
   isolated?: boolean
-  user?: Partial<{
-    firstName: string
-    lastName: string
-    email: string
-    phone: string
-  }>
+  user?: Partial<{ email: string }>
   /**
    * The office the campaign runs for. Defaults to DEFAULT_TEST_RACE. Only the
    * office is taken from the real race; the date comes from `election`.
    */
-  race?: TestRace
+  race?: CreateTestUserOptions['race']
   /**
    * The campaign's election state, computed by gp-api from its own clock.
    * Defaults to `in_8_weeks`, outside the 19-day texting cutoff. Any other
    * preset needs `isolated: true`, so the per-worker cached user keeps the
    * default.
    */
-  election?: TestModeElectionPreset
+  election?: CreateTestUserOptions['election']
 }
 
 export type TestUserOptions =
@@ -69,24 +53,9 @@ export type TestUserOptions =
       isolated: true
     })
 
-export type AuthenticatedUser = {
-  id: number
-  firstName: string
-  lastName: string
-  email: string
-  name: string
-  zip: string
-  phone: string
-  password: string
-}
+export type AuthenticatedUser = TestUser['user']
 
-type BootstrappedUser = {
-  user: AuthenticatedUser
-  token: string
-  client: AxiosInstance
-  clerkUserId: string
-  campaignId: number | undefined
-}
+type BootstrappedUser = TestUser
 
 type PlaywrightCookie = Parameters<BrowserContext['addCookies']>[0][0]
 
@@ -111,12 +80,7 @@ async function signInUser(page: Page, clerkUserId: string): Promise<void> {
     timeout: 15000,
   })
 
-  const { token: ticket } = await clerkThrottle(() =>
-    clerkBackend.signInTokens.createSignInToken({
-      userId: clerkUserId,
-      expiresInSeconds: 300,
-    }),
-  )
+  const ticket = await mintSignInTicket(clerkUserId)
   await clerk.signIn({ page, signInParams: { strategy: 'ticket', ticket } })
   await page.waitForFunction(() => window.Clerk?.user !== null)
 }
@@ -149,138 +113,27 @@ const bootstrapTestUser = async (
     return cachedUser
   }
 
-  const generated = TestDataHelper.generateTestUserData()
-  const email = options?.user?.email ?? generated.email
-  const password = `Test${randomUUID()}!`
-  const zip = options?.race?.zip || generated.zipCode
-
-  const clerkUser = await clerkThrottle(() =>
-    clerkBackend.users.createUser({
-      emailAddress: [email],
-      password,
-      firstName: generated.firstName,
-      lastName: generated.lastName,
-      skipPasswordChecks: true,
-    }),
-  )
-
-  const token = await mintApiToken(clerkUser.id)
-
-  const client = axios.create({
-    baseURL: apiURL,
-    headers: {
-      common: { Authorization: `Bearer ${token}`, ...vercelBypassHeaders() },
-    },
+  const result: BootstrappedUser = await createTestUser({
+    product: 'win',
+    race: options?.race,
+    election,
+    skipCampaignCreation: options?.skipCampaignCreation,
+    ...(options?.user?.email && { email: options.user.email }),
   })
-
-  // First authenticated gp-api call — this is what JIT-provisions the local user
-  // row, and it is deliberately the ONLY request that does so: it is serial and
-  // retried, where the browser's post-sign-in fan-out is neither. It also
-  // doubles as the cold-stack readiness probe: retrying it warms the target so
-  // the writes below land on a healthy task.
-  const { data: apiUser } = await withGatewayRetry('GET /v1/users/me', () =>
-    client.get<{
-      id: number
-      firstName: string
-      lastName: string
-      email: string
-      phone: string
-    }>('/v1/users/me'),
-  )
-
-  // Post-auth routing sends phone-less users through /sign-up/phone (ENG-11538),
-  // so save a phone up front or UI-login specs would stop on that page.
-  const phone = apiUser.phone || uniquePhone()
-  if (!apiUser.phone) {
-    await withGatewayRetry('PUT /v1/users/me', () =>
-      client.put('/v1/users/me', { phone }),
-    )
-  }
-
-  const user: AuthenticatedUser = {
-    id: apiUser.id,
-    firstName: apiUser.firstName,
-    lastName: apiUser.lastName,
-    email: apiUser.email,
-    name: `${apiUser.firstName} ${apiUser.lastName}`,
-    zip,
-    phone,
-    password,
-  }
-
-  const result: BootstrappedUser = {
-    user,
-    token,
-    client,
-    clerkUserId: clerkUser.id,
-    campaignId: undefined,
-  }
-
-  if (options?.skipCampaignCreation) {
-    await signInUser(page, clerkUser.id)
-    if (!options?.isolated) {
-      cachedUser = result
-    }
-    return result
-  }
-
-  const race = await resolveTestRace(client, {
-    zip,
-    office: options?.race?.office ?? DEFAULT_TEST_RACE.office,
-  })
-
-  // The campaign is still created through the product's own create route, so
-  // every spec keeps exercising it. The resolved race only places it; its
-  // date is replaced by the preset below.
-  const { data: campaign } = await withGatewayRetry('POST /v1/campaigns', () =>
-    client.post<{ id: number }>('/v1/campaigns', {
-      ballotReadyPositionId: race.brPositionId,
-      details: {
-        raceId: race.id,
-        state: race.position.state,
-        ballotLevel: race.position.level.toUpperCase(),
-        electionDate: race.election.electionDay,
-      },
-      data: { currentStep: 'onboarding-1' },
-    }),
-  )
-
-  if (!campaign?.id) {
-    throw new Error('Campaign creation did not return a valid id')
-  }
-
-  // Before launch, so launch already sees the declared date.
-  await applyElectionPreset(client, campaign.id, election)
 
   if (process.env.DEBUG) {
     console.log(
-      `[${test.info().title}] Created campaign ${campaign.id} for user ${
-        user.email
-      }`,
+      `[${test.info().title}] Created user ${result.user.email} ` +
+        `(id: ${result.user.id}, clerk: ${result.clerkUserId}) ` +
+        `campaign: ${result.campaignId ?? 'none'}`,
     )
   }
 
-  result.campaignId = campaign.id
-
-  // Cache the user if not isolated
   if (!options?.isolated) {
     cachedUser = result
   }
 
-  client.defaults.headers.common['x-organization-slug'] =
-    `campaign-${campaign.id}`
-
-  await withGatewayRetry('PUT /v1/campaigns/mine', () =>
-    client.put('/v1/campaigns/mine', {
-      data: { currentStep: 'onboarding-complete' },
-      details: { otherParty: 'Independent', pledged: true },
-    }),
-  )
-  await withGatewayRetry('POST /v1/campaigns/launch', () =>
-    client.post('/v1/campaigns/launch', {}),
-  )
-
-  await signInUser(page, clerkUser.id)
+  await signInUser(page, result.clerkUserId)
 
   return result
 }
@@ -294,26 +147,10 @@ export const authenticateTestUser = async (
   page: Page,
   options?: TestUserOptions,
 ) => {
-  const start = Date.now()
-  const { user, token, client, clerkUserId, campaignId } =
-    await bootstrapTestUser(page, options)
-
-  const { title } = test.info()
-
-  const userCreated = Date.now()
-  const elapsed = Date.now() - start
-
-  if (process.env.DEBUG) {
-    if (options?.isolated) {
-      console.log(
-        `[${title}] Created new user ${user.email} (id: ${user.id}, clerk: ${clerkUserId}) in ${elapsed}ms`,
-      )
-    } else {
-      console.log(
-        `[${title}] Using cached user ${user.email} (id: ${user.id}, clerk: ${clerkUserId})`,
-      )
-    }
-  }
+  const { user, token, client, campaignId } = await bootstrapTestUser(
+    page,
+    options,
+  )
 
   const cookies: PlaywrightCookie[] = [
     {
@@ -354,15 +191,6 @@ export const authenticateTestUser = async (
     })
   }
   await page.context().addCookies(cookies)
-
-  const loginTime = Date.now()
-  if (process.env.DEBUG) {
-    console.log(
-      `[${title}] Logged in user ${user.email} (id: ${user.id}) in ${
-        loginTime - userCreated
-      }ms`,
-    )
-  }
 
   return { user, client }
 }

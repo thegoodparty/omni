@@ -5,7 +5,7 @@ name: E2E horizon check
 # offices (the default office, the onboarding and office-picker specs). Those
 # break the day a race passes, on every PR and on the release train at once.
 # This asks dev's public races route about each reference in
-# packages/gp-webapp/e2e-tests/src/real-world-references.json and goes red,
+# packages/test-users/src/real-world-references.json and goes red,
 # with a job summary, when one no longer resolves or its next election is
 # under 30 days away. Not run on PRs: a red result is about the calendar, not
 # about the diff.

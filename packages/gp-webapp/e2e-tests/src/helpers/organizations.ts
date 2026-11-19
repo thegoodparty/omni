@@ -10,7 +10,7 @@ import {
   resolveTestRace,
   type TestRace,
   withGatewayRetry,
-} from 'tests/utils/headless-user'
+} from '@goodparty_org/test-users'
 import { closeStrayDialog } from 'src/helpers/dashboard'
 import { eventually, wait } from 'tests/utils/eventually'
 

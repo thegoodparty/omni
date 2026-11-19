@@ -6,7 +6,7 @@ import { eventually } from 'tests/utils/eventually'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
 import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // Pro-upgrade happy path: an already-filed candidate drives the full wizard
 // funnel through an embedded Stripe subscription to Pro, and its TCR record
