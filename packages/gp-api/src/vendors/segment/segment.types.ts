@@ -15,8 +15,6 @@
  */
 export const EVENTS = {
   Account: {
-    // Registered in Amplitude by ENG-11688.
-    PaidPlanUpdated: 'Account - Paid Plan Updated',
     ProSubscriptionConfirmed: 'Account - Pro Subscription Confirmed',
     ProSubscriptionPastDue: 'Account - Pro Subscription Past Due',
     ProSubscriptionEnded: 'Account - Pro Subscription Ended',
