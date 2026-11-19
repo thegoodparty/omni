@@ -238,8 +238,7 @@ export default function NativeDoorKnockingPage({
   // Win or Serve, decided once here and handed down — see
   // `doorKnockingSurface.tsx` for why nothing below may re-derive it. A
   // Campaign takes precedence over an ElectedOffice, which is the same order
-  // `DoorKnockingPageGate` resolves access in and the same order gp-api's
-  // create endpoint chooses a scope in.
+  // gp-api's create endpoint chooses a scope in.
   const serveMode = !campaign && isElectedOfficial
   // Which hub this surface belongs to, and so where every exit from it lands.
   const hubPath = serveMode ? SERVE_HUB : OUTREACH_HUB

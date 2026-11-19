@@ -5,8 +5,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { ProUpgradeAttribution } from '../proUpgradeAttribution'
 import {
   PRO_UPGRADE_STEP,
-  PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY,
-  proUpgradeStepOrder,
+  PRO_UPGRADE_STEP_ORDER,
   type ProUpgradeStep,
 } from '../proUpgradeStep'
 import {
@@ -38,8 +37,7 @@ interface ProUpgradeFlowProps {
 }
 
 // State-driven twin of the route-based ProUpgradeWizard, for mounting the
-// same step components inside another surface (the outreach sheet). Always
-// purchase-only: it only exists under outreach-pro-gating-v2.
+// same step components inside another surface (the outreach sheet).
 export const ProUpgradeFlow = ({
   initialStep,
   channel,
@@ -57,7 +55,7 @@ export const ProUpgradeFlow = ({
     flowStartedRef.current = true
     trackEvent(EVENTS.ProUpgrade.Compliance.FlowStarted, attribution)
   }, [attribution])
-  const stepOrder = proUpgradeStepOrder(true)
+  const stepOrder = PRO_UPGRADE_STEP_ORDER
   const orderIndex = stepOrder.indexOf(currentStep)
 
   useEffect(() => {
@@ -76,13 +74,13 @@ export const ProUpgradeFlow = ({
         ? PRO_UPGRADE_STEP.STATUS
         : currentStep
     onPositionChange({
-      currentStep: PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY.indexOf(anchor) + 1,
-      totalSteps: PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY.length,
+      currentStep: PRO_UPGRADE_STEP_ORDER.indexOf(anchor) + 1,
+      totalSteps: PRO_UPGRADE_STEP_ORDER.length,
     })
   }, [currentStep, onPositionChange])
 
   const goToNextStep = useCallback(() => {
-    // INTERSTITIAL has no place in the purchase-only order (it's only ever
+    // INTERSTITIAL has no place in the step order (it's only ever
     // an initialStep, never derived or ordered), so it can't resolve by
     // index — the wizard always continues from it into guidance.
     if (currentStep === PRO_UPGRADE_STEP.INTERSTITIAL) {
@@ -115,7 +113,6 @@ export const ProUpgradeFlow = ({
   const value = useMemo<ProUpgradeWizardContextValue>(
     () => ({
       currentStep,
-      purchaseOnly: true,
       channel: channel ?? null,
       goToStep: setCurrentStep,
       goToNextStep,

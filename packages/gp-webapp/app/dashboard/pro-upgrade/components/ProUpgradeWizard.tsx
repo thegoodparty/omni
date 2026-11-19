@@ -1,12 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo } from 'react'
-import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
-import { Button, Spinner, Stepper } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
@@ -16,7 +12,7 @@ import {
 import {
   PRO_UPGRADE_BASE_PATH,
   PRO_UPGRADE_STEP,
-  proUpgradeStepOrder,
+  PRO_UPGRADE_STEP_ORDER,
   proUpgradeStepPath,
   type ProUpgradeStep,
 } from '../proUpgradeStep'
@@ -27,32 +23,6 @@ import {
 } from './proUpgradeWizardContext'
 
 export { useProUpgradeWizard }
-
-// The desktop vertical stepper covers the four collection steps (Figma
-// 7490:18728), but the payment step hides it (Figma 7563:3405) — "Payment"
-// still appears as the upcoming step on the three earlier steps. value-prop,
-// status, the off-order routes (guidance, filing-instructions), and the
-// post-payment SUCCESS surface render the card alone.
-const STEPPER_STEPS: { step: ProUpgradeStep; label: string }[] = [
-  { step: PRO_UPGRADE_STEP.EIN, label: 'Campaign EIN' },
-  { step: PRO_UPGRADE_STEP.FILING_DETAILS, label: 'Campaign details' },
-  { step: PRO_UPGRADE_STEP.CANDIDATE_PROFILE, label: 'Candidate profile' },
-  { step: PRO_UPGRADE_STEP.PAYMENT, label: 'Payment' },
-]
-
-// Purchase-only (outreach-pro-gating-v2): the candidate profile is asked
-// inside the campaign details form, so it is not a step of its own.
-const STEPPER_STEPS_PURCHASE_ONLY: { step: ProUpgradeStep; label: string }[] = [
-  { step: PRO_UPGRADE_STEP.EIN, label: 'Campaign EIN' },
-  { step: PRO_UPGRADE_STEP.FILING_DETAILS, label: 'Campaign details' },
-  { step: PRO_UPGRADE_STEP.PAYMENT, label: 'Payment' },
-]
-
-const STEPPER_LABELS = STEPPER_STEPS.map(({ label }) => label)
-
-const STEPPER_LABELS_PURCHASE_ONLY = STEPPER_STEPS_PURCHASE_ONLY.map(
-  ({ label }) => label,
-)
 
 const stepFromPathname = (
   pathname: string | null,
@@ -71,81 +41,20 @@ const stepFromPathname = (
   return segment ? (segment as ProUpgradeStep) : null
 }
 
-// Page chrome per the Figma EIN frame (7490:18728): an Exit ghost link in a
-// top nav, then the 640px card centered next to the desktop-only vertical
-// stepper. stepperStep is 1-based; 0 means the current step isn't on the
-// stepper, so only the card renders. cardless steps (payment, Figma
-// 7563:3405) own their card + side-column layout, so the chrome renders the
-// children bare at full width.
-interface WizardChromeProps {
-  stepperStep: number
-  labels: string[]
-  cardless?: boolean
-  children: React.ReactNode
-}
-
-const WizardChrome = ({
-  stepperStep,
-  labels,
-  cardless = false,
-  children,
-}: WizardChromeProps): React.JSX.Element => {
-  const pathname = usePathname()
-
-  return (
-    <div className="min-h-screen bg-white px-6">
-      <nav className="py-3">
-        <Button
-          asChild
-          variant="ghost"
-          size="small"
-          className="text-base-muted-foreground"
-          onClick={() => trackEvent(EVENTS.ProUpgrade.ClickExit, { pathname })}
-        >
-          <Link href="/dashboard">
-            <ArrowLeftIcon /> Exit
-          </Link>
-        </Button>
-      </nav>
-      <main className="mx-auto flex max-w-5xl justify-center gap-16 pt-6 pb-20">
-        {stepperStep > 0 && (
-          <Stepper
-            variant="vertical"
-            currentStep={stepperStep}
-            labels={labels}
-            className="w-72 shrink-0 max-lg:hidden"
-          />
-        )}
-        {cardless ? (
-          <div className="w-full">{children}</div>
-        ) : (
-          <div className="w-full max-w-screen-sm rounded-2xl border border-base-border bg-white p-6 md:px-12 md:py-8">
-            {children}
-          </div>
-        )}
-      </main>
-    </div>
-  )
-}
-
-// Purchase-only (outreach-pro-gating-v2), design: renderSgModal — the same
-// chrome the outreach sheet draws around the embedded flow
-// (FullScreenStepChrome), with the bar stepper over the six ordered steps.
+// Design: renderSgModal — the same chrome the outreach sheet draws around the
+// embedded flow (FullScreenStepChrome), with the bar stepper over the six
+// ordered steps.
 // The filing-instructions dead end reads as the status step it branches
 // from, and the success screen draws no header at all.
-const PURCHASE_ONLY_ORDER = proUpgradeStepOrder(true)
-
-const purchaseOnlyPosition = (
-  step: ProUpgradeStep | null,
-): StepPosition | null => {
+const stepPosition = (step: ProUpgradeStep | null): StepPosition | null => {
   if (step === null || step === PRO_UPGRADE_STEP.SUCCESS) return null
   const anchor =
     step === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS
       ? PRO_UPGRADE_STEP.STATUS
       : step
-  const index = PURCHASE_ONLY_ORDER.indexOf(anchor)
+  const index = PRO_UPGRADE_STEP_ORDER.indexOf(anchor)
   if (index < 0) return null
-  return { currentStep: index + 1, totalSteps: PURCHASE_ONLY_ORDER.length }
+  return { currentStep: index + 1, totalSteps: PRO_UPGRADE_STEP_ORDER.length }
 }
 
 interface ProUpgradeWizardProps {
@@ -157,14 +66,7 @@ const ProUpgradeWizard = ({
 }: ProUpgradeWizardProps): React.JSX.Element => {
   const router = useRouter()
   const pathname = usePathname()
-  const { ready: flagReady, enabled } = useOutreachProGatingV2Flag(false)
-  // An unresolved flag reads off, so committing to the default order before it
-  // resolves would run a step's Continue against the wrong next step. Hold the
-  // step children (not the chrome) until the flag has an answer, the same way
-  // ProUpgradeEntry folds flagReady into its own `ready`.
-  const purchaseOnly = flagReady && enabled
-
-  const stepOrder = proUpgradeStepOrder(purchaseOnly)
+  const stepOrder = PRO_UPGRADE_STEP_ORDER
   const currentStep = stepFromPathname(pathname, stepOrder)
   const orderIndex = currentStep ? stepOrder.indexOf(currentStep) : -1
 
@@ -184,23 +86,19 @@ const ProUpgradeWizard = ({
   }, [orderIndex, stepOrder, router])
 
   const goToPreviousStep = useCallback(() => {
-    // The off-order routes (filing-instructions, and guidance while the
-    // default order is in play) are only ever entered from the filing-status
-    // step, so Back targets it explicitly: router.back() would leave the
-    // wizard entirely for a candidate who arrived via a direct URL (bookmark,
-    // emailed link). In purchase-only mode guidance is the first ordered step,
-    // so it falls through to router.back() instead.
-    if (
-      currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS ||
-      (currentStep === PRO_UPGRADE_STEP.GUIDANCE && !purchaseOnly)
-    ) {
+    // The off-order filing-instructions route is only ever entered from the
+    // filing-status step, so Back targets it explicitly: router.back() would
+    // leave the wizard entirely for a candidate who arrived via a direct URL
+    // (bookmark, emailed link). Guidance is the first ordered step, so it
+    // falls through to router.back() instead.
+    if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
       router.push(proUpgradeStepPath(PRO_UPGRADE_STEP.STATUS))
     } else if (orderIndex > 0) {
       router.push(proUpgradeStepPath(stepOrder[orderIndex - 1]!))
     } else {
       router.back()
     }
-  }, [currentStep, orderIndex, purchaseOnly, stepOrder, router])
+  }, [currentStep, orderIndex, stepOrder, router])
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
   const handleChromeExit = useCallback(() => {
@@ -208,24 +106,20 @@ const ProUpgradeWizard = ({
     router.push('/dashboard')
   }, [pathname, router])
 
-  // Purchase-only hands off to campaign verification instead of the
+  // Completing hands off to campaign verification instead of the
   // dashboard: an already-Pro candidate who never submitted their filing is
   // routed to the success step, and finishes it there. The success step
   // exits instead once a filing is in. Once texting has closed there is no
   // verification to finish, so the candidate goes to the dashboard.
   const smsClosed = useSmsCompliance().smsCompliance === 'closed'
   const complete = useCallback(
-    () =>
-      router.push(
-        purchaseOnly && !smsClosed ? CAMPAIGN_VERIFICATION_PATH : '/dashboard',
-      ),
-    [purchaseOnly, smsClosed, router],
+    () => router.push(smsClosed ? '/dashboard' : CAMPAIGN_VERIFICATION_PATH),
+    [smsClosed, router],
   )
 
   const contextValue = useMemo<ProUpgradeWizardContextValue>(
     () => ({
       currentStep,
-      purchaseOnly,
       channel: null,
       goToStep,
       goToNextStep,
@@ -233,53 +127,18 @@ const ProUpgradeWizard = ({
       exit,
       complete,
     }),
-    [
-      currentStep,
-      purchaseOnly,
-      goToStep,
-      goToNextStep,
-      goToPreviousStep,
-      exit,
-      complete,
-    ],
+    [currentStep, goToStep, goToNextStep, goToPreviousStep, exit, complete],
   )
-
-  const stepperSteps = purchaseOnly
-    ? STEPPER_STEPS_PURCHASE_ONLY
-    : STEPPER_STEPS
-  const stepperLabels = purchaseOnly
-    ? STEPPER_LABELS_PURCHASE_ONLY
-    : STEPPER_LABELS
-  const isPayment = currentStep === PRO_UPGRADE_STEP.PAYMENT
-  const stepperStep = isPayment
-    ? 0
-    : stepperSteps.findIndex(({ step }) => step === currentStep) + 1
 
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
-      {purchaseOnly ? (
-        <FullScreenStepChrome
-          overline="Upgrade to Pro"
-          position={purchaseOnlyPosition(currentStep)}
-          onExit={handleChromeExit}
-        >
-          {children}
-        </FullScreenStepChrome>
-      ) : (
-        <WizardChrome
-          stepperStep={stepperStep}
-          labels={stepperLabels}
-          cardless={isPayment}
-        >
-          {flagReady ? (
-            children
-          ) : (
-            <div className="flex h-[60vh] items-center justify-center">
-              <Spinner />
-            </div>
-          )}
-        </WizardChrome>
-      )}
+      <FullScreenStepChrome
+        overline="Upgrade to Pro"
+        position={stepPosition(currentStep)}
+        onExit={handleChromeExit}
+      >
+        {children}
+      </FullScreenStepChrome>
     </ProUpgradeWizardContext.Provider>
   )
 }
