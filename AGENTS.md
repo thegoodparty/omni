@@ -72,6 +72,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Product briefs, one-pagers, customer quotes | `product-brief`, `product-one-pager`, `voice-of-customer` skills (data stays in private `product-os`) |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | Proposing how to build a feature (options, before any detailed design) | `.claude/skills/build-shape/` |
+| Delegate reviewer blocked a correct PR or missed a bug, and you want it fixed | Hill-climb it from Slack: `docs/hill-climbing.md` in the `thegoodparty/ops` repo |
 | Product-analytics question (Amplitude) | `.claude/skills/query-analytics-data/SKILL.md` |
 | **Changing or making an architecture decision** | **`docs/adr/`** (see below) |
 
