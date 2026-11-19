@@ -5,7 +5,7 @@ import {
   ORG_SLUG_HEADER,
 } from '@shared/organizations/constants'
 import { APIEndpoints } from './api-endpoints'
-import { isUnauthorizedError, requestSignIn } from './unauthorized'
+import { isMissingSessionError, requestSignIn } from './unauthorized'
 
 /**
  * Extracts the path parameters from a route.
@@ -140,10 +140,9 @@ const browserRequest = createRequest(async (opts) => {
 })
 
 /**
- * Browser request. A 401 is a session the tab no longer has, so it sends the
- * user to sign in instead of leaving every query on the page to fail — see
- * `unauthorized.ts`. The error is still thrown, so callers keep their own
- * handling.
+ * Browser request. A 401 that came back with no session sends the user to sign in
+ * instead of leaving every query on the page to fail — see `unauthorized.ts`.
+ * The error is still thrown, so callers keep their own handling.
  */
 export const clientRequest = async <Route extends keyof APIEndpoints>(
   route: Route,
@@ -153,7 +152,7 @@ export const clientRequest = async <Route extends keyof APIEndpoints>(
   try {
     return await browserRequest(route, payload, overrides)
   } catch (error) {
-    if (isUnauthorizedError(error)) requestSignIn()
+    if (isMissingSessionError(error)) requestSignIn()
     throw error
   }
 }

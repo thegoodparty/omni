@@ -29,18 +29,31 @@ describe('reportClientError', () => {
     )
   })
 
-  // A 401 is a session the tab no longer has, and the request layer already
-  // sends the user to sign in: reporting it made each dead session file a "new
-  // front-end error" alert (ENG-11674).
-  it('does not report a 401 as a client error', () => {
+  // A request that went out without a session is a signed-out state, and the
+  // request layer already sends the user to sign in: reporting it made each dead
+  // session file a "new front-end error" alert (ENG-11674).
+  it('does not report a 401 for a request with no session', () => {
     reportClientError(
       {
         message: '[GET] "/api/v1/onboarding/voter-issues": 401',
         response: { status: 401 },
+        data: { message: 'Unauthorized', statusCode: 401 },
       },
       { context: 'onboarding.voterIssues.fetch' },
     )
 
     expect(faro.api.pushError).not.toHaveBeenCalled()
+  })
+
+  it('still reports a 401 that names its own reason', () => {
+    const invalidPassword = {
+      message: 'Invalid password',
+      response: { status: 401 },
+      data: { message: 'Invalid password', statusCode: 401 },
+    }
+
+    reportClientError(invalidPassword)
+
+    expect(faro.api.pushError).toHaveBeenCalled()
   })
 })

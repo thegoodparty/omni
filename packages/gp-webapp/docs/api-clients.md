@@ -40,7 +40,7 @@ const { data: poll } = await clientRequest('GET /v1/polls/:pollId', {
 
 - Cookie-based JWT. `clientRequest` sets `credentials: 'include'`. `serverRequest` reads `getServerToken()` and adds `Authorization: Bearer …`.
 - The current organization slug (when impersonating) is read from the `goodparty-org-slug` cookie and forwarded as the `x-organization` header.
-- **A 401 from `clientRequest` means the tab no longer has a session** (Clerk ended it, or it expired), not that the call was wrong: gp-api answers 401 on a route that needs a session only when the request carried none, and the `/api` rewrite mints the Bearer from that session. `clientRequest` therefore sends the user to `/login?redirect_url=<current path>` once per page load (`gpApi/unauthorized.ts`) and still throws, and react-query does not retry a 401. Before this, one dead session failed every query on a page — 76 requests across 14 endpoints from one page load (ENG-11674). A 401 is also not reported through `reportClientError`: it is a signed-out state, not a defect.
+- **A bare `Unauthorized` 401 means the tab no longer has a session** (Clerk ended it, or it expired), because gp-api's guards throw that when a request carries none. `clientRequest` sends the user to `/login?redirect_url=<current path>` once per page load for it (`gpApi/unauthorized.ts`) and still throws; react-query does not retry any 401; and `reportClientError` drops this one, since a signed-out state is not a defect and must not file a front-end error alert. A 401 that names its own reason ('Invalid password', 'Campaign ID mismatch') comes from a live session and is left alone. Before this, one dead session failed every query on a page — 76 requests across 14 endpoints from one page load (ENG-11674).
 
 ## Testing
 

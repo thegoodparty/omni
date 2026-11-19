@@ -3,9 +3,10 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { clientRequest } from './typed-request'
 import { resetSignInRequestForTests } from './unauthorized'
 
-// A 401 means the tab lost its session, so the page must not keep failing every
-// query on it: `clientRequest` sends the user to sign in, with the current path
-// to come back to, and then rethrows so callers still see the error (ENG-11674).
+// A request the /api rewrite could not authenticate means the tab lost its
+// session, so the page must not keep failing every query on it: `clientRequest`
+// sends the user to sign in, with the current path to come back to, and then
+// rethrows so callers still see the error (ENG-11674).
 const stubLocation = (pathname: string, search = '') => {
   const assign = vi.fn()
   // `href` too: ofetch resolves the request URL against the window location,
@@ -15,7 +16,13 @@ const stubLocation = (pathname: string, search = '') => {
   return assign
 }
 
-describe('clientRequest on 401', () => {
+const noSessionResponse = () => ({
+  status: 401 as const,
+  // What the guards throw on a request with no session.
+  data: { message: 'Unauthorized', statusCode: 401 },
+})
+
+describe('clientRequest on a 401', () => {
   beforeEach(() => {
     resetSignInRequestForTests()
   })
@@ -24,12 +31,9 @@ describe('clientRequest on 401', () => {
     vi.unstubAllGlobals()
   })
 
-  it('sends the user to sign in and keeps the current path', async () => {
+  it('sends the user to sign in when the request went out with no session', async () => {
     const assign = stubLocation('/dashboard/campaign-plan', '?tab=plan')
-    api.mock('GET /v1/onboarding/voter-issues', {
-      status: 401,
-      data: { message: 'Unauthorized' },
-    })
+    api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
 
     await expect(
       clientRequest('GET /v1/onboarding/voter-issues', {}),
@@ -42,16 +46,10 @@ describe('clientRequest on 401', () => {
     )
   })
 
-  it('navigates once for a page whose queries all 401 at the same time', async () => {
+  it('navigates once for a page whose queries all fail at the same time', async () => {
     const assign = stubLocation('/dashboard/campaign-plan')
-    api.mock('GET /v1/onboarding/voter-issues', {
-      status: 401,
-      data: { message: 'Unauthorized' },
-    })
-    api.mock('GET /v1/onboarding/contacts/stats', {
-      status: 401,
-      data: { message: 'Unauthorized' },
-    })
+    api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
+    api.mock('GET /v1/onboarding/contacts/stats', noSessionResponse())
 
     await Promise.allSettled([
       clientRequest('GET /v1/onboarding/voter-issues', {}),
@@ -59,6 +57,23 @@ describe('clientRequest on 401', () => {
     ])
 
     expect(assign).toHaveBeenCalledTimes(1)
+  })
+
+  // A few routes 401 for their own reasons with a live session and say why in
+  // the message. Sending a signed-in user to /login for one of those would throw
+  // away what they were doing.
+  it('leaves a 401 that names its own reason to the caller', async () => {
+    const assign = stubLocation('/dashboard/campaign-plan')
+    api.mock('GET /v1/onboarding/voter-issues', {
+      status: 401,
+      data: { message: 'Invalid password', statusCode: 401 },
+    })
+
+    await expect(
+      clientRequest('GET /v1/onboarding/voter-issues', {}),
+    ).rejects.toThrow()
+
+    expect(assign).not.toHaveBeenCalled()
   })
 
   it('leaves other failures to the caller', async () => {
@@ -77,10 +92,7 @@ describe('clientRequest on 401', () => {
 
   it('does not redirect from the sign-in page itself', async () => {
     const assign = stubLocation('/login', '?redirect_url=%2Fdashboard')
-    api.mock('GET /v1/onboarding/voter-issues', {
-      status: 401,
-      data: { message: 'Unauthorized' },
-    })
+    api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
 
     await expect(
       clientRequest('GET /v1/onboarding/voter-issues', {}),
