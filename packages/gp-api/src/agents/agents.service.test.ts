@@ -301,6 +301,74 @@ describe('AgentsService', () => {
     expect(artifacts).toHaveLength(1)
   })
 
+  it('resumes a run whose saved messages end on an assistant reply with a nudge, not a prefill', async () => {
+    let textReplies = 0
+    const lastRoles: string[] = []
+    const usage = {
+      inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 5, text: 5, reasoning: undefined },
+    }
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        const last = options.prompt.at(-1)?.role ?? 'none'
+        lastRoles.push(last)
+        if (last === 'assistant') {
+          throw new Error(
+            'This model does not support assistant message prefill.',
+          )
+        }
+        const submit = textReplies >= 6
+        if (!submit) textReplies++
+        return {
+          stream: simulateReadableStream<LanguageModelV3StreamPart>({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              ...(submit
+                ? [
+                    {
+                      type: 'tool-call' as const,
+                      toolCallId: 'call-submit',
+                      toolName: 'submitOutput',
+                      input: JSON.stringify({
+                        output: { summary: 'all about it' },
+                      }),
+                    },
+                  ]
+                : [
+                    { type: 'text-start' as const, id: 't' },
+                    { type: 'text-delta' as const, id: 't', delta: 'Done.' },
+                    { type: 'text-end' as const, id: 't' },
+                  ]),
+              {
+                type: 'finish',
+                finishReason: submit
+                  ? { unified: 'tool-calls', raw: 'tool_use' }
+                  : { unified: 'stop', raw: 'end_turn' },
+                usage,
+              },
+            ],
+          }),
+        }
+      },
+    })
+    vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+      model,
+      modelId: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    })
+
+    const { runId } = await service.app
+      .get(AgentsService)
+      .run('testAgent', await seedOrg('agents-resume-after-text'))
+    await service.jobs.settle()
+
+    expect(
+      await service.prisma.agentRun.findUniqueOrThrow({ where: { id: runId } }),
+    ).toMatchObject({ status: AgentRunStatus.completed })
+    expect(lastRoles).not.toContain('assistant')
+    expect(artifacts).toHaveLength(1)
+  })
+
   it('supersedes a run whose manifest changed and finishes a fresh one from the same input', async () => {
     const calls = scriptedModel()
     const input = await seedOrg('agents-shape')
