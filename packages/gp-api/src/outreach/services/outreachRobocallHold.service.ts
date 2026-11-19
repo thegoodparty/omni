@@ -15,7 +15,9 @@ import {
   ROBOCALL_RUN_HOURS,
   ROBOCALL_SETTLE_MARGIN_HOURS,
 } from '@/shared/util/robocallHold.util'
+import { ROBOCALL_MIN_HOLD_CENTS } from '@/shared/util/robocallPromo.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import {
   StripeHoldDeclinedError,
   StripeService,
@@ -69,6 +71,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     private readonly orphanedHolds: RobocallOrphanedHoldService,
     private readonly notification: OutreachNotificationService,
     private readonly promos: OutreachRobocallPromoService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -280,7 +283,6 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       // every authorized hold). A reward code takes its discount off this whole
       // total; the ceiling below still judges the undiscounted estimate.
       estimate = calcRobocallTotalInCents(billableCount)
-      holdAmount = estimate - (promo?.discountInCents ?? 0)
 
       // INV-2: a production sanity cap. An estimate over it is a human-alert
       // anomaly (a count or pricing bug), not something to silently authorize.
@@ -291,6 +293,30 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         )
         throw new ConflictException(
           'Robocall estimate exceeds the per-run limit',
+        )
+      }
+
+      // Promo first, then credit. The reserve is taken here, when the hold is
+      // placed, so a send deferred past the window draws credit only when the
+      // sweep places it. A reserve survives a failed attempt on this row (the
+      // reserve is idempotent), so a retry holds the same remainder.
+      const promoDiscount = promo?.discountInCents ?? 0
+      const reservedCredit = await this.credits.reserveIfEnabled(
+        campaign.id,
+        outreachId,
+        estimate - promoDiscount,
+      )
+      holdAmount = estimate - promoDiscount - reservedCredit
+      // A remainder under Stripe's minimum is forgiven, as a promo's is.
+      if (reservedCredit > 0 && holdAmount < ROBOCALL_MIN_HOLD_CENTS) {
+        return await this.scheduleCoveredRun(
+          user,
+          campaign,
+          outreachId,
+          draft.settleState,
+          promo,
+          billableCount,
+          [RobocallSettleState.hold_pending],
         )
       }
 
@@ -579,7 +605,8 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     }
   }
 
-  // A reward code that covers the whole estimate pays for the run outright:
+  // A reward code (or, past the code, the campaign's outreach credit) that
+  // covers the whole estimate pays for the run outright:
   // there is nothing to hold (Stripe refuses one under 50 cents) and no card is
   // needed, so the draft goes straight to `authorized` with no intent — the
   // redeemed code is the payment. The send gate and capture treat a
@@ -591,28 +618,31 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     campaign: Campaign,
     outreachId: number,
     fallback: RobocallSettleState,
-    promo: ResolvedRobocallPromo,
+    promo: ResolvedRobocallPromo | null,
     billableCount: number,
+    claimedFrom: RobocallSettleState[] = [
+      RobocallSettleState.pending_payment,
+      RobocallSettleState.hold_failed,
+    ],
   ): Promise<RobocallAuthorizeResponse> {
     let commit: { count: number }
     try {
       commit = await this.model.updateMany({
         where: {
           outreachId,
-          settleState: {
-            in: [
-              RobocallSettleState.pending_payment,
-              RobocallSettleState.hold_failed,
-            ],
-          },
+          settleState: { in: claimedFrom },
           authorizationIntentId: null,
         },
         data: {
           settleState: RobocallSettleState.authorized,
           authorizedAmountInCents: 0,
           captureBefore: null,
-          promoDiscountInCents: promo.discountInCents,
-          promoRedeemedAt: new Date(),
+          ...(promo
+            ? {
+                promoDiscountInCents: promo.discountInCents,
+                promoRedeemedAt: new Date(),
+              }
+            : {}),
           promoCoversTotal: true,
           callhubCampaignPkStr: null,
           callhubStartingDate: null,
@@ -634,12 +664,14 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // A covered run commits at $0 with no hold — the redeemed code IS the
     // payment — so it is a send terminal like the authorized commit above.
     await this.emitCampaignScheduled(outreachId, user.id, billableCount)
-    await this.promos.consume(promo.promotionCodeId)
+    if (promo) {
+      await this.promos.consume(promo.promotionCodeId)
+    }
     return {
       status: 'authorized',
       settleState: RobocallSettleState.authorized,
       authorizedAmountInCents: 0,
-      promoDiscountInCents: promo.discountInCents,
+      promoDiscountInCents: promo?.discountInCents ?? null,
     }
   }
 
@@ -831,6 +863,14 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       this.logger.error(
         { err, outreachId },
         'robocall send_failed: failed to restore the promo code',
+      )
+    }
+    try {
+      await this.credits.release(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall send_failed: failed to release the outreach credit',
       )
     }
 

@@ -12,6 +12,13 @@ The campaign's `outreachCreditCents` balance, spent per send. Each channel (P2P 
 
 `settle` and `release` open their own transaction unless the caller passes `tx`.
 
+`reserveIfEnabled(campaignId, outreachId, estimateCents)` is what the channels call: it reads `win_per_campaign_pricing` for the campaign owner (0 when off, so a flag-off send bills the card in full) and reserves in its own transaction.
+
+## Channels
+
+- **Robocall** (`outreachRobocallHold`/`Capture`): the reserve is taken when the hold is placed, after any promo (promo first, then credit), so a send deferred past the window draws credit when the sweep places the hold. The hold is `estimate - promo - reserved`; a remainder under Stripe's 50-cent minimum, or none, takes the `promoCoversTotal` branch (no hold). Capture takes the authorized amount, then settles `captured + reserved`, so the reserve is fully used; a zero-connect run, a cancel, a `send_failed` and an expiry cancel `release`.
+- **Email** (`outreachEmailConfirm`, `outreachEmailLifecycle`, `paymentHolds.completeSettle`): confirm reserves before `saveCardAndPlan` and holds `price - reserved`; a send credit covers has no hold row, so the lifecycle starts it on `creditReservedCents > 0` and settles it with `settle(outreachId, emailChargeCents(sentCount))` through the email settlement adapter, never `paymentHolds`. For a partly covered send `completeSettle` settles credit first and captures `min(actual - creditUsed, authorized)`; it engages only when the outreach row has a reserve. Cancel before send, a failed start and a failed prepare `release`.
+
 ## Invariants: do not break these
 
 - **The decrement is conditional** (`WHERE outreach_credit_cents >= r`). The row lock serializes sends; the DB CHECK is the last backstop.

@@ -18,6 +18,7 @@ import CheckoutPayment from 'app/dashboard/purchase/components/CheckoutPayment'
 import PurchaseError from 'app/dashboard/purchase/components/PurchaseError'
 import { createProSubscriptionCheckoutSession } from 'app/dashboard/purchase/utils/purchaseFetch.utils'
 import { PRO_UPGRADE_STEP, proUpgradeStepPath } from '../proUpgradeStep'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // Stripe sends the candidate here when a confirm requires a redirect (e.g.
@@ -177,10 +178,11 @@ const PaymentContent = ({
 
 const PaymentStep = (): React.JSX.Element => {
   const { goToStep, goToPreviousStep } = useProUpgradeWizard()
+  const { plan } = usePlan()
 
   useEffect(() => {
-    trackEvent(EVENTS.ProUpgrade.Compliance.PaymentViewed)
-  }, [])
+    trackEvent(EVENTS.ProUpgrade.Compliance.PaymentViewed, { plan })
+  }, [plan])
 
   const createSession = useCallback(
     () => createProSubscriptionCheckoutSession(SUCCESS_RETURN_URL),

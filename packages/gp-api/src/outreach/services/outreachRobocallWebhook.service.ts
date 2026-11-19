@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { addDays } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
 import {
   OutreachStatus,
@@ -39,6 +40,7 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
     private readonly orphanedHolds: RobocallOrphanedHoldService,
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
     private readonly promos: OutreachRobocallPromoService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -94,6 +96,14 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
           this.logger.error(
             { err, outreachId: cancelled.outreachId },
             'robocall: failed to restore the promo code after cancel',
+          )
+        }
+        try {
+          await this.credits.release(cancelled.outreachId)
+        } catch (err) {
+          this.logger.error(
+            { err, outreachId: cancelled.outreachId },
+            'robocall: failed to release the outreach credit after cancel',
           )
         }
       }

@@ -10,6 +10,7 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isSerializationError } from '@/prisma/util/prismaErrors.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { serializeError } from 'serialize-error'
 import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
@@ -26,6 +27,8 @@ import {
 import { OutreachSocialService } from './outreachSocial.service'
 import { RobocallComplianceResultService } from './robocallComplianceResult.service'
 import { requireBoundPassingCompliance } from '../util/robocallComplianceGate.util'
+
+class DraftAlreadyConverted extends Error {}
 
 export type DraftRowWithRobocall = Outreach & {
   robocall: OutreachRobocall | null
@@ -61,6 +64,7 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
     private readonly complianceResults: RobocallComplianceResultService,
     private readonly socialService: OutreachSocialService,
     private readonly voterFileFilters: VoterFileFilterService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
     const bucket = process.env.ROBOCALL_AUDIO_BUCKET
@@ -192,9 +196,22 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
   // already gone, so surfacing it made the route 500 and the drawer say the
   // draft could not be deleted while the list no longer showed it.
   async deleteDraftRow(row: DraftRowWithRobocall): Promise<void> {
-    const { count } = await this.model.deleteMany({
-      where: { id: row.id, status: OutreachStatus.draft },
-    })
+    // A declined email confirm leaves its credit reserved on the draft, and the
+    // delete would take the reserve with the row. Released in the delete's
+    // transaction, and rolled back when the draft was converted underneath us.
+    const count = await this.client
+      .$transaction(async (tx) => {
+        await this.credits.release(row.id, tx)
+        const deleted = await tx.outreach.deleteMany({
+          where: { id: row.id, status: OutreachStatus.draft },
+        })
+        if (deleted.count === 0) throw new DraftAlreadyConverted()
+        return deleted.count
+      })
+      .catch((err) => {
+        if (err instanceof DraftAlreadyConverted) return 0
+        throw err
+      })
     if (count === 0) {
       this.logger.info(
         { outreachId: row.id },

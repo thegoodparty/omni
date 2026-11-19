@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { Prisma } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { WIN_PER_CAMPAIGN_PRICING_FLAG } from 'src/shared/util/winPerCampaignPricingFlag.util'
 
 export type OutreachCreditSettlement = {
   creditUsedCents: number
@@ -9,6 +11,40 @@ export type OutreachCreditSettlement = {
 
 @Injectable()
 export class OutreachCreditsService extends createPrismaBase(MODELS.Outreach) {
+  constructor(private readonly moduleRef: ModuleRef) {
+    super()
+  }
+
+  // The channels' entry point: credit only applies under per-campaign pricing,
+  // read for the campaign owner, so a flag-off campaign keeps its balance
+  // untouched and its sends bill the card in full.
+  async reserveIfEnabled(
+    campaignId: number,
+    outreachId: number,
+    estimateCents: number,
+  ): Promise<number> {
+    if (estimateCents <= 0) return 0
+    const owner = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      select: { userId: true },
+    })
+    if (!owner) return 0
+    // Resolved lazily: FeaturesService sits in an import cycle that a static
+    // import here would trip, as in CampaignsService.
+    const { FeaturesService } =
+      await import('@/features/services/features.service.js')
+    const enabled = await this.moduleRef
+      .get(FeaturesService, { strict: false })
+      .isFeatureEnabled({
+        user: owner.userId,
+        feature: WIN_PER_CAMPAIGN_PRICING_FLAG,
+      })
+    if (!enabled) return 0
+    return this.client.$transaction((tx) =>
+      this.reserve(tx, campaignId, outreachId, estimateCents),
+    )
+  }
+
   // Runs inside the caller's transaction so the reserve commits or rolls back
   // with the send it pays for. The row lock is what serializes two sends on
   // one campaign; the conditional UPDATE is the guard that keeps the balance
