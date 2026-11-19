@@ -1,5 +1,3 @@
-'use client'
-
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { buildPlanPitch, type PlanPitch } from './planPitch'
