@@ -161,7 +161,7 @@ export const registerPairwiseSuite = <Input>(
                 ),
               )
               if (baseOutput === undefined || candidateOutput === undefined)
-                return
+                return false
               try {
                 const pair = await grader.gradePair({
                   caseId: theCase.id,
@@ -201,12 +201,13 @@ export const registerPairwiseSuite = <Input>(
                   'pairwise-decision',
                 )
                 pairs.push(pair)
-                return pair
+                return true
               } catch (error) {
                 await annotate(
                   `Attempt ${attempt}: ${excerpt(String(error))}`,
                   'pairwise-not-judged',
                 )
+                return false
               }
             }),
           )
