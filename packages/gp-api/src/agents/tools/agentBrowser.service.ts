@@ -1,7 +1,7 @@
 import { lookup } from 'node:dns/promises'
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { chromium } from 'playwright-core'
+import { type Browser, chromium } from 'playwright-core'
 import { isPublicAddress } from '@/websites/util/ssrf.util'
 import { startAgentCoreBrowserSession } from './agentCoreBrowser'
 import { MAX_BYTES, urlRefusal, USER_AGENT } from './agentWeb.service'
@@ -44,9 +44,68 @@ export type RenderResult =
   | { ok: true; status: number; finalUrl: string; html: string }
   | RenderFailure
 
+// Exported for its test: the CDP request interception is the redirect guard.
+export const navigateInBrowser = async (
+  browser: Browser,
+  url: string,
+  allowed: (url: string) => Promise<boolean>,
+): Promise<RenderedPage> => {
+  const context = await browser.newContext({
+    userAgent: USER_AGENT,
+    viewport: { width: 1280, height: 800 },
+  })
+  const page = await context.newPage()
+  const cdp = await context.newCDPSession(page)
+  let blocked = false
+  cdp.on('Fetch.requestPaused', (event) => {
+    const requestId = event.requestId
+    allowed(event.request.url)
+      .then((ok) => {
+        if (ok) return cdp.send('Fetch.continueRequest', { requestId })
+        blocked = true
+        return cdp.send('Fetch.failRequest', {
+          requestId,
+          errorReason: 'BlockedByClient',
+        })
+      })
+      .catch(() => undefined)
+  })
+  await cdp.send('Fetch.enable', {
+    patterns: [
+      {
+        urlPattern: '*',
+        resourceType: 'Document',
+        requestStage: 'Request',
+      },
+    ],
+  })
+  let status: number | undefined
+  try {
+    const response = await page.goto(url, {
+      waitUntil: 'load',
+      timeout: NAVIGATION_TIMEOUT_MS,
+    })
+    status = response?.status()
+  } catch (err) {
+    if (blocked) return { blocked: true }
+    throw err
+  }
+  if (blocked) return { blocked: true }
+  await page
+    .waitForLoadState('networkidle', { timeout: SETTLE_MS })
+    .catch(() => undefined)
+  if (blocked) return { blocked: true }
+  return {
+    blocked: false,
+    status: status ?? 0,
+    finalUrl: page.url(),
+    html: await page.content(),
+  }
+}
+
 class RenderDeadlineError extends Error {}
 
-const hopAllowed = async (url: string): Promise<boolean> => {
+export const hopAllowed = async (url: string): Promise<boolean> => {
   if (urlRefusal(url)) return false
   const hostname = new URL(url).hostname.replace(/^\[|\]$/g, '')
   const addresses = await lookup(hostname, { all: true }).catch(() => [])
@@ -180,59 +239,8 @@ export class AgentBrowserService {
         await browser.close().catch(() => undefined)
         await session.stop()
       }
-      const navigate: BrowserSession['navigate'] = async (url, allowed) => {
-        const context = await browser.newContext({
-          userAgent: USER_AGENT,
-          viewport: { width: 1280, height: 800 },
-        })
-        const page = await context.newPage()
-        const cdp = await context.newCDPSession(page)
-        let blocked = false
-        cdp.on('Fetch.requestPaused', (event) => {
-          const requestId = event.requestId
-          allowed(event.request.url)
-            .then((ok) => {
-              if (ok) return cdp.send('Fetch.continueRequest', { requestId })
-              blocked = true
-              return cdp.send('Fetch.failRequest', {
-                requestId,
-                errorReason: 'BlockedByClient',
-              })
-            })
-            .catch(() => undefined)
-        })
-        await cdp.send('Fetch.enable', {
-          patterns: [
-            {
-              urlPattern: '*',
-              resourceType: 'Document',
-              requestStage: 'Request',
-            },
-          ],
-        })
-        let status: number | undefined
-        try {
-          const response = await page.goto(url, {
-            waitUntil: 'load',
-            timeout: NAVIGATION_TIMEOUT_MS,
-          })
-          status = response?.status()
-        } catch (err) {
-          if (blocked) return { blocked: true }
-          throw err
-        }
-        if (blocked) return { blocked: true }
-        await page
-          .waitForLoadState('networkidle', { timeout: SETTLE_MS })
-          .catch(() => undefined)
-        if (blocked) return { blocked: true }
-        return {
-          blocked: false,
-          status: status ?? 0,
-          finalUrl: page.url(),
-          html: await page.content(),
-        }
-      }
+      const navigate: BrowserSession['navigate'] = (url, allowed) =>
+        navigateInBrowser(browser, url, allowed)
       this.logger.info(
         { runId, sessionId: session.sessionId },
         'agent browser session started',
