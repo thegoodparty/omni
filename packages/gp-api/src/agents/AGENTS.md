@@ -25,6 +25,7 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 | `tools/agentWeb.service.ts`     | Plain HTTP behind the private-address guard, on every redirect hop                                               |
 | `tools/judgeReplay.ts`          | Serves the judge's recorded pages to a judge run                                                                 |
 | `tools/queryDatabricks.ts`      | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
+| `agentRunRoutes.controller.ts`  | `POST /v1/agents/:name/runs`, `GET /v1/agents/runs/:runId` — the judge's door, dev and previews only            |
 
 Agents live with their product: `trending_issues` is
 `src/communityIssues/trendingIssuesAgent/`, `top_community_issues` is
@@ -343,3 +344,42 @@ returns the run plus its `AgentMessage` rows in `index` order, each with its
 no retry: re-running an agent from here would bypass the dispatcher's gates.
 `admin/agent-runs` next door is the PMF Engine's `ExperimentRun` and does not
 read this table. The shapes are in contracts `backgroundAgentRuns/`.
+
+## The judge's run routes
+
+`agentRunRoutes.controller.ts` is the only HTTP way to start any background
+agent, on whichever engine will run it
+([`docs/adr/2026-11-19-the-judge-reaches-agents-only-through-a-base-url.md`](../../../docs/adr/2026-11-19-the-judge-reaches-agents-only-through-a-base-url.md)).
+The Universal Judge holds a base URL and a signed-in user and nothing else, and
+these are the two routes it calls:
+
+```
+POST /v1/agents/:name/runs   { input }  -> { runId }
+GET  /v1/agents/runs/:runId             -> { status, artifact, error }
+```
+
+- **Dev and previews only.** Both 404 on prod and qa
+  (`isDevOnlyRouteEnabled`), the same gate as the community-issues seed.
+- **The caller must belong to the org the input names.** Owner or membership,
+  resolved the way `UseOrganizationGuard` resolves it; anyone else gets that
+  guard's 404.
+- **`POST` dispatches through `runsOnGpApi`**, the product's own per-agent
+  switch: gp-api's agents when it is on, `ExperimentRunsService.dispatchRun`
+  otherwise. It is the one caller that passes `allowTestUser: true`, because
+  every judge run brings a new `@test.goodparty.org` user the product's
+  dispatch guard would refuse. A preview names every agent in the registry in
+  `AGENTS_ON_GP_API` (`deploy/agentsOnGpApi.ts`), so the candidate arm really
+  runs gp-api's engine.
+- **`GET` returns the artifact the same way from both.** An `AgentRun` keeps
+  its artifact in the row; an `ExperimentRun` keeps S3 coordinates and the row
+  is read through `S3Service.getFile`. `AWAITING_RESUME` reads as `running`,
+  because its own recovery loop will pick it up.
+- **`compliance_setup` is refused by name**: it buys domains and submits to
+  Peerly, so a judge run of it spends real money.
+- **A suite writes one input, in the manifest's snake_case shape**, which is
+  the shape every agent has. The route converts the keys to gp-api's
+  camelCase when it dispatches to gp-api and fills `today` when the definition
+  requires it. That conversion is the only place the two engines' vocabularies
+  meet, and it goes away with the PMF Engine.
+- **Nothing here reads a run's messages.** The judge grades the artifact; a
+  transcript would be a second read route.

@@ -3,11 +3,12 @@
 The plan for moving every in-product agent into gp-api, on one engine.
 ClickUp ticket 17tnw2b5rd0, "Consolidate In-Product Agent Architecture".
 Status: in progress. The core, `AgentMessage` and `trending_issues` are on
-main; `trending_issues` runs on gp-api's own agents in dev and prod, and
-preview still sends it to the PMF Engine. `top_community_issues` is built on
-gp-api's agents with its switch off everywhere: its lean annotation needs the
-`hs_*` scores in the people marts, which a data-platform change adds before it
-can be judged. Every other agent still runs on the PMF Engine in every
+main; `trending_issues` runs on gp-api's own agents in dev and prod, and a
+preview runs every agent gp-api has, because a preview is the Universal
+Judge's candidate arm. `top_community_issues` is built on
+gp-api's agents with its switch off on dev and prod: its lean annotation needs
+the `hs_*` scores in the people marts, which a data-platform change adds before
+it can be judged. Every other agent still runs on the PMF Engine in every
 environment. Until an agent moves, it runs as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
@@ -71,7 +72,11 @@ successful production traffic, not a merged PR.
    the task definition, not a secret: `environmentVariables` in
    `packages/gp-api/deploy/index.ts` sets it per environment, so the flip is
    one reviewed line. `runsOnGpApi` reads it, and unset means the PMF Engine.
-   Dev's value landed with #3871, prod's with #3875, and preview stays unset.
+   Dev's value landed with #3871, prod's with #3875. A preview names every
+   agent in the registry (`deploy/agentsOnGpApi.ts`), never a subset: the
+   judge's candidate arm is a preview, and an agent a preview left out would
+   run the PMF Engine on both arms
+   ([`judge-eval-framework-plan.md`](judge-eval-framework-plan.md)).
    Done when prod runs complete, land on the dashboard, never re-dispatch,
    never dead-letter, and show in Grafana Agent Observability.
 2. **Every chat agent on `AgentMessage` in prod.** ✅ Every chat scope reads

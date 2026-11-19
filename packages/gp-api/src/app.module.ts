@@ -38,6 +38,7 @@ import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutrea
 import { OnboardingModule } from '@/onboarding/onboarding.module'
 import { PaymentsModule } from '@/payments/payments.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
+import { AgentRunRoutesModule } from '@/agents/agentRunRoutes.module'
 import { AgentsModule } from '@/agents/agents.module'
 import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
 import { AnnotationsModule } from '@/annotations/annotations.module'
@@ -164,6 +165,7 @@ import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult
     CampaignPlanSharesModule,
     MeetingsModule,
     AgentsModule,
+    AgentRunRoutesModule,
     DashboardCardsModule,
     AnnotationsModule,
     ArtifactFeedbackModule,

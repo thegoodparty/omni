@@ -27,6 +27,7 @@ import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
 import { createSitemapsBucket } from './components/sitemaps-bucket'
 import { createVpc } from './components/vpc'
+import { agentsOnGpApi } from './agentsOnGpApi'
 import { GP_API_SECRET_KEYS } from './gp-api-secret-keys'
 
 export = async () => {
@@ -917,11 +918,11 @@ jwIDAQAB
         ? { DRIFT_PROBE_PEERLY_IDENTITY_ID: driftProbePeerlyIdentityId }
         : {}),
       // Background agents that dispatch to gp-api's own agents instead of
-      // the PMF Engine. Each one is added per environment only after the
-      // Universal Judge reads it as same or better (docs/cap-consolidation.md).
-      ...(environment !== 'preview'
-        ? { AGENTS_ON_GP_API: 'trending_issues' }
-        : {}),
+      // the PMF Engine. A preview names every agent gp-api has, so the judge's
+      // candidate arm runs gp-api's engine; dev and prod name only the agents
+      // the Universal Judge has read as same or better
+      // (docs/cap-consolidation.md, deploy/agentsOnGpApi.ts).
+      AGENTS_ON_GP_API: agentsOnGpApi(environment),
     },
     permissions: [
       {
