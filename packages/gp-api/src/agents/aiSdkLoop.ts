@@ -223,6 +223,13 @@ export const runAgentLoop = async (args: AgentLoopArgs): Promise<unknown> => {
   }
 
   const messages = [...args.messages]
+  // A resumed attempt whose last saved row is the model's own reply (the one
+  // before it ended without submitting) would send that reply as a prefill,
+  // which the provider refuses, so it gets the nudge it never received.
+  if (messages.at(-1)?.role === 'assistant') {
+    await args.saveRows([nudgeRow(FINISH_NUDGE)])
+    messages.push({ role: 'user', content: FINISH_NUDGE })
+  }
   const warehouseTools = Object.entries(args.tools)
     .filter(([, agentTool]) => agentTool.readsWarehouse === true)
     .map(([name]) => name)
