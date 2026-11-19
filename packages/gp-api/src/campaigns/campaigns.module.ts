@@ -9,6 +9,7 @@ import { PurchaseService } from '@/payments/services/purchase.service'
 import { PurchaseType } from '@/payments/purchase.types'
 import { WrapperType } from '@/shared/types/utility.types'
 import { CampaignPlanPurchaseService } from './plans/campaignPlanPurchase.service'
+import { PlanExpiryService } from './plans/planExpiry.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { ElectionsModule } from 'src/elections/elections.module'
 import { EmailModule } from 'src/email/email.module'
@@ -106,6 +107,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     PublicCampaignsService,
     EligibilityService,
     CampaignPlanPurchaseService,
+    PlanExpiryService,
   ],
   exports: [
     CampaignsService,

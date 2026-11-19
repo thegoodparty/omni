@@ -49,6 +49,7 @@ import { PendingTranscriptionService } from '@/constituentFeedback/services/pend
 import { SynthesisStaleRunSweepService } from '@/constituentFeedback/services/synthesisStaleRunSweep.service'
 import { ContactUploadAbandonedSweepService } from '@/contactUploads/services/contactUploadAbandonedSweep.service'
 import { DoorKnockingStatsService } from '@/doorKnocking/services/doorKnockingStats.service'
+import { PlanExpiryService } from '@/campaigns/plans/planExpiry.service'
 import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 import { ManagedPanelFundingReconcileService } from '@/outreach/services/managedPanelFundingReconcile.service'
 import { OutreachDraftExpiryService } from '@/outreach/services/outreachDraftExpiry.service'
@@ -544,6 +545,12 @@ export const JOBS = {
     worker: (job, { get }) => get(WinOfficeService).syncScheduled(job),
     alertAfterWaitingMinutes: 60,
     maxConcurrent: 3,
+  }),
+  // One campaign's one-time plan ended, from planExpirySweep.
+  planExpire: defineJob({
+    schema: z.object({ campaignId: z.number().int().positive() }),
+    worker: (job, { get }) => get(PlanExpiryService).expire(job),
+    alertAfterWaitingMinutes: 60,
   }),
   // One org's canvassing totals to Segment, read by a HubSpot workflow.
   doorKnockingCanvassingTotals: defineJob({
@@ -1125,6 +1132,14 @@ export const SCHEDULES = {
     cron: '19 11 * * *',
     worker: (job, { get }) => get(WinOfficeService).fanOut(job),
     alertAfterWaitingMinutes: 30,
+  }),
+  // 12:27 UTC daily: 7:27 AM Eastern in winter, 8:27 AM in summer. One
+  // planExpire job per one-time plan past its end date (election date + 14
+  // days, or the staff override).
+  planExpirySweep: defineSchedule({
+    cron: '27 12 * * *',
+    worker: (job, { get }) => get(PlanExpiryService).fanOut(job),
+    alertAfterWaitingMinutes: 60,
   }),
   // 10:00 UTC daily: 5 AM Eastern in winter, 6 AM in summer. After the
   // latest a canvasser plausibly syncs an evening walk, before the CS

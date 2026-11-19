@@ -1,5 +1,5 @@
 import {
-  CampaignPlanState,
+  LockedCampaignState,
   holdsOneTimePlan,
 } from '@/campaigns/plans/planState.util'
 import {
@@ -907,6 +907,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       await this.setIsPro(campaign.id, false, false, {
         plan: CampaignPlanLevel.free,
         planEndedAt: new Date(),
+        outreachCreditCents: 0,
       })
     }
     await this.crm.trackCampaign(campaign.id)
@@ -926,7 +927,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     campaignId: number,
     isPro: boolean = true,
     trackCampaign: boolean = true,
-    data: SetIsProData | ((locked: CampaignPlanState) => SetIsProData) = {},
+    data: SetIsProData | ((locked: LockedCampaignState) => SetIsProData) = {},
   ): Promise<{ becamePro: boolean; campaign: Campaign }> {
     // The transition detection (read prior isPro) and the write must serialize:
     // Stripe delivers webhooks at-least-once, so two concurrent deliveries for
@@ -966,6 +967,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
             plan: true,
             planPricingModel: true,
             planEndedAt: true,
+            planEndsAtOverride: true,
+            details: true,
+            outreachCreditCents: true,
           },
         })
 
