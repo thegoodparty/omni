@@ -1,4 +1,8 @@
 import type {
+  AdminExtendPlan,
+  AdminRefundPlanResponse,
+  AdminSetPlan,
+  CampaignPlanState,
   ComplianceStateOutput,
   ListCampaignsPagination,
   PaginatedList,
@@ -103,5 +107,23 @@ export class CampaignsResource extends BaseResource {
       `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
         '/filing-url',
       input
+    )
+
+  setPlan = (id: number, input: AdminSetPlan): Promise<CampaignPlanState> =>
+    this.postRequest<CampaignPlanState>(`/admin/campaigns/${id}/plan`, input)
+
+  extendPlan = (
+    id: number,
+    input: AdminExtendPlan
+  ): Promise<CampaignPlanState> =>
+    this.postRequest<CampaignPlanState>(
+      `/admin/campaigns/${id}/plan/extend`,
+      input
+    )
+
+  refundPlan = (id: number): Promise<AdminRefundPlanResponse> =>
+    this.postRequest<AdminRefundPlanResponse>(
+      `/admin/campaigns/${id}/plan/refund`,
+      {}
     )
 }

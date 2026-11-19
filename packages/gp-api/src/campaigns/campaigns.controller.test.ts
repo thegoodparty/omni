@@ -1088,6 +1088,17 @@ describe('CampaignsController', () => {
       expect(result).toHaveProperty('raceTargetMetrics')
     })
 
+    it('returns the staff end-date override as planEndsAt', async () => {
+      vi.spyOn(campaignsService, 'findUniqueOrThrow').mockResolvedValue({
+        ...mockCampaign,
+        planEndsAtOverride: new Date('2027-01-05T00:00:00Z'),
+      })
+
+      const result = await controller.findById({ id: mockCampaign.id })
+
+      expect(result.planEndsAt).toEqual(new Date('2027-01-05T00:00:00Z'))
+    })
+
     it('throws when campaign does not exist', async () => {
       vi.spyOn(campaignsService, 'findUniqueOrThrow').mockRejectedValue(
         new NotFoundException(),
