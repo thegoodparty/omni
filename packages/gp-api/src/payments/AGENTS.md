@@ -66,7 +66,10 @@ Where Pro state lives (all of it — there is no subscription table):
   derived from the **prior** `isPro`, so a flip that commits without its stamp
   cannot be repaired by a redelivery — the redelivery sees `isPro=true` and
   skips it. See `src/campaigns/AGENTS.md` § Patterns before touching either
-  write path.
+  write path. Two events fulfil Pro, not one: `checkout.session.completed` and
+  `customer.subscription.created` (from the subscription's own metadata), so a
+  completion that is lost no longer strands a paying account on the free plan
+  (ENG-11182, ENG-11672).
 - `user.metaData.customerId` — Stripe customer id (backfilled on boot, or
   on first Manage Subscription click via
   `PurchaseController.recoverCustomerIdFromSubscription` when the boot-time
@@ -137,9 +140,10 @@ each guard exists because a customer was double-billed without it):
 
 `customer.subscription.updated` and `customer.subscription.deleted` resolve
 their campaign through `details.subscriptionId`. That is the only link back
-from Stripe: a Pro checkout writes `userId` onto the checkout session, never
-onto the subscription, and the session is long gone by the time a cancellation
-arrives. When the lookup misses, the handler acknowledges the event and
+from Stripe: a Pro checkout writes `userId` onto the checkout session, and
+since ENG-11182 also `userId`/`campaignId` onto the subscription itself
+(`subscription_data` on session creation), which is the copy that survives a
+lost session. When the lookup misses, the handler acknowledges the event and
 classifies it instead of throwing — a missing local row is not a third-party
 failure, and Stripe's 7 retries over ~68h re-run the same query against the
 same rows, raising one alert per attempt.
