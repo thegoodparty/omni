@@ -4,9 +4,12 @@ import {
   ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
+  forwardRef,
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   NotFoundException,
   Param,
   ParseIntPipe,
@@ -21,9 +24,14 @@ import {
   InviteMemberResponseSchema,
   MyPendingInviteResponseSchema,
   TeamResponseSchema,
+  TEAM_GATE_START,
   TeamStatsResponseSchema,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { FeaturesService } from '@/features/services/features.service'
+import { WrapperType } from '@/shared/types/utility.types'
+import { WIN_PER_CAMPAIGN_PRICING_FLAG } from '@/shared/util/winPerCampaignPricingFlag.util'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { Organization, OrganizationRole, User } from '../generated/prisma'
@@ -46,6 +54,10 @@ export class TeamController {
   constructor(
     private readonly team: OrganizationTeamService,
     private readonly teamStats: TeamStatsService,
+    @Inject(forwardRef(() => FeaturesService))
+    private readonly features: WrapperType<FeaturesService>,
+    @Inject(forwardRef(() => CampaignsService))
+    private readonly campaigns: WrapperType<CampaignsService>,
   ) {}
 
   @Get()
@@ -72,7 +84,7 @@ export class TeamController {
   @Post('invites')
   @UseOrganization()
   @ResponseSchema(InviteMemberResponseSchema)
-  createInvite(
+  async createInvite(
     @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @ReqOrganizationRole() invitedByRole: OrganizationRole,
@@ -94,6 +106,31 @@ export class TeamController {
       throw new ConflictException(
         'Team invites are not available for test organizations',
       )
+    }
+
+    // Campaigns created on or after TEAM_GATE_START need the Team plan to
+    // invite anyone. Earlier campaigns keep inviting on any plan. The flag is
+    // read for the org owner so a manager's invite buckets with the owner.
+    if (
+      await this.features.isFeatureEnabled({
+        user: organization.ownerId,
+        feature: WIN_PER_CAMPAIGN_PRICING_FLAG,
+      })
+    ) {
+      const campaign = await this.campaigns.findFirst({
+        where: { organizationSlug: organization.slug },
+        select: { createdAt: true, plan: true },
+      })
+      if (
+        campaign &&
+        campaign.createdAt >= new Date(TEAM_GATE_START) &&
+        campaign.plan !== 'team'
+      ) {
+        throw new ForbiddenException({
+          message: 'Inviting teammates requires the Team plan',
+          code: 'TEAM_PLAN_REQUIRED',
+        })
+      }
     }
 
     return this.team.inviteMember({

@@ -10,9 +10,21 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { FeaturesService } from '@/features/services/features.service'
+import { WIN_PER_CAMPAIGN_PRICING_FLAG } from '@/shared/util/winPerCampaignPricingFlag.util'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
+
+// isFeatureEnabled answers true for every flag when Amplitude is unconfigured,
+// so the per-campaign pricing flag is pinned explicitly in each test.
+const setPerCampaignPricing = (enabled: boolean) =>
+  vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockImplementation(
+      async ({ feature }) =>
+        feature !== WIN_PER_CAMPAIGN_PRICING_FLAG || enabled,
+    )
 
 const seedCampaign = async () => {
   const org = await service.prisma.organization.create({
@@ -774,6 +786,10 @@ describe('CampaignsService.getStatus', () => {
 })
 
 describe('CampaignsService.setIsPro', () => {
+  beforeEach(() => {
+    setPerCampaignPricing(false)
+  })
+
   // The real CampaignTasksService would post to Slack. Its own
   // `proUpgradeSlackNotifiedAt` guard is not what these tests are about.
   const buildService = () => {
@@ -1063,6 +1079,22 @@ describe('CampaignsService.setIsPro', () => {
       where: { id: campaign.id },
     })
     expect(row.details.isProUpdatedAt).toBe(FIRST_DELIVERY_STAMP)
+  })
+
+  it('does not grant the free-texts offer on first Pro when per-campaign pricing is on', async () => {
+    setPerCampaignPricing(true)
+    const { campaign } = await seedCampaign()
+
+    const { becamePro } = await service.app
+      .get(CampaignsService)
+      .setIsPro(campaign.id, true, false)
+
+    expect(becamePro).toBe(true)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.isPro).toBe(true)
+    expect(row.hasFreeTextsOffer).toBe(false)
   })
 })
 

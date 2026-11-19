@@ -1,3 +1,5 @@
+import type { PlanPitch } from '../plan/planPitch'
+
 export const MEMBERSHIP_COPY = {
   banner: {
     free: {
@@ -55,3 +57,24 @@ export const MEMBERSHIP_COPY = {
     ],
   },
 } as const
+
+// Flag on (win_per_campaign_pricing): the pitched plan and its price come from
+// PLAN_PRICING through the PlanPitch, never literals.
+export const membershipPlanCopy = (
+  pitch: PlanPitch,
+): {
+  bannerFree: { body: string; cta: string }
+  chipJoinTail: string
+  pitchTitle: string
+  pitchPill: string
+  pitchJoin: string
+} => ({
+  bannerFree: {
+    body: `Unlock voter data and outreach with ${pitch.name} for ${pitch.price}.`,
+    cta: MEMBERSHIP_COPY.banner.free.cta,
+  },
+  chipJoinTail: `for ${pitch.price}`,
+  pitchTitle: `Join ${pitch.name} to unlock voter data and outreach`,
+  pitchPill: `${pitch.price} for your campaign, with ${pitch.credit} in outreach credit`,
+  pitchJoin: `Join ${pitch.name}`,
+})

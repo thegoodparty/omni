@@ -200,7 +200,13 @@ describe('PaymentEventsService', () => {
       expect(analytics.track).toHaveBeenCalledExactlyOnceWith(
         mockUser.id,
         EVENTS.Account.ProUpgradeComplete,
-        { pro: true },
+        {
+          pro: true,
+          plan: 'pro',
+          pricingModel: 'subscription',
+          paymentMethod: 'card',
+          upgradeFrom: 'free',
+        },
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
     })
@@ -306,7 +312,13 @@ describe('PaymentEventsService', () => {
       expect(analytics.track).toHaveBeenCalledWith(
         mockUser.id,
         EVENTS.Account.ProUpgradeComplete,
-        { pro: true },
+        {
+          pro: true,
+          plan: 'pro',
+          pricingModel: 'subscription',
+          paymentMethod: 'card',
+          upgradeFrom: 'free',
+        },
       )
     })
 

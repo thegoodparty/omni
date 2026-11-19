@@ -77,9 +77,10 @@ Where Pro state lives (all of it — there is no subscription table):
   fire once from whichever arm wins. `customer.subscription.deleted` writes
   `plan = free` and stamps `planEndedAt`. A campaign holding a live one-time
   plan (`holdsOneTimePlan`, `src/campaigns/plans/planState.util.ts`) keeps it
-  through both: the arms decide under `setIsPro`'s row lock (its `data` may be
-  a function of the locked plan state) and a deleted stray subscription leaves
-  its Pro alone. The one-time plan purchase
+  through both, decided under `setIsPro`'s row lock: its `data` may be a
+  function of the locked plan state, and returning `null` from it leaves the
+  row's Pro state as it is, which is how a deleted stray subscription keeps
+  the plan's Pro. The one-time plan purchase
   (`PurchaseType.PLAN`, `src/campaigns/plans/`) calls the same `onBecamePro`.
 - `user.metaData.customerId` — Stripe customer id (backfilled on boot, or
   on first Manage Subscription click via

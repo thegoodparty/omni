@@ -101,6 +101,19 @@ vi.mock(
   },
 )
 
+const credit = vi.hoisted(() => ({ enabled: false, cents: 0 }))
+
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: credit.enabled,
+  }),
+}))
+
+vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
+  usePlan: () => ({ creditCents: credit.cents }),
+}))
+
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ hasFreeTextsOffer: checkout.hasFreeTextsOffer }],
 }))
@@ -136,6 +149,8 @@ beforeEach(() => {
   checkout.amount = 1197.42
   checkout.isHold = false
   checkout.hasFreeTextsOffer = false
+  credit.enabled = false
+  credit.cents = 0
 })
 
 describe('SmsReviewStep totals', () => {
@@ -399,5 +414,99 @@ describe('SmsReviewStep message preview', () => {
     expect(
       screen.queryByRole('region', { name: 'Message preview' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+// 2,400 texts at $0.035 is $84.00.
+describe('SmsReviewStep outreach credit', () => {
+  beforeEach(() => {
+    credit.enabled = true
+  })
+
+  it('covers the whole send and says what is left', async () => {
+    credit.cents = 17500
+    checkout.amount = 0
+
+    renderStep({ contactCount: 2400 })
+
+    expect(
+      await screen.findByRole('button', { name: 'Schedule campaign' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('$84.00')).toBeInTheDocument()
+    expect(
+      screen.getByText('From your $175.00 outreach credit'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('\u2212$84.00')).toBeInTheDocument()
+    expect(screen.getByText('$0.00')).toBeInTheDocument()
+    expect(
+      screen.getByText('$91.00 outreach credit left after it sends.'),
+    ).toBeInTheDocument()
+  })
+
+  it('charges the card for what the credit does not cover', async () => {
+    credit.cents = 4200
+    checkout.amount = 42
+
+    renderStep({ contactCount: 2400 })
+
+    expect(await screen.findByText('$42.00 due today')).toBeInTheDocument()
+    expect(screen.getByText('\u2212$42.00')).toBeInTheDocument()
+    expect(screen.queryByText(/credit left after/)).not.toBeInTheDocument()
+  })
+
+  it('takes the whole balance off a send that is bigger than it', async () => {
+    credit.cents = 17500
+    checkout.amount = 175
+
+    renderStep({ contactCount: 10000 })
+
+    expect(await screen.findByText('$175.00 due today')).toBeInTheDocument()
+    expect(screen.getByText('$350.00')).toBeInTheDocument()
+    expect(screen.getByText('\u2212$175.00')).toBeInTheDocument()
+  })
+
+  it('keeps the bank hold note for the full amount on a hold', async () => {
+    credit.cents = 4200
+    checkout.amount = 84
+    checkout.isHold = true
+
+    renderStep({ contactCount: 2400 })
+
+    expect(await screen.findByText('$42.00 due today')).toBeInTheDocument()
+    expect(
+      screen.getByText('Your bank may show a temporary hold of $84.00.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no credit rows when the balance is empty', async () => {
+    checkout.amount = 84
+
+    renderStep({ contactCount: 2400 })
+
+    expect(await screen.findByText('$84.00 due today')).toBeInTheDocument()
+    expect(screen.getByText('Cost')).toBeInTheDocument()
+    expect(screen.queryByText(/outreach credit/)).not.toBeInTheDocument()
+  })
+
+  it('leaves the free-texts campaign on its own rows', async () => {
+    credit.cents = 17500
+    checkout.hasFreeTextsOffer = true
+    checkout.amount = 1022.42
+
+    renderStep()
+
+    expect(await screen.findByText('$1022.42 due today')).toBeInTheDocument()
+    expect(screen.queryByText(/From your/)).not.toBeInTheDocument()
+  })
+
+  it('shows no credit rows with the flag off', async () => {
+    credit.enabled = false
+    credit.cents = 17500
+    checkout.amount = 84
+
+    renderStep({ contactCount: 2400 })
+
+    expect(await screen.findByText('$84.00 due today')).toBeInTheDocument()
+    expect(screen.queryByText(/From your/)).not.toBeInTheDocument()
   })
 })

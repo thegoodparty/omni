@@ -3,6 +3,7 @@ import { ContactsModule } from '@/contacts/contacts.module'
 import { ContactUploadStuckModule } from '@/contactUploads/contactUploadStuck.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { VotersModule } from '@/voters/voters.module'
+import { OutreachCreditsModule } from '@/outreachCredits/outreachCredits.module'
 import { PaymentHoldsModule } from '@/paymentHolds/paymentHolds.module'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { OutreachType } from '../generated/prisma'
@@ -48,6 +49,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OrganizationsModule,
     OutreachModule,
     AwsModule,
+    OutreachCreditsModule,
     PaymentHoldsModule,
     SlackModule,
     // Contacts and Voters reach Campaigns and on to Outreach, which this

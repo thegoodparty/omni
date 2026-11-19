@@ -260,6 +260,9 @@ export const OutreachDetailSchema = z.object({
   campaignPlanDueDate: z.string().nullable(),
   organizationSlug: z.string().nullable(),
   archivedAt: zCoerceDate().nullable(),
+  // Cents of the campaign's outreach credit held against this send. Optional
+  // so rows and fixtures that predate the column still parse.
+  creditReservedCents: z.number().int().optional(),
   social: OutreachSocialDetailSchema.optional(),
   phoneBanking: PhoneBankingOutreachDetailSchema.optional(),
   // Present only on a nativeDoorKnocking row whose turf still resolves — a
