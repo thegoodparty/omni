@@ -198,6 +198,38 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
     expect(opponentCollection).toHaveBeenCalledExactlyOnceWith(campaign.id)
   })
 
+  it('keeps a one-time Team plan the campaign already holds', async () => {
+    const seeded = await seedCampaign()
+    const campaign = await service.prisma.campaign.update({
+      where: { id: seeded.id },
+      data: {
+        isPro: true,
+        plan: CampaignPlanLevel.team,
+        planPricingModel: PlanPricingModel.one_time,
+      },
+    })
+
+    const res = await deliverStripeEvent(
+      subscriptionCreatedEvent({
+        subscriptionId: 'sub_over_team',
+        customerId: 'cus_over_team',
+        status: 'active',
+        metadata: {
+          userId: String(service.user.id),
+          campaignId: String(campaign.id),
+        },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: true,
+      plan: CampaignPlanLevel.team,
+      planPricingModel: PlanPricingModel.one_time,
+      planEndedAt: null,
+    })
+  })
+
   it('flips Pro for a trialing subscription', async () => {
     const campaign = await seedCampaign()
 

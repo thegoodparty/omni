@@ -1,3 +1,4 @@
+import { holdsOneTimePlan } from '@/campaigns/plans/planState.util'
 import {
   BadGatewayException,
   BadRequestException,
@@ -292,11 +293,9 @@ export class PaymentEventsService {
       return
     }
 
-    const { becamePro } = await this.campaignsService.setIsPro(
+    const { becamePro } = await this.setProFromSubscription(
       campaignId,
-      true,
-      true,
-      SUBSCRIPTION_PLAN_COLUMNS,
+      subscriptionId,
     )
     if (becamePro) {
       this.logger.info(
@@ -724,11 +723,9 @@ export class PaymentEventsService {
     await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId: incomingSubscriptionId,
     })
-    const { becamePro } = await this.campaignsService.setIsPro(
+    const { becamePro } = await this.setProFromSubscription(
       campaignId,
-      true,
-      true,
-      SUBSCRIPTION_PLAN_COLUMNS,
+      incomingSubscriptionId,
     )
 
     if (becamePro) {
@@ -780,6 +777,32 @@ export class PaymentEventsService {
   // becamePro, so whichever arm wins the race fires it once. Every step is
   // best-effort: a failure here must never fail a payment that already
   // committed.
+  // A campaign that already holds a one-time plan keeps it: the subscription
+  // is the later purchase, and overwriting would demote a paid Team plan.
+  private async setProFromSubscription(
+    campaignId: number,
+    subscriptionId: string,
+  ) {
+    let keptPlan: CampaignPlanLevel | undefined
+    const result = await this.campaignsService.setIsPro(
+      campaignId,
+      true,
+      true,
+      (locked) => {
+        if (!holdsOneTimePlan(locked)) return SUBSCRIPTION_PLAN_COLUMNS
+        keptPlan = locked.plan
+        return {}
+      },
+    )
+    if (keptPlan) {
+      this.logger.warn(
+        { campaignId, subscriptionId, plan: keptPlan },
+        '[WEBHOOK] Subscription on a campaign holding a one-time plan; kept the plan',
+      )
+    }
+    return result
+  }
+
   async onBecamePro(campaign: Campaign, user: User) {
     const { id: campaignId } = campaign
     await this.dispatchOpponentCollectionOnProUpgrade(campaignId)

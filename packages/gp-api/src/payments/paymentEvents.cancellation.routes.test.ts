@@ -251,6 +251,39 @@ describe('POST /v1/payments/events — customer.subscription.deleted', () => {
   // payments stopped. The handler is reason-agnostic today and this test's job
   // is to keep it that way — a de-Pro conditioned on the customer having
   // *asked* would hand free Pro to everyone whose card simply failed.
+  it('keeps Pro on a campaign that holds a one-time plan', async () => {
+    const seeded = await seedProCampaign('sub_beside_team')
+    const campaign = await service.prisma.campaign.update({
+      where: { id: seeded.id },
+      data: {
+        plan: CampaignPlanLevel.team,
+        planPricingModel: PlanPricingModel.one_time,
+      },
+    })
+    spyOnSlack()
+
+    const res = await deliverStripeEvent(
+      subscriptionEvent({
+        type: WebhookEventType.CustomerSubscriptionDeleted,
+        subscriptionId: 'sub_beside_team',
+        customerId: 'cus_beside_team',
+        status: 'canceled',
+        cancellationReason: 'cancellation_requested',
+        canceledAt: nowInSeconds(),
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const updated = await readCampaign(campaign.id)
+    expect(updated).toMatchObject({
+      isPro: true,
+      plan: CampaignPlanLevel.team,
+      planPricingModel: PlanPricingModel.one_time,
+      planEndedAt: null,
+    })
+    expect(updated.details.subscriptionId).toBeNull()
+  })
+
   it('un-Pros a campaign whose subscription was cancelled by dunning exhaustion', async () => {
     const campaign = await seedProCampaign(DUNNING_EXHAUSTED_SUB)
     const slackMessage = spyOnSlack()

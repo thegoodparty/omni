@@ -4,12 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import {
-  Campaign,
-  CampaignPlanLevel,
-  PlanPricingModel,
-  User,
-} from '../../generated/prisma'
+import { Campaign, User } from '../../generated/prisma'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
@@ -69,15 +64,7 @@ describe('PaymentEventsService', () => {
   }
   const moduleRef = { get: vi.fn() }
 
-  const subscriptionProArgs = [
-    true,
-    true,
-    {
-      plan: CampaignPlanLevel.pro,
-      planPricingModel: PlanPricingModel.subscription,
-      planEndedAt: null,
-    },
-  ]
+  const subscriptionProArgs = [true, true, expect.any(Function)]
 
   const nowSeconds = () => Math.floor(Date.now() / 1000)
 

@@ -1,4 +1,8 @@
 import {
+  CampaignPlanState,
+  holdsOneTimePlan,
+} from '@/campaigns/plans/planState.util'
+import {
   CampaignLaunchStatus,
   CampaignStatus,
   type Eligibility,
@@ -62,6 +66,11 @@ enum CandidateVerification {
   yes = 'YES',
   no = 'NO',
 }
+
+type SetIsProData = Omit<
+  Prisma.CampaignUpdateInput,
+  'isPro' | 'hasFreeTextsOffer'
+>
 
 @Injectable()
 export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
@@ -888,10 +897,18 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       },
       false,
     )
-    await this.setIsPro(campaign.id, false, false, {
-      plan: CampaignPlanLevel.free,
-      planEndedAt: new Date(),
+    // A one-time plan outlives a stray subscription on the same campaign, so
+    // the subscription ending must not take the plan's Pro with it.
+    const current = await this.model.findUniqueOrThrow({
+      where: { id: campaign.id },
+      select: { plan: true, planPricingModel: true, planEndedAt: true },
     })
+    if (!holdsOneTimePlan(current)) {
+      await this.setIsPro(campaign.id, false, false, {
+        plan: CampaignPlanLevel.free,
+        planEndedAt: new Date(),
+      })
+    }
     await this.crm.trackCampaign(campaign.id)
   }
 
@@ -909,7 +926,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     campaignId: number,
     isPro: boolean = true,
     trackCampaign: boolean = true,
-    data: Omit<Prisma.CampaignUpdateInput, 'isPro' | 'hasFreeTextsOffer'> = {},
+    data: SetIsProData | ((locked: CampaignPlanState) => SetIsProData) = {},
   ): Promise<{ becamePro: boolean; campaign: Campaign }> {
     // The transition detection (read prior isPro) and the write must serialize:
     // Stripe delivers webhooks at-least-once, so two concurrent deliveries for
@@ -940,23 +957,26 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     const { campaign, isBecomingProFirstTime } = await this.client.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT id FROM campaign WHERE id = ${campaignId} FOR UPDATE`
-        const existingCampaign = await tx.campaign.findUnique({
+        const existingCampaign = await tx.campaign.findUniqueOrThrow({
           where: { id: campaignId },
           select: {
             isPro: true,
             hasFreeTextsOffer: true,
             freeTextsOfferRedeemedAt: true,
+            plan: true,
+            planPricingModel: true,
+            planEndedAt: true,
           },
         })
 
-        const isBecomingProFirstTime = !existingCampaign?.isPro && isPro
+        const isBecomingProFirstTime = !existingCampaign.isPro && isPro
         const shouldGrantOffer =
-          isBecomingProFirstTime && !existingCampaign?.freeTextsOfferRedeemedAt
+          isBecomingProFirstTime && !existingCampaign.freeTextsOfferRedeemedAt
 
         const campaign = await tx.campaign.update({
           where: { id: campaignId },
           data: {
-            ...data,
+            ...(typeof data === 'function' ? data(existingCampaign) : data),
             isPro,
             ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
           },
