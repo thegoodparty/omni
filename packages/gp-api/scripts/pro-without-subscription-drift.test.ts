@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildPlanReport,
   buildReport,
+  classifyPlanRow,
   classifyRow,
+  mapPlanRow,
+  mapReservationRow,
   mapRow,
+  PLAN_SQL,
   ProDriftClass,
+  RESERVATION_SQL,
   toEpochMs,
   type CampaignProRow,
+  type PlanRow,
 } from './pro-without-subscription-drift'
+import { useTestService } from '../src/test-service'
 
 // The fixtures below carry the real prod ids and timestamps of the incident
 // this report was written for, so the suite reads as the worked example.
@@ -341,5 +349,150 @@ describe('mapRow', () => {
 
     expect(mapped.subscriptionCanceledAt).toBeNull()
     expect(classifyRow(mapped)).toBeNull()
+  })
+})
+
+describe('plan drift classification', () => {
+  const plan = (overrides: Partial<PlanRow> = {}): PlanRow => ({
+    campaignId: 1,
+    slug: 'a',
+    userId: 2,
+    email: 'a@example.com',
+    isPro: false,
+    plan: 'free',
+    ...overrides,
+  })
+
+  it('flags isPro on the free plan', () => {
+    expect(classifyPlanRow(plan({ isPro: true }))?.driftClass).toBe(
+      ProDriftClass.ProOnFreePlan,
+    )
+  })
+
+  it('flags a paid plan that is not Pro', () => {
+    expect(classifyPlanRow(plan({ plan: 'team' }))?.driftClass).toBe(
+      ProDriftClass.PaidPlanNotPro,
+    )
+  })
+
+  it('stays silent when plan and isPro agree', () => {
+    expect(classifyPlanRow(plan())).toBeNull()
+    expect(classifyPlanRow(plan({ isPro: true, plan: 'pro' }))).toBeNull()
+  })
+
+  it('sorts plan and reservation findings after the subscription classes', () => {
+    const findings = buildPlanReport(
+      [
+        plan({ campaignId: 9, plan: 'pro' }),
+        plan({ campaignId: 5, isPro: true }),
+      ],
+      [
+        mapReservationRow({
+          outreach_id: 3,
+          campaign_id: 1,
+          slug: null,
+          user_id: null,
+          email: null,
+          credit_reserved_cents: 500,
+          sent_at: new Date('2026-11-01T00:00:00Z'),
+        }),
+      ],
+    )
+
+    expect(findings.map((f) => f.driftClass)).toEqual([
+      ProDriftClass.ProOnFreePlan,
+      ProDriftClass.PaidPlanNotPro,
+      ProDriftClass.UnsettledCreditReservation,
+    ])
+    expect(findings[2]?.outreachId).toBe(3)
+  })
+})
+
+describe('plan drift SQL against the database', () => {
+  const service = useTestService()
+  const unique = () => Math.random().toString(36).slice(2, 10)
+
+  const insertCampaign = async (data: {
+    isPro: boolean
+    plan: 'free' | 'pro' | 'team'
+    planEndedAt?: Date
+  }): Promise<{ id: number; slug: string }> => {
+    const user = await service.prisma.user.create({
+      data: {
+        email: `owner-${unique()}@example.com`,
+        firstName: 'Test',
+        lastName: 'Owner',
+      },
+    })
+    const slug = `drift-${unique()}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: user.id },
+    })
+    const campaign = await service.prisma.campaign.create({
+      data: { slug, organizationSlug: slug, userId: user.id, ...data },
+    })
+    return { id: campaign.id, slug }
+  }
+
+  const planFindingIds = async () => {
+    const rows =
+      await service.prisma.$queryRawUnsafe<Record<string, unknown>[]>(PLAN_SQL)
+    return rows.map((r) => classifyPlanRow(mapPlanRow(r)))
+  }
+
+  it('reports both plan disagreements and skips an ended paid plan', async () => {
+    const proOnFree = await insertCampaign({ isPro: true, plan: 'free' })
+    const paidNotPro = await insertCampaign({ isPro: false, plan: 'pro' })
+    const ended = await insertCampaign({
+      isPro: false,
+      plan: 'pro',
+      planEndedAt: new Date('2026-10-01T00:00:00Z'),
+    })
+    const consistent = await insertCampaign({ isPro: true, plan: 'pro' })
+
+    const found = new Map(
+      (await planFindingIds()).map((f) => [f?.campaignId, f?.driftClass]),
+    )
+
+    expect(found.get(proOnFree.id)).toBe(ProDriftClass.ProOnFreePlan)
+    expect(found.get(paidNotPro.id)).toBe(ProDriftClass.PaidPlanNotPro)
+    expect(found.has(ended.id)).toBe(false)
+    expect(found.has(consistent.id)).toBe(false)
+  })
+
+  it('reports an unsettled reservation only after the 7 day window', async () => {
+    const campaign = await insertCampaign({ isPro: true, plan: 'pro' })
+    const send = (date: Date, over: Record<string, unknown> = {}) =>
+      service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: campaign.slug,
+          outreachType: 'p2p',
+          status: 'completed',
+          creditReservedCents: 500,
+          date,
+          ...over,
+        },
+      })
+    const day = 24 * 60 * 60 * 1000
+    const old = await send(new Date(Date.now() - 8 * day))
+    const recent = await send(new Date(Date.now() - 6 * day))
+    const settled = await send(new Date(Date.now() - 8 * day), {
+      creditSettledAt: new Date(),
+    })
+    const unreserved = await send(new Date(Date.now() - 8 * day), {
+      creditReservedCents: 0,
+    })
+
+    const rows =
+      await service.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+        RESERVATION_SQL,
+      )
+    const ids = rows.map((r) => mapReservationRow(r).outreachId)
+
+    expect(ids).toContain(old.id)
+    expect(ids).not.toContain(recent.id)
+    expect(ids).not.toContain(settled.id)
+    expect(ids).not.toContain(unreserved.id)
   })
 })
