@@ -1516,6 +1516,44 @@ observation.
 `inProcessChatRuntime` is each of those statements moved, unchanged, from
 where it sat. `httpChatRuntime` is the new one.
 
+### Only an HTTP arm walks chat cases concurrently
+
+`walkCases` runs an HTTP arm's chat cases up to `config.chat.maxInFlight`
+(8) at once, and an in-process arm's one at a time. The difference is the
+runtime, not a preference.
+
+An in-process chat case installs **process-global** patches for its own
+duration: `beginCase` claims `LlmService.streamChatCompletion` and
+`DatabricksSqlProvider.prototype.query`, and `restore()` runs in the
+runner's `finally`. Each install allocates the `TurnCapture` and the query
+list that ARE that case's instrumentation — the prompt digest, the model,
+and the token counts all live on it — and `chatSeam`'s `claim` refuses a
+second overlapping install outright. So two in-process cases at once would
+file one run's digest, tokens and tool SQL against the other's record, or
+fail on the refusal. `toolQueries` is worse than shared: the provider patch
+is on the prototype and `query(sql)` carries no conversation id, so there
+is no key to attribute a query by.
+
+An HTTP arm installs nothing. Every observation is read back per
+conversation from `GET /v1/judge/conversations/:id/turns`, so its cases are
+independent and the bound is the target's capacity rather than this
+process's. That is why `chat.maxInFlight` exists at all, and why raising it
+is a question about one deployed gp-api.
+
+A failed case does not abandon the others: the walk settles every dispatched
+case before it throws, and reports the **first failure in request order**,
+so the skip reason does not depend on which case happened to fail first.
+Records are keyed per case and attempt, so completion order cannot change
+what lands in the store.
+
+**Chat agents themselves still walk one after another**, which is what makes
+`chat.maxInFlight` a bound per ARM rather than per agent. Two agents walked
+at once would each open eight cases and put sixteen turns on the target,
+which is not what the number says. `refuseChat`'s wall-clock spend-down also
+still prices a list as though its turns were serial, so it stays a
+conservative upper bound — it can refuse an agent that would have fitted,
+which costs a sweep, and never admits one that would overrun.
+
 ### What an HTTP arm cannot do
 
 `assertCanDrive` refuses each of these **by name and before anything is

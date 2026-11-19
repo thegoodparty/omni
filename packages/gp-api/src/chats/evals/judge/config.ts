@@ -203,6 +203,28 @@ export interface ShapeBudget {
   maxInFlight: number
 }
 
+// CHAT'S OWN BUDGET. One number rather than a ShapeBudget, because chat's
+// attempts are already the top-level `attemptsPerCase` — a second spelling of
+// them here would be a value the arm could walk a different count of than the
+// one it records in the manifest.
+//
+// ONLY AN HTTP ARM USES IT, and that is a fact about the runner rather than a
+// preference. An in-process chat case installs process-global patches for the
+// duration of the case (runners/chatSeam.ts `claim`), so two overlapping cases
+// would file one run's prompt digest, tokens and tool SQL against the other's
+// record — and the install refuses to happen twice at all. That seam is being
+// replaced by a base-URL eval contract, so the serial walk stays until it is.
+// An HTTP arm patches nothing: every observation is read back per conversation
+// from the telemetry route, so its cases are independent.
+export interface ChatBudget {
+  // How many chat cases one arm may have in flight at once. Bounded by what
+  // the target will take rather than by this process: an HTTP arm's turns are
+  // real requests against one deployed gp-api, and eight is enough to keep a
+  // list of turns from running one after another while staying well inside a
+  // preview's capacity. In-process arms ignore it and walk one at a time.
+  maxInFlight: number
+}
+
 // THE MOST ATTEMPTS A BACKGROUND CASE LIST MAY ASK FOR in its header. A list
 // sets its own because the agents differ by an order of magnitude in what a
 // run costs: three attempts of opportunities_and_challenges is about $10, of
@@ -228,6 +250,9 @@ export interface JudgeConfig {
   // Five costs two more runs an arm per agent, and fills an arm's twelve
   // in-flight slots with two agents rather than four.
   background: ShapeBudget
+  // How many of the CHAT cases above may run at once. See ChatBudget for why
+  // only an HTTP arm is allowed more than one.
+  chat: ChatBudget
   // The dimension set the judge is asked for and scoring aggregates.
   //
   // v1 judges FINAL OUTPUTS ONLY — the trace is recorded but stays out of
@@ -247,6 +272,7 @@ export interface JudgeConfig {
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
   attemptsPerCase: 3,
   background: { attemptsPerCase: 1, maxCases: 5, maxInFlight: 12 },
+  chat: { maxInFlight: 8 },
   dimensions: ['task_success', 'instruction_adherence', 'user_utility'],
   panel: {
     seats: ['claude-sonnet-4-6'],

@@ -524,7 +524,9 @@ export const seedChatOrgRows = async (
 // route would resolve case two to case one's briefing, and since a top-level
 // chat is find-or-create per briefing, case two would CONTINUE case one's
 // conversation. So the previous cases' judge briefings on this date are
-// removed first. Chat cases walk one at a time (sweepArm.walkCases), every
+// removed first. Briefing cases walk one at a time: an HTTP arm refuses
+// briefing_annotation outright (no telemetry row carries a sweep id for it),
+// so every briefing case runs in process, where walkCases is serial. Every
 // earlier record is already written, and nothing reads those rows again.
 //
 // SCOPED TO THIS SWEEP, not to every judge organization. Within one sweep

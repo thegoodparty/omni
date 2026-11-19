@@ -18,7 +18,13 @@ import {
   type ArmCaseRequest,
   type CaptureArmDeps,
 } from './sweepArm'
-import { parseArmEnv, type ArmEnv } from './sweepEnv'
+import {
+  ARM_RUNTIME_ENV,
+  TARGET_BASE_URL_ENV,
+  parseArmEnv,
+  type ArmEnv,
+} from './sweepEnv'
+import { SPEND_ENV, SPEND_VALUE } from './config'
 
 // The arm walker against a fake runner and a local store. No Postgres, no
 // model, no S3 — which is the point of the injected seam: everything that can
@@ -58,6 +64,27 @@ const env = (over: Partial<ArmEnv> = {}): ArmEnv => ({
     JUDGE_CANDIDATE_SHA: SHA,
     JUDGE_ARM_COMMIT: SHA,
     JUDGE_RECORDS_DIR: '/unused',
+  }),
+  ...over,
+})
+
+// An HTTP arm patches nothing — every observation is read back per
+// conversation from the telemetry route — so its chat cases are independent.
+// It also always spends, so the spend switch travels with it; parseArmEnv
+// refuses the pair otherwise.
+const httpEnv = (over: Partial<ArmEnv> = {}): ArmEnv => ({
+  ...parseArmEnv({
+    JUDGE_ARM: 'candidate',
+    JUDGE_SWEEP_ID: 'swp_1',
+    JUDGE_AGENTS: 'chief_of_staff',
+    JUDGE_BASE_REF: 'universal-judge',
+    JUDGE_CANDIDATE_SHA: SHA,
+    JUDGE_ARM_COMMIT: SHA,
+    JUDGE_RECORDS_DIR: '/unused',
+    [ARM_RUNTIME_ENV]: 'http',
+    [TARGET_BASE_URL_ENV]: 'https://pr-1.dev.goodparty.org',
+    // An HTTP arm always spends; parseArmEnv refuses the pair otherwise.
+    [SPEND_ENV]: SPEND_VALUE,
   }),
   ...over,
 })
@@ -738,9 +765,11 @@ describe('captureArm, walking background agents', () => {
     expect(manifest.agents.map((a) => a.recordsWritten)).toEqual([3, 3])
   })
 
-  // A chat case runs inside this process against one test database, and a
-  // seeded transcript belongs to one case, so chat stays one at a time.
-  it('still walks chat cases one at a time', async () => {
+  // A chat case runs inside this process against one test database, so chat
+  // stays one at a time here: the runner installs process-global patches for
+  // the length of each case, and two overlapping installs would corrupt both
+  // records (see sweepArm's walkCases).
+  it('still walks in-process chat cases one at a time', async () => {
     const { runCase, most } = counting()
     await captureArm(
       await deps({ config: oneAttempt, runCase, loadCases: () => caseList(3) }),
@@ -748,6 +777,172 @@ describe('captureArm, walking background agents', () => {
       [COS],
     )
     expect(most.chat).toBe(1)
+  })
+
+  // AN HTTP ARM PATCHES NOTHING — every observation comes back per
+  // conversation from the telemetry route — so its cases are independent and
+  // run up to `chat.maxInFlight` at a time.
+  it('runs an http arm\'s chat cases up to the configured limit', async () => {
+    const { runCase, most } = counting()
+    const manifest = await captureArm(
+      await deps({
+        config: {
+          ...oneAttempt,
+          chat: { maxInFlight: 3 },
+        },
+        runCase,
+        loadCases: () => caseList(5),
+      }),
+      httpEnv({ agentIds: ['chief_of_staff'] }),
+      [COS],
+    )
+    // Five cases, three slots: never more than three out at once, and more
+    // than one so the bound is what limits it rather than the walk order.
+    expect(most.chat).toBe(3)
+    expect(manifest.agents[0]?.recordsWritten).toBe(5)
+  })
+
+  it("defaults an http arm to the config's chat limit", async () => {
+    const { runCase, most } = counting()
+    await captureArm(
+      await deps({ config: oneAttempt, runCase, loadCases: () => caseList(12) }),
+      httpEnv({ agentIds: ['chief_of_staff'] }),
+      [COS],
+    )
+    expect(most.chat).toBe(DEFAULT_JUDGE_CONFIG.chat.maxInFlight)
+  })
+
+  // ONE FAILED CASE DOES NOT ABANDON THE REST, for the reason the background
+  // wave settles everything: the other cases are already in flight and their
+  // records are still worth writing.
+  it("waits out an http arm's other chat cases when one fails", async () => {
+    let finished = 0
+    const d = await deps({
+      config: { ...oneAttempt, chat: { maxInFlight: 3 } },
+      loadCases: () => caseList(4),
+      runCase: async (request) => {
+        if (request.case.caseId === 'case-0') throw new Error('the seed collided')
+        await tick()
+        finished += 1
+        return echoRunner()(request)
+      },
+    })
+    const manifest = await captureArm(
+      d,
+      httpEnv({ agentIds: ['chief_of_staff'] }),
+      [COS],
+    )
+    expect(finished).toBe(3)
+    expect(manifest.skipped[0]?.reason).toContain('the seed collided')
+    expect(await d.store.listRecords('swp_1', 'candidate')).toHaveLength(3)
+  })
+
+  // WHICH FAILURE IS REPORTED MUST NOT DEPEND ON WHICH CASE WAS QUICKEST TO
+  // FAIL. The first failure in REQUEST order is the one that reaches the skip,
+  // so the manifest is the same whatever the interleaving was.
+  it('reports the first failing case in request order', async () => {
+    const d = await deps({
+      config: { ...oneAttempt, chat: { maxInFlight: 4 } },
+      loadCases: () => caseList(3),
+      runCase: async (request) => {
+        // case-0 fails slowest, case-2 fastest: a completion-ordered report
+        // would name case-2.
+        const delay =
+          request.case.caseId === 'case-0'
+            ? 30
+            : request.case.caseId === 'case-1'
+              ? 15
+              : 0
+        await new Promise((resolve) => setTimeout(resolve, delay))
+        throw new Error(`failed ${request.case.caseId}`)
+      },
+    })
+    const manifest = await captureArm(
+      d,
+      httpEnv({ agentIds: ['chief_of_staff'] }),
+      [COS],
+    )
+    expect(manifest.skipped[0]?.reason).toContain('failed case-0')
+  })
+
+  // THE BOUND IS PER ARM, NOT PER AGENT. Chat agents still walk one after
+  // another, so two agents at a limit of two put two cases in flight between
+  // them — four would be twice what the number says, on one target.
+  it("holds the limit across agents, not within each", async () => {
+    const OTHER: AgentEntry = {
+      ...COS,
+      agentId: 'priority_flow',
+      cases: 'priority_flow.json',
+    }
+    const inFlight = { chat: 0 }
+    const most = { chat: 0 }
+    const runCase: CaptureArmDeps['runCase'] = async (request) => {
+      inFlight.chat += 1
+      most.chat = Math.max(most.chat, inFlight.chat)
+      await tick()
+      inFlight.chat -= 1
+      return echoRunner()(request)
+    }
+    await captureArm(
+      await deps({
+        config: { ...oneAttempt, chat: { maxInFlight: 2 } },
+        runCase,
+        loadCases: () => caseList(3),
+      }),
+      httpEnv({ agentIds: ['chief_of_staff', 'priority_flow'] }),
+      [COS, OTHER],
+    )
+    expect(most.chat).toBe(2)
+  })
+
+  // ZERO SLOTS WOULD WALK NOTHING AND REPORT THE AGENT AS CAPTURED, which is
+  // the one failure the manifest cannot show: it counts the cases it was asked
+  // for and would have written none of them.
+  it('refuses a chat limit that would walk nothing', async () => {
+    const d = await deps({
+      config: { ...oneAttempt, chat: { maxInFlight: 0 } },
+      loadCases: () => caseList(2),
+    })
+    const manifest = await captureArm(
+      d,
+      httpEnv({ agentIds: ['chief_of_staff'] }),
+      [COS],
+    )
+    expect(manifest.agents).toEqual([])
+    expect(manifest.skipped[0]?.reason).toContain('config.chat.maxInFlight is 0')
+    expect(await d.store.listRecords('swp_1', 'candidate')).toEqual([])
+  })
+
+  // THE MANIFEST AND THE STORE DO NOT DEPEND ON WHICH CASE FINISHED FIRST.
+  // The records are keyed per case, so completion order cannot change what is
+  // written; this pins that against a future rewrite that started writing a
+  // single accumulated list instead.
+  it('writes the same records whatever order the cases finish in', async () => {
+    const d = await deps({
+      config: { ...oneAttempt, chat: { maxInFlight: 4 } },
+      loadCases: () => caseList(4),
+      runCase: async (request) => {
+        // Reversed delays, so finishing order is the reverse of walk order.
+        const index = Number(request.case.caseId.slice('case-'.length))
+        await new Promise((resolve) => setTimeout(resolve, (3 - index) * 15))
+        return echoRunner()(request)
+      },
+    })
+    const manifest = await captureArm(
+      d,
+      httpEnv({ agentIds: ['chief_of_staff'] }),
+      [COS],
+    )
+    expect(manifest.agents[0]?.recordsWritten).toBe(4)
+    const written = await d.store.listRecords('swp_1', 'candidate')
+    // One record per case and attempt, with nothing missing or doubled.
+    expect(new Set(written.map((r) => r.runId)).size).toBe(4)
+    expect(written.map((r) => r.caseId).sort()).toEqual([
+      'case-0',
+      'case-1',
+      'case-2',
+      'case-3',
+    ])
   })
 
   // THE CHAT AGENTS USE THE WAIT. A background run cannot finish until a chat

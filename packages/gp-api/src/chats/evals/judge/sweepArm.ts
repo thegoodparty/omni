@@ -208,12 +208,13 @@ const captureAgent = async (
   agent: AgentEntry,
   list: CaseList,
   attemptsPerCase: number,
+  config: JudgeConfig,
 ): Promise<ArmAgent> => {
   // A mutable counter rather than a return value, so a walk that throws
   // partway can still report what it left in the store.
   const progress = { recordsWritten: 0 }
   try {
-    await walkCases(deps, env, agent, list, attemptsPerCase, progress)
+    await walkCases(deps, env, agent, list, attemptsPerCase, config, progress)
   } catch (err) {
     if (err instanceof ArmCaptureError) throw err
     throw new PartialAgentCaptureError(
@@ -311,6 +312,58 @@ const requestsFor = (
     })),
   )
 
+// AT MOST `limit` RUNS OUT AT ONCE, and every one of them SETTLED before
+// anything is thrown. Same reason the background wave is: each run has
+// already been dispatched, so a failure early must not abandon the rest while
+// their records are still worth writing.
+//
+// A worker pool rather than a chunked `Promise.all` over slices. Slicing waits
+// for the SLOWEST run of a batch before starting any of the next, so a list of
+// one long case and seven short ones would spend most of its wall clock on
+// seven idle slots — which is the serialization this exists to remove.
+//
+// FAILURES ARE COLLECTED IN REQUEST ORDER, not in the order they rejected, so
+// which reason a caller sees does not depend on which case happened to be
+// quickest to fail.
+//
+// A limit of zero or less is refused rather than obeyed: zero workers would
+// start no case at all and return as though every one had run, which is the
+// one failure a manifest cannot show — it would count the cases it was asked
+// for and write none of them.
+const walkConcurrently = async (
+  requests: readonly ArmCaseRequest[],
+  limit: number,
+  run: (request: ArmCaseRequest) => Promise<void>,
+): Promise<void> => {
+  if (limit < 1) {
+    throw new Error(
+      `config.chat.maxInFlight is ${limit}, which is not a number of cases ` +
+        'that can run: zero would walk none of them and report the agent as ' +
+        'captured',
+    )
+  }
+  const failures: unknown[] = []
+  let next = 0
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = next
+      next += 1
+      const request = requests[index]
+      if (request === undefined) return
+      try {
+        await run(request)
+      } catch (err) {
+        failures[index] = err ?? new Error('a chat case failed with no reason')
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, requests.length) }, worker),
+  )
+  const failed = failures.find((one) => one !== undefined)
+  if (failed !== undefined) throw failed
+}
+
 // THE PROBE armBudget.ts READS ON THE BASE REF, and the promises behind it:
 // this arm starts every run of every admitted background agent at once, and
 // its run ids name the agent (judgeRunId), so two agents sharing a case id
@@ -327,13 +380,33 @@ const walkCases = async (
   agent: AgentEntry,
   list: CaseList,
   attemptsPerCase: number,
+  config: JudgeConfig,
   progress: { recordsWritten: number },
 ): Promise<void> => {
   const requests = requestsFor(env, agent, list, attemptsPerCase)
   if (agent.shape !== 'background') {
-    // One at a time. A chat case runs inside this process against the test
-    // app and its one database, and a seeded transcript is per case.
-    for (const request of requests) await runOne(deps, request, progress)
+    // ONE AT A TIME IN PROCESS, and that is a fact about the runner rather
+    // than a preference. An in-process chat case installs process-global
+    // patches for the length of the case (`beginCase` in chatRuntime.ts), so
+    // two overlapping cases would file one run's prompt digest, tokens, model
+    // and tool SQL against the other's record — and chatSeam's `claim`
+    // refuses to install twice at all. That seam is being replaced by a
+    // base-URL eval contract, so this stays serial until it lands.
+    //
+    // AN HTTP ARM PATCHES NOTHING. Every observation comes back per
+    // conversation from the telemetry route, so its cases are independent and
+    // run `config.chat.maxInFlight` at a time. The bound is the target's, not
+    // this process's: each in-flight case is real requests against one
+    // deployed gp-api.
+    if (env.armRuntime !== 'http') {
+      for (const request of requests) await runOne(deps, request, progress)
+      return
+    }
+    await walkConcurrently(
+      requests,
+      config.chat.maxInFlight,
+      (request) => runOne(deps, request, progress),
+    )
     return
   }
   // EVERY RUN AT ONCE. A background run is a Fargate task this process only
@@ -417,6 +490,7 @@ export const captureArm = async (
         agent,
         list,
         attemptsFor(agent, config, env, list),
+        config,
       )
     })
   for (const agent of selection.selected) {
