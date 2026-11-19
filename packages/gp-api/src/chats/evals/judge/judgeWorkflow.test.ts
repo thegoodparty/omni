@@ -148,8 +148,9 @@ const JOB_NAMES = [
 const jobOf = (yaml: string, name: string): string => {
   const at = yaml.indexOf(`\n  ${name}:\n`)
   if (at < 0) throw new Error(`judge.yml has no job named "${name}"`)
-  const later = JOB_NAMES.map((other) => yaml.indexOf(`\n  ${other}:\n`, at + 1))
-    .filter((index) => index > at)
+  const later = JOB_NAMES.map((other) =>
+    yaml.indexOf(`\n  ${other}:\n`, at + 1),
+  ).filter((index) => index > at)
   return yaml.slice(at, later.length === 0 ? undefined : Math.min(...later))
 }
 
@@ -1012,8 +1013,10 @@ describe('judge.yml assumes the pull-request role', () => {
 // every way it can go wrong here leaves both arms quietly walking their own.
 describe('judge.yml hands both arms one background budget', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
-  const sweepYaml = [jobOf(yaml, 'prepare'), ...ARMS.map((arm) => jobOf(yaml, arm))]
-    .join('\n')
+  const sweepYaml = [
+    jobOf(yaml, 'prepare'),
+    ...ARMS.map((arm) => jobOf(yaml, arm)),
+  ].join('\n')
   const steps = stepsOf(sweepYaml)
   const names = steps.map((step) => step.name)
   const resolver = steps.find((step) =>
@@ -1141,9 +1144,10 @@ describe('judge.yml resolves one set of identifiers for both arms', () => {
   // The resolver lives in `prepare`; the arms are two other jobs. Read across
   // all three, because what is under test is the seam between them.
   const prepareJob = jobOf(yaml, 'prepare')
-  const sweepYaml = [jobOf(yaml, 'base-arm'), jobOf(yaml, 'candidate-arm')].join(
-    '\n',
-  )
+  const sweepYaml = [
+    jobOf(yaml, 'base-arm'),
+    jobOf(yaml, 'candidate-arm'),
+  ].join('\n')
   const steps = [...stepsOf(prepareJob), ...stepsOf(sweepYaml)]
   const names = steps.map((step) => step.name)
   const resolver = steps.find(

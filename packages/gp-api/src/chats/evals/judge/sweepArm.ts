@@ -402,10 +402,8 @@ const walkCases = async (
       for (const request of requests) await runOne(deps, request, progress)
       return
     }
-    await walkConcurrently(
-      requests,
-      config.chat.maxInFlight,
-      (request) => runOne(deps, request, progress),
+    await walkConcurrently(requests, config.chat.maxInFlight, (request) =>
+      runOne(deps, request, progress),
     )
     return
   }

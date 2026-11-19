@@ -782,7 +782,7 @@ describe('captureArm, walking background agents', () => {
   // AN HTTP ARM PATCHES NOTHING — every observation comes back per
   // conversation from the telemetry route — so its cases are independent and
   // run up to `chat.maxInFlight` at a time.
-  it('runs an http arm\'s chat cases up to the configured limit', async () => {
+  it("runs an http arm's chat cases up to the configured limit", async () => {
     const { runCase, most } = counting()
     const manifest = await captureArm(
       await deps({
@@ -805,7 +805,11 @@ describe('captureArm, walking background agents', () => {
   it("defaults an http arm to the config's chat limit", async () => {
     const { runCase, most } = counting()
     await captureArm(
-      await deps({ config: oneAttempt, runCase, loadCases: () => caseList(12) }),
+      await deps({
+        config: oneAttempt,
+        runCase,
+        loadCases: () => caseList(12),
+      }),
       httpEnv({ agentIds: ['chief_of_staff'] }),
       [COS],
     )
@@ -821,7 +825,8 @@ describe('captureArm, walking background agents', () => {
       config: { ...oneAttempt, chat: { maxInFlight: 3 } },
       loadCases: () => caseList(4),
       runCase: async (request) => {
-        if (request.case.caseId === 'case-0') throw new Error('the seed collided')
+        if (request.case.caseId === 'case-0')
+          throw new Error('the seed collided')
         await tick()
         finished += 1
         return echoRunner()(request)
@@ -868,7 +873,7 @@ describe('captureArm, walking background agents', () => {
   // THE BOUND IS PER ARM, NOT PER AGENT. Chat agents still walk one after
   // another, so two agents at a limit of two put two cases in flight between
   // them — four would be twice what the number says, on one target.
-  it("holds the limit across agents, not within each", async () => {
+  it('holds the limit across agents, not within each', async () => {
     const OTHER: AgentEntry = {
       ...COS,
       agentId: 'priority_flow',
@@ -909,7 +914,9 @@ describe('captureArm, walking background agents', () => {
       [COS],
     )
     expect(manifest.agents).toEqual([])
-    expect(manifest.skipped[0]?.reason).toContain('config.chat.maxInFlight is 0')
+    expect(manifest.skipped[0]?.reason).toContain(
+      'config.chat.maxInFlight is 0',
+    )
     expect(await d.store.listRecords('swp_1', 'candidate')).toEqual([])
   })
 

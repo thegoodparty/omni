@@ -96,9 +96,7 @@ describe('what it makes possible, with every run started at once', () => {
   // it were per sweep put eighty runs on a fifty-task cap.
   it('claims less than the dev scheduler in one sweep’s two arms', () => {
     const SHARED_SCHEDULER_TASKS = 50
-    expect(background.maxInFlight * 2).toBeLessThan(
-      SHARED_SCHEDULER_TASKS,
-    )
+    expect(background.maxInFlight * 2).toBeLessThan(SHARED_SCHEDULER_TASKS)
   })
 
   // Every agent fits an arm on its own now. A run waits out at most its
