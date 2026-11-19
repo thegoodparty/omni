@@ -1,6 +1,28 @@
-import { Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common'
+import {
+  AdminExtendPlan,
+  AdminRefundPlanResponse,
+  AdminSetPlan,
+  CampaignPlanState,
+  planEndsAt,
+} from '@goodparty_org/contracts'
+import { differenceInDays } from 'date-fns'
 import { AdminUpdateCampaignSchema } from './schemas/adminUpdateCampaign.schema'
-import { ElectedOfficeWinSource, Prisma } from '../../generated/prisma'
+import {
+  Campaign,
+  CampaignPlanLevel,
+  CampaignPlanPurchaseKind,
+  CampaignPlanPurchaseStatus,
+  ElectedOfficeWinSource,
+  OutreachStatus,
+  PlanPricingModel,
+  Prisma,
+} from '../../generated/prisma'
 import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
@@ -11,6 +33,15 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 
 const DELETE_CAMPAIGN_TX_TIMEOUT_MS = 60_000
+
+const toPlanState = (campaign: Campaign): CampaignPlanState => ({
+  plan: campaign.plan,
+  planPricingModel: campaign.planPricingModel,
+  planPaidAt: campaign.planPaidAt?.toISOString() ?? null,
+  planEndsAt: planEndsAt(campaign)?.toISOString() ?? null,
+  planEndedAt: campaign.planEndedAt?.toISOString() ?? null,
+  outreachCreditCents: campaign.outreachCreditCents,
+})
 
 @Injectable()
 export class AdminCampaignsService {
@@ -27,7 +58,7 @@ export class AdminCampaignsService {
   }
 
   async update(id: number, body: AdminUpdateCampaignSchema) {
-    const { isVerified, isPro, didWin, tier } = body
+    const { isVerified, didWin, tier } = body
     const attributes: Prisma.CampaignUpdateInput = {}
 
     if (typeof isVerified !== 'undefined') {
@@ -41,59 +72,178 @@ export class AdminCampaignsService {
       attributes.tier = tier
     }
 
-    // Admin de-Pro must cancel the live Stripe subscription too (ENG-10660).
-    // Without this, `isPro` flips to false while Stripe keeps billing and
-    // details.subscriptionId stays populated — the exact "charged in Stripe,
-    // invisible in product" state ENG-10657 documented. Cancel Stripe FIRST
-    // so a Stripe failure surfaces a 502 before the DB write and leaves both
-    // sides intact; the resulting customer.subscription.deleted webhook then
-    // runs persistCampaignProCancellation to clear subscriptionId.
-    if (isPro === false) {
-      const existing = await this.campaigns.findUniqueOrThrow({
-        where: { id },
-      })
-      const subscriptionId = existing.details?.subscriptionId
-      if (subscriptionId) {
-        await this.stripe.cancelSubscription(subscriptionId)
-      }
-    }
-
-    // A comped Pro upgrade has to be the same transition as a paid one.
-    // Writing `isPro` straight to the row skipped `setIsPro`, so it never
-    // stamped `details.isProUpdatedAt` (HubSpot's `pro_upgrade_date`), never
-    // granted the free-texts offer (ENG-11344) and never announced in Slack;
-    // the CRM sync then published the campaign as Pro with no upgrade date,
-    // permanently. The other attributes ride the same commit, so there is no
-    // window where the flip has landed and isVerified/didWin/tier have not.
-    // Either branch identifies and syncs the CRM itself.
-    const updatedCampaign =
-      typeof isPro === 'undefined'
-        ? await this.campaigns.update({ where: { id }, data: attributes })
-        : (await this.campaigns.setIsPro(id, isPro, true, attributes)).campaign
+    const updatedCampaign = await this.campaigns.update({
+      where: { id },
+      data: attributes,
+    })
 
     if (typeof didWin !== 'undefined') {
       await this.winOffices.reconcile(id, ElectedOfficeWinSource.staff)
     }
 
-    if (isPro === true) {
-      try {
-        await this.analytics.track(
-          updatedCampaign?.userId,
-          EVENTS.Account.ProSubscriptionConfirmed,
-          {
-            price: 0,
-            paymentMethod: 'admin',
+    return updatedCampaign
+  }
+
+  // A comp is the same transition as a paid plan, so it goes through setIsPro
+  // (the only writer of isPro) and writes the plan columns in the same commit.
+  // A comp leaves no purchase row, which is what keeps it out of the refund
+  // endpoint.
+  async setPlan(id: number, body: AdminSetPlan): Promise<CampaignPlanState> {
+    const { plan, creditCents } = body
+    const paid = plan !== CampaignPlanLevel.free
+    await this.campaigns.findUniqueOrThrow({
+      where: { id },
+      select: { id: true },
+    })
+
+    const { campaign } = await this.campaigns.setIsPro(id, paid, true, {
+      plan,
+      planPricingModel: paid ? PlanPricingModel.one_time : null,
+      planEndedAt: null,
+      ...(creditCents !== undefined && { outreachCreditCents: creditCents }),
+    })
+
+    if (paid) {
+      await this.track(
+        campaign.userId,
+        EVENTS.Account.ProSubscriptionConfirmed,
+        {
+          price: 0,
+          paymentMethod: 'admin',
+        },
+      )
+    }
+    return toPlanState(campaign)
+  }
+
+  async extendPlan(
+    id: number,
+    { endsAt, reason }: AdminExtendPlan,
+  ): Promise<CampaignPlanState> {
+    const existing = await this.campaigns.findUniqueOrThrow({ where: { id } })
+    if (existing.plan === CampaignPlanLevel.free) {
+      throw new BadRequestException({
+        message: 'This campaign has no plan to extend',
+        errorCode: 'NO_PLAN_TO_EXTEND',
+      })
+    }
+
+    const override = endsAt ? new Date(endsAt) : null
+    const reopens =
+      existing.planEndedAt !== null &&
+      override !== null &&
+      override.getTime() > Date.now()
+
+    const campaign = reopens
+      ? (
+          await this.campaigns.setIsPro(id, true, true, {
+            planEndsAtOverride: override,
+            planEndedAt: null,
+          })
+        ).campaign
+      : await this.campaigns.update({
+          where: { id },
+          data: { planEndsAtOverride: override },
+        })
+
+    await this.track(campaign.userId, EVENTS.Account.PaidPlanUpdated, {
+      change: 'extended',
+      reason,
+    })
+    return toPlanState(campaign)
+  }
+
+  // Stripe goes first and is keyed on the purchase, so a retry after any
+  // later failure replays the same refund instead of issuing a second one,
+  // and finishes the writes below. The campaign write rides setIsPro because
+  // it is the only way to write isPro, which means it cannot share a
+  // transaction with the purchase row; the row is marked last for that reason.
+  async refundPlan(id: number): Promise<AdminRefundPlanResponse> {
+    const campaign = await this.campaigns.findUniqueOrThrow({ where: { id } })
+    const purchase = await this.campaigns.client.campaignPlanPurchase.findFirst(
+      {
+        where: { campaignId: id, status: CampaignPlanPurchaseStatus.paid },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      },
+    )
+    if (!purchase) {
+      throw new ConflictException({
+        message: 'This campaign has no paid plan purchase to refund',
+        errorCode: 'NO_REFUNDABLE_PURCHASE',
+      })
+    }
+
+    const outreachSent =
+      (await this.campaigns.client.outreach.count({
+        where: {
+          campaignId: id,
+          createdAt: { gte: purchase.createdAt },
+          status: {
+            in: [OutreachStatus.in_progress, OutreachStatus.completed],
           },
+        },
+      })) > 0
+    const daysSincePurchase = differenceInDays(new Date(), purchase.createdAt)
+
+    let refundedCents = 0
+    if (purchase.stripePaymentIntentId) {
+      try {
+        await this.stripe.refundPaymentIntent(
+          purchase.stripePaymentIntentId,
+          `plan-refund-${purchase.id}`,
         )
       } catch (error) {
         this.logger.error(
-          { error },
-          `[ADMIN] Failed to track admin pro subscription analytics - User: ${updatedCampaign?.userId}, Campaign: ${id}`,
+          { error, campaignId: id, purchaseId: purchase.id },
+          'Failed to refund a plan purchase',
         )
-        // Don't throw - we don't want to fail the admin operation for analytics issues
+        throw new BadGatewayException('Failed to refund the plan payment')
       }
+      refundedCents = purchase.amountCents
     }
-    return updatedCampaign
+
+    const backToPro = purchase.kind === CampaignPlanPurchaseKind.team_upgrade
+    await this.campaigns.setIsPro(id, backToPro, true, {
+      outreachCreditCents: 0,
+      ...(backToPro
+        ? { plan: CampaignPlanLevel.pro }
+        : {
+            plan: CampaignPlanLevel.free,
+            planPricingModel: null,
+            planPaidAt: null,
+          }),
+    })
+    await this.campaigns.client.campaignPlanPurchase.updateMany({
+      where: { id: purchase.id, status: CampaignPlanPurchaseStatus.paid },
+      data: {
+        status: CampaignPlanPurchaseStatus.refunded,
+        refundedAt: new Date(),
+      },
+    })
+
+    await this.track(campaign.userId, EVENTS.Account.PaidPlanUpdated, {
+      change: 'refunded',
+      reason: 'admin_refund',
+    })
+    return {
+      refundedCents,
+      eligibility: { daysSincePurchase, outreachSent },
+    }
+  }
+
+  private async track(
+    userId: number,
+    event: string,
+    properties: Record<string, string | number>,
+  ) {
+    try {
+      await this.analytics.track(userId, event, properties)
+    } catch (error) {
+      this.logger.error(
+        { error, userId, event },
+        '[ADMIN] Failed to track admin plan analytics',
+      )
+    }
   }
 
   // details.subscriptionId is the only link from a live Pro subscription back

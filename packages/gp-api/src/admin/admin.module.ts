@@ -9,6 +9,7 @@ import { ElectedOfficeModule } from 'src/electedOffice/electedOffice.module'
 import { ElectionsModule } from 'src/elections/elections.module'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { AdminCampaignsController } from './campaigns/adminCampaigns.controller'
+import { AdminCampaignPlanController } from './campaigns/adminCampaignPlan.controller'
 import { AdminCampaignMagicLinkController } from './campaigns/adminCampaignMagicLink.controller'
 import { AdminCampaignsService } from './campaigns/adminCampaigns.service'
 import { AdminUsersController } from './users/adminUsers.controller'
@@ -35,6 +36,7 @@ import { AdminBriefingsService } from './briefings/services/adminBriefings.servi
   controllers: [
     AdminCampaignsController,
     AdminCampaignMagicLinkController,
+    AdminCampaignPlanController,
     AdminUsersController,
     AdminElectedOfficeController,
     AdminAgentRunsController,

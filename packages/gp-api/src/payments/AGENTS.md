@@ -372,8 +372,9 @@ portal-cancel → `customer.subscription.deleted` → de-Pro path works; suspect
 before ENG-11454, which took `details.subscriptionId` with it. ENG-11454 was
 both: the sub was bought from another account in the household, whose campaign
 no longer exists, so no campaign anywhere carries the id and only Stripe can
-stop it. The admin `isPro: false` toggle cancels Stripe before it de-Pros
-(ENG-10660), so it is not a suspect. Also: a passed election
+stop it. Staff plan changes (`POST /v1/admin/campaigns/:id/plan`, M2M only) do
+not cancel a subscription, so a campaign set to Free that still carries
+`details.subscriptionId` is billing until someone cancels it in Stripe. Also: a passed election
 with `wonGeneral` null force-redirects every dashboard route but the campaign
 manager home to `/dashboard/election-result`, hiding Profile → Manage
 Subscription;
