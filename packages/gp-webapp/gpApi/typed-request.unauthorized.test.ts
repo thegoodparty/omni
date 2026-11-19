@@ -130,4 +130,15 @@ describe('clientRequest on a 401', () => {
 
     expect(assign).not.toHaveBeenCalled()
   })
+
+  // The path comes from the browser, so this only guards against a future caller
+  // building one: `/login` without a `redirectUrl` is still a working sign-in.
+  it('drops a return path that is not a safe internal one', async () => {
+    const assign = stubLocation('//evil.com/dashboard')
+    api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
+
+    await failedRequest()
+
+    expect(assign).toHaveBeenCalledWith('/login')
+  })
 })
