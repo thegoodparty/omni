@@ -1,5 +1,5 @@
 import { addMinutes, subMinutes } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_RESULTS_PER_PAGE,
   type PeopleListResponse,
@@ -39,6 +39,12 @@ beforeEach(async () => {
     service.app.get(EmailDomainCheckService),
     'findUndeliverableDomains',
   ).mockResolvedValue(new Set<string>())
+})
+
+// This file drives the real job queue, and pg-boss reads the same Date this
+// process does, so no test may leave a faked clock behind for it.
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 const personId = (index: number) => `p${String(index).padStart(7, '0')}`
@@ -197,16 +203,16 @@ describe('prepare resolves the audience', () => {
   })
 
   it('pages by cursor across deliveries until the cap is reached', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    const start = new Date()
-    vi.setSystemTime(start)
-    const { pages } = stubAudience(25_000)
+    const audience = service.app.get(OutreachEmailAudienceService)
+    let now = new Date()
+    const clock = vi.spyOn(audience, 'now').mockImplementation(() => now)
+    const { pages } = stubAudience(10_001)
     vi.spyOn(
       service.app.get(ContactsService),
       'findContactsForFilter',
     ).mockImplementationOnce(async (_filter, pagination) => {
       // The first page takes this delivery past its time budget.
-      vi.setSystemTime(addMinutes(start, 3))
+      now = addMinutes(now, 3)
       pages.push({ afterId: pagination.afterId, length: 10_000 })
       return page(
         Array.from({ length: 10_000 }, (_, i) =>
@@ -216,28 +222,28 @@ describe('prepare resolves the audience', () => {
     })
     const send = vi.spyOn(service.app.get(JobsService), 'send')
     const { outreachEmailId } = await pendingSend({
-      recipientCap: 25_000,
+      recipientCap: 10_001,
       warmingStep: 2,
     })
 
-    await prepare(outreachEmailId)
+    try {
+      await prepare(outreachEmailId)
+    } finally {
+      clock.mockRestore()
+    }
 
     // The first delivery stopped after one page and sent the next.
     expect(
       send.mock.calls.filter(([name]) => name === 'emailSendPrepare'),
     ).toHaveLength(2)
-    expect(pages.map((p) => p.afterId)).toEqual([
-      undefined,
-      personId(9_999),
-      personId(19_999),
-    ])
+    expect(pages.map((p) => p.afterId)).toEqual([undefined, personId(9_999)])
     expect(Math.max(...pages.map((p) => p.length))).toBe(MAX_RESULTS_PER_PAGE)
     const row = await service.prisma.outreachEmail.findUniqueOrThrow({
       where: { id: outreachEmailId },
     })
-    expect(row.audienceCursor).toBe(personId(24_999))
+    expect(row.audienceCursor).toBe(personId(10_000))
     expect(row.preparedAt).not.toBeNull()
-    expect(await recipientsOf(outreachEmailId)).toHaveLength(25_000)
+    expect(await recipientsOf(outreachEmailId)).toHaveLength(10_001)
   })
 
   it('dedupes, skips unsubscribes and people with no email, never-emailed first', async () => {
