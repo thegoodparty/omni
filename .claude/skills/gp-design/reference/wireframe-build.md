@@ -307,6 +307,10 @@ A flow that mirrors an existing screen must measure the same as the real one.
   returns to `entry`. `data-go` to the screen already showing starts it over.
   A component used on several screens takes its `data-go` targets as props,
   so each screen sends it to the right place.
+- A `paths` export: every way through the option from entry, as screen keys
+  (and `{ click }` for a choice made on a screen, `{ wait }` for a screen
+  that opens by itself). `shoot.mjs` walks each one and screenshots every
+  step, so no one clicks the paths by hand.
 - A way back on every step. A person to reach only where the product already
   has one on that screen, copied from its source (an in-page panel, never a
   `mailto:` link). Never add one: "Invent nothing" in `docs/product-design.md`

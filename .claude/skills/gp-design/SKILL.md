@@ -124,16 +124,16 @@ above, not your memory of them:
   direction) in `<work>/notes/coverage.md`, either drawn on a named screen or
   asked under Decisions needed. Nothing drawn beyond the task: extra scope is
   a question under Decisions needed.
-- Step 7: `shoot.mjs` runs axe on every screen; every accessibility line
-  on markup the design adds is fixed.
-- Step 8, the reviewer: the page answers the task, every line of
-  `coverage.md` holds, every element has a source, people and data come
-  from `fixtures.md`.
+- Step 7: `check.py` holds every line of `coverage.md` to a screen, a
+  block or a question, and the fixtures to `.example` emails and future
+  dates; `shoot.mjs` runs axe on every screen, walks every exported path
+  and crops each new control at rest, hover and focus; every accessibility
+  line on markup the design adds is fixed.
 - Where a rulebook vs code conflict goes: "Existing screens" item 2 in
   `reference/wireframe-build.md`.
-- After step 8, always: the senior design review in
-  `reference/senior-review.md`: the rules, copy, `learned.md`, states and
-  accessibility. A fresh subagent reviews the page once; fix its findings
+- Step 8, always: the senior design review in
+  `reference/senior-review.md`: the fit to the task, the rules, copy,
+  `learned.md`, states and accessibility. A fresh subagent reviews the page once; fix its findings
   right away, without asking and without a second review, then build the
   build shapes (step 9). Nothing is published or shown before the fixes are in.
 
