@@ -1,7 +1,14 @@
 import { useTestService } from '@/test-service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { addDays, format, subDays } from 'date-fns'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { FeaturesService } from '@/features/services/features.service'
+import { PLAN_PRICING, PlanReceiptSchema } from '@goodparty_org/contracts'
+import {
+  CampaignPlanLevel,
+  CampaignPlanPurchaseKind,
+  PlanPricingModel,
+} from '../generated/prisma'
 import { OrganizationRole, Prisma } from '../generated/prisma'
 import { PurchaseService } from './services/purchase.service'
 import { PurchaseType } from './purchase.types'
@@ -42,7 +49,29 @@ const spyOnStripeCheckout = () => {
   }
 }
 
+const setPlansFlag = (on: boolean) =>
+  vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockResolvedValue(on)
+
 describe('POST /v1/payments/purchase/checkout-session', () => {
+  beforeEach(() => {
+    setPlansFlag(false)
+  })
+
+  it('returns 410 without reading the campaign when per-campaign pricing is on', async () => {
+    setPlansFlag(true)
+    await seedCampaign()
+    const stripe = spyOnStripeCheckout()
+
+    const res = await service.client.post(CHECKOUT_SESSION_ROUTE, {})
+
+    expect(res.status).toBe(410)
+    expect(res.data.errorCode).toBe('SUBSCRIPTION_CHECKOUT_CLOSED')
+    expect(stripe.redirect).not.toHaveBeenCalled()
+    expect(stripe.embedded).not.toHaveBeenCalled()
+  })
+
   it('returns 400 NO_ACTIVE_CAMPAIGN when the user has no campaign', async () => {
     const stripe = spyOnStripeCheckout()
 
@@ -170,6 +199,102 @@ describe('POST /v1/payments/purchase/checkout-session', () => {
     expect(res.status).toBe(400)
     expect(res.data.errorCode).toBe('NO_ACTIVE_CAMPAIGN')
     expect(stripe.redirect).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /v1/payments/purchase/plan-receipt', () => {
+  const PLAN_RECEIPT_ROUTE = '/v1/payments/purchase/plan-receipt'
+
+  const seedPurchase = (campaignId: number, sessionId: string) =>
+    service.prisma.campaignPlanPurchase.create({
+      data: {
+        campaignId,
+        buyerUserId: service.user.id,
+        kind: CampaignPlanPurchaseKind.plan,
+        plan: CampaignPlanLevel.pro,
+        amountCents: 29900,
+        stripeCheckoutSessionId: sessionId,
+      },
+    })
+
+  it('returns 404 when the campaign has no paid plan purchase', async () => {
+    const campaign = await seedCampaign()
+    const read = vi.spyOn(
+      service.app.get(StripeService),
+      'retrieveCheckoutSessionWithCharge',
+    )
+
+    const res = await service.client.get(PLAN_RECEIPT_ROUTE, {
+      headers: { 'x-organization-slug': campaign.organizationSlug },
+    })
+
+    expect(res.status).toBe(404)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('returns the latest paid purchase with the card, receipt link and end date', async () => {
+    const campaign = await seedCampaign({
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.one_time,
+    })
+    const purchase = await seedPurchase(campaign.id, 'cs_receipt_ok')
+    const read = vi
+      .spyOn(
+        service.app.get(StripeService),
+        'retrieveCheckoutSessionWithCharge',
+      )
+      .mockResolvedValue({
+        payment_intent: {
+          latest_charge: {
+            receipt_url: 'https://stripe.test/receipt',
+            payment_method_details: { card: { brand: 'visa', last4: '4242' } },
+          },
+        },
+      } as unknown as Awaited<
+        ReturnType<StripeService['retrieveCheckoutSessionWithCharge']>
+      >)
+
+    const res = await service.client.get(PLAN_RECEIPT_ROUTE, {
+      headers: { 'x-organization-slug': campaign.organizationSlug },
+    })
+
+    expect(res.status).toBe(200)
+    expect(read).toHaveBeenCalledWith('cs_receipt_ok')
+    expect(PlanReceiptSchema.parse(res.data)).toEqual({
+      amountCents: 29900,
+      paidAt: purchase.createdAt.toISOString(),
+      cardBrand: 'visa',
+      cardLast4: '4242',
+      receiptUrl: 'https://stripe.test/receipt',
+      planEndsAt: new Date(
+        Date.parse(`${campaign.details?.electionDate}T00:00:00Z`) +
+          PLAN_PRICING.accessDaysAfterElection * 86_400_000,
+      ).toISOString(),
+    })
+  })
+
+  it('has null card fields when a promo code covered the plan in full', async () => {
+    const campaign = await seedCampaign()
+    await seedPurchase(campaign.id, 'cs_receipt_free')
+    vi.spyOn(
+      service.app.get(StripeService),
+      'retrieveCheckoutSessionWithCharge',
+    ).mockResolvedValue({
+      payment_intent: null,
+    } as unknown as Awaited<
+      ReturnType<StripeService['retrieveCheckoutSessionWithCharge']>
+    >)
+
+    const res = await service.client.get(PLAN_RECEIPT_ROUTE, {
+      headers: { 'x-organization-slug': campaign.organizationSlug },
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.data).toMatchObject({
+      cardBrand: null,
+      cardLast4: null,
+      receiptUrl: null,
+    })
   })
 })
 

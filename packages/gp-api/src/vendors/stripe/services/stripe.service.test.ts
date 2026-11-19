@@ -1047,6 +1047,80 @@ describe('StripeService.createCustomCheckoutSession', () => {
   })
 })
 
+describe('StripeService.createCustomCheckoutSession for plans', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      {
+        setCustomerIdIfAbsent: vi.fn(),
+        findUser: vi.fn(),
+      } as unknown as UsersService,
+      createMockLogger(),
+    )
+    sessionsCreate.mockResolvedValue({
+      id: 'cs_plan',
+      client_secret: 'cs_plan_secret',
+      amount_total: 29900,
+    })
+  })
+
+  const planPayload = {
+    type: PaymentType.OUTREACH_PURCHASE,
+    purchaseType: PurchaseType.PLAN,
+    amount: 29900,
+    productName: 'Pro plan',
+    returnUrl: 'https://app.test/dashboard/purchase/complete',
+  }
+
+  it('offers Afterpay, creates a customer and an invoice for a first-time buyer', async () => {
+    await service.createCustomCheckoutSession(
+      { id: userId, email, customerId: undefined },
+      planPayload,
+    )
+
+    const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+    expect(args.payment_method_types).toEqual([
+      'card',
+      'amazon_pay',
+      'afterpay_clearpay',
+    ])
+    expect(args.customer_creation).toBe('always')
+    expect(args.invoice_creation).toEqual({ enabled: true })
+  })
+
+  it('reuses the stored customer instead of creating one', async () => {
+    await service.createCustomCheckoutSession(
+      { id: userId, email, customerId: 'cus_existing' },
+      planPayload,
+    )
+
+    const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+    expect(args.customer).toBe('cus_existing')
+    expect(args.customer_creation).toBeUndefined()
+    expect(args.invoice_creation).toEqual({ enabled: true })
+  })
+
+  it.each([
+    PurchaseType.TEXT,
+    PurchaseType.POLL,
+    PurchaseType.DOMAIN_REGISTRATION,
+  ])(
+    'keeps %s on card and Amazon Pay with no invoice',
+    async (purchaseType) => {
+      await service.createCustomCheckoutSession(
+        { id: userId, email, customerId: undefined },
+        { ...planPayload, purchaseType },
+      )
+
+      const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+      expect(args.payment_method_types).toEqual(['card', 'amazon_pay'])
+      expect(args.invoice_creation).toBeUndefined()
+      expect(args.customer_creation).toBeUndefined()
+    },
+  )
+})
+
 describe('StripeService.regeneratePromotionCode', () => {
   let service: StripeService
   const spent = {
