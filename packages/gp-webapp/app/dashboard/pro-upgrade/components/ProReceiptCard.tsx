@@ -7,7 +7,6 @@ import {
   ChevronUpIcon,
   DownloadIcon,
 } from '@styleguide/components/ui/icons'
-import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { clientRequest } from 'gpApi/typed-request'
 
 export const PRO_RECEIPT_QUERY_KEY = ['pro-receipt']
@@ -47,7 +46,6 @@ export const ProReceiptCard = ({
   enabled: boolean
 }): React.JSX.Element | null => {
   const [open, setOpen] = useState(false)
-  const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
   const { data: receipt } = useQuery({
     queryKey: PRO_RECEIPT_QUERY_KEY,
     queryFn: async (): Promise<ProReceipt> => {
@@ -97,12 +95,8 @@ export const ProReceiptCard = ({
           <div className="h-px bg-base-border" />
           <Row label="Date" value={formatDate(paidAt)} />
           <Row
-            label={
-              planPricingEnabled
-                ? 'Pro plan'
-                : 'Pro subscription, recurring monthly'
-            }
-            value={planPricingEnabled ? amount : `${amount}/mo`}
+            label="Pro subscription, recurring monthly"
+            value={`${amount}/mo`}
           />
           {receipt.cardBrand && receipt.cardLast4 && (
             <Row

@@ -18,18 +18,9 @@ import {
   SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
-import { PLAN_PRICING } from '@goodparty_org/contracts'
-import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
-
-const PAYMENT_ROW = {
-  icon: CreditCardIcon,
-  title: 'Payment',
-  body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
-}
 
 // Design: sgBody's overview. Every launch gathers the filing details before
 // payment, so the list carries campaign verification's own rows around the EIN
@@ -42,7 +33,11 @@ const ROWS = [
   },
   FILING_DETAILS_ROW,
   CONTACT_DETAILS_ROW,
-  PAYMENT_ROW,
+  {
+    icon: CreditCardIcon,
+    title: 'Payment',
+    body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
+  },
   PIN_TIMING_ROW,
 ]
 
@@ -95,20 +90,7 @@ const GuidanceStep = (): React.JSX.Element => {
       </p>
     ) : null
 
-  const planPitch = usePlanPitch()
-  const planRows = planPitch.enabled
-    ? ROWS.map((row) =>
-        row === PAYMENT_ROW
-          ? {
-              ...PAYMENT_ROW,
-              body: `Add your payment details to activate Pro for ${formatPlanCents(PLAN_PRICING.proCents)}.`,
-            }
-          : row,
-      )
-    : ROWS
-  const rows = smsClosed
-    ? planRows.filter((row) => row.title !== PIN_TIMING_ROW.title)
-    : planRows
+  const rows = smsClosed ? ROWS.filter((row) => row !== PIN_TIMING_ROW) : ROWS
   return (
     // min-h-full + flex-col: inside the outreach sheet the footer row pins
     // to the bottom (design: renderSgModal's footerRow); in the route

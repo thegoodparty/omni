@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
 import { Button, ProBadge, Spinner } from '@styleguide'
 import { CalendarClockIcon } from '@styleguide/components/ui/icons'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
@@ -13,8 +12,6 @@ import {
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { APP_BASE } from 'appEnv'
-import { PLAN_PRICING } from '@goodparty_org/contracts'
-import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import { useCheckoutSession } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import CheckoutPayment from 'app/dashboard/purchase/components/CheckoutPayment'
@@ -34,7 +31,6 @@ const SUCCESS_RETURN_URL = `${APP_BASE}${proUpgradeStepPath(
 // drift from the configured Stripe price. Rendered inside CheckoutProvider.
 // Design: the "Pro subscription" card above the payment details.
 const OrderSummary = (): React.JSX.Element => {
-  const planPitch = usePlanPitch()
   const checkoutResult = useCheckout()
   const monthly =
     checkoutResult.type === 'loading' || checkoutResult.type === 'error'
@@ -45,24 +41,14 @@ const OrderSummary = (): React.JSX.Element => {
   return (
     <div className="flex flex-col gap-2.5 rounded-xl border border-base-border bg-card p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[15px] font-semibold">
-          {planPitch.enabled ? 'Pro plan' : 'Pro subscription'}
-        </span>
+        <span className="text-[15px] font-semibold">Pro subscription</span>
         <ProBadge />
       </div>
       <div className="h-px bg-base-border" />
       <div className="flex items-center justify-between gap-3 text-sm">
-        <span className="text-base-muted-foreground">
-          {planPitch.enabled
-            ? 'Pro plan, for your campaign'
-            : 'Pro plan, monthly'}
-        </span>
+        <span className="text-base-muted-foreground">Pro plan, monthly</span>
         <span className="font-medium">
-          {amountLabel === null
-            ? '—'
-            : planPitch.enabled
-              ? amountLabel
-              : `${amountLabel}/mo`}
+          {amountLabel === null ? '—' : `${amountLabel}/mo`}
         </span>
       </div>
       <div className="flex items-center justify-between gap-3 text-[15px] font-semibold">
@@ -109,37 +95,31 @@ const PaymentFrame = ({
   onBack: () => void
   summary?: React.ReactNode
   children: React.ReactNode
-}): React.JSX.Element => {
-  const planPitch = usePlanPitch()
-  return (
-    <div className="flex min-h-full flex-1 flex-col gap-4">
-      <div>
-        <h1 className="mb-2 text-xl font-semibold">Complete your upgrade</h1>
-        <p className="text-base text-base-muted-foreground">
-          {planPitch.enabled
-            ? `Pro is ${formatPlanCents(PLAN_PRICING.proCents)} for your campaign.`
-            : 'Pro is $10/mo, cancel anytime.'}
-        </p>
-        <SmsVerificationLine />
-      </div>
-      {summary}
-      <div className="rounded-xl border border-base-border bg-card p-4">
-        <p className="mb-3 font-semibold">Payment details</p>
-        {children}
-      </div>
-      <p className="text-xs text-base-muted-foreground">
-        {planPitch.enabled
-          ? 'By paying, you authorize us to charge your card for this plan.'
-          : 'By subscribing, you authorize us to charge you according to the terms until you cancel.'}
+}): React.JSX.Element => (
+  <div className="flex min-h-full flex-1 flex-col gap-4">
+    <div>
+      <h1 className="mb-2 text-xl font-semibold">Complete your upgrade</h1>
+      <p className="text-base text-base-muted-foreground">
+        Pro is $10/mo, cancel anytime.
       </p>
-      <StepFooter align="start">
-        <Button variant="ghost" size="large" onClick={onBack}>
-          Back
-        </Button>
-      </StepFooter>
+      <SmsVerificationLine />
     </div>
-  )
-}
+    {summary}
+    <div className="rounded-xl border border-base-border bg-card p-4">
+      <p className="mb-3 font-semibold">Payment details</p>
+      {children}
+    </div>
+    <p className="text-xs text-base-muted-foreground">
+      By subscribing, you authorize us to charge you according to the terms
+      until you cancel.
+    </p>
+    <StepFooter align="start">
+      <Button variant="ghost" size="large" onClick={onBack}>
+        Back
+      </Button>
+    </StepFooter>
+  </div>
+)
 
 const PaymentContent = ({
   onConfirmed,
