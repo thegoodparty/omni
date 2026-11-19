@@ -30,7 +30,9 @@ import {
   type ProUpgradeChannel,
   type ProUpgradeSource,
 } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
-import { MEMBERSHIP_COPY } from './membershipCopy'
+import { usePlanPitch } from '../plan/usePlanPitch'
+import { SeeAllPlansLink } from '../plan/SeeAllPlansLink'
+import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 
 const TILE_ICONS = [UsersIcon, MessageSquareIcon, DoorOpenIcon, ShieldCheckIcon]
 
@@ -63,6 +65,14 @@ export const ProPitchDialog = ({
   const router = useRouter()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
+  const planPitch = usePlanPitch()
+  const copy = planPitch.enabled
+    ? membershipPlanCopy(planPitch)
+    : {
+        pitchTitle: MEMBERSHIP_COPY.pitch.title,
+        pitchPill: MEMBERSHIP_COPY.pitch.pill,
+        pitchJoin: MEMBERSHIP_COPY.pitch.join,
+      }
   // Verification only exists to unlock texting, so once texting has closed
   // for the race the tile sells nothing Pro can still deliver.
   const tiles = MEMBERSHIP_COPY.pitch.tiles
@@ -86,7 +96,7 @@ export const ProPitchDialog = ({
       proUpgradeHref({
         source,
         channel,
-        cta: MEMBERSHIP_COPY.pitch.join,
+        cta: copy.pitchJoin,
       }),
     )
   }
@@ -115,10 +125,10 @@ export const ProPitchDialog = ({
           <DialogHeader className="items-center gap-3 text-center sm:text-center">
             <ProBadge size="large" className="h-[30px] w-[66px]" />
             <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
-              {MEMBERSHIP_COPY.pitch.title}
+              {copy.pitchTitle}
             </DialogTitle>
             <span className="inline-flex h-8 items-center rounded-full bg-info-50 px-3.5 text-[15px] font-medium text-primary">
-              {MEMBERSHIP_COPY.pitch.pill}
+              {copy.pitchPill}
             </span>
           </DialogHeader>
           {smsClosed && (
@@ -144,13 +154,16 @@ export const ProPitchDialog = ({
             ))}
           </div>
         </div>
-        <DialogFooter className="shrink-0 sm:justify-center">
+        <DialogFooter className="shrink-0 sm:flex-col sm:items-center sm:justify-center">
           <Button
             className="w-full sm:w-auto sm:min-w-[360px]"
             onClick={handleJoin}
           >
-            {MEMBERSHIP_COPY.pitch.join}
+            {copy.pitchJoin}
           </Button>
+          {planPitch.enabled && (
+            <SeeAllPlansLink href={planPitch.allPlansHref} />
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

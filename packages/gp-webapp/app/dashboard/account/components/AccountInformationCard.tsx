@@ -2,6 +2,9 @@
 
 import { Badge, Card } from '@styleguide'
 import Image from 'next/image'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
+import { buildPlanPitch } from 'app/dashboard/shared/plan/planPitch'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { AccountSettingsButton } from 'app/dashboard/profile/components/AccountSettingsButton'
 import { SubscriptionPendingCancellationAlert } from 'app/dashboard/profile/components/SubscriptionPendingCancellationAlert'
 import { User } from 'helpers/types'
@@ -29,8 +32,13 @@ export const AccountInformationCard = ({
   subscriptionId,
 }: AccountInformationCardProps): React.JSX.Element => {
   const userType = isElectedOffice ? 'Elected official' : 'Candidate'
+  const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
+  const { plan } = usePlan()
+  const paidPlan = buildPlanPitch(planPricingEnabled, plan === 'team')
   const planLabel = isPro
-    ? 'GoodParty.org Pro Plan - $10/month'
+    ? planPricingEnabled
+      ? `GoodParty.org ${paidPlan.name} Plan - ${paidPlan.price}`
+      : 'GoodParty.org Pro Plan - $10/month'
     : 'GoodParty.org Base Plan - Free'
 
   return (

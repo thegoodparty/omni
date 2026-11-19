@@ -38,6 +38,15 @@ vi.mock('./ProPitchDialog', () => ({
     <div>pitch:{String(open)}</div>
   ),
 }))
+const { mockPlanFlag } = vi.hoisted(() => ({
+  mockPlanFlag: { enabled: false },
+}))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: mockPlanFlag.enabled,
+  }),
+}))
 vi.mock('./PinDialog', () => ({
   PinDialog: ({ open }: { open: boolean }) => <div>pin:{String(open)}</div>,
 }))
@@ -73,6 +82,7 @@ const setup = ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockPlanFlag.enabled = false
   mockSmsCompliance.current = {
     smsCompliance: 'open',
     smsCutoffDate: null,
@@ -324,5 +334,30 @@ describe('MembershipBanner', () => {
         screen.getByText(MEMBERSHIP_COPY.banner.needsVerification.body),
       ).toBeInTheDocument()
     })
+  })
+})
+
+describe('MembershipBanner plan copy', () => {
+  it('shows the Pro price and a plans link for a free campaign with the flag on', () => {
+    mockPlanFlag.enabled = true
+    setup({ state: membership({ tier: 'free' }) })
+
+    expect(
+      screen.getByText('Unlock voter data and outreach with Pro for $299.'),
+    ).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/\$10\b|\/mo|a month/)
+    expect(screen.getByRole('link', { name: 'See all plans' })).toHaveAttribute(
+      'href',
+      '/dashboard/plans',
+    )
+  })
+
+  it('keeps the legacy copy with the flag off', () => {
+    setup({ state: membership({ tier: 'free' }) })
+
+    expect(
+      screen.getByText(MEMBERSHIP_COPY.banner.free.body),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
   })
 })

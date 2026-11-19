@@ -7,6 +7,7 @@ import type { Campaign } from 'helpers/types'
 import { router } from 'helpers/test-utils/router-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { MEMBERSHIP_COPY } from './membershipCopy'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
 import { ProPitchDialog } from './ProPitchDialog'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -14,8 +15,19 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
+const { mockPlanFlag } = vi.hoisted(() => ({
+  mockPlanFlag: { enabled: false },
+}))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: mockPlanFlag.enabled,
+  }),
+}))
+
 beforeEach(() => {
   vi.clearAllMocks()
+  mockPlanFlag.enabled = false
 })
 
 describe('ProPitchDialog', () => {
@@ -198,5 +210,59 @@ describe('ProPitchDialog', () => {
       .forEach(({ title }) => {
         expect(screen.getByText(title)).toBeInTheDocument()
       })
+  })
+
+  describe('with win_per_campaign_pricing on', () => {
+    const renderPitch = (registeredVoters?: number) =>
+      render(
+        <CampaignContext.Provider
+          value={[
+            {
+              raceTargetMetrics: { registeredVoters },
+            } as unknown as Campaign,
+          ]}
+        >
+          <ProPitchDialog
+            source="navigation"
+            channel="generic"
+            open
+            onOpenChange={vi.fn()}
+          />
+        </CampaignContext.Provider>,
+      )
+
+    it('pitches Pro at the Pro price with no legacy price copy', () => {
+      mockPlanFlag.enabled = true
+      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold)
+
+      expect(
+        screen.getByText('Join Pro to unlock voter data and outreach'),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/\$299 for your campaign/)).toBeInTheDocument()
+      expect(document.body.textContent).not.toMatch(/\$10\b|\/mo/)
+      expect(
+        screen.getByRole('link', { name: 'See all plans' }),
+      ).toHaveAttribute('href', '/dashboard/plans')
+    })
+
+    it('pitches Team above the voter threshold', () => {
+      mockPlanFlag.enabled = true
+      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1)
+
+      expect(
+        screen.getByText('Join Team to unlock voter data and outreach'),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/\$399 for your campaign/)).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'See all plans' }),
+      ).toHaveAttribute('href', '/dashboard/plans?highlight=team')
+    })
+
+    it('keeps the legacy copy and no plans link with the flag off', () => {
+      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1)
+
+      expect(screen.getByText(MEMBERSHIP_COPY.pitch.pill)).toBeInTheDocument()
+      expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
+    })
   })
 })

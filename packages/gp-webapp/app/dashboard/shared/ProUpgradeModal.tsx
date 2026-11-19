@@ -10,6 +10,8 @@ import { EVENTS, trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
 import { useEffect } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
+import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   proUpgradeHref,
@@ -60,6 +62,8 @@ export function ProUpgradeModal({
   const viablityScore = vendorP2v?.viability?.score || 0
   const { smsCompliance } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
+  const planPitch = usePlanPitch()
+  const planName = planPitch.enabled ? planPitch.name : 'Pro'
 
   let title: string,
     description: string,
@@ -69,7 +73,7 @@ export function ProUpgradeModal({
 
   switch (variant) {
     case VARIANTS.First:
-      title = 'Upgrade to GoodParty.org Pro'
+      title = `Upgrade to GoodParty.org ${planName}`
       description =
         'Instant access to voter data and tools to connect with your community:'
       items = [
@@ -91,12 +95,14 @@ export function ProUpgradeModal({
           <span className="font-bold">canvassing tools</span>
         </>,
       ]
-      highlight = 'Start today for just $10/month.'
+      highlight = planPitch.enabled
+        ? `Start today for ${planPitch.price}.`
+        : 'Start today for just $10/month.'
       cta = 'Upgrade now'
       break
     case VARIANTS.Second_NonViable:
-      title = 'Get Pro voter data and tools'
-      description = 'Join GoodParty.org Pro today to get:'
+      title = `Get ${planName} voter data and tools`
+      description = `Join GoodParty.org ${planName} today to get:`
       items = [
         <>
           <span className="font-bold">Unlimited voter files</span> tailored to
@@ -119,16 +125,23 @@ export function ProUpgradeModal({
         ),
       ]
       highlight = null
-      cta = 'Upgrade for $10/month'
+      cta = planPitch.enabled
+        ? `Upgrade for ${planPitch.price}`
+        : 'Upgrade for $10/month'
       break
     case VARIANTS.Second_Viable:
-      title = 'Boost your campaign with Pro'
-      description = 'Join GoodParty.org Pro today to get:'
+      title = `Boost your campaign with ${planName}`
+      description = `Join GoodParty.org ${planName} today to get:`
       items = [
         smsClosed ? (
           <>
             <span className="font-bold">Voice and door-knocking</span> tools for
             outreach
+          </>
+        ) : planPitch.enabled ? (
+          <>
+            <span className="font-bold">{planPitch.credit}</span> in outreach
+            credit
           </>
         ) : (
           <>
@@ -138,15 +151,19 @@ export function ProUpgradeModal({
         ),
         <>One-on-one access to political analysts</>,
       ]
-      highlight = smsClosed
-        ? 'Start today for just $10/month.'
-        : 'Upgrade today to claim your free benefits.'
-      cta = 'Upgrade for $10/month'
+      highlight = planPitch.enabled
+        ? `Start today for ${planPitch.price}.`
+        : smsClosed
+          ? 'Start today for just $10/month.'
+          : 'Upgrade today to claim your free benefits.'
+      cta = planPitch.enabled
+        ? `Upgrade for ${planPitch.price}`
+        : 'Upgrade for $10/month'
       break
     case VARIANTS.Third:
     default:
-      title = 'Win with GoodParty.org Pro!'
-      description = 'Winning candidates used Pro tools to:'
+      title = `Win with GoodParty.org ${planName}!`
+      description = `Winning candidates used ${planName} tools to:`
       items = [
         <>
           <span className="font-bold">Target</span>&nbsp;the right voters
@@ -159,7 +176,9 @@ export function ProUpgradeModal({
           early voting
         </>,
       ]
-      highlight = 'Join them today for just $10/month.'
+      highlight = planPitch.enabled
+        ? `Join them today for ${planPitch.price}.`
+        : 'Join them today for just $10/month.'
       cta = 'Upgrade now'
       break
   }
@@ -244,6 +263,11 @@ export function ProUpgradeModal({
             {cta}
           </Link>
         </Button>
+        {planPitch.enabled && (
+          <div className="mt-4">
+            <SeeAllPlansLink href={planPitch.allPlansHref} />
+          </div>
+        )}
       </div>
     </Modal>
   )

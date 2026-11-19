@@ -29,6 +29,7 @@ import {
   completeFreePurchase,
 } from 'app/dashboard/purchase/utils/purchaseFetch.utils'
 import { Spinner } from '@styleguide'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { z } from 'zod'
@@ -176,6 +177,7 @@ export const SmsReviewStep = ({
   const hasFetchedSession = useRef(false)
 
   const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
+  const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
   // A send the offer fully covers is never a hold: gp-api prices it $0, and
   // the flow waits for the built list before it opens checkout for one.
   const isFree =
@@ -374,7 +376,9 @@ export const SmsReviewStep = ({
               <div className="flex items-center justify-between gap-4 pt-1 text-sm font-medium text-link">
                 <span className="flex items-center gap-2">
                   <GiftIcon className="size-4" />
-                  {FREE_TEXTS_OFFER.COUNT.toLocaleString()} free texts included
+                  {planPricingEnabled
+                    ? 'Outreach credit applied'
+                    : `${FREE_TEXTS_OFFER.COUNT.toLocaleString()} free texts included`}
                 </span>
                 {freeTextsDollars > 0 && (
                   <span>{`\u2212$${money(freeTextsDollars)}`}</span>

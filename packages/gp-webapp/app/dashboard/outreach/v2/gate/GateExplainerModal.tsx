@@ -13,6 +13,7 @@ import {
 } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { EXPLAINER_COPY, GATE_NOUN, type GateChannel } from './gateCopy'
+import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { ProPitchPanel } from './ProPitchPanel'
 import type { OutreachGateState } from './useOutreachGate'
 
@@ -39,6 +40,7 @@ export const GateExplainerModal = ({
   onPin,
 }: GateExplainerModalProps): React.JSX.Element | null => {
   const { requirement } = state
+  const planPitch = usePlanPitch()
 
   const requirementRef = useRef(requirement)
   requirementRef.current = requirement
@@ -58,7 +60,10 @@ export const GateExplainerModal = ({
   const needsPro = requirement === 'pro'
 
   const title = needsPro
-    ? EXPLAINER_COPY.titleFree(channel)
+    ? EXPLAINER_COPY.titleFree(
+        channel,
+        planPitch.enabled ? planPitch.name : undefined,
+      )
     : requirement === 'in_review'
       ? EXPLAINER_COPY.titleInReview
       : EXPLAINER_COPY.titleVerify(noun)
@@ -73,7 +78,9 @@ export const GateExplainerModal = ({
     requirement === 'pro'
       ? {
           kind: 'upgrade',
-          label: EXPLAINER_COPY.ctaJoin,
+          label: planPitch.enabled
+            ? EXPLAINER_COPY.planCtaJoin(planPitch.name)
+            : EXPLAINER_COPY.ctaJoin,
           onClick: onUpgrade,
         }
       : requirement === 'verify'

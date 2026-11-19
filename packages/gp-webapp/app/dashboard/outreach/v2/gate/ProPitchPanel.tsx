@@ -25,10 +25,13 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
+import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import {
   PITCH_PANEL_COPY,
   PRO_COPY,
   PRO_COPY_SMS_CLOSED,
+  withPlanPriceBullet,
   type GateChannel,
 } from './gateCopy'
 
@@ -98,7 +101,11 @@ export const ProPitchPanel = ({
   const sellsClosedSms = channel === 'sms' && smsClosed
   const tint = CHANNEL_TINT[channel]
   const ChannelIcon = sellsClosedSms ? UsersIcon : CHANNEL_ICON[channel]
-  const pitch = sellsClosedSms ? PRO_COPY_SMS_CLOSED : PRO_COPY[channel]
+  const planPitch = usePlanPitch()
+  const baseCopy = sellsClosedSms ? PRO_COPY_SMS_CLOSED : PRO_COPY[channel]
+  const pitch = planPitch.enabled
+    ? withPlanPriceBullet(baseCopy, planPitch)
+    : baseCopy
   const showVerify = channel === 'sms' && !smsClosed
 
   if (hideValue && !showVerify) return null
@@ -137,6 +144,9 @@ export const ProPitchPanel = ({
                 <span className="text-base leading-normal">{bullet}</span>
               </div>
             ))}
+            {planPitch.enabled && (
+              <SeeAllPlansLink href={planPitch.allPlansHref} />
+            )}
           </div>
         </div>
       )}

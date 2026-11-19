@@ -9,6 +9,8 @@ import Image from 'next/image'
 import { useEffect } from 'react'
 import { PRO_UPGRADE_ENTRY_PATH } from '@shared/experiments/proUpgrade3Flag'
 import { EVENTS, trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
+import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 export type P2PModalVariant = 'ProFreeTextsNonCompliant' | 'NonProUpgrade'
@@ -47,6 +49,12 @@ export function P2PUpgradeModal({
   // window has closed for the race.
   const { smsCompliance } = useSmsCompliance()
   const shown = open && smsCompliance !== 'closed'
+  const planPitch = usePlanPitch()
+  const textsItem = planPitch.enabled ? (
+    <>Text voters with {planPitch.credit} in outreach credit</>
+  ) : (
+    <>Send 5,000 free texts to voters</>
+  )
   const isProFreeTextsNonCompliant =
     variant === P2P_MODAL_VARIANTS.ProFreeTextsNonCompliant
 
@@ -56,7 +64,7 @@ export function P2PUpgradeModal({
         image: '/images/messaging.png',
         imageAlt: 'Text messaging campaign illustration',
         items: [
-          <>Send 5,000 free texts to voters</>,
+          textsItem,
           <>Target the right voters</>,
           <>Craft your message and image</>,
         ],
@@ -69,11 +77,13 @@ export function P2PUpgradeModal({
         image: '/images/features.png',
         imageAlt: 'Campaign features illustration',
         items: [
-          <>Send 5,000 free texts to voters</>,
+          textsItem,
           <>Target the right voters</>,
           <>Craft your message and image</>,
         ],
-        highlight: 'Join today for just $10/month.',
+        highlight: planPitch.enabled
+          ? `Join today for ${planPitch.price}.`
+          : 'Join today for just $10/month.',
         cta: 'Upgrade now',
         href: PRO_UPGRADE_ENTRY_PATH,
       }
@@ -171,6 +181,11 @@ export function P2PUpgradeModal({
               <Link href={content.href}>{content.cta}</Link>
             </Button>
           </div>
+          {planPitch.enabled && !isProFreeTextsNonCompliant && (
+            <div className="flex justify-center">
+              <SeeAllPlansLink href={planPitch.allPlansHref} />
+            </div>
+          )}
         </div>
       </div>
     </Modal>

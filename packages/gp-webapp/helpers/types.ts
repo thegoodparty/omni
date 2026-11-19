@@ -1,4 +1,5 @@
 import type {
+  CampaignPlanName,
   PeerlyCvVerificationStatus,
   SmsComplianceWindow,
 } from '@goodparty_org/contracts'
@@ -470,6 +471,12 @@ export interface Campaign {
   isActive: boolean
   isVerified?: boolean | null
   isPro?: boolean | null
+  plan?: CampaignPlanName
+  planPricingModel?: 'subscription' | 'one_time' | null
+  planPaidAt?: Date | string | null
+  planEndsAt?: Date | string | null
+  planEndedAt?: Date | string | null
+  outreachCreditCents?: number
   isDemo: boolean
   didWin?: boolean | null
   primaryResult?: 'won' | 'lost' | null

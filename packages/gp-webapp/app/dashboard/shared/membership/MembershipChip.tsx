@@ -13,7 +13,8 @@ import {
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
-import { MEMBERSHIP_COPY } from './membershipCopy'
+import { usePlanPitch } from '../plan/usePlanPitch'
+import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
 import {
@@ -53,6 +54,7 @@ export const MembershipChip = (): React.JSX.Element | null => {
   const pathname = usePathname()
   const { ready, state, tcrCompliance } = useMembershipState()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const planPitch = usePlanPitch()
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
 
@@ -67,7 +69,7 @@ export const MembershipChip = (): React.JSX.Element | null => {
       ? formatSmsCutoffDate(smsCutoffDate)
       : null,
   )
-  if (state.tier === 'pro' && label === null) return null
+  if (state.tier !== 'free' && label === null) return null
 
   const handleClick = () => {
     if (action) {
@@ -83,8 +85,16 @@ export const MembershipChip = (): React.JSX.Element | null => {
     state.tier === 'free' ? (
       <>
         <span>{MEMBERSHIP_COPY.chip.joinLead}</span>
-        <ProBadge size="small" />
-        <span>{MEMBERSHIP_COPY.chip.joinTail}</span>
+        {planPitch.enabled && planPitch.plan === 'team' ? (
+          <span>{planPitch.name}</span>
+        ) : (
+          <ProBadge size="small" />
+        )}
+        <span>
+          {planPitch.enabled
+            ? membershipPlanCopy(planPitch).chipJoinTail
+            : MEMBERSHIP_COPY.chip.joinTail}
+        </span>
       </>
     ) : (
       <>
