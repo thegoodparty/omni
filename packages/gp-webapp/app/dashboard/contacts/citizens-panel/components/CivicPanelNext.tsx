@@ -242,26 +242,25 @@ const MAKEUP_KIND: Partial<Record<UnderrepresentedGroup, MakeupKind>> = {
 
 const MAKEUP_KINDS: MakeupKind[] = ['age', 'gender', 'race']
 
-// A full civic panel's members by age, gender and race: each group's seats
-// of the 100 beside its share of the place. Places stay on the seats chart.
+// A full civic panel's members by age, gender and race, as each group's
+// seats of the 100. Places stay on the seats chart.
 export const CivicPanelMakeup = ({
   composition,
-  place,
 }: {
   composition: CivicPanelComposition
-  place: string | null
 }) => {
   const rows = composition.groups.flatMap((g) => {
     const kind = MAKEUP_KIND[g.group]
-    const need = Math.round(g.districtShare * CIVIC_PANEL_SEAT_COUNT)
     const have = Math.round(g.memberShare * CIVIC_PANEL_SEAT_COUNT)
-    return kind && need > 0 ? [{ ...g, kind, have, need }] : []
+    return kind && (have > 0 || g.districtShare > 0)
+      ? [{ ...g, kind, have }]
+      : []
   })
   if (rows.length === 0) return null
   return (
     <Card
       title={COPY.makeupTitle}
-      line={COPY.makeupLine(place ?? COPY.yourDistrict)}
+      line={COPY.makeupLine}
       testId="civic-panel-makeup"
     >
       {MAKEUP_KINDS.map((kind) => {
@@ -287,7 +286,7 @@ export const CivicPanelMakeup = ({
                         {name}
                       </span>
                       <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-                        {COPY.groupSeats(row.have, row.need)}
+                        {COPY.groupSeats(row.have, CIVIC_PANEL_SEAT_COUNT)}
                       </span>
                     </div>
                     <span
@@ -297,7 +296,7 @@ export const CivicPanelMakeup = ({
                       <span
                         className="block h-full rounded-full bg-primary"
                         style={{
-                          width: `${Math.min(100, Math.round((row.have / row.need) * 100))}%`,
+                          width: `${row.have}%`,
                         }}
                       />
                     </span>

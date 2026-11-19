@@ -87,9 +87,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   with a composition once the stage is `ready`, in place of Who we're
   inviting next: every age, gender and race group of the composition (never
   places, which stay on the seats chart) under Age, Gender and Race, each
-  "{have} of {need} seats" in seats of the 100 (`memberShare` and
-  `districtShare` times 100, so a group above its share reads over its
-  need) with the same bar, capped full.
+  "{have} of 100 seats" (`memberShare` times 100) with a bar of the same
+  share. No comparison with the district: a full panel shows only its own
+  makeup.
 - **Rail**: the Invites card (`ManagedPanelControls`, only with a managed
   panel that is not stopped and a stage that is not `ready`, so it goes as
   soon as members reach the goal, before the wave job turns the status):

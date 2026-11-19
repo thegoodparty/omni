@@ -211,7 +211,7 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   seeEveryGroup: 'See every group',
   // A full civic panel's members by age, gender and race, beside the place.
   makeupTitle: 'Your members by age, gender and race',
-  makeupLine: (place: string) => `How they compare with all of ${place}.`,
+  makeupLine: 'Out of every 100 seats on your civic panel.',
   makeupKinds: { age: 'Age', gender: 'Gender', race: 'Race' },
   // A tract with no human name yet, never its number.
   unnamedTract: (place: string) => `A part of ${place}`,

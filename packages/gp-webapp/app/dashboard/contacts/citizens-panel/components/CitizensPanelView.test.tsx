@@ -411,14 +411,14 @@ describe('CitizensPanelView', () => {
       }),
     ).toBeInTheDocument()
     expect(
-      within(makeup).getByText('How they compare with all of Asheville.'),
+      within(makeup).getByText('Out of every 100 seats on your civic panel.'),
     ).toBeInTheDocument()
     const age = within(makeup).getByRole('list', { name: 'Age' })
     expect(within(age).getByText('People 65 and over')).toBeInTheDocument()
-    expect(within(age).getByText('5 of 20 seats')).toBeInTheDocument()
+    expect(within(age).getByText('5 of 100 seats')).toBeInTheDocument()
     const gender = within(makeup).getByRole('list', { name: 'Gender' })
     expect(within(gender).getByText('Men')).toBeInTheDocument()
-    expect(within(gender).getByText('60 of 48 seats')).toBeInTheDocument()
+    expect(within(gender).getByText('60 of 100 seats')).toBeInTheDocument()
     const race = within(makeup).getByRole('list', { name: 'Race' })
     expect(within(race).getByText('Black residents')).toBeInTheDocument()
     expect(within(makeup).queryByText(/Oakdale/)).not.toBeInTheDocument()

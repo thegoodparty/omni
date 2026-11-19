@@ -137,7 +137,7 @@ export const CitizensPanelView = ({
                 place={place}
               />
             ) : stage === 'ready' && composition ? (
-              <CivicPanelMakeup composition={composition} place={place} />
+              <CivicPanelMakeup composition={composition} />
             ) : null}
           </div>
 
