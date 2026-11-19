@@ -133,7 +133,8 @@ above, not your memory of them:
   `reference/wireframe-build.md`.
 - Step 8, always: the senior design review in
   `reference/senior-review.md`: the fit to the task, the rules, copy,
-  `learned.md`, states and accessibility. A fresh subagent reviews the page once; fix its findings
+  `learned.md`, states and accessibility. Two fresh subagents review the page once, at the same time (task and
+  rules); fix their findings
   right away, without asking and without a second review, then build the
   build shapes (step 9). Nothing is published or shown before the fixes are in.
 

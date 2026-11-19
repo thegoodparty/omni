@@ -70,7 +70,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-from option_section import FRAGMENT_HEADER, OPTION_IDS, flow_file, option_hash, section_span
+from option_section import FRAGMENT_HEADER, OPTION_IDS, flow_bytes, flow_file, option_hash, section_span
 
 RECOMMEND_LABELS = ('recommended (no recommendation)', 'best option (no recommendation)', 'star (no ranking)')
 BANNED = [
@@ -483,6 +483,13 @@ def main():
         oids = [f'option-{picked.group(1)}']
     else:
         oids = list(OPTION_IDS)
+    # flow/shared.tsx (three options): linted once; its markers count for every option
+    # that imports it.
+    shared = src.parent.parent / 'flow' / 'shared.tsx'
+    shared_markers = []
+    if shared.exists():
+        shared_problems, shared_markers = lint(shared)
+        problems += [f'shared: {p}' for p in shared_problems]
     for oid in oids:
         span = section_span(html, oid)
         if not span:
@@ -504,12 +511,14 @@ def main():
             problems.append(f'{oid}: no flow file {flow} (copy assets/flow-template.tsx)')
         else:
             built = re.search(rf'data-gp-flow="{oid}"[^>]*\bdata-gp-built="(sha256:[0-9a-f]+)"', section)
-            current = 'sha256:' + hashlib.sha256(flow.read_bytes()).hexdigest()
+            current = 'sha256:' + hashlib.sha256(flow_bytes(flow)).hexdigest()
             if not built or built.group(1) != current:
                 problems.append(f'{oid}: index.html was not built from the current {flow.name}: rerun build.py')
             if not re.search(rf'data-gp-snapshot="{oid} screen entry"', section):
                 problems.append(f'{oid}: no snapshot of the entry screen in index.html: rerun build.py')
             flow_problems, markers = lint(flow)
+            if shared_markers and re.search(r"from\s+['\"]\./shared['\"]", flow.read_text()):
+                markers = markers + shared_markers
             problems += [f'{oid}: {p}' for p in flow_problems]
             # Every mutation and gap marker is quoted in the Mutations list.
             listed = ' '.join(visible_text(element_html(section, f'{x}-mutations') or '').split()).lower()

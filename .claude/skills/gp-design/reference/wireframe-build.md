@@ -32,13 +32,25 @@ imports the real components from `packages/styleguide`
 - `products` (optional): `['serve', 'win']` when the ticket names both ("Win
   and Serve").
 
-A flow imports only `react`, `gp-flow` and the styleguide. Pick from
+A flow imports only `react`, `gp-flow`, the styleguide and, on a
+three-option page, `./shared`. Pick from
 `COMPONENTS.md` before you draw anything, then read the source of each component
 you use in `packages/styleguide/src/components/ui/<name>.tsx` for its real
 variants and sizes, and use them through their props. Product screens
 (`DashboardLayout`, `OutreachFlowShell`, `Intro`) can't be imported: they read
 the session, the API and Next. Copy their markup into the flow with their class
 strings as they are, under `data-source` ("Existing screens").
+
+**Shared screens (three options).** A screen or part every option draws the
+same (the entry, a landing step, review, pay, a copied footer) lives once in
+`<work>/flow/shared.tsx`, exported by name; each option imports it with
+`import { Review } from './shared'`. `shared.tsx` keeps every rule of a flow
+file except that it exports no `screens` or `states` of its own, and its
+`data-go` targets are screens of the options that use it. A content part it
+holds carries its own `data-content` and cite, since it is checked on its own.
+Its markers count for every option that imports it: quote each in those
+options' Mutations lists. An edit to it makes every importing option's build
+and build shape stale.
 
 `scripts/build.py` bundles the flows, compiles gp-webapp's own
 `app/globals.css` with Tailwind for the classes they use, inlines the product's

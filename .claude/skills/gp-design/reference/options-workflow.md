@@ -239,7 +239,17 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
 6. **Build the page.** Copy `assets/page-template.html` to
    `<work>/page/src.html` and fill in the three options' text, and copy
    `assets/flow-template.tsx` to `<work>/flow/option-a.tsx` (b, c) and draw
-   each flow. Then run
+   each flow. With three options, draw them at the same time: first put the
+   screens every option shares in `<work>/flow/shared.tsx` ("Shared screens"
+   in `reference/wireframe-build.md`), then start three subagents at once,
+   one per option. Give each its option from step 5, the task, `coverage.md`
+   and the rules this workflow names, and have it draw only
+   `flow/option-<x>.tsx` (importing from `./shared`, never editing it or
+   `src.html`), run `scripts/flow/lint.mjs` on it until clean, and write its
+   Sends line, states, Built from, What changes from today and Mutations rows
+   to `<work>/notes/option-<x>-rows.md`. A change it needs in `shared.tsx`
+   comes back to you as a request. Then fill `src.html` from the three
+   notes. Then run
    `python3 scripts/build.py <work>/page/src.html <work>/page`. It renders the
    flows with the real components (node and the repo's `node_modules`: run
    `npm ci` in the checkout first) and writes `index.html`.
@@ -361,6 +371,7 @@ rounds step 4), with no six-state cap. These parts of this workflow do not apply
 - The review lens questions on distinct options and "which option worked", and
   the senior review's distinctness question.
 - "One line per option" in the post-back: write one line on the design.
+- Step 6's `shared.tsx` and parallel subagents: one design is drawn in one file.
 - `check.py`'s banned "recommended", "best option" and star words.
 
 ## Revision rounds
