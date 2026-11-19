@@ -579,6 +579,106 @@ export const BackgroundCaseSchema = z
   })
 export type BackgroundCase = z.infer<typeof BackgroundCaseSchema>
 
+// A LABELED LIST DECLARES ITS LABELS ONCE, at the top, and every case gives
+// an expected value for each of them. The expected value is the person's
+// intent, written down by whoever authored the case: the one place the judge
+// holds a right answer, and only for outputs that are typed labels.
+const LabelNameSchema = z
+  .string()
+  .regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/, 'a label name is an identifier')
+
+export const LabelDeclarationSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      name: LabelNameSchema,
+      type: z.literal('boolean'),
+      // The candidate may never answer `false` on a case where the base arm
+      // answered `true`. For a label whose miss is a compliance failure, such
+      // as an opt-out, one such case makes the verdict WORSE on its own.
+      floor: z.literal(true).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      name: LabelNameSchema,
+      type: z.literal('choice'),
+      options: z
+        .array(z.string().min(1))
+        .min(2)
+        .refine((options) => new Set(options).size === options.length, {
+          message: 'a choice names each option once',
+        }),
+    })
+    .strict(),
+  z.object({ name: LabelNameSchema, type: z.literal('score') }).strict(),
+])
+export type LabelDeclaration = z.infer<typeof LabelDeclarationSchema>
+
+export const LabelDeclarationsSchema = z
+  .array(LabelDeclarationSchema)
+  .min(1)
+  .refine(
+    (labels) => new Set(labels.map((l) => l.name)).size === labels.length,
+    { message: 'a list declares each label once' },
+  )
+
+export const MAX_LABELED_TEXT_CHARS = 2_000
+
+export const LabeledInputSchema = z
+  .object({
+    text: z.string().trim().min(1).max(MAX_LABELED_TEXT_CHARS),
+    channel: z.enum(['text', 'email', 'door', 'call']),
+  })
+  .strict()
+
+export const LabelValueSchema = z.union([z.boolean(), z.string(), z.number()])
+
+export const LabeledCaseSchema = z
+  .object({
+    caseId: CaseIdSchema,
+    input: LabeledInputSchema,
+    expected: z.record(LabelNameSchema, LabelValueSchema),
+    // A control, held out of the verdict only when the base ref's list holds
+    // it out too, as for every other shape.
+    scored: z.boolean().optional(),
+    // Why the expected labels are what they are, for the next author.
+    note: z.string().trim().min(1).max(MAX_HANDLED_WHEN_CHARS).optional(),
+  })
+  .strict()
+export type LabeledCase = z.infer<typeof LabeledCaseSchema>
+
+// Every declared label has an expected value of its type, and nothing else
+// does. A missing one would score every arm right on it by default.
+export const labeledCaseIssue = (
+  labels: readonly LabelDeclaration[],
+  one: LabeledCase,
+): string | undefined => {
+  const declared = new Set(labels.map((l) => l.name))
+  const extra = Object.keys(one.expected).filter((name) => !declared.has(name))
+  if (extra.length > 0) {
+    return `expects undeclared label(s): ${extra.join(', ')}`
+  }
+  for (const label of labels) {
+    const value = one.expected[label.name]
+    if (value === undefined) return `has no expected value for ${label.name}`
+    const ok =
+      label.type === 'boolean'
+        ? typeof value === 'boolean'
+        : label.type === 'choice'
+          ? typeof value === 'string' && label.options.includes(value)
+          : typeof value === 'number' && Number.isFinite(value)
+    if (!ok) {
+      return (
+        `expects ${JSON.stringify(value)} for ${label.name}, which is not ` +
+        (label.type === 'choice'
+          ? `one of its options (${label.options.join(', ')})`
+          : `a ${label.type}`)
+      )
+    }
+  }
+  return undefined
+}
+
 // What the judging step needs from a case list beyond the records, keyed by
 // caseId.
 export interface CaseJudging {
@@ -591,24 +691,27 @@ export const caseJudgingOf = (list: CaseList): Map<string, CaseJudging> =>
   new Map(
     list.cases.map((one) => [
       one.caseId,
-      {
-        ...(one.condition !== undefined && { condition: one.condition }),
-        ...(one.handledWhen !== undefined && {
-          handledWhen: one.handledWhen,
-        }),
-        scored: one.scored ?? true,
-      },
+      isLabeledCase(one)
+        ? { scored: one.scored ?? true }
+        : {
+            ...(one.condition !== undefined && { condition: one.condition }),
+            ...(one.handledWhen !== undefined && {
+              handledWhen: one.handledWhen,
+            }),
+            scored: one.scored ?? true,
+          },
     ]),
   )
 
-export type JudgeCase = ChatCase | BackgroundCase
+export type JudgeCase = ChatCase | BackgroundCase | LabeledCase
 
 export const caseDimensionsOf = (one: JudgeCase): readonly CaseDimension[] =>
-  one.dimensions ?? []
+  isLabeledCase(one) ? [] : (one.dimensions ?? [])
 
 const CASE_SCHEMAS = {
   chat: ChatCaseSchema,
   background: BackgroundCaseSchema,
+  labeled: LabeledCaseSchema,
 } as const
 
 // `placeholder` is carried through to the report on purpose. A verdict drawn
@@ -623,6 +726,8 @@ const CaseListEnvelopeSchema = z.object({
   // Background only: how many attempts every case in this list is walked
   // with, in place of the config's default. See MAX_LIST_ATTEMPTS_PER_CASE.
   attemptsPerCase: z.number().int().positive().optional(),
+  // Labeled only, and required there: see LabelDeclarationSchema.
+  labels: JsonValueSchema.optional(),
   cases: z.array(z.record(z.string(), JsonValueSchema)).min(1),
 })
 
@@ -632,6 +737,8 @@ export interface CaseList {
   placeholder: boolean
   note?: string
   attemptsPerCase?: number
+  // Present exactly on a labeled list.
+  labels?: readonly LabelDeclaration[]
   cases: JudgeCase[]
   // Where it came from, so an error downstream of here can still name the
   // file rather than only the case.
@@ -706,6 +813,22 @@ export const parseCaseList = (
     }
   }
 
+  let labels: LabelDeclaration[] | undefined
+  if (envelope.data.shape === 'labeled') {
+    const declared = LabelDeclarationsSchema.safeParse(envelope.data.labels)
+    if (!declared.success) {
+      throw new CaseListError(
+        `${source}: a labeled list declares its labels — ` +
+          describeIssues(declared.error.issues),
+      )
+    }
+    labels = declared.data
+  } else if (envelope.data.labels !== undefined) {
+    throw new CaseListError(
+      `${source}: declares labels, which only a labeled list may declare`,
+    )
+  }
+
   const schema = CASE_SCHEMAS[envelope.data.shape]
   const cases: JudgeCase[] = []
   const seen = new Set<string>()
@@ -735,6 +858,14 @@ export const parseCaseList = (
       )
     }
     seen.add(parsed.data.caseId)
+    if (labels !== undefined && isLabeledCase(parsed.data)) {
+      const issue = labeledCaseIssue(labels, parsed.data)
+      if (issue !== undefined) {
+        throw new CaseListError(
+          `${source}: case ${index} (caseId "${parsed.data.caseId}") ${issue}`,
+        )
+      }
+    }
     // One name is one row in the report, aggregated across every case that
     // carries it, so two cases asking different questions under it would be
     // averaged into a number that answers neither.
@@ -758,6 +889,7 @@ export const parseCaseList = (
     placeholder: envelope.data.placeholder ?? false,
     ...(envelope.data.note !== undefined && { note: envelope.data.note }),
     ...(listAttempts !== undefined && { attemptsPerCase: listAttempts }),
+    ...(labels !== undefined && { labels }),
     cases,
     source,
   }
@@ -815,8 +947,15 @@ export const loadCaseList = (
 // absence of any one of them proves nothing. `params` is required of a
 // background case and impossible on a chat one, which makes it the only
 // structural discriminator left.
+// A labeled case carries `expected`, which no other shape has.
 export const isChatCase = (one: JudgeCase): one is ChatCase =>
-  !('params' in one)
+  !('params' in one) && !('expected' in one)
+
+export const isLabeledCase = (one: JudgeCase): one is LabeledCase =>
+  'expected' in one
+
+export const isBackgroundCase = (one: JudgeCase): one is BackgroundCase =>
+  'params' in one
 
 export const SEEDS_DIR = 'seeds'
 
@@ -877,4 +1016,19 @@ export const loadBackgroundCases = (
     }
     return one
   })
+}
+
+// A labeled agent's list, narrowed, with its label declarations.
+export const loadLabeledList = (
+  agent: AgentEntry,
+  dir: string = CASES_DIR,
+): { labels: readonly LabelDeclaration[]; cases: LabeledCase[] } => {
+  const list = loadCaseList(agent, dir)
+  if (list.shape !== 'labeled' || list.labels === undefined) {
+    throw new CaseListError(
+      `${list.source}: ${agent.agentId} is a ${list.shape} agent, so its ` +
+        'cases have no expected labels to read',
+    )
+  }
+  return { labels: list.labels, cases: list.cases.filter(isLabeledCase) }
 }

@@ -8,6 +8,11 @@ absolute judgments, each needs a standard written per agent, and that is
 exactly why agent eval coverage has stayed near zero. A comparison needs none
 of it, which is the only reason one judge can cover every agent.
 
+One scoped exception: an agent whose output is a typed label, such as "is
+this reply an opt-out", has a right answer someone can write down, and is
+scored against it with no panel. See
+[Labeled cases](#labeled-cases-typed-outputs-scored-against-a-written-answer).
+
 Design: the [TDD](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-139733)
 and the shorter [review doc](https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-140793).
 
@@ -80,8 +85,9 @@ judge sweep, x1.5 and rounded up: about $10 for `chief_of_staff`, and $7 to $26
 for a measured background agent at the default 5 cases. An agent never
 measured is priced at a worst case and marked "(unmeasured)": $0.52 a chat
 turn ($42.50 for 9 cases at 3 attempts), $8 a background run ($80 at 5 cases).
-Each agent is priced at the highest of the PR's, the base ref's and the default
-branch's tables, so a PR cannot lower its own estimate, and a chat agent pays
+A labeled agent is priced at a ceiling of one cent a case on each arm and has
+no panel line: $1.50 for `reply_intent`'s 43 cases. Each agent is priced at
+the highest of the PR's, the base ref's and the default branch's tables, so a PR cannot lower its own estimate, and a chat agent pays
 for both arms' case lists. The numbers and their evidence are in
 `planCost.ts`; add an agent's measured cost there after its first live sweep
 (the per-run mean on the report's `- cost difference per run pair:` line).
@@ -302,6 +308,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `armGap.ts`                                            | The distance between the two captures.                                                                          |
 | `regressionSignals.ts`                                 | The condition-handling signal, and how it combines with the quality label.                                      |
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                                                      |
+| `labeled/`                                             | The labeled kind: adapter seam (`types.ts`), adapters, the arm's runner (`run.ts`) and the scorer (`score.ts`). |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                                                              |
 
 ## Marking an agent wired
@@ -328,10 +335,13 @@ when P is 0. The `--dry-run` plan prints the same counts.
 ## Case lists: every judgeable agent, ten benches and ten core-check lists
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
-in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
+in `agents.ts` and validated by `cases.ts`. Adding the twenty-third agent is a
 file here plus a registry line, and no code.
 
-All twenty judgeable agents have one. All five chat scopes that have a
+All twenty-one judgeable agents have one: the twenty below, and the labeled
+agent `reply_intent` (see
+[Labeled cases](#labeled-cases-typed-outputs-scored-against-a-written-answer)).
+All five chat scopes that have a
 `ChatScopeHandler` — `chief_of_staff`, `campaign_assistant`,
 `ordinance_flow`, `priority_flow`, `briefing_annotation` — and fifteen
 background experiments. Nine
@@ -577,6 +587,74 @@ People in these files are fictional placeholders in the house style
 (`gp-webapp/e2e-tests/tests/app/briefings/briefings.spec.ts` uses
 `Test Official`), because this repo is public. States, cities, office titles
 and L2 voter file column names are real.
+
+## Labeled cases: typed outputs scored against a written answer
+
+Some features we want to judge are not prose. Reading an inbound reply as an
+opt-out, a civic panel join or a panel leave produces a few typed labels,
+and for those a person can write down the right answer. The panel cannot
+see a change there: two arms that disagree on one label in forty replies
+read as SAME prose. So a `labeled` agent is scored, not judged.
+
+**What it measures.** Each case is a reply and the labels a person meant by
+it: `{ caseId, input: { text, channel }, expected: { <label>: <value> },
+scored?, note? }`. The list declares its labels once at the top (`boolean`,
+`choice` with its `options`, or `score`), and the loader refuses a case that
+leaves a label out, gives it the wrong type, or names one the list does not
+declare. The labels are the person's INTENT, not the action the system takes:
+the production join check is keyword-only on purpose, because joining needs
+explicit consent, so a join by plain intent reads as a regex miss. That is
+the measurement, not a compliance bug, and `cases/reply_intent.json` says so.
+
+**How an arm runs it.** Each labeled agent has an adapter in
+`labeled/adapters.ts` (the seam is `labeled/types.ts`). The arm calls its own
+worktree's adapter once per case, one attempt, because a regex answers the
+same way every time and a decision model nearly so. The record's output is
+the labels as JSON, so the record contract only gained the shape name. With
+`JUDGE_SPEND` not `true` the adapter is told not to spend, and must make no
+paid call. An adapter that throws, or returns something that is not labels,
+is an `infraError` record and an excluded case, never a fallback answer.
+`reply_intent`'s adapter calls today's production predicates directly
+(`outreach/util/textOptOut.util.ts`, `civicPanelJoin.util.ts`,
+`civicPanelLeave.util.ts`), so a branch that edits one is what its candidate
+arm measures. Its hard labels carry no probabilities.
+
+**How the verdict is formed** (`labeled/score.ts`), with no normalize, no
+panel, no bootstrap and no panel spend:
+
+- Both arms are scored against the CANDIDATE's expected labels, since the
+  case list is part of the branch under review. A case whose labels this
+  branch adds or changes against the base ref's list is named in the report.
+- A case is right for an arm when every label is right. The cases right on
+  one arm only go through the same exact sign test the small-sample panel
+  verdict uses (`signTest.ts`, McNemar's exact test in effect): BETTER or
+  WORSE below `gates.sign.alpha` (5 of 5 one way is p = 1/32), SAME when no
+  case is right on one arm only, otherwise CAN'T SAY with the count.
+- A boolean label may be a `floor`. On `reply_intent` that is `optOut`: any
+  case where the base arm said `true` and the candidate said `false` makes
+  the verdict WORSE on its own and is named, whatever the count says. It
+  applies on controls too, because it is a rule, not a statistic.
+- Beside the verdict, per arm: cases with every label right, accuracy per
+  label, and Brier per label (lower is better, `(p - o)^2` on a boolean, the
+  multi-class sum on a choice, none on a score). Hard labels count as
+  probability 0 or 1, so a hard arm's Brier is its error rate, and the
+  report says which arms were hard.
+- `scored: false` holds a case out only when the base ref's list holds it out
+  too, as for every other shape.
+
+The report section carries case ids and label names only, never a reply's
+text. Its heading is the usual `### <agent> — <label>`, so the guard reads it
+like any other verdict.
+
+**Why the exception is narrow.** A gold answer needs someone to own it, and a
+wrong expected label scores a correct change as worse. That is acceptable for
+a typed output whose right answer a person can state in one word, and not for
+prose, which is why chat and background agents stay pairwise. The decision is
+recorded in `docs/adr/2026-11-18-judge-labeled-cases-carry-gold-labels.md`.
+
+**Until this kind is on the base ref,** a labeled agent cannot be swept: the
+base arm's registry does not know it, and the base ref's workflow cannot read
+a `[labeled]` plan row.
 
 ## Four things a chat case can say beyond one question
 
@@ -2027,7 +2105,7 @@ silently; replace its rows with the real file's content in place once someone
 can fetch it.
 
 **Agent directories reach only their own agent.** The picker prompt also
-lists `codeMap.ts`'s `AGENT_DIRECTORIES` (the chat half of
+lists `codeMap.ts`'s `AGENT_DIRECTORIES` (the gp-api directory rows of
 `judge-path-floor.sh`'s table, plus `packages/runbooks/experiments/<agentId>/`)
 and tells the model that a changed file under one of them reaches only its
 own agent unless a code map row covers that file. Without it the picker added

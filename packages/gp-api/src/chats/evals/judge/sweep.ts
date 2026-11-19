@@ -35,6 +35,8 @@ import {
   CaseListError,
   caseDimensionsOf,
   caseJudgingOf,
+  isLabeledCase,
+  LabelValueSchema,
   loadCaseList,
   type CaseDimension,
   type CaseJudging,
@@ -88,6 +90,8 @@ import {
   type SweepEnv,
 } from './sweepEnv'
 import { withRegressionSignals } from './regressionSignals'
+import { scoreLabeled, type LabeledScore } from './labeled/score'
+import type { LabelValue } from './labeled/types'
 
 // STEP 3 OF THREE, and the only one that is not a vitest suite.
 //
@@ -127,6 +131,11 @@ export interface JudgingDeps {
   // manifest and the base ref's. Injected so a test need not stand a manifest
   // on disk.
   outputContract?: (agent: AgentEntry) => ContractRead
+  // A labeled agent's expected labels on the BASE ref's list, by case, or
+  // null when that list cannot be read. Injected for the same reason.
+  baseExpected?: (
+    agent: AgentEntry,
+  ) => ReadonlyMap<string, Readonly<Record<string, LabelValue>>> | null
 }
 
 // Read raw rather than through `parseCaseList`: the base ref's list is held to
@@ -159,6 +168,41 @@ const readBaseControls = (
     return new Set(
       list.cases.filter((one) => one.scored === false).map((one) => one.caseId),
     )
+  } catch {
+    return null
+  }
+}
+
+// Raw for the same reason: only the expected labels are wanted, so a base
+// list in an older shape still says what it expected.
+const BaseExpectedSchema = z.object({
+  cases: z.array(
+    z.object({
+      caseId: z.string(),
+      expected: z.record(z.string(), LabelValueSchema),
+    }),
+  ),
+})
+
+const readBaseExpected = (
+  baseDir: string | undefined,
+  agent: AgentEntry,
+): ReadonlyMap<string, Readonly<Record<string, LabelValue>>> | null => {
+  if (baseDir === undefined || agent.cases === null) return null
+  try {
+    const list = BaseExpectedSchema.parse(
+      JSON.parse(
+        readFileSync(
+          path.join(
+            baseDir,
+            'packages/gp-api/src/chats/evals/judge/cases',
+            agent.cases,
+          ),
+          'utf8',
+        ),
+      ),
+    )
+    return new Map(list.cases.map((one) => [one.caseId, one.expected]))
   } catch {
     return null
   }
@@ -405,6 +449,9 @@ export const judgeSweep = async (
   const baseControls =
     deps.baseControls ??
     ((agent: AgentEntry) => readBaseControls(env.baseDir, agent))
+  const baseExpected =
+    deps.baseExpected ??
+    ((agent: AgentEntry) => readBaseExpected(env.baseDir, agent))
 
   // Both manifests, first and fatally. An arm with no manifest never reported
   // a capture, and the failure that produces it is a vitest suite whose tests
@@ -446,6 +493,7 @@ export const judgeSweep = async (
   const judgeByAgent = new Map<string, JudgeSpend>()
 
   const scores: AgentScore[] = []
+  const labeled: LabeledScore[] = []
   const refusals: Refusal[] = []
   // Agents the panel answered on no pair at all. Kept apart from refusals
   // because it fails the sweep: see exitCode below.
@@ -514,6 +562,57 @@ export const judgeSweep = async (
           'This agent is not in the judge registry, so this checkout cannot ' +
           'tell which cases carry a condition or are held out as a control.',
       })
+      continue
+    }
+    // A LABELED AGENT IS SCORED, NOT JUDGED: no normalize, no panel, no
+    // bootstrap, and so no panel spend. See labeled/score.ts.
+    if (entry.shape === 'labeled') {
+      let list: CaseList
+      try {
+        list = loadCases(entry)
+      } catch (err) {
+        if (!(err instanceof CaseListError)) throw err
+        refusals.push({
+          agentId,
+          reason:
+            "This checkout could not read the agent's case list, so there " +
+            `are no expected labels to score against: ${err.message}`,
+        })
+        continue
+      }
+      if (list.labels === undefined) {
+        refusals.push({
+          agentId,
+          reason:
+            'This agent is labeled in the registry but its case list ' +
+            'declares no labels, so there is nothing to score against.',
+        })
+        continue
+      }
+      const cases = list.cases.filter(isLabeledCase)
+      const candidateControls = new Set(
+        cases.filter((one) => one.scored === false).map((one) => one.caseId),
+      )
+      const controls = resolveControls(
+        candidateControls,
+        candidateControls.size === 0 ? new Set() : baseControls(entry),
+      )
+      labeled.push(
+        scoreLabeled(
+          {
+            agentId,
+            records: forAgent,
+            labels: list.labels,
+            cases,
+            unscoredCaseIds: controls.unscored,
+            ...(controls.scoredAnyway !== undefined && {
+              controlsScoredAnyway: controls.scoredAnyway,
+            }),
+            baseExpected: baseExpected(entry),
+          },
+          config,
+        ),
+      )
       continue
     }
     try {
@@ -702,6 +801,7 @@ export const judgeSweep = async (
 
   const report: SweepReport = {
     agents: scores,
+    ...(labeled.length > 0 && { labeled }),
     // Only when the sweep could spend. A JUDGE_SPEND-off sweep dispatched
     // nothing and called no model, and its records carry no cost, so a
     // total here would print "at least $0.00" over runs that were never
@@ -767,7 +867,8 @@ export const judgeSweep = async (
     // A JUDGE FAILURE IS THE EXCEPTION, and fails the sweep whatever else
     // scored: it says the judge itself is broken, which no other agent's
     // verdict vouches for.
-    exitCode: scores.length === 0 || judgeFailures.length > 0 ? 1 : 0,
+    exitCode:
+      scores.length + labeled.length === 0 || judgeFailures.length > 0 ? 1 : 0,
   }
 }
 

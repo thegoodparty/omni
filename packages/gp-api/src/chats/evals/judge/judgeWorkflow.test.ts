@@ -1493,6 +1493,19 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     }
   })
 
+  // The CLI prints a labeled agent's row with its own shape, and a row the
+  // regex cannot read is a refusal, so the shape has to be in it.
+  it('prices a labeled agent row', () => {
+    const result = runEstimate(
+      'Universal Judge — plan (1 agents)\n\n' +
+        '  reply_intent  [labeled]  cents: 150 (unmeasured)  cases: reply_intent.json\n',
+      'reply_intent',
+    )
+    expect(result.status).toBe(0)
+    expect(result.outputs).toMatch(/^usd=1\.50$/m)
+    expect(result.outputs).toMatch(/^sweep_agents=reply_intent$/m)
+  })
+
   // Nothing is fetched for a default branch that is not a plain name, and the
   // CLI then fails closed on its empty files.
   it('fetches nothing for a default branch that is not a branch name', () => {

@@ -13,6 +13,7 @@ import {
   parseCaseList,
   type CaseJudging,
   type CaseList,
+  type LabeledCase,
 } from './cases'
 import type { ContractRead } from './outputContract'
 import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
@@ -42,6 +43,7 @@ import {
   type SweepResult,
 } from './sweep'
 import { SweepEnvError, type SweepEnv } from './sweepEnv'
+import { runLabeledCase } from './labeled/run'
 
 // The judging entry over a local store. Both arms are written by hand, which
 // is what the two capture processes would have left behind.
@@ -2250,5 +2252,120 @@ describe('a chat case with a check', () => {
     const handling = result.report.agents[0]?.handling?.cases ?? []
     expect(handling.map((h) => h.caseId)).toEqual(['case-1'])
     expect(result.markdown).toContain('Condition handling:')
+  })
+})
+
+// A labeled agent through the whole judging entry: scored against the
+// candidate's expected labels, with no panel call and no panel spend.
+describe('judgeSweep, a labeled agent', () => {
+  const REPLY: AgentEntry = {
+    agentId: 'reply_intent',
+    shape: 'labeled',
+    cases: 'reply_intent.json',
+    status: 'pending',
+  }
+  const texts = ['STOP', 'pls quit blowing up my phone', 'Thanks!']
+  const labeledCases: LabeledCase[] = texts.map((text, i) => ({
+    caseId: `c${i}`,
+    input: { text, channel: 'text' },
+    expected: { optOut: i < 2 },
+  }))
+  const list: CaseList = {
+    agentId: 'reply_intent',
+    shape: 'labeled',
+    placeholder: false,
+    source: '/cases/reply_intent.json',
+    labels: [{ name: 'optOut', type: 'boolean', floor: true }],
+    cases: labeledCases,
+  }
+  const labeledEnv: SweepEnv = { ...env, agentIds: ['reply_intent'] }
+  const labeledManifest = (arm: ArmManifest['arm']) =>
+    manifest(arm, {
+      agents: [
+        {
+          agentId: 'reply_intent',
+          caseList: 'reply_intent.json',
+          placeholderCases: false,
+          cases: 3,
+          attempts: 1,
+          recordsWritten: 3,
+        },
+      ],
+    })
+
+  const capture = async (
+    arm: ArmManifest['arm'],
+    says: (text: string) => boolean,
+  ): Promise<RunRecord[]> =>
+    Promise.all(
+      labeledCases.map((one) =>
+        runLabeledCase(
+          {
+            agent: REPLY,
+            case: one,
+            attempt: 1,
+            sweepId: BASE.sweepId,
+            arm,
+            variant: { ref: arm, commit: 'd'.repeat(40) },
+            spends: true,
+          },
+          {
+            adapters: {
+              reply_intent: async (input) => ({
+                labels: { optOut: { value: says(input.text) } },
+                model: 'regex',
+              }),
+            },
+          },
+        ),
+      ),
+    )
+
+  const sweep = async (
+    candidateSays: (text: string) => boolean,
+  ): Promise<SweepResult> => {
+    const store = await seeded(
+      [
+        ...(await capture('base', (text) => text === 'STOP')),
+        ...(await capture('candidate', candidateSays)),
+      ],
+      [labeledManifest('base'), labeledManifest('candidate')],
+    )
+    return judgeSweep(
+      {
+        store,
+        llm: neverCalled,
+        registry: [REPLY],
+        loadCases: () => list,
+        baseControls: () => new Set(),
+        baseExpected: () =>
+          new Map(labeledCases.map((one) => [one.caseId, one.expected])),
+      },
+      labeledEnv,
+    )
+  }
+
+  it('scores both arms with no panel call and no panel spend', async () => {
+    const result = await sweep((text) => text !== 'Thanks!')
+    expect(result.exitCode).toBe(0)
+    expect(result.report.agents).toEqual([])
+    expect(result.report.labeled?.[0]).toMatchObject({
+      agentId: 'reply_intent',
+      label: "CAN'T SAY",
+      pairedCases: 3,
+      base: { allCorrect: 2 },
+      candidate: { allCorrect: 3 },
+    })
+    expect(result.report.actualCost?.judge.calls).toBe(0)
+    expect(result.report.actualCost?.agents[0]?.judge.usd).toBe(0)
+    expect(result.markdown).toContain("### reply_intent — CAN'T SAY")
+  })
+
+  it('reads WORSE when the candidate drops an opt-out the base caught', async () => {
+    const result = await sweep(() => false)
+    expect(result.report.labeled?.[0]?.label).toBe('WORSE')
+    expect(result.report.labeled?.[0]?.floorBreaches).toEqual([
+      { caseId: 'c0', label: 'optOut' },
+    ])
   })
 })

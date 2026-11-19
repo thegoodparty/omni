@@ -28,6 +28,9 @@ const AUTHORED = [
 // authored.
 const AUTHORED_BACKGROUND_COUNT = 15
 
+// The labeled lists, named and asserted in labeledCaseLists.test.ts.
+const AUTHORED_LABELED_COUNT = 1
+
 // Registry entries that name a file, narrowed so the file name is a string.
 const NAMED = AGENTS.flatMap((a) =>
   a.cases === null ? [] : [{ agentId: a.agentId, cases: a.cases }],
@@ -114,10 +117,12 @@ describe('the case-list directory', () => {
   // Without a floor, a directory that stopped matching would leave every
   // assertion below in a loop that never runs, and the suite would pass
   // having checked nothing.
-  it('holds every named list, and the registry names all 20', () => {
+  it('holds every named list, and the registry names all 21', () => {
     expect(NAMED.length).toBeGreaterThan(0)
     expect(files.length).toBeGreaterThan(0)
-    expect(NAMED.length).toBe(AUTHORED.length + AUTHORED_BACKGROUND_COUNT)
+    expect(NAMED.length).toBe(
+      AUTHORED.length + AUTHORED_BACKGROUND_COUNT + AUTHORED_LABELED_COUNT,
+    )
   })
 
   it.each(NAMED)('$agentId names a file that is really there', ({ cases }) => {

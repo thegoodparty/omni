@@ -1,0 +1,550 @@
+{
+  "agentId": "reply_intent",
+  "shape": "labeled",
+  "note": "CORE CHECKS for reading what an inbound reply meant, on fictional replies: every name, place and message here is invented. Each case gives the expected labels, and the labels are the person's INTENT, not the action the system takes on the reply. optOut is a floor label: the candidate may never answer false where the base arm answered true. The civic panel join check in production is keyword-only on purpose, because joining needs explicit consent, so a join by plain intent (\"count me in for the panel\") reads as a miss by the regex. That is by design and not a compliance bug: the cases measure how well a classifier reads intent, which is what a decision model would be asked to improve. Today's production regex gets every label right on 33 of 43 cases (pinned in labeledCaseLists.test.ts).",
+  "labels": [
+    {
+      "name": "optOut",
+      "type": "boolean",
+      "floor": true
+    },
+    {
+      "name": "civicPanelJoin",
+      "type": "boolean"
+    },
+    {
+      "name": "civicPanelLeave",
+      "type": "boolean"
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "stop_plain",
+      "input": {
+        "text": "STOP",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "unsubscribe_plain",
+      "input": {
+        "text": "UNSUBSCRIBE",
+        "channel": "email"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "stop_please",
+      "input": {
+        "text": "stop please",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "opt_me_out",
+      "input": {
+        "text": "opt me out",
+        "channel": "email"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "polite_remove_from_list",
+      "input": {
+        "text": "Hi, please remove me from your mailing list. Thanks.",
+        "channel": "email"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "dont_text_me",
+      "input": {
+        "text": "Please don't text me again.",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "complaint_then_stop",
+      "input": {
+        "text": "Too many messages this week. STOP",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "take_me_off_call_list",
+      "input": {
+        "text": "Can you take me off your call list",
+        "channel": "call"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "lose_my_number",
+      "input": {
+        "text": "lose my number",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "wrong_person_leave_alone",
+      "input": {
+        "text": "Wrong person. Leave me alone.",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      },
+      "note": "An opt-out, not a panel leave: there is no panel in it."
+    },
+    {
+      "caseId": "not_interested_stop_contacting",
+      "input": {
+        "text": "I am not interested. Please stop contacting me.",
+        "channel": "email"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "feedback_then_unsubscribe",
+      "input": {
+        "text": "Fix the potholes on 5th Ave. And please unsubscribe me.",
+        "channel": "email"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      },
+      "note": "Feedback and an opt-out in one reply; the opt-out is the intent that matters for consent."
+    },
+    {
+      "caseId": "quit_blowing_up_phone",
+      "input": {
+        "text": "pls quit blowing up my phone",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      },
+      "note": "Plainly asks for the texts to end without a listed phrase."
+    },
+    {
+      "caseId": "spanish_no_more_messages",
+      "input": {
+        "text": "No me manden más mensajes por favor",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      },
+      "note": "Spanish for \"do not send me more messages\"."
+    },
+    {
+      "caseId": "done_hearing_from_you",
+      "input": {
+        "text": "Enough with the texts already, I'm done hearing from you",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "typo_stop_txting",
+      "input": {
+        "text": "stop txting me",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      },
+      "note": "A misspelling of a listed phrase."
+    },
+    {
+      "caseId": "door_no_more_visits",
+      "input": {
+        "text": "Please don't come back to my house again, I don't want any more visits",
+        "channel": "door"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      },
+      "note": "Asks for contact to end on the channel it arrived on."
+    },
+    {
+      "caseId": "bait_stop_the_highway",
+      "input": {
+        "text": "We need to stop the new highway before it splits the neighborhood.",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      },
+      "note": "Uses \"stop\" about a policy, not about the messages."
+    },
+    {
+      "caseId": "bait_dont_stop_fighting",
+      "input": {
+        "text": "Don't stop fighting for us!",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "bait_remove_stop_sign",
+      "input": {
+        "text": "Can the city remove the stop sign on Alder Street? It causes backups.",
+        "channel": "email"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "bait_noise_needs_to_stop",
+      "input": {
+        "text": "The noise from the construction site needs to stop",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "bait_end_of_sentence",
+      "input": {
+        "text": "I support the budget. End.",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "bait_remove_dead_trees",
+      "input": {
+        "text": "Please remove the dead trees in Willow Park before they fall.",
+        "channel": "call"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "bait_quit_her_job",
+      "input": {
+        "text": "My neighbor had to quit her job because the bus route was cut.",
+        "channel": "call"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "join_keyword",
+      "input": {
+        "text": "JOIN",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": true,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "join_yes",
+      "input": {
+        "text": "yes join",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": true,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "join_after_sentence",
+      "input": {
+        "text": "Sounds good. JOIN!",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": true,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "join_intent_count_me_in",
+      "input": {
+        "text": "count me in for the panel",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": true,
+        "civicPanelLeave": false
+      },
+      "note": "Joining by intent with no keyword. The production check misses it on purpose; see the list note."
+    },
+    {
+      "caseId": "join_intent_sign_me_up",
+      "input": {
+        "text": "I'd love to be part of the community panel, sign me up.",
+        "channel": "email"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": true,
+        "civicPanelLeave": false
+      },
+      "note": "Joining by intent with no keyword."
+    },
+    {
+      "caseId": "bait_join_the_meeting",
+      "input": {
+        "text": "I'd like to join the meeting on Tuesday",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      },
+      "note": "About a meeting, not the panel."
+    },
+    {
+      "caseId": "bait_join_us_market",
+      "input": {
+        "text": "Join us at the farmers market Saturday!",
+        "channel": "email"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "leave_keyword",
+      "input": {
+        "text": "LEAVE",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": true
+      }
+    },
+    {
+      "caseId": "leave_panel",
+      "input": {
+        "text": "Leave panel",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": true
+      }
+    },
+    {
+      "caseId": "leave_the_panel_please",
+      "input": {
+        "text": "leave the panel please",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": true
+      }
+    },
+    {
+      "caseId": "leave_panel_keep_updates",
+      "input": {
+        "text": "I'm done with the panel surveys, take me off the panel but keep sending city updates",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": true
+      },
+      "note": "Leaves the panel and asks to keep getting texts, so it is not an opt-out."
+    },
+    {
+      "caseId": "bait_left_meeting_early",
+      "input": {
+        "text": "I had to leave the meeting early, what did I miss?",
+        "channel": "call"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "leave_and_stop",
+      "input": {
+        "text": "LEAVE. Also, STOP.",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": true,
+        "civicPanelJoin": false,
+        "civicPanelLeave": true
+      },
+      "note": "Leaves the panel and opts out of every text."
+    },
+    {
+      "caseId": "join_then_question",
+      "input": {
+        "text": "JOIN. When is the next town hall?",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": true,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "ordinary_thanks",
+      "input": {
+        "text": "Thanks for the update!",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "ordinary_win_support",
+      "input": {
+        "text": "Happy to see someone running who isn't tied to a party. You have my vote.",
+        "channel": "door"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "ordinary_serve_question",
+      "input": {
+        "text": "When does the council vote on the library hours?",
+        "channel": "email"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "ordinary_school_parking",
+      "input": {
+        "text": "Parking near the school is a mess at pickup time.",
+        "channel": "call"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    },
+    {
+      "caseId": "ordinary_who_is_this",
+      "input": {
+        "text": "Who is this?",
+        "channel": "text"
+      },
+      "expected": {
+        "optOut": false,
+        "civicPanelJoin": false,
+        "civicPanelLeave": false
+      }
+    }
+  ]
+}

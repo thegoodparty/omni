@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
-import { isChatCase, loadSeedPages } from './cases'
+import { isBackgroundCase, isChatCase, loadSeedPages } from './cases'
 import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
 import { chatArmRuntimeFor } from './runners/httpChatRuntime'
@@ -34,6 +34,7 @@ import {
   withRuntimeRefusals,
 } from './runners/backgroundDispatch'
 import { findAgent } from './agents'
+import { runLabeledCase } from './labeled/run'
 import {
   armConfigFor,
   armTimeoutMs,
@@ -193,7 +194,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
               request.agent.shape === 'background' &&
               inProcessAgentIds.includes(request.agent.agentId)
             ) {
-              if (isChatCase(request.case)) {
+              if (!isBackgroundCase(request.case)) {
                 throw new Error(
                   `${request.case.caseId} carries no params, so it is not ` +
                     'a background case',
@@ -244,6 +245,11 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
                 backgroundPorts(),
                 backgroundRunInputFor(request, env),
               )
+            }
+            // No app, no database, no model unless the adapter calls one:
+            // the arm's own adapter reads the case text and names labels.
+            if (request.agent.shape === 'labeled') {
+              return runLabeledCase(request, { ...(ci && { ci }) })
             }
             if (request.agent.shape !== 'chat') {
               throw new Error(

@@ -17,7 +17,14 @@ import {
 import { judgeAll, OVERALL } from './judge'
 import { normalizeAgent, type NormalizedAgent } from './normalize'
 import { armGap } from './armGap'
-import { coverageLines, renderReport, unpinnedMartReads } from './report'
+import {
+  coverageLines,
+  labeledSection,
+  renderReport,
+  unpinnedMartReads,
+} from './report'
+import type { LabeledScore } from './labeled/score'
+import { parseAgentOutcomeEntries } from './guard/guardVerdict'
 import type { Cost, JsonValue, RunRecord } from './record'
 import { scoreAgent, type AgentScore } from './score'
 
@@ -155,8 +162,8 @@ const pipeline = async (
 describe('the coverage line', () => {
   // The real registry, pinned. Every case list carries a real bench or core
   // checks, so no wired agent is counted as on placeholder inputs.
-  it('reads 4 of 20 wired, none on placeholder inputs, for the registry', () => {
-    expect(coverageLines()[0]).toBe('**Coverage: 4 of 20 agents wired.**')
+  it('reads 4 of 21 wired, none on placeholder inputs, for the registry', () => {
+    expect(coverageLines()[0]).toBe('**Coverage: 4 of 21 agents wired.**')
   })
 
   // Asserted as an exact string. A pattern like /\d+ of \d+/ would pass
@@ -1594,5 +1601,89 @@ describe('the case dimension rows', () => {
   it('adds nothing for an agent whose cases asked none', async () => {
     const report = renderReport({ agents: [await pipeline(sweepRecords(3))] })
     expect(report).not.toContain('case dimension')
+  })
+})
+
+// A labeled agent's section: no panel numbers, its own table, case ids and
+// label names only, and the heading the guard reads its verdict from.
+describe('a labeled agent in the report', () => {
+  const arm = (allCorrect: number, optOut: number, brier: number) => ({
+    allCorrect,
+    probabilistic: false,
+    labels: [
+      { name: 'optOut', correct: optOut, brier },
+      { name: 'civicPanelJoin', correct: 4, brier: 0 },
+    ],
+  })
+  const score: LabeledScore = {
+    agentId: 'reply_intent',
+    label: 'WORSE',
+    labelNote:
+      'the candidate answered false on 1 floor label(s) the base arm ' +
+      'answered true, which decides the verdict on its own',
+    pairedCases: 4,
+    base: arm(3, 3, 0.25),
+    candidate: arm(2, 2, 0.5),
+    discordant: [
+      {
+        caseId: 'quit_blowing_up_phone',
+        favours: 'base',
+        wrong: { base: [], candidate: ['optOut'] },
+      },
+    ],
+    sign: { forCandidate: 0, forBase: 1, pBetter: 1, pWorse: 0.5 },
+    floorBreaches: [{ caseId: 'quit_blowing_up_phone', label: 'optOut' }],
+    excluded: [{ caseId: 'stop_plain', arm: 'candidate', why: 'infraError' }],
+    unscored: [],
+    expectedChanged: ['typo_stop_txting'],
+    ci: null,
+  }
+
+  it('renders the verdict, the table, the discordant cases and the floor', () => {
+    const markdown = renderReport({ agents: [], labeled: [score] })
+    expect(markdown).not.toContain('No agent produced a verdict')
+    expect(markdown).toContain('### reply_intent — WORSE')
+    expect(markdown).toContain(
+      '> **Floor breached on 1 case(s):** optOut on quit_blowing_up_phone.',
+    )
+    expect(markdown).toContain(
+      '| cases with every label right | 3 of 4 (75%) | 2 of 4 (50%) |',
+    )
+    expect(markdown).toContain(
+      '| optOut | 3 of 4 (75%), Brier 0.250 | 2 of 4 (50%), Brier 0.500 |',
+    )
+    expect(markdown).toContain(
+      'The base and candidate arms gave hard labels with no probabilities',
+    )
+    expect(markdown).toContain(
+      '- right on base only: quit_blowing_up_phone (candidate wrong on ' +
+        'optOut)',
+    )
+    expect(markdown).toContain(
+      'adds or changes the expected labels on 1 case(s)',
+    )
+    expect(markdown).toContain(
+      'Excluded 1 run(s): stop_plain candidate (the adapter failed).',
+    )
+  })
+
+  it('carries no reply text, only case ids and label names', () => {
+    const markdown = labeledSection(score, undefined).join('\n')
+    expect(markdown).not.toContain('fictional')
+    expect(markdown).not.toMatch(/blowing up my phone/)
+  })
+
+  it('is read back by the guard as one verdict', () => {
+    expect(
+      parseAgentOutcomeEntries(renderReport({ agents: [], labeled: [score] })),
+    ).toEqual([{ agentId: 'reply_intent', outcome: 'WORSE' }])
+  })
+
+  it('says when the base list could not be read', () => {
+    const markdown = labeledSection(
+      { ...score, expectedChanged: null },
+      undefined,
+    ).join('\n')
+    expect(markdown).toContain("The base ref's case list could not be read")
   })
 })

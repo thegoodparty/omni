@@ -30,6 +30,7 @@ import {
   type ToolErrorCause,
 } from './score'
 import type { CiContext, RunRecord } from './record'
+import type { LabeledArmScore, LabeledScore } from './labeled/score'
 
 // The PR comment.
 //
@@ -84,6 +85,9 @@ export interface SweepReport {
   // One entry per agent. Never a blended number: a Chief of Staff score
   // averaged against a briefing score would have no referent.
   agents: readonly AgentScore[]
+  // Labeled agents, scored against expected labels rather than judged. Kept
+  // apart from `agents` because none of the panel's numbers exist for them.
+  labeled?: readonly LabeledScore[]
   // What the sweep spent. Absent on a sweep that could not spend, and on a
   // report rendered straight from fixture records.
   actualCost?: ActualCost
@@ -691,6 +695,144 @@ const agentSection = (
   return lines
 }
 
+const ofPaired = (count: number, paired: number): string =>
+  paired === 0
+    ? `${count} of 0`
+    : `${count} of ${paired} (${Math.round((count / paired) * 100)}%)`
+
+const labelCell = (
+  arm: LabeledArmScore,
+  name: string,
+  paired: number,
+): string => {
+  const one = arm.labels.find((l) => l.name === name)
+  if (one === undefined) return 'not scored'
+  const brier = one.brier === null ? '' : `, Brier ${one.brier.toFixed(3)}`
+  return `${ofPaired(one.correct, paired)}${brier}`
+}
+
+// Case ids and label names only. The inputs are fictional, but the comment
+// stays short and a reply's text is never what a reader needs here.
+const discordantLines = (score: LabeledScore): string[] => {
+  if (score.discordant.length === 0) return []
+  const side = (favours: 'base' | 'candidate'): string[] =>
+    score.discordant
+      .filter((d) => d.favours === favours)
+      .map((d) => {
+        const loser = favours === 'base' ? 'candidate' : 'base'
+        return `${d.caseId} (${loser} wrong on ${d.wrong[loser].join(', ')})`
+      })
+  const forBase = side('base')
+  const forCandidate = side('candidate')
+  return [
+    `Discordant cases, right on one arm only (${score.discordant.length}):`,
+    '',
+    ...(forBase.length > 0
+      ? [`- right on base only: ${forBase.join('; ')}`]
+      : []),
+    ...(forCandidate.length > 0
+      ? [`- right on candidate only: ${forCandidate.join('; ')}`]
+      : []),
+    '',
+  ]
+}
+
+const LABELED_EXCLUSIONS: Readonly<
+  Record<LabeledScore['excluded'][number]['why'], string>
+> = {
+  missing: 'no record',
+  infraError: 'the adapter failed',
+  unreadable: 'output not readable as labels',
+}
+
+export const labeledSection = (
+  score: LabeledScore,
+  spend: AgentSpend | undefined,
+): string[] => {
+  const lines: string[] = [`### ${score.agentId} — ${score.label}`, '']
+  if (score.floorBreaches.length > 0) {
+    lines.push(
+      `> **Floor breached on ${score.floorBreaches.length} case(s):** ` +
+        score.floorBreaches.map((b) => `${b.label} on ${b.caseId}`).join(', ') +
+        '. The base arm answered true and the candidate did not, which ' +
+        'makes the verdict WORSE whatever the count says.',
+      '',
+    )
+  }
+  lines.push(
+    'Scored against the expected labels in the case list, with no model ' +
+      `panel: ${score.labelNote}.`,
+    '',
+    '| | base | candidate |',
+    '| --- | --- | --- |',
+    `| cases with every label right | ` +
+      `${ofPaired(score.base.allCorrect, score.pairedCases)} | ` +
+      `${ofPaired(score.candidate.allCorrect, score.pairedCases)} |`,
+  )
+  for (const { name } of score.base.labels) {
+    lines.push(
+      `| ${name} | ${labelCell(score.base, name, score.pairedCases)} | ` +
+        `${labelCell(score.candidate, name, score.pairedCases)} |`,
+    )
+  }
+  lines.push('')
+  const hard = (['base', 'candidate'] as const).filter(
+    (arm) => !score[arm].probabilistic,
+  )
+  lines.push(
+    'Brier is lower-better, 0 to 1 on a yes/no label.' +
+      (hard.length === 0
+        ? ''
+        : ` The ${hard.join(' and ')} arm${hard.length > 1 ? 's' : ''} ` +
+          'gave hard labels with no probabilities, which count as ' +
+          'probability 0 or 1, so that Brier is the error rate.'),
+    '',
+  )
+  lines.push(...discordantLines(score))
+  if (score.expectedChanged === null) {
+    lines.push(
+      "The base ref's case list could not be read, so whether this branch " +
+        'changed any expected label is unknown. Both arms are scored ' +
+        "against this branch's labels.",
+      '',
+    )
+  } else if (score.expectedChanged.length > 0) {
+    lines.push(
+      `This branch adds or changes the expected labels on ` +
+        `${score.expectedChanged.length} case(s) against the base ref's ` +
+        `list: ${score.expectedChanged.join(', ')}. Both arms are scored ` +
+        "against this branch's labels.",
+      '',
+    )
+  }
+  if (score.unscored.length > 0) {
+    lines.push(
+      `Held out as controls on both refs: ${score.unscored.join(', ')}.`,
+      '',
+    )
+  }
+  if (score.controlsScoredAnyway !== undefined) {
+    lines.push(
+      `${score.controlsScoredAnyway.caseIds.join(', ')}: ` +
+        `${SCORED_ANYWAY[score.controlsScoredAnyway.why]}.`,
+      '',
+    )
+  }
+  if (score.excluded.length > 0) {
+    lines.push(
+      `Excluded ${score.excluded.length} run(s): ` +
+        score.excluded
+          .map((e) => `${e.caseId} ${e.arm} (${LABELED_EXCLUSIONS[e.why]})`)
+          .join(', ') +
+        '.',
+      '',
+    )
+  }
+  if (spend !== undefined) lines.push(spentLine(spend), '')
+  lines.push(changeLine(score.ci))
+  return lines
+}
+
 // Always printed, even when nothing was judged. This is the anti-stall
 // mechanic: a gap nobody can see is a gap nobody closes, so the number and
 // the named blockers go out with every report.
@@ -1020,7 +1162,8 @@ export const renderReport = (
     lines.push('')
   }
 
-  if (report.agents.length === 0) {
+  const labeled = report.labeled ?? []
+  if (report.agents.length === 0 && labeled.length === 0) {
     lines.push('No agent produced a verdict in this sweep.')
     lines.push('')
   }
@@ -1031,6 +1174,16 @@ export const renderReport = (
         config,
         report.actualCost?.agents.find((a) => a.agentId === score.agentId),
         (report.pageReplay ?? []).filter((r) => r.agentId === score.agentId),
+      ),
+    )
+    lines.push('')
+  }
+
+  for (const score of labeled) {
+    lines.push(
+      ...labeledSection(
+        score,
+        report.actualCost?.agents.find((a) => a.agentId === score.agentId),
       ),
     )
     lines.push('')
@@ -1111,6 +1264,7 @@ export const renderReport = (
   }
   const sectioned = new Set([
     ...report.agents.map((a) => a.agentId),
+    ...labeled.map((a) => a.agentId),
     ...(report.refusals ?? []).map((r) => r.agentId),
   ])
   const unsectioned = (report.actualCost?.agents ?? []).filter(

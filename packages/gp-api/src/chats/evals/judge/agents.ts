@@ -236,6 +236,18 @@ const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => {
   }
 })
 
+// Agents whose output is a typed label with a right answer a person can write
+// down, scored against that answer rather than by the panel. Each one has an
+// adapter in labeled/adapters.ts. See "Labeled cases" in the README.
+const LABELED_AGENTS: AgentEntry[] = [
+  {
+    agentId: 'reply_intent',
+    shape: 'labeled',
+    cases: 'reply_intent.json',
+    status: 'pending',
+  },
+]
+
 // The runs that wired each agent. See "Marking an agent wired" in the README.
 // Applied over the entries above rather than inside them: a blocked agent
 // listed here keeps its blockedReason, which the schema then refuses.
@@ -266,7 +278,7 @@ const withWiring = (entry: AgentEntry): AgentEntry => {
 // Readonly: nine build tracks import this, and a coverage number that any
 // one of them could push onto is not a number anyone should trust.
 export const AGENTS: readonly AgentEntry[] = Object.freeze(
-  [...CHAT_AGENTS, ...BACKGROUND_AGENTS].map(withWiring),
+  [...CHAT_AGENTS, ...BACKGROUND_AGENTS, ...LABELED_AGENTS].map(withWiring),
 )
 
 export interface Coverage {

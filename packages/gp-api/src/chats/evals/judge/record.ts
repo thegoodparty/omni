@@ -44,7 +44,10 @@ export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   ]),
 )
 
-export const AgentShapeSchema = z.enum(['chat', 'background'])
+// `labeled` (2026-11-18, reviewed in its own PR): an agent whose output is a
+// typed label with a written-down right answer, scored against that answer
+// instead of by the panel. Its output still travels as opaque JSON.
+export const AgentShapeSchema = z.enum(['chat', 'background', 'labeled'])
 export type AgentShape = z.infer<typeof AgentShapeSchema>
 
 export const ArmSchema = z.enum(['base', 'candidate'])
