@@ -287,7 +287,7 @@ const WIN_AREAS: ProductArea[] = [
       'One flow: the candidate answers whether they have filed, gives their campaign EIN and their campaign filing details (plus a candidate profile if they have not written one), then pays',
       'Candidates who were already Pro without filing details on record add them under Campaign verification',
       'The same flow can open inside a text or robocall you are building, so upgrading does not lose the work',
-      'The Welcome to Pro screen shows the receipt for the $10 monthly charge, with the card used and a download',
+      'The Welcome to Pro screen shows the receipt, with the card used and a download. With the new plans it is the one-time plan payment, and the invoice also appears under Billing history in Account Settings. A subscriber who started before plans sees the $10 monthly charge',
     ],
   },
   {
