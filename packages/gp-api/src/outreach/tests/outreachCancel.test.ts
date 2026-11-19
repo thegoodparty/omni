@@ -4,6 +4,7 @@ import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { OutreachService } from '../services/outreach.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
   OutreachStatus,
@@ -177,6 +178,42 @@ describe('POST /v1/outreach/:id/cancel', () => {
     })
     expect(campaign.hasFreeTextsOffer).toBe(true)
     expect(campaign.freeTextsOfferRedeemedAt).toBeNull()
+  })
+
+  it('returns the credit the canceled send reserved', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { outreachCreditCents: 9100 },
+    })
+    const row = await seedOutreach({ stripeCheckoutSessionId: null })
+    await service.prisma.outreach.update({
+      where: { id: row.id },
+      data: { creditReservedCents: 8400 },
+    })
+
+    const res = await postCancel(row.id)
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { id: campaignId },
+    })
+    expect(campaign.outreachCreditCents).toBe(9100 + 8400)
+  })
+
+  it('leaves the row pending when the credit release fails, so cancel can retry', async () => {
+    const row = await seedOutreach({ stripeCheckoutSessionId: null })
+    vi.spyOn(
+      service.app.get(OutreachCreditsService),
+      'release',
+    ).mockRejectedValueOnce(new Error('db down'))
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR)
+    const persisted = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(persisted.status).toBe(OutreachStatus.pending)
   })
 
   it('restores the offer on a partial-subsidy cancel too', async () => {
