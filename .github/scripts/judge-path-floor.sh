@@ -37,9 +37,12 @@ while IFS= read -r path; do
     packages/gp-api/src/chats/general/ordinance-flow/*)   add ordinance_flow ;;
     packages/gp-api/src/chats/general/priority-flow/*)    add priority_flow ;;
     packages/gp-api/src/chats/briefing-chats/*)           add briefing_annotation ;;
-    # Labeled agents: the judge's labeled kind, and the production reply
-    # predicates the reply_intent adapter calls. Same rows as judge.yml.
+    # Labeled agents: the judge's labeled kind, the decision-model client,
+    # and the production reply classifier and predicates the reply_intent
+    # adapter calls. Same rows as judge.yml.
     packages/gp-api/src/chats/evals/judge/labeled/*)      add reply_intent ;;
+    packages/gp-api/src/decisionModels/*)                 add reply_intent ;;
+    packages/gp-api/src/outreach/util/replyIntent.util.ts)     add reply_intent ;;
     packages/gp-api/src/outreach/util/textOptOut.util.ts)      add reply_intent ;;
     packages/gp-api/src/outreach/util/civicPanelJoin.util.ts)  add reply_intent ;;
     packages/gp-api/src/outreach/util/civicPanelLeave.util.ts) add reply_intent ;;

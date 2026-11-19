@@ -138,6 +138,11 @@ on:
         required: false
       DATABRICKS_CLIENT_SECRET:
         required: false
+      GEMINI_API_KEY:
+        # reply_intent's decision-model arm only, and optional like the rest:
+        # empty, that arm records an infraError naming JUDGE_GEMINI_API_KEY
+        # and every other agent runs as before.
+        required: false
       CLERK_SECRET_KEY:
         # HTTP arms only, and required: false for the same reason as the
         # others: a plan must not fail for want of a key it will not use.
@@ -615,9 +620,12 @@ jobs:
               packages/gp-api/src/chats/general/ordinance-flow/*)  add ordinance_flow ;;
               packages/gp-api/src/chats/general/priority-flow/*)   add priority_flow ;;
               packages/gp-api/src/chats/briefing-chats/*)          add briefing_annotation ;;
-              # Labeled agents: the judge's labeled kind, and the production
-              # reply predicates the reply_intent adapter calls.
+              # Labeled agents: the judge's labeled kind, the decision-model
+              # client, and the production reply classifier and predicates
+              # the reply_intent adapter calls.
               packages/gp-api/src/chats/evals/judge/labeled/*)     add reply_intent ;;
+              packages/gp-api/src/decisionModels/*)                add reply_intent ;;
+              packages/gp-api/src/outreach/util/replyIntent.util.ts)     add reply_intent ;;
               packages/gp-api/src/outreach/util/textOptOut.util.ts)      add reply_intent ;;
               packages/gp-api/src/outreach/util/civicPanelJoin.util.ts)  add reply_intent ;;
               packages/gp-api/src/outreach/util/civicPanelLeave.util.ts) add reply_intent ;;
@@ -1609,7 +1617,8 @@ jobs:
     # THE ARMS CANNOT MOVE, BY CONSTRUCTION, AND THAT SETTLES THE REST.
     # "Capture the candidate arm" IS the branch's code: running it is the
     # question the sweep exists to answer. It is handed the real Anthropic
-    # key (under JUDGE_ANTHROPIC_API_KEY), DATABRICKS_CLIENT_ID and
+    # key (under JUDGE_ANTHROPIC_API_KEY), the Gemini key (under
+    # JUDGE_GEMINI_API_KEY), DATABRICKS_CLIENT_ID and
     # DATABRICKS_CLIENT_SECRET, and `.env.test` stubs neither Databricks name,
     # so the real values reach branch code there whatever the other steps do.
     # The role's credentials are worse than per-step: configure-aws-credentials
@@ -2204,6 +2213,12 @@ jobs:
           # call come back `invalid x-api-key`. modelKey.ts moves this value
           # into place under the name the SDK reads, before the app boots.
           JUDGE_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Gemini's key, for the same reason under the same kind of name:
+          # `.env.test` stubs GEMINI_API_KEY. Only reply_intent's adapter
+          # reads it, and only when spending. Empty when the repository has
+          # no such secret, and then that adapter records an infraError
+          # saying so; nothing else reads it.
+          JUDGE_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # DATABRICKS_SERVER_HOSTNAME comes from the job environment — see
           # the normalize step near the top of this job.
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
@@ -2326,6 +2341,8 @@ jobs:
           JUDGE_SPEND: 'true'
           # Under the arm name, not ANTHROPIC_API_KEY — see the base arm above.
           JUDGE_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Under the arm name, not GEMINI_API_KEY — see the base arm above.
+          JUDGE_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}

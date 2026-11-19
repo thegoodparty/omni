@@ -19,6 +19,7 @@ import { formatPlan, selectAgents } from './cli'
 import { estimateAgent } from './planCost'
 import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
+import { ARM_GEMINI_KEY_ENV } from './labeled/replyIntent.adapter'
 import { ARM_AWS_ENV } from './awsCredentials'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
 
@@ -194,6 +195,43 @@ describe('judge.yml spend switches', () => {
       .filter((step) => setsEnv(step.body, KEY_ENV))
       .map((step) => step.name)
     expect(shadowed).toEqual([])
+  })
+
+  // Gemini's key, for reply_intent's decision-model arm, follows the same
+  // rule: `.env.test` stubs GEMINI_API_KEY, so it arrives under the arm name
+  // and the adapter hands it to the client itself.
+  it('passes the Gemini key to both arms under the arm name', () => {
+    expect(arms).toHaveLength(2)
+    expect(arms.map((step) => envValue(step.body, ARM_GEMINI_KEY_ENV))).toEqual(
+      ['${{ secrets.GEMINI_API_KEY }}', '${{ secrets.GEMINI_API_KEY }}'],
+    )
+    const shadowed = arms
+      .filter((step) => setsEnv(step.body, 'GEMINI_API_KEY'))
+      .map((step) => step.name)
+    expect(shadowed).toEqual([])
+  })
+
+  // judge.yml is a reusable workflow, so a repository secret reaches its
+  // steps only if judge.yml declares it and every sweep caller passes it.
+  // Without both, the arms read an empty key whatever the repository holds.
+  it('declares the Gemini secret and has every sweep caller pass it', () => {
+    const secretsBlock = /^ {4}secrets:\n((?: {6}.*\n|\s*\n)*)/m.exec(yaml)
+    expect(secretsBlock?.[1]).toMatch(
+      /^ {6}GEMINI_API_KEY:\n {8}(?:#.*\n {8})*required: false$/m,
+    )
+    for (const caller of ['judge-request.yml', 'judge-comment.yml']) {
+      const body = readFileSync(
+        path.resolve(path.dirname(WORKFLOW), caller),
+        'utf8',
+      )
+      const passes = body.match(
+        /^ {6}GEMINI_API_KEY: \$\{\{ secrets\.GEMINI_API_KEY \}\}$/gm,
+      )
+      const passesAnthropic = body.match(
+        /^ {6}ANTHROPIC_API_KEY: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}$/gm,
+      )
+      expect(passes?.length, caller).toBe(passesAnthropic?.length)
+    }
   })
 
   it('passes the real key to the judging step under its own name', () => {

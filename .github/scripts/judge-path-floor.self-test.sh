@@ -73,6 +73,10 @@ expect reply_intent 'the panel join predicate' \
   packages/gp-api/src/outreach/util/civicPanelJoin.util.ts
 expect reply_intent 'the panel leave predicate' \
   packages/gp-api/src/outreach/util/civicPanelLeave.util.ts
+expect reply_intent 'the reply classifier' \
+  packages/gp-api/src/outreach/util/replyIntent.util.ts
+expect reply_intent 'the decision-model client' \
+  packages/gp-api/src/decisionModels/services/decisionModel.service.ts
 expect '' 'a predicate test file is not the predicate' \
   packages/gp-api/src/outreach/util/textOptOut.util.test.ts
 expect '' 'another outreach util is not a reply predicate' \

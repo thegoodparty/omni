@@ -71,6 +71,10 @@ export const AGENT_DIRECTORIES: readonly AgentDirectory[] = [
     path: 'packages/gp-api/src/chats/evals/judge/labeled/',
     agentId: 'reply_intent',
   },
+  {
+    path: 'packages/gp-api/src/decisionModels/',
+    agentId: 'reply_intent',
+  },
 ]
 
 const COS_DIR = 'packages/gp-api/src/chats/general/chief-of-staff/'
@@ -182,6 +186,11 @@ export const CODE_MAP: readonly CodeMapRow[] = [
   },
   // The production reply predicates the reply_intent adapter calls, so a
   // change to one is what that labeled agent measures.
+  {
+    path: 'packages/gp-api/src/outreach/util/replyIntent.util.ts',
+    agentIds: ['reply_intent'],
+    note: 'Reads a reply as opt-out, panel join and panel leave, by regex or model.',
+  },
   {
     path: 'packages/gp-api/src/outreach/util/textOptOut.util.ts',
     agentIds: ['reply_intent'],

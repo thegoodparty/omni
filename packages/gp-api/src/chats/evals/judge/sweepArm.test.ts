@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { AgentEntry } from './agents'
 import { JUDGE_CLERK_ENV } from './judgeClerkSession'
+import { ARM_GEMINI_KEY_ENV } from './labeled/replyIntent.adapter'
 import { ARM_KEY_ENV } from './modelKey'
 import type { CaseList } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
@@ -161,6 +162,7 @@ describe('scrubReason', () => {
     ARM_KEY_ENV,
     'DATABRICKS_CLIENT_SECRET',
     'DATABRICKS_CLIENT_ID',
+    ARM_GEMINI_KEY_ENV,
     'PEOPLE_DATABRICKS_CLIENT_SECRET',
     'PEOPLE_DATABRICKS_CLIENT_ID',
     'DATABASE_URL',
