@@ -1,5 +1,9 @@
 import { faker } from '@faker-js/faker'
-import { Campaign, CampaignTier } from '../../src/generated/prisma'
+import {
+  Campaign,
+  CampaignPlanLevel,
+  CampaignTier,
+} from '../../src/generated/prisma'
 import { CampaignLaunchStatus, OnboardingStep } from '@goodparty_org/contracts'
 import { LEVELS } from '../../src/shared/constants/governmentLevels'
 import { STATE_CODES } from '@goodparty_org/nest-common'
@@ -74,6 +78,12 @@ export const campaignFactory = generateFactory<Campaign>(() => {
     completedTaskIds: [],
     hasFreeTextsOffer: faker.datatype.boolean(0.2),
     freeTextsOfferRedeemedAt: null,
+    plan: CampaignPlanLevel.free,
+    planPricingModel: null,
+    planPaidAt: null,
+    planEndsAtOverride: null,
+    planEndedAt: null,
+    outreachCreditCents: 0,
   }
 
   return campaign as Omit<Campaign, 'id' | 'userId'>

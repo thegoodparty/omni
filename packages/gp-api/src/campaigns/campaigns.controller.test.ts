@@ -8,7 +8,13 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common'
-import { Campaign, Organization, User, UserRole } from '../generated/prisma'
+import {
+  Campaign,
+  CampaignPlanLevel,
+  Organization,
+  User,
+  UserRole,
+} from '../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CampaignsController } from './campaigns.controller'
@@ -111,6 +117,12 @@ const campaignDefaults = {
   completedTaskIds: [],
   hasFreeTextsOffer: false,
   freeTextsOfferRedeemedAt: null,
+  plan: CampaignPlanLevel.free,
+  planPricingModel: null,
+  planPaidAt: null,
+  planEndsAtOverride: null,
+  planEndedAt: null,
+  outreachCreditCents: 0,
 }
 
 const mockCampaign: Campaign = {
@@ -366,6 +378,7 @@ describe('CampaignsController', () => {
         smsCompliance: 'closed',
         smsCutoffDate: '2025-10-16',
         generalElectionDate: '2025-11-04',
+        planEndsAt: new Date('2025-11-18T00:00:00Z'),
         ownerAvatar: null,
       })
       expect(result).not.toHaveProperty('user')

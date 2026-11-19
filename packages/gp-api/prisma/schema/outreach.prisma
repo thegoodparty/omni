@@ -258,6 +258,8 @@ model Outreach {
   managedPanelConfirmationFor       ManagedCivicPanel?                 @relation(fields: [managedPanelConfirmationForId], references: [id], onDelete: NoAction)
   priorityAnswers                   PriorityAnswer[]
   textHandoff                       OutreachTextHandoff?
+  creditReservedCents               Int                                @default(0) @map("credit_reserved_cents")
+  creditSettledAt                   DateTime?                          @map("credit_settled_at")
 
   @@index([campaignId])
   @@index([organizationSlug])

@@ -2,7 +2,7 @@ import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownl
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
-import { Campaign } from '../../generated/prisma'
+import { Campaign, CampaignPlanLevel } from '../../generated/prisma'
 import { Test, TestingModule } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -476,5 +476,11 @@ function createMockCampaign(
     completedTaskIds: [],
     hasFreeTextsOffer: false,
     freeTextsOfferRedeemedAt: null,
+    plan: CampaignPlanLevel.free,
+    planPricingModel: null,
+    planPaidAt: null,
+    planEndsAtOverride: null,
+    planEndedAt: null,
+    outreachCreditCents: 0,
   }
 }

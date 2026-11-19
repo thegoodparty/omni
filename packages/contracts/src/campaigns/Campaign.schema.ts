@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { zCoerceDate } from '../shared/Date.schema'
 import { CampaignTierSchema } from '../generated/enums'
+import {
+  CampaignPlanSchema,
+  PlanPricingModelSchema,
+} from '../payments/PlanPurchase.schema'
 import type { CampaignData, CampaignDetails } from './types'
 
 export const CampaignSchema = z.object({
@@ -26,6 +30,12 @@ export const CampaignSchema = z.object({
   completedTaskIds: z.array(z.string()),
   hasFreeTextsOffer: z.boolean(),
   freeTextsOfferRedeemedAt: zCoerceDate().nullish(),
+  plan: CampaignPlanSchema.optional(),
+  planPricingModel: PlanPricingModelSchema.nullish(),
+  planPaidAt: zCoerceDate().nullish(),
+  planEndsAt: zCoerceDate().nullish(),
+  planEndedAt: zCoerceDate().nullish(),
+  outreachCreditCents: z.number().int().min(0).optional(),
   derp: z.string().optional(),
 })
 

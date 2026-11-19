@@ -7,15 +7,19 @@ import { IdParamSchema } from '@/shared/schemas/IdParam.schema'
 import { PaginatedResponseSchema } from '@/shared/schemas/PaginatedResponse.schema'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import {
+  CampaignPlanSchema,
   CampaignWithLiveContextSchema,
   CampaignWithPositionNameSchema,
   FilingInstructionsContentSchema,
   ListCampaignsPaginationSchema,
+  PlanPricingModelSchema,
+  planEndsAt,
   type PositionSource,
   ReadCampaignOutputSchema,
   SetDistrictOutputSchema,
   SmsComplianceWindowSchema,
   UpdateCampaignM2MSchema,
+  zCoerceDate,
 } from '@goodparty_org/contracts'
 import {
   Body,
@@ -82,6 +86,12 @@ class ListCampaignsPaginationDto extends createZodDto(
 // — never absent — so nullable, not nullish. ownerAvatar rides along so the
 // SMS composer can attach the candidate's photo, not a team member's.
 const CampaignMineSchema = CampaignWithLiveContextSchema.extend({
+  plan: CampaignPlanSchema,
+  planPricingModel: PlanPricingModelSchema.nullable(),
+  planPaidAt: zCoerceDate().nullable(),
+  planEndsAt: zCoerceDate().nullable(),
+  planEndedAt: zCoerceDate().nullable(),
+  outreachCreditCents: z.number().int().min(0),
   ownerName: z.string().nullable(),
   smsCompliance: SmsComplianceWindowSchema.optional(),
   smsCutoffDate: z.string().nullable().optional(),
@@ -147,6 +157,7 @@ export class CampaignsController {
       positionName,
       raceTargetMetrics: liveMetrics,
       ownerName: (owner && getUserFullName(owner)) || null,
+      planEndsAt: planEndsAt(campaign),
       ...smsComplianceWindow({
         electionDate: campaign.details?.electionDate,
         tcrCompliance,
