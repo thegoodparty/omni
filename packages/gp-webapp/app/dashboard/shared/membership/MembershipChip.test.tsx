@@ -6,7 +6,11 @@ import { router } from 'helpers/test-utils/router-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import type { MembershipState } from './deriveMembershipState'
-import { MEMBERSHIP_COPY } from './membershipCopy'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
+import { buildPlanPitch } from '../plan/planPitch'
 import { MembershipChip } from './MembershipChip'
 
 const { mockUseMembershipState } = vi.hoisted(() => ({
@@ -30,8 +34,11 @@ vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => mockSmsCompliance.current,
 }))
 
+const { mockPlanFlag } = vi.hoisted(() => ({
+  mockPlanFlag: { ready: true, enabled: false },
+}))
 vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
-  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: false }),
+  useWinPerCampaignPricingFlag: () => mockPlanFlag,
 }))
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
@@ -62,20 +69,32 @@ const membership = (
 const setup = ({
   ready = true,
   state = membership(),
+  registeredVoters,
 }: {
   ready?: boolean
   state?: MembershipState
+  registeredVoters?: number
 } = {}) => {
   mockUseMembershipState.mockReturnValue({
     ready,
     state: ready ? state : null,
     tcrCompliance: ready ? { status: 'submitted' } : null,
   })
-  return render(<MembershipChip />)
+  return render(
+    <CampaignContext.Provider
+      value={[
+        { raceTargetMetrics: { registeredVoters } } as unknown as Campaign,
+      ]}
+    >
+      <MembershipChip />
+    </CampaignContext.Provider>,
+  )
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockPlanFlag.ready = true
+  mockPlanFlag.enabled = false
   mockSmsCompliance.current = {
     smsCompliance: 'open',
     smsCutoffDate: null,
@@ -194,5 +213,41 @@ describe('MembershipChip', () => {
     setup({ state: membership({ isElectedOffice: true }) })
 
     expect(screen.queryByRole('button')).toBeNull()
+  })
+})
+
+describe('MembershipChip plan copy', () => {
+  it('renders nothing for a free campaign while the flag is loading', () => {
+    mockPlanFlag.ready = false
+    setup({ state: membership({ tier: 'free' }) })
+
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('reads the Pro price tail with the flag on', () => {
+    mockPlanFlag.enabled = true
+    setup({ state: membership({ tier: 'free' }) })
+
+    expect(
+      screen.getByText(
+        membershipPlanCopy(buildPlanPitch(true, true, false)).chipJoinTail,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(MEMBERSHIP_COPY.chip.joinTail)).toBeNull()
+  })
+
+  it('shows the Team name instead of the Pro badge when Team is recommended', () => {
+    mockPlanFlag.enabled = true
+    setup({
+      state: membership({ tier: 'free' }),
+      registeredVoters: PLAN_PRICING.teamRecommendVoterThreshold + 1,
+    })
+
+    expect(screen.getByText('Team')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        membershipPlanCopy(buildPlanPitch(true, true, true)).chipJoinTail,
+      ),
+    ).toBeInTheDocument()
   })
 })

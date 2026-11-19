@@ -73,6 +73,12 @@ via a Clerk invitation). No other code path may create one.
 | DELETE | `team/members/me`      | `@UseOrganization()` + `@AllowVolunteer()` |
 | DELETE | `team/members/:userId` | `@UseOrganization()` + `@OwnerOnly()` |
 
+**`POST team/invites` is Team-plan gated (ENG-11687).** After the `eo-` (400) and
+test-org (409) checks, with `win_per_campaign_pricing` on (read for the org
+owner), an org whose campaign has `createdAt >= TEAM_GATE_START` (contracts)
+and `plan !== 'team'` gets a 403 body `{ code: 'TEAM_PLAN_REQUIRED', message }`.
+Older campaigns, Serve orgs and flag off are untouched.
+
 **`DELETE team/members/me` is self-removal (ENG-11137).** Any member —
 volunteer or manager — can leave; it reuses `removeMember` with the caller
 as target, so the owner check (400), the membership + assignment cascade,
