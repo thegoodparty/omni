@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { AGENTS } from '../src/agents/agents.registry'
-import { agentsOnGpApi } from './agentsOnGpApi'
+import { AGENTS } from './agents.registry'
+import { agentsOnGpApi } from '../../deploy/agentsOnGpApi'
 
 describe('agentsOnGpApi', () => {
   // A preview is the judge's candidate arm, so an agent it leaves out runs the

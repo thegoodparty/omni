@@ -9,7 +9,8 @@
 // (docs/judge-eval-framework-plan.md).
 //
 // deploy/ is outside src/'s tsconfig, so this list repeats AGENTS' keys rather
-// than importing them. deploy/agentsOnGpApi.test.ts holds the two equal.
+// than importing them. src/agents/agentsOnGpApi.test.ts holds the two equal;
+// it lives under src/ so the deploy tsconfig program never pulls src/ in.
 export const PREVIEW_AGENTS_ON_GP_API = [
   'top_community_issues',
   'trending_issues',
