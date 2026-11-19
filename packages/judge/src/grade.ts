@@ -174,6 +174,9 @@ const defaultGenerateObject: GenerateObjectFn = async ({
     model,
     schema,
     prompt,
+    // Newer Claude models refuse the forced tool call @ai-sdk/anthropic falls
+    // back to for a model id it does not know, so ask for native JSON output.
+    providerOptions: { anthropic: { structuredOutputMode: 'outputFormat' } },
   })
   return {
     object: result.object,
