@@ -25,6 +25,18 @@ const toBucket = (contacts: number): NonZeroContactsMadeBucket =>
           ? 4
           : 5
 
+// The rest window counts asks, so a civic panel invite or the panel's
+// thank-you text never makes someone "reached": both go to people nobody
+// has asked anything yet.
+const NOT_A_PANEL_TEXT = Prisma.sql`NOT EXISTS (
+  SELECT 1 FROM outreach
+  WHERE outreach.id = contact_interaction_text.outreach_id
+    AND (
+      outreach.asks_to_join_civic_panel
+      OR outreach.managed_panel_confirmation_for_id IS NOT NULL
+    )
+)`
+
 // A contacts-made selection either collapses onto the shared `id`
 // in/notIn operator (buckets excluding 0, or {0} alone) or needs the
 // OR-of-id-sets override composition (0 combined with a non-zero bucket) —
@@ -91,6 +103,7 @@ export class ContactsMadeResolutionService extends createPrismaBase(
       FROM (
         SELECT person_id FROM contact_interaction_text
         WHERE organization_slug = ${organizationSlug} AND occurred_at >= ${since}
+          AND ${NOT_A_PANEL_TEXT}
         UNION ALL
         SELECT person_id FROM contact_interaction_robocall
         WHERE organization_slug = ${organizationSlug} AND occurred_at >= ${since}
@@ -122,6 +135,7 @@ export class ContactsMadeResolutionService extends createPrismaBase(
       FROM (
         SELECT person_id, occurred_at FROM contact_interaction_text
         WHERE organization_slug = ${organizationSlug}
+          AND ${NOT_A_PANEL_TEXT}
         UNION ALL
         SELECT person_id, occurred_at FROM contact_interaction_robocall
         WHERE organization_slug = ${organizationSlug}
@@ -149,6 +163,7 @@ export class ContactsMadeResolutionService extends createPrismaBase(
       FROM (
         SELECT occurred_at FROM contact_interaction_text
         WHERE organization_slug = ${organizationSlug} AND person_id = ${personId}
+          AND ${NOT_A_PANEL_TEXT}
         UNION ALL
         SELECT occurred_at FROM contact_interaction_robocall
         WHERE organization_slug = ${organizationSlug} AND person_id = ${personId}
@@ -178,6 +193,7 @@ export class ContactsMadeResolutionService extends createPrismaBase(
         SELECT person_id FROM contact_interaction_text
         WHERE organization_slug = ${organizationSlug} AND occurred_at >= ${since}
           AND person_id = ANY(${personIds})
+          AND ${NOT_A_PANEL_TEXT}
         UNION ALL
         SELECT person_id FROM contact_interaction_robocall
         WHERE organization_slug = ${organizationSlug} AND occurred_at >= ${since}

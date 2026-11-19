@@ -164,7 +164,8 @@ export const NO_CIVIC_PANEL_JOINS: CivicPanelJoinedBy = {
 // Serve's civic panel at a glance (GET /v1/contacts/civic-panel).
 // `reachedRecently` uses the same rule as the notContactedRecently list
 // filter, so askableNow matches what a "Not contacted in the last 30 days"
-// panel list holds. The two always add up to members. `lastOutreachAt` is
+// panel list holds; a civic panel invite or the panel's thank-you text is
+// not an ask, so neither counts. The two always add up to members. `lastOutreachAt` is
 // the newest row of the built-in list's outreach history (a send that
 // reached a current member), null when there is none. `progress` is the
 // panel toward the district's goal. `balance` is null when the district's

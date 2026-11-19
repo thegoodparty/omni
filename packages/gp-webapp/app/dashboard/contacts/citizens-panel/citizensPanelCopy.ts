@@ -169,12 +169,8 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     },
     ready: {
       title: 'Your civic panel is ready',
-      // A managed panel stays ready as members leave, so it only claims
-      // every seat while they still fill the goal.
-      line: (members: number, goal: number, place: string | null) =>
-        members >= goal
-          ? `All ${count(goal)} seats are filled. ${askWhenever(place)}`
-          : `Your civic panel has ${count(members)} ${members === 1 ? 'resident' : 'residents'}. ${askWhenever(place)}`,
+      line: (members: number, _goal: number, place: string | null) =>
+        `${count(members)} ${place ? `${place} ` : ''}${members === 1 ? 'resident is' : 'residents are'} on your civic panel. ${askWhenever(place)}`,
     },
     exhausted: {
       title: 'Every resident we can text has an invite',
@@ -213,6 +209,10 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   groupSeats: (have: number, need: number) =>
     `${have} of ${need} ${need === 1 ? 'seat' : 'seats'}`,
   seeEveryGroup: 'See every group',
+  // A full civic panel's members by age, gender and race, beside the place.
+  makeupTitle: 'Your members by age, gender and race',
+  makeupLine: 'Out of every 100 seats on your civic panel.',
+  makeupKinds: { age: 'Age', gender: 'Gender', race: 'Race' },
   // A tract with no human name yet, never its number.
   unnamedTract: (place: string) => `A part of ${place}`,
   yourDistrict: 'your district',
