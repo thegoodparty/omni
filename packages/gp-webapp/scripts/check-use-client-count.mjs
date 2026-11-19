@@ -537,7 +537,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-11-14: 602 -> 603 for SmsCropStep (Win SMS image crop). The crop box,
 // the image element and the async canvas render all live in browser state
 // and refs, so it cannot be a server component.
-const BASELINE = 603
+// 2026-11-19: 603 -> 600 removing the outreach-pro-gating-v2 flag. The legacy
+// door-knocking page gate, the value prop step and the candidate profile step
+// were client components that only rendered with the flag off.
+const BASELINE = 600
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
