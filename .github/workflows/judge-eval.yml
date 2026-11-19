@@ -49,10 +49,10 @@ run-name: 'Judge eval: PR #${{ github.event.issue.number || inputs.pr_number }}'
 # have to run before the job does, so they cannot BE the job's `if:`.
 concurrency:
   group: >-
-    ${{ github.event_name == 'workflow_dispatch'
+    ${{ (github.event_name == 'workflow_dispatch'
     || (github.event.issue.pull_request != null
     && startsWith(github.event.comment.body, '/judge-eval')
-    && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)))
     && format('judge-eval-pr-{0}', github.event.issue.number || inputs.pr_number)
     || format('judge-eval-noop-{0}', github.run_id) }}
   cancel-in-progress: true
