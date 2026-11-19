@@ -38,8 +38,23 @@ run-name: 'Judge eval: PR #${{ github.event.issue.number || inputs.pr_number }}'
 
 # One slot per PR, cancelled by a newer request: a re-request compares a newer
 # push, and letting both run spends twice on the one that no longer matches.
+#
+# ONLY A PLAUSIBLE REQUEST SHARES THAT SLOT. GitHub applies workflow-level
+# concurrency when it creates the run, before the `gate` job's `if:` is
+# evaluated, and this workflow triggers on every `issue_comment`. Keyed on the
+# PR number alone, any comment — a teammate's "LGTM", or, since omni is public,
+# anyone's — would cancel an eval that has been spending for up to two hours and
+# leave the PR with no results.md. Every other comment gets its own group, which
+# cancels nothing. The conditions here are a deliberate copy of `gate`'s: they
+# have to run before the job does, so they cannot BE the job's `if:`.
 concurrency:
-  group: judge-eval-pr-${{ github.event.issue.number || inputs.pr_number }}
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch'
+    || (github.event.issue.pull_request != null
+    && startsWith(github.event.comment.body, '/judge-eval')
+    && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    && format('judge-eval-pr-{0}', github.event.issue.number || inputs.pr_number)
+    || format('judge-eval-noop-{0}', github.run_id) }}
   cancel-in-progress: true
 
 permissions:
