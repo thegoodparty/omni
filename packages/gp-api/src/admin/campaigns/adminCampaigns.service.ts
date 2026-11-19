@@ -11,7 +11,7 @@ import {
   CampaignPlanState,
   planEndsAt,
 } from '@goodparty_org/contracts'
-import { differenceInDays } from 'date-fns'
+import { differenceInDays, isAfter } from 'date-fns'
 import { AdminUpdateCampaignSchema } from './schemas/adminUpdateCampaign.schema'
 import {
   Campaign,
@@ -140,7 +140,7 @@ export class AdminCampaignsService {
     const reopens =
       existing.planEndedAt !== null &&
       override !== null &&
-      override.getTime() > Date.now()
+      isAfter(override, new Date())
 
     const campaign = reopens
       ? (
