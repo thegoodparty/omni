@@ -54,23 +54,35 @@ describe('PlansPage', () => {
     ).toBeNull()
   })
 
-  it('points the CTAs at the Pro upgrade entry with the chosen plan', () => {
+  it('points the Pro CTA at the Pro upgrade entry with the plan', () => {
     render(<PlansPage highlightTeam={false} />)
 
     const pro = screen.getAllByRole('link', {
       name: `Join Pro for $${PLAN_PRICING.proCents / 100}`,
     })
-    const team = screen.getAllByRole('link', {
-      name: `Join Team for $${PLAN_PRICING.teamCents / 100}`,
-    })
     expect(pro[0]).toHaveAttribute(
       'href',
       expect.stringMatching(/^\/dashboard\/pro-upgrade\?.*&plan=pro$/),
     )
-    expect(team[0]).toHaveAttribute(
-      'href',
-      expect.stringMatching(/&plan=team$/),
-    )
+  })
+
+  it('keeps Team off until plan checkout reads the plan', () => {
+    render(<PlansPage highlightTeam={false} />)
+
+    const name = `Join Team for $${PLAN_PRICING.teamCents / 100}`
+    expect(screen.queryAllByRole('link', { name })).toHaveLength(0)
+    for (const button of screen.getAllByRole('button', { name })) {
+      expect(button).toBeDisabled()
+    }
+  })
+
+  it('prices Team as the difference for a Pro campaign, still off', () => {
+    mockPlan.current = 'pro'
+    render(<PlansPage highlightTeam={false} />)
+
+    const name = `Join Team for $${(PLAN_PRICING.teamCents - PLAN_PRICING.proCents) / 100}`
+    expect(screen.queryAllByRole('link', { name })).toHaveLength(0)
+    expect(screen.getAllByRole('button', { name }).length).toBeGreaterThan(0)
   })
 
   it('marks the current plan and disables its CTA', () => {
@@ -78,25 +90,12 @@ describe('PlansPage', () => {
     render(<PlansPage highlightTeam={false} />)
 
     expect(screen.getAllByText('Current plan').length).toBeGreaterThan(0)
-    expect(
-      screen.getAllByRole('link', {
-        name: `Join Team for $${(PLAN_PRICING.teamCents - PLAN_PRICING.proCents) / 100}`,
-      }).length,
-    ).toBeGreaterThan(0)
-    expect(
-      screen.queryAllByRole('link', {
-        name: `Join Team for $${PLAN_PRICING.teamCents / 100}`,
-      }),
-    ).toHaveLength(0)
     for (const button of screen.getAllByRole('button', {
       name: `Join Pro for $${PLAN_PRICING.proCents / 100}`,
     })) {
       expect(button).toBeDisabled()
     }
     expect(screen.queryAllByRole('link', { name: /Join Pro/ })).toHaveLength(0)
-    expect(
-      screen.getAllByRole('link', { name: /Join Team/ }).length,
-    ).toBeGreaterThan(0)
   })
 
   it('offers nothing below the current plan', () => {

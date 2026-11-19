@@ -13,7 +13,7 @@ import {
 interface PlanCardsProps {
   currentPlan: PlanKey
   highlightTeam: boolean
-  hrefFor: (plan: PlanKey) => string | null
+  offerFor: (plan: PlanKey) => { href: string | null } | null
 }
 
 // Design: GpdPlansPhone. The table becomes one card per plan with a check
@@ -21,7 +21,7 @@ interface PlanCardsProps {
 export const PlanCards = ({
   currentPlan,
   highlightTeam,
-  hrefFor,
+  offerFor,
 }: PlanCardsProps): React.JSX.Element => (
   <div className="flex flex-col gap-4">
     {planColumnsFor(currentPlan).map((column) => (
@@ -59,7 +59,7 @@ export const PlanCards = ({
         <PlanCta
           column={column}
           isCurrent={column.plan === currentPlan}
-          href={hrefFor(column.plan)}
+          offer={offerFor(column.plan)}
           className="w-full"
         />
       </Card>

@@ -6,15 +6,15 @@ interface PlanCtaProps {
   column: PlanColumn
   isCurrent: boolean
   // Null when the plan can't be bought from here: Free, or one at or below
-  // the current plan.
-  href: string | null
+  // the current plan. A null href inside it shows the button disabled.
+  offer: { href: string | null } | null
   className?: string
 }
 
 export const PlanCta = ({
   column,
   isCurrent,
-  href,
+  offer,
   className,
 }: PlanCtaProps): React.JSX.Element | null => {
   const variant = column.plan === 'team' ? 'outline' : 'default'
@@ -30,10 +30,17 @@ export const PlanCta = ({
       </div>
     )
   }
-  if (!href || !column.cta) return null
+  if (!offer || !column.cta) return null
+  if (!offer.href) {
+    return (
+      <Button disabled variant={variant} className={className}>
+        {column.cta}
+      </Button>
+    )
+  }
   return (
     <Button asChild variant={variant} className={className}>
-      <Link href={href}>{column.cta}</Link>
+      <Link href={offer.href}>{column.cta}</Link>
     </Button>
   )
 }

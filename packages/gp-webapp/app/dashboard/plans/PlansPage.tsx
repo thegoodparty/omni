@@ -17,12 +17,15 @@ interface PlansPageProps {
 
 const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
   const { plan: currentPlan } = usePlan()
-  const hrefFor = (plan: PlanKey): string | null => {
+  const offerFor = (plan: PlanKey): { href: string | null } | null => {
     const column = planColumnsFor(currentPlan).find((c) => c.plan === plan)
     if (plan === 'free' || !column?.cta) return null
-    return planRank(plan) > planRank(currentPlan)
-      ? planCheckoutHref(plan, column.cta)
-      : null
+    if (planRank(plan) <= planRank(currentPlan)) return null
+    // The wizard behind this link only buys Pro, so Team stays off until
+    // ENG-11691 builds plan checkout and reads `plan`.
+    return {
+      href: plan === 'pro' ? planCheckoutHref(plan, column.cta) : null,
+    }
   }
 
   return (
@@ -44,13 +47,13 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
           </div>
           <p className="text-sm">{PLANS_COPY.intro}</p>
           <div className="hidden md:block">
-            <PlansTable currentPlan={currentPlan} hrefFor={hrefFor} />
+            <PlansTable currentPlan={currentPlan} offerFor={offerFor} />
           </div>
           <div className="md:hidden">
             <PlanCards
               currentPlan={currentPlan}
               highlightTeam={highlightTeam}
-              hrefFor={hrefFor}
+              offerFor={offerFor}
             />
           </div>
         </div>

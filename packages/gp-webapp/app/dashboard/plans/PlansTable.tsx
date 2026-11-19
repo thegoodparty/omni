@@ -19,13 +19,13 @@ import {
 
 interface PlansTableProps {
   currentPlan: PlanKey
-  hrefFor: (plan: PlanKey) => string | null
+  offerFor: (plan: PlanKey) => { href: string | null } | null
 }
 
 // Design: GpdPlansDesk. The phone design swaps this for stacked cards.
 export const PlansTable = ({
   currentPlan,
-  hrefFor,
+  offerFor,
 }: PlansTableProps): React.JSX.Element => (
   <Table>
     <TableHeader>
@@ -48,7 +48,7 @@ export const PlansTable = ({
               <PlanCta
                 column={column}
                 isCurrent={column.plan === currentPlan}
-                href={hrefFor(column.plan)}
+                offer={offerFor(column.plan)}
               />
             </div>
           </TableHead>

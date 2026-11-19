@@ -162,7 +162,7 @@ export const ProPitchDialog = ({
             ))}
           </div>
         </div>
-        <DialogFooter className="shrink-0 sm:flex-col sm:items-center sm:justify-center">
+        <DialogFooter className="shrink-0 flex-col items-center sm:flex-col sm:justify-center">
           <Button
             className="w-full sm:w-auto sm:min-w-[360px]"
             onClick={handleJoin}
