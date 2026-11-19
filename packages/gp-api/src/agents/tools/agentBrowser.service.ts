@@ -109,7 +109,10 @@ export const hopAllowed = async (url: string): Promise<boolean> => {
   if (urlRefusal(url)) return false
   const hostname = new URL(url).hostname.replace(/^\[|\]$/g, '')
   const addresses = await lookup(hostname, { all: true }).catch(() => [])
-  return addresses.every(({ address }) => isPublicAddress(address))
+  return (
+    addresses.length > 0 &&
+    addresses.every(({ address }) => isPublicAddress(address))
+  )
 }
 
 // The last-resort browser for a page plain HTTP could not read. Every render

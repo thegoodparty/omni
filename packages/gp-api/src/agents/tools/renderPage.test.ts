@@ -13,11 +13,12 @@ import { renderPage } from './renderPage'
 import type { ToolContext } from './tool'
 
 vi.mock('node:dns/promises', () => ({
-  lookup: vi.fn(async (hostname: string) =>
-    hostname === 'intranet.example.org'
+  lookup: vi.fn(async (hostname: string) => {
+    if (hostname === 'nxdomain.example.org') throw new Error('ENOTFOUND')
+    return hostname === 'intranet.example.org'
       ? [{ address: '10.1.2.3', family: 4 }]
-      : [{ address: '93.184.216.34', family: 4 }],
-  ),
+      : [{ address: '93.184.216.34', family: 4 }]
+  }),
 }))
 
 const ARTICLE =
@@ -140,6 +141,7 @@ describe('renderPage', () => {
     'http://localhost:3000/',
     'http://[::1]/',
     'https://intranet.example.org/',
+    'https://nxdomain.example.org/',
     'file:///etc/passwd',
   ])('refuses %s before opening a session', async (url) => {
     const { browser, fake } = browserWith(page(url))
@@ -179,7 +181,28 @@ describe('renderPage', () => {
   })
 
   it('ends a render at its deadline and stops the session', async () => {
-    const { browser, fake } = browserWith(() => new Promise(() => undefined))
+    let stopped = false
+    const { browser, fake } = browserWith(
+      () =>
+        new Promise((_, reject) => {
+          const check = setInterval(() => {
+            if (!stopped) return
+            clearInterval(check)
+            reject(new Error('Target closed'))
+          }, 1)
+        }),
+    )
+    const stop = vi.spyOn(browser, 'openSession')
+    stop.mockImplementationOnce(async (runId) => {
+      const session = await fake.open(runId)
+      return {
+        ...session,
+        stop: async () => {
+          stopped = true
+          await session.stop()
+        },
+      }
+    })
     browser.renderDeadlineMs = 20
     const result = await renderPage.execute(
       { url: 'https://news.example.com/slow' },
