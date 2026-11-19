@@ -3,7 +3,7 @@ title: The agentRun cap is the only limit, so a task gets as many slots as the c
 status: active
 decided_by: [swain]
 date: 2026-11-19
-code: []
+code: ['#3935']
 scope:
   - packages/gp-api/src/jobs/jobs.registry.ts
   - packages/gp-api/deploy/components/service.ts
