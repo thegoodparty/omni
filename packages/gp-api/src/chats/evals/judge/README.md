@@ -612,8 +612,10 @@ worktree's adapter once per case, one attempt, because a regex answers the
 same way every time and a decision model nearly so. The record's output is
 the labels as JSON, so the record contract only gained the shape name. With
 `JUDGE_SPEND` not `true` the adapter is told not to spend, and must make no
-paid call. An adapter that throws, or returns something that is not labels,
-is an `infraError` record and an excluded case, never a fallback answer.
+paid call. An adapter that returns something that is not labels ran and
+said nothing usable: that is its answer, recorded `blocked` with no labels and
+scored as wrong on every one. An adapter that throws is an `infraError`
+record, a harness or vendor fault, and never gets a fallback answer.
 `reply_intent`'s adapter calls today's production predicates directly
 (`outreach/util/textOptOut.util.ts`, `civicPanelJoin.util.ts`,
 `civicPanelLeave.util.ts`), so a branch that edits one is what its candidate
@@ -631,9 +633,15 @@ panel, no bootstrap and no panel spend:
   WORSE below `gates.sign.alpha` (5 of 5 one way is p = 1/32), SAME when no
   case is right on one arm only, otherwise CAN'T SAY with the count.
 - A boolean label may be a `floor`. On `reply_intent` that is `optOut`: any
-  case where the base arm said `true` and the candidate said `false` makes
-  the verdict WORSE on its own and is named, whatever the count says. It
-  applies on controls too, because it is a rule, not a statistic.
+  case where the base arm said `true` and the candidate did not makes the
+  verdict WORSE on its own and is named, whatever the count says. A missing
+  or unreadable answer is "did not". It applies on controls too, because it
+  is a rule, not a statistic.
+- A candidate run that failed or never ran leaves its case out, and holds
+  the verdict at CAN'T SAY unless it is already WORSE: the case it dropped
+  could be the opt-out it would have missed. The note gives the count and
+  what the verdict would have been without it. A base run with no answer
+  only leaves its case out.
 - Beside the verdict, per arm: cases with every label right, accuracy per
   label, and Brier per label (lower is better, `(p - o)^2` on a boolean, the
   multi-class sum on a choice, none on a score). Hard labels count as

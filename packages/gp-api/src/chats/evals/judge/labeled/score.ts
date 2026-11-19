@@ -68,6 +68,8 @@ export interface LabeledScore {
   discordant: readonly DiscordantCase[]
   sign: SignTest | null
   floorBreaches: readonly FloorBreach[]
+  // Runs with no usable answer. A candidate's `unreadable` run is still
+  // scored, as no answer on every label; every other one left its case out.
   excluded: readonly LabeledExclusion[]
   // Controls held out of the verdict (both refs mark them `scored: false`).
   unscored: readonly string[]
@@ -222,6 +224,34 @@ const verdictOf = (
   discordant: readonly DiscordantCase[],
   sign: SignTest | null,
   floorBreaches: readonly FloorBreach[],
+  candidateMissing: number,
+  config: JudgeConfig,
+): { label: VerdictLabel; note: string } => {
+  const counted = countedVerdict(
+    pairedCases,
+    discordant,
+    sign,
+    floorBreaches,
+    config,
+  )
+  // A CANDIDATE RUN THAT NEVER ANSWERED cannot be checked against the floor
+  // or the count, so it may not leave a better or same verdict standing: the
+  // case it dropped could be the opt-out it missed. WORSE stays WORSE.
+  if (candidateMissing === 0 || counted.label === 'WORSE') return counted
+  return {
+    label: "CAN'T SAY",
+    note:
+      `${candidateMissing} case(s) have no candidate answer, so the floor ` +
+      `and the count cannot be checked on them (without them: ` +
+      `${counted.label}, ${counted.note})`,
+  }
+}
+
+const countedVerdict = (
+  pairedCases: number,
+  discordant: readonly DiscordantCase[],
+  sign: SignTest | null,
+  floorBreaches: readonly FloorBreach[],
   config: JudgeConfig,
 ): { label: VerdictLabel; note: string } => {
   if (floorBreaches.length > 0) {
@@ -295,15 +325,28 @@ export const scoreLabeled = (
   const paired: PairedCase[] = []
   const floorBreaches: FloorBreach[] = []
 
+  let candidateMissing = 0
+
   for (const one of input.cases) {
     const base = readAnswers(recordFor(records, one.caseId, 'base'))
-    const candidate = readAnswers(recordFor(records, one.caseId, 'candidate'))
+    const read = readAnswers(recordFor(records, one.caseId, 'candidate'))
+    // OUTPUT THAT IS NOT LABELS IS THE CANDIDATE'S OWN ANSWER, and a wrong
+    // one: the classifier ran and said nothing usable. It is scored as no
+    // answer on every label, so it misses the floor wherever the base caught
+    // one. A run that failed or never ran is a harness fault, and is excluded
+    // like any other shape's infraError.
+    if (read === 'unreadable') {
+      excluded.push({ caseId: one.caseId, arm: 'candidate', why: read })
+    }
+    const candidate: Answers | LabeledExclusionWhy =
+      read === 'unreadable' ? {} : read
     if (typeof base === 'string' || typeof candidate === 'string') {
       if (typeof base === 'string') {
         excluded.push({ caseId: one.caseId, arm: 'base', why: base })
       }
       if (typeof candidate === 'string') {
         excluded.push({ caseId: one.caseId, arm: 'candidate', why: candidate })
+        candidateMissing += 1
       }
       continue
     }
@@ -344,6 +387,7 @@ export const scoreLabeled = (
     discordant,
     sign,
     floorBreaches,
+    candidateMissing,
     config,
   )
 

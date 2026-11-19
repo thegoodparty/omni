@@ -1663,7 +1663,8 @@ describe('a labeled agent in the report', () => {
       'adds or changes the expected labels on 1 case(s)',
     )
     expect(markdown).toContain(
-      'Excluded 1 run(s): stop_plain candidate (the adapter failed).',
+      'No usable answer from 1 run(s): stop_plain candidate (the adapter ' +
+        'failed).',
     )
   })
 

@@ -196,31 +196,100 @@ describe('scoreLabeled', () => {
     expect(score.floorBreaches).toEqual([])
   })
 
-  it('excludes a case either arm has no readable answer for', () => {
+  it('leaves out a case the base arm has no answer for', () => {
     const failed = labeledCase('failed', true)
-    const cases = [
-      failed,
-      labeledCase('missing', true),
-      labeledCase('garbled', true),
-    ]
-    const garbled: RunRecord = {
-      ...record('garbled', 'candidate', hard(true)),
-      output: { kind: 'labels', value: 'not labels' },
-    }
+    const cases = [labeledCase('missing', true), failed]
     const records = [
-      ...pairOf(failed, hard(true), null),
       record('missing', 'candidate', hard(true)),
-      record('garbled', 'base', hard(true)),
-      garbled,
+      ...pairOf(failed, null, hard(true)),
     ]
     const score = scoreLabeled(input(cases, records))
     expect(score.excluded).toEqual([
-      { caseId: 'failed', arm: 'candidate', why: 'infraError' },
       { caseId: 'missing', arm: 'base', why: 'missing' },
-      { caseId: 'garbled', arm: 'candidate', why: 'unreadable' },
+      { caseId: 'failed', arm: 'base', why: 'infraError' },
     ])
     expect(score.pairedCases).toBe(0)
     expect(score.label).toBe("CAN'T SAY")
+  })
+
+  // The decision model this kind is built to measure can return malformed
+  // output. That is its answer, and on an opt-out the base caught it is a
+  // miss of the floor, not a case that quietly leaves the comparison.
+  it('scores unreadable candidate output as no answer, breaching the floor', () => {
+    const better = Array.from({ length: 6 }, (_, i) =>
+      labeledCase(`c${i}`, false, true),
+    )
+    const garbled = labeledCase('garbled', true)
+    const records = [
+      ...better.flatMap((one) =>
+        pairOf(one, hard(false, false), hard(false, true)),
+      ),
+      record('garbled', 'base', hard(true)),
+      {
+        ...record('garbled', 'candidate', hard(true)),
+        output: { kind: 'labels', value: 'not labels' },
+      },
+    ]
+    const score = scoreLabeled(input([...better, garbled], records))
+    expect(score.excluded).toEqual([
+      { caseId: 'garbled', arm: 'candidate', why: 'unreadable' },
+    ])
+    expect(score.floorBreaches).toEqual([
+      { caseId: 'garbled', label: 'optOut' },
+    ])
+    expect(score.pairedCases).toBe(7)
+    expect(score.candidate.labels[0]).toEqual({
+      name: 'optOut',
+      correct: 6,
+      brier: 1 / 7,
+    })
+    expect(score.label).toBe('WORSE')
+  })
+
+  // A candidate run that failed or never ran could be the opt-out it would
+  // have missed, so it may not leave BETTER or SAME standing.
+  it.each([
+    ['infraError', null],
+    ['missing', undefined],
+  ] as const)(
+    "reads CAN'T SAY over a better count when a candidate run is %s",
+    (why, answer) => {
+      const better = Array.from({ length: 6 }, (_, i) =>
+        labeledCase(`c${i}`, false, true),
+      )
+      const gone = labeledCase('gone', true)
+      const records = [
+        ...better.flatMap((one) =>
+          pairOf(one, hard(false, false), hard(false, true)),
+        ),
+        record('gone', 'base', hard(true)),
+        ...(answer === null ? [record('gone', 'candidate', null)] : []),
+      ]
+      const score = scoreLabeled(input([...better, gone], records))
+      expect(score.excluded).toEqual([
+        { caseId: 'gone', arm: 'candidate', why },
+      ])
+      expect(score.sign?.pBetter).toBeLessThan(0.05)
+      expect(score.label).toBe("CAN'T SAY")
+      expect(score.labelNote).toContain('1 case(s) have no candidate answer')
+      expect(score.labelNote).toContain('without them: BETTER')
+    },
+  )
+
+  it('keeps WORSE when a candidate run is also missing', () => {
+    const worse = Array.from({ length: 6 }, (_, i) =>
+      labeledCase(`c${i}`, false, true),
+    )
+    const records = [
+      ...worse.flatMap((one) =>
+        pairOf(one, hard(false, true), hard(false, false)),
+      ),
+      record('gone', 'base', hard(true)),
+    ]
+    const score = scoreLabeled(
+      input([...worse, labeledCase('gone', true)], records),
+    )
+    expect(score.label).toBe('WORSE')
   })
 
   it('counts a label an arm left out as wrong', () => {

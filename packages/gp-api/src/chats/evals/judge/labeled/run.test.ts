@@ -153,14 +153,17 @@ describe('runLabeledCase', () => {
     expect(record.telemetry.cost).toBeUndefined()
   })
 
-  it('records an adapter that returns no readable labels as an infraError', async () => {
+  // Its own wrong answer, not a harness fault: the scorer reads no labels
+  // and counts every one as missed.
+  it('records an adapter that returns no readable labels as blocked, with none', async () => {
     const adapter: LabeledAdapter = async () => ({
       labels: { optOut: { value: true, probabilities: { true: 1.5 } } },
     })
     const record = await runLabeledCase(request(), {
       adapters: { reply_intent: adapter },
     })
-    expect(record.status).toBe('infraError')
+    expect(record.status).toBe('blocked')
+    expect(record.output).toEqual({ kind: 'labels', value: {} })
     expect(record.trace[0]?.error).toContain('no readable labels')
   })
 

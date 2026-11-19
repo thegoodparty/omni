@@ -742,7 +742,7 @@ const LABELED_EXCLUSIONS: Readonly<
 > = {
   missing: 'no record',
   infraError: 'the adapter failed',
-  unreadable: 'output not readable as labels',
+  unreadable: 'output not readable as labels, scored as no answer',
 }
 
 export const labeledSection = (
@@ -820,7 +820,7 @@ export const labeledSection = (
   }
   if (score.excluded.length > 0) {
     lines.push(
-      `Excluded ${score.excluded.length} run(s): ` +
+      `No usable answer from ${score.excluded.length} run(s): ` +
         score.excluded
           .map((e) => `${e.caseId} ${e.arm} (${LABELED_EXCLUSIONS[e.why]})`)
           .join(', ') +

@@ -80,32 +80,37 @@ export const runLabeledCase = async (
   }
   const now = deps.now ?? (() => new Date())
   const startedAt = now()
+  // THREE OUTCOMES, and the middle one is the classifier's own answer. An
+  // adapter that returns something that is not labels ran and said nothing
+  // usable, which is a wrong answer on every label (and a missed floor
+  // wherever the base caught one), so it is `blocked` with no labels. Only
+  // an adapter that throws is an infraError, the harness or vendor fault
+  // every other shape excludes.
   let outcome:
-    | { ok: true; result: z.infer<typeof LabeledRunResultSchema> }
-    | { ok: false; error: string }
+    | { kind: 'answered'; result: z.infer<typeof LabeledRunResultSchema> }
+    | { kind: 'unreadable' | 'failed'; error: string }
   try {
     const parsed = LabeledRunResultSchema.safeParse(
       await adapter(request.case.input, { spends: request.spends }),
     )
     outcome = parsed.success
-      ? { ok: true, result: parsed.data }
+      ? { kind: 'answered', result: parsed.data }
       : {
-          ok: false,
+          kind: 'unreadable',
           error: `the adapter returned no readable labels: ${parsed.error.issues
             .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
             .join('; ')}`,
         }
   } catch (err) {
     outcome = {
-      ok: false,
+      kind: 'failed',
       error: err instanceof Error ? err.message : String(err),
     }
   }
   const endedAt = now()
-  const model = outcome.ok
-    ? (outcome.result.model ?? UNRECORDED_MODEL)
-    : UNRECORDED_MODEL
-  const usage = outcome.ok ? outcome.result.usage : undefined
+  const answered = outcome.kind === 'answered' ? outcome.result : undefined
+  const model = answered?.model ?? UNRECORDED_MODEL
+  const usage = answered?.usage
 
   return RunRecordSchema.parse({
     schemaVersion: 1,
@@ -127,28 +132,30 @@ export const runLabeledCase = async (
     startedAt: isoUtc(startedAt),
     endedAt: isoUtc(endedAt),
     input: { kind: 'labeled', value: { ...request.case.input } },
-    output: outcome.ok
-      ? {
-          kind: 'labels',
-          value: Object.fromEntries(
-            Object.entries(outcome.result.labels).map(([name, answer]) => [
-              name,
-              answerJson(answer),
-            ]),
-          ),
-        }
-      : null,
-    trace: outcome.ok
-      ? []
-      : [
-          {
-            index: 0,
-            kind: 'error',
-            error:
-              scrubReason(outcome.error).slice(0, MAX_ERROR_CHARS) ||
-              'the adapter failed with no message',
+    output:
+      outcome.kind === 'failed'
+        ? null
+        : {
+            kind: 'labels',
+            value: Object.fromEntries(
+              Object.entries(answered?.labels ?? {}).map(([name, answer]) => [
+                name,
+                answerJson(answer),
+              ]),
+            ),
           },
-        ],
+    trace:
+      outcome.kind === 'answered'
+        ? []
+        : [
+            {
+              index: 0,
+              kind: 'error',
+              error:
+                scrubReason(outcome.error).slice(0, MAX_ERROR_CHARS) ||
+                'the adapter failed with no message',
+            },
+          ],
     telemetry: {
       latencyMs: Math.max(0, differenceInMilliseconds(endedAt, startedAt)),
       tokens: {
@@ -161,7 +168,7 @@ export const runLabeledCase = async (
       // costs nothing, and a decision model bills per call rather than per
       // token, so the adapter's figure is the only one there is. See
       // runCostUsd in actualCost.ts.
-      ...(outcome.ok && {
+      ...(answered !== undefined && {
         cost: {
           usdAtCapture: usage?.costUsd ?? 0,
           pricingVersion: PRICING_VERSION,
@@ -173,7 +180,12 @@ export const runLabeledCase = async (
     },
     toolQueries: [],
     liveWeb: false,
-    status: outcome.ok ? 'produced' : 'infraError',
+    status:
+      outcome.kind === 'answered'
+        ? 'produced'
+        : outcome.kind === 'unreadable'
+          ? 'blocked'
+          : 'infraError',
     ...(deps.ci && { ci: deps.ci }),
   })
 }
