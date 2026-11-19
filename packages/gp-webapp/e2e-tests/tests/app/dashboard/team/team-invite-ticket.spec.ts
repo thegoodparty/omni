@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto'
 import { expect, test } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
-import { clerkBackend, createHeadlessTestUser } from 'tests/utils/headless-user'
-import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
+import { createTestUser } from '@goodparty_org/test-users'
+import { clerkBackend } from 'src/helpers/clerkBackend.helper'
+import { clerkThrottle } from '@goodparty_org/test-users'
 
 // The real new-user invite path (ENG-11027): a Clerk invitation's hosted
 // accept URL redirects to /team-invite with __clerk_ticket, the signed-out
@@ -26,7 +27,7 @@ test.describe('Team invite — new-user ticket redemption', () => {
     // two 12s backoffs on top of throttled setup.
     test.setTimeout(7 * 60 * 1000)
 
-    const owner = await createHeadlessTestUser({ product: 'win' })
+    const owner = await createTestUser({ product: 'win' })
     const inviteeEmail = `test-${Date.now()}-invitee+clerk_test@test.goodparty.org`
 
     // Through clerkThrottle like every other direct Clerk SDK call in the

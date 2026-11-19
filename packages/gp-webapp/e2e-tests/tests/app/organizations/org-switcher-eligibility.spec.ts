@@ -10,7 +10,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { eventually } from 'tests/utils/eventually'
-import { applyElectionPreset } from 'tests/utils/headless-user'
+import { applyElectionPreset } from '@goodparty_org/test-users'
 
 // Locks down the org switcher's eligibility-gated states (ENG-10389 task 10):
 // the "run for" actions are gated on eligibility.canStartCampaign, "Run for

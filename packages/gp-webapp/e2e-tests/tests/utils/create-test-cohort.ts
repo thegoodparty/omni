@@ -1,9 +1,6 @@
 import './cohort-env'
 import { readFileSync, writeFileSync } from 'node:fs'
-import {
-  createHeadlessTestUser,
-  type HeadlessUserProduct,
-} from './headless-user'
+import { createTestUser, type TestUserProduct } from './headless-user'
 
 // Reusable cohort creator. Reads a selection file (produced by the
 // create-representative-test-cohort skill's Databricks step) and creates one
@@ -34,7 +31,7 @@ type SelectionEntry = {
 }
 
 type Selection = {
-  product: HeadlessUserProduct
+  product: TestUserProduct
   termStartDate?: string
   termEndDate?: string
   entries: SelectionEntry[]
@@ -74,7 +71,7 @@ const run = async () => {
   for (const [i, entry] of selection.entries.entries()) {
     const label = entry.positionId ?? entry.race?.office ?? `#${i}`
     try {
-      const created = await createHeadlessTestUser({
+      const created = await createTestUser({
         product: selection.product,
         positionId: dryRun ? undefined : entry.positionId,
         race: dryRun ? undefined : entry.race,

@@ -1,12 +1,6 @@
-import axios, { type AxiosInstance } from 'axios'
-import { createClerkClient } from '@clerk/backend'
 import { type Page } from '@playwright/test'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
-import { TestDataHelper } from './data.helper'
 import { uniquePhone } from './testIdentifiers.helper'
-import { vercelBypassHeaders } from './vercelBypass.helper'
-import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
-import { withGatewayRetry } from 'tests/utils/headless-user'
 
 /**
  * Helpers for the elected-official ("serve") magic-link onboarding flow.
@@ -16,13 +10,8 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
  * ticket is minted server-side by `POST /v1/admin/elected-office/magic-link`
  * (gp-api), which is guarded by `AdminOrM2MGuard` — credentials the E2E harness
  * does not hold. The harness *does* hold the Clerk **test instance** secret
- * (`CLERK_SECRET_KEY`, the same key `api-registration.ts` uses to create users
- * and mint API tokens), so we mint the ticket directly with the Clerk backend
- * SDK exactly the way gp-api does internally
- * (`clerkClient.signInTokens.createSignInToken`, see
- * `users.service.ts#provisionMagicLinkUser`). This is the cleanest reliable
- * approach for the harness and avoids depending on admin/M2M auth or a stable
- * BallotReady integration in the ephemeral per-PR preview env.
+ * (`CLERK_SECRET_KEY`), so the user, its ticket and its office are all created
+ * by `@goodparty_org/test-users`, the package the judge provisions through too.
  *
  * The webapp authenticates browser `/api/v1/*` calls purely from the Clerk
  * session (the Next middleware injects `auth().getToken()` into the rewrite —
@@ -31,203 +20,21 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
  * `authenticateTestUser`, which sets one for its own long-lived API client).
  */
 
+export {
+  buildServeWelcomeUrl,
+  createServeLeadUser,
+  createServeMagicLink,
+  mintServeTicket,
+  seedPrefilledElectedOffice,
+  type SeedPrefilledOfficeOptions,
+  type SeededElectedOffice,
+  type ServeLeadUser,
+  type ServeMagicLink,
+} from '@goodparty_org/test-users'
+
 const baseURL = process.env.BASE_URL
 if (!baseURL) {
   throw new Error('BASE_URL is not set')
-}
-
-const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY
-if (!CLERK_SECRET_KEY) {
-  throw new Error('CLERK_SECRET_KEY is not set')
-}
-
-const clerkBackend = createClerkClient({ secretKey: CLERK_SECRET_KEY })
-
-const apiBaseURL = process.env.API_BASE_URL || baseURL
-const apiURL = `${apiBaseURL}/api`
-
-/** A passwordless Clerk lead provisioned for the serve magic-link flow. */
-export type ServeLeadUser = {
-  clerkUserId: string
-  email: string
-  firstName: string
-  lastName: string
-}
-
-/** A minted serve ticket and the URL that redeems it. */
-export type ServeMagicLink = {
-  user: ServeLeadUser
-  ticket: string
-  /** Same-origin relative path, e.g. `/serve/welcome?__clerk_ticket=...`. */
-  welcomeUrl: string
-}
-
-/**
- * Create a brand-new passwordless Clerk user to stand in for a sales-provisioned
- * EO lead. Mirrors `provisionMagicLinkUser`'s `skipPasswordRequirement: true`.
- * The `@test.goodparty.org` address is matched by gp-api's scheduled
- * `deleteTestUsers` sweep (stale users > 3h), so no explicit cleanup is needed.
- */
-export const createServeLeadUser = async (
-  overrides?: Partial<Pick<ServeLeadUser, 'email' | 'firstName' | 'lastName'>>,
-): Promise<ServeLeadUser> => {
-  const generated = TestDataHelper.generateTestUserData()
-  const email = overrides?.email ?? generated.email
-  const firstName = overrides?.firstName ?? generated.firstName
-  const lastName = overrides?.lastName ?? generated.lastName
-
-  const clerkUser = await clerkThrottle(() =>
-    clerkBackend.users.createUser({
-      emailAddress: [email],
-      firstName,
-      lastName,
-      skipPasswordRequirement: true,
-    }),
-  )
-
-  return { clerkUserId: clerkUser.id, email, firstName, lastName }
-}
-
-/**
- * Mint a single-use Clerk sign-in token (the `__clerk_ticket`) for a user,
- * exactly as gp-api does (`signInTokens.createSignInToken`). Default lifetime is
- * short — tests redeem immediately.
- */
-export const mintServeTicket = async (
-  clerkUserId: string,
-  expiresInSeconds = 60 * 30,
-): Promise<string> => {
-  const signInToken = await clerkThrottle(() =>
-    clerkBackend.signInTokens.createSignInToken({
-      userId: clerkUserId,
-      expiresInSeconds,
-    }),
-  )
-  if (!signInToken.token) {
-    throw new Error('Clerk did not return a sign-in token')
-  }
-  return signInToken.token
-}
-
-/** Build the public redemption URL the welcome page reads `__clerk_ticket` from. */
-export const buildServeWelcomeUrl = (ticket: string): string =>
-  `/serve/welcome?__clerk_ticket=${encodeURIComponent(ticket)}`
-
-/**
- * One-call setup for the magic-link entry: create a lead + mint a ticket +
- * build the welcome URL.
- */
-export const createServeMagicLink = async (
-  overrides?: Partial<Pick<ServeLeadUser, 'email' | 'firstName' | 'lastName'>>,
-): Promise<ServeMagicLink> => {
-  const user = await createServeLeadUser(overrides)
-  const ticket = await mintServeTicket(user.clerkUserId)
-  return { user, ticket, welcomeUrl: buildServeWelcomeUrl(ticket) }
-}
-
-// Browser-minted Clerk session tokens expire after 60s; mint the seed API token
-// from a backend session with a lifetime that outlasts setup, mirroring
-// `api-registration.ts#mintApiToken`.
-const SEED_TOKEN_TTL_SECONDS = 60 * 60
-
-const mintApiToken = async (clerkUserId: string): Promise<string> => {
-  const session = await clerkThrottle(() =>
-    clerkBackend.sessions.createSession({ userId: clerkUserId }),
-  )
-  const { jwt } = await clerkThrottle(() =>
-    clerkBackend.sessions.getToken(
-      session.id,
-      undefined,
-      SEED_TOKEN_TTL_SECONDS,
-    ),
-  )
-  return jwt
-}
-
-export type SeedPrefilledOfficeOptions = {
-  /**
-   * Office name stored as the org's `customPositionName`. The serve flow reads
-   * `org.positionName` (= `customPositionName ?? position?.name`), so a custom
-   * name alone makes the office "prefilled" and `confirm`-continuable without a
-   * BallotReady lookup.
-   */
-  positionName?: string
-  /**
-   * BallotReady position id to bind the org to. Unset by default, which keeps
-   * the prefill-branch spec testing what it is meant to: a sales prefill
-   * BallotReady could not match to a position.
-   *
-   * Set it for any account a human will actually use. Without a position the
-   * org has no district, so `resolveDistrictInfoFromOrg` finds nothing and
-   * every district-scoped read — `count_contacts`, `describe_filter_dimensions`,
-   * `crud_saved_filters`, the constituent data tools — comes back
-   * `VOTER_DATA_UNAVAILABLE`. The account looks fine and is inert.
-   *
-   * `Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb24vMTczMjcw` is Cheyenne City
-   * Council Ward 1, which the e2e specs already lean on because it resolves in
-   * every environment and has a populated DistrictStats row.
-   */
-  ballotReadyPositionId?: string
-  /** `yyyy-MM-dd`. */
-  termStartDate?: string
-  /** `yyyy-MM-dd`. */
-  termEndDate?: string
-}
-
-export type SeededElectedOffice = {
-  /** Axios client authed as the seeded user (for assertions / cleanup). */
-  client: AxiosInstance
-  electedOfficeId: string
-}
-
-/**
- * Seed a prefilled `ElectedOffice` for `user` so the serve flow resolves
- * `branch === 'prefill'` (and shows the "Does this look right?" Confirm screen
- * instead of the net-new office picker). The prefill gate is: office/term data
- * present AND the `selfReported` marker absent — `POST /v1/elected-office` never
- * sets `selfReported`, so a create with a `customPositionName` + term dates
- * lands squarely in the prefill branch with a valid, continuable Confirm step.
- *
- * Uses a directly-minted backend API token (independent of the browser session
- * the ticket redemption will later establish) so the seed is in place before the
- * lead ever lands on `/serve/welcome`.
- */
-export const seedPrefilledElectedOffice = async (
-  user: ServeLeadUser,
-  options: SeedPrefilledOfficeOptions = {},
-): Promise<SeededElectedOffice> => {
-  const {
-    positionName = 'Governor of Maryland',
-    ballotReadyPositionId,
-    termStartDate = '2023-01-18',
-    termEndDate = '2027-01-20',
-  } = options
-
-  const token = await mintApiToken(user.clerkUserId)
-  const client = axios.create({
-    baseURL: apiURL,
-    headers: {
-      common: { Authorization: `Bearer ${token}`, ...vercelBypassHeaders() },
-    },
-  })
-
-  // First authenticated gp-api call: JIT-provisions the local user row and
-  // doubles as the cold-stack readiness probe (retry warms the target).
-  await withGatewayRetry('GET /v1/users/me', () => client.get('/v1/users/me'))
-
-  const { data } = await withGatewayRetry('POST /v1/elected-office', () =>
-    client.post<{ id: string }>('/v1/elected-office', {
-      // A bound position clears customPositionName server-side, so sending
-      // both would leave the stale name shadowing the resolved one.
-      ...(ballotReadyPositionId
-        ? { ballotReadyPositionId }
-        : { customPositionName: positionName }),
-      termStartDate,
-      termEndDate,
-    }),
-  )
-
-  return { client, electedOfficeId: data.id }
 }
 
 /**

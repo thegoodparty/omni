@@ -35,6 +35,8 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
+| `packages/test-users`      | `@goodparty_org/test-users` — signed-in test users via the API    | TypeScript        | —    |
+| `packages/judge`           | `@goodparty_org/judge` — pairwise eval runner for agents          | TypeScript        | —    |
 | `packages/runbooks`        | Agent runbooks, PMF experiments                                   | Markdown + Python | —    |
 | `packages/vercel-config`   | Vercel project settings (gp-ui, candidate-sites, gp-marketing)    | Pulumi            | —    |
 
@@ -46,6 +48,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Understanding the system / service map | `docs/architecture.md`                        |
 | Our AI agent platform (CAP) — overview | `docs/cap.md`                                 |
 | Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
+| Judging an agent change (pairwise eval) | `packages/judge/AGENTS.md`                   |
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
 | Moving agents into gp-api (the plan)   | `docs/cap-consolidation.md`                   |
 | The Python AI services + their infra   | `packages/gp-ai/AGENTS.md`                    |

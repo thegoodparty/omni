@@ -10,7 +10,7 @@ import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
 import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // Purchase-only (outreach-pro-gating-v2) happy path: a filed candidate walks
 // guidance → status → EIN → the filing-details form (campaign verification's

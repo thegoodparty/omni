@@ -4,7 +4,7 @@
 // lean on real offices: the default office every campaign is created on, and
 // the offices the onboarding, office-picker and Test mode specs pick through the
 // UI. This asks dev's public races route about each one in
-// e2e-tests/src/real-world-references.json and fails, with a job summary, when
+// test-users/src/real-world-references.json and fails, with a job summary, when
 // a reference is about to stop holding: an office that no longer resolves, or
 // an upcoming race that is gone or less than HORIZON_DAYS away. That turns the
 // next "default race passed" break into a red scheduled run weeks ahead.
@@ -28,7 +28,7 @@ export const HORIZON_DAYS = 30
 const DEFAULT_API = 'https://gp-api-dev.goodparty.org'
 const REFERENCES_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../e2e-tests/src/real-world-references.json',
+  '../../test-users/src/real-world-references.json',
 )
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -154,7 +154,7 @@ export const renderSummary = (rows, today) => {
       'A failing reference means the specs that use it will break when the ' +
         'race passes. Point them at an office with a later race, or give them ' +
         'a declared state instead (see `e2e-tests/AGENTS.md`), then update ' +
-        '`e2e-tests/src/real-world-references.json`.',
+        '`test-users/src/real-world-references.json`.',
     )
   }
   return `${lines.join('\n')}\n`
