@@ -4,6 +4,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { JobsService } from '@/jobs/jobs.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ROBOCALL_HOLD_WINDOW_DAYS } from '@/shared/util/robocallHold.util'
 import {
@@ -67,6 +68,7 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
     private readonly holds: OutreachRobocallHoldService,
     private readonly analytics: AnalyticsService,
     private readonly jobs: JobsService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -232,6 +234,15 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
       data: { settleState: RobocallSettleState.cancelled },
     })
     if (claim.count === 0) return
+
+    try {
+      await this.credits.release(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to release the outreach credit after expiry cancel',
+      )
+    }
 
     // The pay step's card-save advanced the spine to `pending` (visible in
     // history); reflect the cancel there too, else the row lingers as "In
