@@ -107,8 +107,16 @@ window some other way, fix the runtime, not the flow.
   controls that sit over the content (a row of buttons on the email) go in a
   wrapper marked `data-editor`: inside it the usual rules apply, not the
   content's. The product chrome around it stays
-  as the product draws it. Never put labels or theme names inside the rendered
-  content.
+  as the product draws it. Never put designer notes or theme names inside the
+  rendered content.
+- **Content a person sends is not product UI.** An email, a text, a site or a
+  print piece carries what the task asks for: photos, a logo, a signature, a
+  profile link, a banner. Draw each image in it as a placeholder with one
+  plain label naming it ("Candidate photo", "GoodParty logo"), and the
+  controls that edit it (add a photo, edit the signature) inside
+  `data-editor`. Images stay placeholders, as below; the logo, signature and
+  banner the task asks for are content, not the brand flourishes the
+  decoration rule bans.
 - **No imagery.** A photo, map or chart is a plain placeholder with a label
   ("Map of Maplewood"), drawn as the product's own placeholder or as a gap
   ("Mutations"). No stock art or emoji.
@@ -394,10 +402,10 @@ text in What changes from today ("Every option must have").
   option's letter (`a-office`) and never repeat within a screen.
 - No recommendation anywhere: no stars, "best", "recommended", ranking or order
   that implies one beyond A, B, C.
-- The design comes first, at the top of the page. The design summary (`#brief`)
+- The design comes first, at the top of the page. How we read the task (`#brief`)
   follows the options, with `#brief-user`, `#brief-problem`,
   `#brief-solution`, `#brief-data`, `#brief-measure`, `#brief-entry`,
   `#reach`, `#feedback-ask` and `#questions`. One or two sentences each. "Unknown" is a
   valid answer, and each one is also a line in `#questions`. `#questions` holds two
   lists: "Decisions needed", open, and "Rulebook vs code (copied, no action)",
-  collapsed. The rest of the summary and `#reach` are collapsed too.
+  collapsed. The rest of How we read the task and `#reach` are collapsed too.

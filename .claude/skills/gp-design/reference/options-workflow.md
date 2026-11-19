@@ -31,10 +31,10 @@ still cheap to change. Two rules make that review work:
 ## What the artifact holds (and nothing else)
 
 One page, `index.html`: the design first, at the top of the page, in
-three sections, `#option-a`, `#option-b`, `#option-c`; then the design summary. No
+three sections, `#option-a`, `#option-b`, `#option-c`; then How we read the task. No
 ways-in boards, no flow diagrams, no questions page.
 
-The design summary (`#brief`) is short. "Decisions needed" stays open; the rest is
+How we read the task (`#brief`) is short. "Decisions needed" stays open; the rest is
 collapsed:
 
 1. The elevator summary, one sentence each: user, problem, solution, data and
@@ -129,7 +129,12 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    routes, modals, emails, the data it stores. With the code, list `docs/adr/`
    and read every active record whose scope the feature touches, and every
    superseded one whose subject it touches (an approach rejected before goes
-   in `#questions`). For a design with no code change, listing them is
+   in `#questions`). An active record a person decided (`decided_by` is a
+   handle, not `[agent]`) is a constraint on every option: keep what it
+   decided. An option may reverse it only when the task asks for that change
+   in so many words; quote that clause next to the record in `#questions`.
+   Without such a clause, don't draw the reversal and don't offer it as a
+   decision. For a design with no code change, listing them is
    enough; code that implements it follows "Check before you change" in the
    root `AGENTS.md`. Today's behavior is the starting
    point for the close-to-today option, and code facts often kill or reshape an
@@ -164,7 +169,7 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    without a session the person gives you; with none, go straight to captures
    and code. To see today's screen, in this order: run the local app or dev
    with Playwright, if you can; else use screenshots from an existing capture;
-   else compare against the code only, and say so in the summary and the
+   else compare against the code only, and say so in How we read the task and the
    post-back. Never sign in by creating a user: no test users, and no
    testing tokens or sign-in tickets that make one. Sign in only with a
    session the person already has and gives you (a Playwright `storageState`
@@ -178,13 +183,13 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    state, not data). Never create, edit or delete anything; reopening an
    existing draft and pressing Back only is fine. Delete any copy of the
    session you made afterwards.
-4. **Write the design summary.** It is not a product brief: when the ticket
+4. **Write how we read the task.** It is not a product brief: when the ticket
    has a product brief or one-pager, read it, build on it and link it rather
    than restate it. Answer the questions in `reference/review-lens.md` from the
    ticket, the code and, if you have it, Amplitude (device split, baseline). Write
    "Unknown" where you can't answer, never a guess. Every Unknown, every
    conflict between the rulebook and the code, every ticket claim the code
-   doesn't match, every ADR from step 1 an option would reverse or weaken (its
+   doesn't match, every ADR from step 1 an option would reverse or weaken, with the task clause that asks for it (its
    title and `decided_by`), and every decision for a person goes in
    `#questions` on the page and in the post-back, under "Decisions needed".
    Which list a rulebook vs code conflict goes in: "Existing screens" item 2
@@ -217,9 +222,15 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    `#a-mutations`. Before you mark one "no-component", search the product
    for the same job as step 2 does; if it already solves it, copy that and
    mark it "product". Then list what each option changes from today for
-   `#a-drops`. When a designer gave a direction, map each clause of it to the
-   screen that delivers it; a clause not delivered as written goes in
-   `#<x>-drops` or "Decisions needed". Draw only what the task asks: every
+   `#a-drops`. Then write `<work>/notes/coverage.md`: every clause of the
+   task, one per line, quoted, with where it lands. A clause is each thing the
+   ticket, its scope, the meeting notes it carries and the designer's
+   direction ask for, mention or leave open ("evaluate X", "out of scope: X").
+   Each lands in one of two places: the screen key that draws it, per option
+   when the options differ, or `questions` with the question it became under
+   "Decisions needed". An out-of-scope or "evaluate" clause is a question, not
+   a silence. A clause drawn other than as written goes in `#<x>-drops` too.
+   No clause stays without a place. Draw only what the task asks: every
    screen, section and state on the page answers a clause of the ticket or
    the direction, or is a screen the flow passes through to get there.
    Anything more you think the feature needs (another section, a step after
@@ -233,7 +244,7 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    flows with the real components (node and the repo's `node_modules`: run
    `npm ci` in the checkout first) and writes `index.html`.
 7. **Check.** `python3 scripts/check.py --skip-build-shape <work>/page/index.html`
-   catches banned words, dead links, external requests and a missing summary,
+   catches banned words, dead links, external requests and a missing How we read the task,
    open questions list, entry screen, Sends line, appendix, Built from,
    What changes from today or Mutations list, template sample text left on
    the page and a page built from an old flow file. Its flow lint
@@ -269,7 +280,10 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    `docs/product-vocabulary.md`, `docs/design-memory/learned.md`,
    `docs/design-memory/fixtures.md`, `packages/styleguide/COMPONENTS.md` and,
    for one design, `gp-design` §3. It clicks every path, answers every
-   question in the review lens against the page, checks the options are
+   question in the review lens against the page, checks every line of
+   `<work>/notes/coverage.md` against the page and the ticket (a clause
+   missing from the list, a screen that doesn't draw it, a question that isn't
+   in `#questions`), checks the options are
    distinct, that every element has a source, that copy passes the copy docs,
    that people and data come from `fixtures.md` and that every `learned.md`
    rule holds, and fixes what it finds. It may fix layout, structure and rule

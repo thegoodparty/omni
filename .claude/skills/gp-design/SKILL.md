@@ -10,7 +10,7 @@ decides what to make, sends the work to the right place, and checks the result
 against the docs that own the rules.
 
 Every run goes in this order: prototype (read the task, rules, code and prior
-art, write the design summary), design (build the clickable phone and desktop flows
+art, write how we read the task), design (build the clickable phone and desktop flows
 from the design system and pass the checks), review (the senior design
 review), fix (apply its findings), present (hand it back per §4). Pattern
 research across other products is a separate skill, not part of this one.
@@ -67,7 +67,7 @@ that helps. A ticket is never required. Use each kind of input for what it is:
 - **Examples from other products:** a pattern to borrow, never a look to copy.
   The summary says what was taken from each and why.
 - **Findings from another skill** (pattern research, a product brief, an
-  earlier audit): read them before the summary and cite them in it. The
+  earlier audit): read them before How we read the task and cite them in it. The
   summary is not a product brief: when the ticket has a product brief or
   one-pager, build on it rather than restating it.
 
@@ -81,7 +81,7 @@ Ask only what you can't find in the ticket, the code or the docs, in one message
   `data-product="win"`, `"serve"` or `"both"` ("Win and Serve" in
   `reference/wireframe-build.md`). When the
   answer is one product but the code is shared with the other (a component
-  both mount), the summary states what the change does to the other product.
+  both mount), How we read the task states what the change does to the other product.
 - **Where does the user start?** The screen and the thing they tap.
 
 Never ask the user for the measurement baseline: step 4 of
@@ -116,11 +116,14 @@ props.
 These checks run inside steps 1 to 8 of `reference/options-workflow.md`, against the docs
 above, not your memory of them:
 
-- Step 1: list `docs/adr/`, active and superseded records.
-- Steps 4 and 5: every ticket claim checked against the code, each clause
-  of the designer's direction mapped to the screen that delivers it, and
-  nothing drawn beyond the task: extra scope is a question under Decisions
-  needed.
+- Step 1: list `docs/adr/`, active and superseded records. An active record
+  a person decided is a constraint: an option reverses it only when a quoted
+  task clause asks for that change.
+- Steps 4 and 5: every ticket claim checked against the code, and every
+  clause of the task (ticket, scope, meeting notes, the designer's
+  direction) in `<work>/notes/coverage.md`, either drawn on a named screen or
+  asked under Decisions needed. Nothing drawn beyond the task: extra scope is
+  a question under Decisions needed.
 - Step 8, the reviewer: every element has a source, copy, people and data
   from `fixtures.md`, and every rule in `learned.md`.
 - Where a rulebook vs code conflict goes: "Existing screens" item 2 in
