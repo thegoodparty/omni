@@ -95,6 +95,69 @@ run on the PMF Engine, so their suite sits in the module that dispatches them.
 under `src/chats/evals/judge/cases/` because the old runner still reads them for
 chat and for the guards' pricing.
 
+## Expected-result suites
+
+The other kind of suite grades one run against a result a person already ruled
+correct, rather than comparing two builds. Danny's case scout de-identification
+evals are the first.
+
+```ts
+// packages/gp-api/src/<feature>/<thing>.eval.ts
+import { defineExpectedResultEvalSuite } from '@goodparty_org/judge'
+
+export default defineExpectedResultEvalSuite('case_scout_gate', {
+  run: async (input, ctx) => {
+    // Input is inferred from this parameter.
+    await ctx.annotate(`gating ${input.draft.caseId}`, 'step')
+    return gateDraft(input.draft, input.denylist, input.userMessages)
+  },
+  // ctx.input is the case's own input; ctx.judgeModel is the only model call.
+  judge: async (output, ctx) => {
+    const { containsPii } = await ctx.judgeModel(PiiSchema, prompt(ctx.input))
+    return { passed: output.passed, containsPii }
+  },
+  cases: [
+    {
+      id: 'planted-name',
+      input: { draft, denylist: [], userMessages: ['...'] },
+      expected: { passed: false, containsPii: true },
+    },
+  ],
+})
+```
+
+| Piece                            | What it is                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run(input, ctx)`                | Drives the code under test. `Input` is inferred from this parameter, and `ctx.annotate` records a step                                                        |
+| `judge(output, ctx)`             | Reads the run's output plus `ctx.input`. `Judgment` is inferred from its return type                                                                          |
+| `ctx.judgeModel(schema, prompt)` | One `generateObject` call, returning what the schema parsed. The suite's whole model surface                                                                  |
+| `cases`                          | `{ id, input, expected }`. One `test.concurrent` per case, three attempts each, and the case passes only when every attempt's judgment deep-equals `expected` |
+
+`Input` and `Judgment` are inferred, so a case whose input does not fit `run`, or
+whose `expected` does not fit `judge`, fails to compile.
+
+**One file pattern, no registry.** Vitest finds `src/**/*.eval.ts` through
+`packages/gp-api/vitest.evals.config.ts`. `npm run eval -w packages/gp-api` runs
+it. `npm test` and `verify` do not: an eval spends real runs and model calls.
+
+**Inputs are environment variables**, never flags. `JUDGE_MODEL` is an AI SDK
+model id (`anthropic/claude-sonnet-5-5`) plus that provider's own key. A suite
+whose judge never calls `judgeModel` needs neither; one that does calls it and
+fails the test with a sentence naming `JUDGE_MODEL` when it is unset.
+
+**Annotations are the report.** Every attempt records the case id, the run's
+output (truncated to a few KB), the prompt summary and parsed answer of every
+`judgeModel` call, the judgment, and expected-vs-actual on a mismatch. Nothing
+written to an annotation may be a secret — a token, a key, a bypass secret — so
+every message is redacted first, and a test scans a whole case's record for
+token-shaped strings.
+
+**Pairwise and expected-result suites share the glob.** The pairwise runner
+(`src/discover.ts`) skips a file that defines only expected-result suites, and
+the Vitest config skips a file that still uses `definePairwiseAgentEvalSuite`.
+That is how the thirteen background pairwise suites keep running under the old
+runner until they are converted.
+
 ## The run
 
 `/judge-eval <suites>` on a PR, or `.github/workflows/judge-eval.yml` by hand.
@@ -192,3 +255,7 @@ instance, shared with the e2e suite and gp-api's own lookups, which is why
 `src/*.test.ts`, Vitest. A fake model (`generateObjectFn`, or a
 `MockLanguageModelV3` for the real `generateObject`) and fake transports stand in
 for the provider and the two arms; nothing here touches a network.
+
+`src/expectedResult.test.ts` drives the expected-result helper through fake
+Vitest globals and a fake model, so it covers the registration, the three
+attempts, the annotations and the `JUDGE_MODEL` failure without a provider.

@@ -15,8 +15,10 @@ const checkoutWith = async (files: Record<string, string>): Promise<string> => {
 }
 
 // The suite module is loaded from the checkout under test, so the fixture has to
-// reach the framework by absolute path: the checkout has no node_modules.
-const FRAMEWORK = join(process.cwd(), 'packages/judge/src/suite.ts')
+// reach the framework by absolute path: the checkout has no node_modules. This
+// file's own directory, not the working directory, so the suite passes wherever
+// the package's tests are started from.
+const FRAMEWORK = join(__dirname, 'suite.ts')
 
 const fixtureSuite = (name: string, caseId = 'case-1'): string => `
 const { definePairwiseAgentEvalSuite } = require(${JSON.stringify(FRAMEWORK)})
@@ -101,5 +103,21 @@ describe('discoverSuites', () => {
     await expect(
       discoverSuites({ checkoutRoot: root, selected: 'all' }),
     ).rejects.toThrow(/does not export a pairwise agent eval suite/)
+  })
+
+  // Expected-result suites live under the same glob and register their own
+  // Vitest tests; the pairwise runner is not theirs to run.
+  it('skips a file that defines only expected-result suites', async () => {
+    const root = await checkoutWith({
+      'packages/gp-api/src/a/a.eval.ts': `
+        exports.default = {
+          isExpectedResultEvalSuite: true,
+          name: 'gate',
+        }
+      `,
+      'packages/gp-api/src/b/b.eval.ts': fixtureSuite('b'),
+    })
+    const found = await discoverSuites({ checkoutRoot: root, selected: 'all' })
+    expect(found.map(({ suite }) => suite.name)).toEqual(['b'])
   })
 })

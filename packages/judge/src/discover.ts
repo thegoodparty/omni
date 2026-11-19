@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fg from 'fast-glob'
+import { isExpectedResultEvalSuite } from './expectedResult'
 import { isPairwiseAgentEvalSuite, type PairwiseAgentEvalSuite } from './suite'
 
 // Suites are TypeScript beside the agent, discovered by glob:
@@ -11,6 +12,10 @@ import { isPairwiseAgentEvalSuite, type PairwiseAgentEvalSuite } from './suite'
 // imports no gp-api runtime code, holds no AWS access, and its only input is the
 // two URLs. The glob is relative to `checkoutRoot`, which defaults to the
 // current working directory — the checkout the runner was started in.
+//
+// The glob is also what Vitest's eval config (`vitest.evals.config.ts`) uses,
+// so a file here may be an expected-result suite instead. Those register their
+// own Vitest tests and are skipped by this runner.
 
 export const SUITE_GLOB = 'packages/gp-api/src/**/*.eval.ts'
 
@@ -42,6 +47,10 @@ const loadSuitesFromFile = async (
     candidates.push(...module.suites)
   } else {
     candidates.push(module.default)
+  }
+  // A whole file that only defines expected-result suites belongs to Vitest.
+  if (candidates.length > 0 && candidates.every(isExpectedResultEvalSuite)) {
+    return []
   }
   const suites = candidates.filter(isPairwiseAgentEvalSuite)
   if (suites.length !== candidates.length) {
