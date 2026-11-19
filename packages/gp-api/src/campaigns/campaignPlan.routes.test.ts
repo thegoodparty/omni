@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import {
+  AUTH_PROVIDER_TOKEN,
+  AuthProvider,
+} from '@/authentication/interfaces/auth-provider.interface'
 import {
   CampaignPlanLevel,
   PlanPricingModel,
@@ -79,6 +83,33 @@ describe('plan state on GET /v1/campaigns/mine', () => {
     const res = await getMine(campaign.slug)
 
     expect(res.data.planEndsAt).toBeNull()
+  })
+})
+
+describe('planEndsAt on the M2M GET /v1/campaigns/:id', () => {
+  it('returns the staff override, else the election date plus the access window', async () => {
+    vi.spyOn<AuthProvider, 'verifyM2MToken'>(
+      service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN),
+      'verifyM2MToken',
+    ).mockResolvedValue({ id: 'mt_test', subject: 'mch_gp_admin' })
+    const headers = { Authorization: 'Bearer mt_test' }
+    const overridden = await seedCampaign({
+      plan: CampaignPlanLevel.pro,
+      planEndsAtOverride: new Date('2027-01-05T00:00:00Z'),
+    })
+    const derived = await seedCampaign()
+
+    const withOverride = await service.client.get(
+      `/v1/campaigns/${overridden.id}`,
+      { headers },
+    )
+    const withoutOverride = await service.client.get(
+      `/v1/campaigns/${derived.id}`,
+      { headers },
+    )
+
+    expect(withOverride.data.planEndsAt).toBe('2027-01-05T00:00:00.000Z')
+    expect(withoutOverride.data.planEndsAt).toBe('2026-11-17T00:00:00.000Z')
   })
 })
 
