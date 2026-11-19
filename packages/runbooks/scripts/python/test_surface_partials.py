@@ -135,3 +135,43 @@ def test_every_event_the_map_draws_is_in_the_snapshot():
     names = _map_event_names()
     assert len(names) > 50, "the map.js parser found almost nothing; it has drifted from map.js"
     assert names - known <= MAP_EVENTS_NEWER_THAN_SNAPSHOT
+
+
+# DATA-2835: the map takes its areas from the app's productMap.ts, so a released area
+# appears without a map.js edit. The read is a regex, which fails quietly if the file
+# changes shape, so these pin it to the file it reads.
+def _map_build():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "product_map_build", SURFACES / "product-map/build.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_map_reads_every_area_in_productMap():
+    build = _map_build()
+    ts = build.PRODUCT_MAP_TS.read_text()
+    areas = build.product_areas(ts)
+    # Counted a second way, by the indented keys rather than the object split, so an
+    # area the split drops cannot pass unnoticed.
+    declared = len(re.findall(r"^    name: ", ts, re.M)) - len(
+        re.findall(r"^    aliasOf: ", ts, re.M)
+    )
+    assert len(areas) == declared
+    assert all(a["name"] and a["path"] and a["modes"] for a in areas)
+    serve = {a["name"] for a in areas if "serve" in a["modes"]}
+    assert {"Community Issues", "Briefing Assistant", "Chief of Staff"} <= serve
+
+
+def test_a_productMap_the_map_cannot_read_fails_the_build():
+    build = _map_build()
+    with pytest.raises(ValueError):
+        build.product_areas("const WIN_AREAS: ProductArea[] = [\n]\n")
+
+
+def test_the_map_page_carries_the_app_areas(built):
+    assert '"product_areas"' in built["map"]
+    assert "Briefing Assistant" in built["map"]
