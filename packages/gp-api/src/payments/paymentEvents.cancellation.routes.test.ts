@@ -5,6 +5,7 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { addDays, format } from 'date-fns'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CampaignPlanLevel, PlanPricingModel } from '../generated/prisma'
 import { WebhookEventType } from './payments.types'
 
 // Route-level coverage for the *consequences* of a Pro cancellation, driven
@@ -144,6 +145,8 @@ const seedProCampaign = async (subscriptionId: string) => {
       organizationSlug: slug,
       userId: service.user.id,
       isPro: true,
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.subscription,
       details: {
         electionDate: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
         subscriptionId,
@@ -212,6 +215,8 @@ describe('POST /v1/payments/events — customer.subscription.deleted', () => {
 
     const updated = await readCampaign(campaign.id)
     expect(updated.isPro).toBe(false)
+    expect(updated.plan).toBe(CampaignPlanLevel.free)
+    expect(updated.planEndedAt).toBeInstanceOf(Date)
     // Nothing is left billing this campaign as far as the product is
     // concerned: the pointer a renewal webhook would resolve through is gone,
     // and the cancellation is stamped.

@@ -12,6 +12,8 @@ export enum PurchaseType {
   // .service.ts and docs/features/serve-sms.md, "Layer 2: SMS (Serve)".
   SERVE_TEXT = 'SERVE_TEXT',
   POLL = 'POLL',
+  // A one-time Pro or Team plan for a campaign (CampaignPlanPurchaseService).
+  PLAN = 'PLAN',
 }
 
 export interface BasePurchaseMetadata {

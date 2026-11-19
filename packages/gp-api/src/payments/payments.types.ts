@@ -37,6 +37,7 @@ export enum PaymentType {
   DOMAIN_REGISTRATION = 'domain_registration',
   OUTREACH_PURCHASE = 'outreach_purchase',
   POLL = 'poll',
+  PLAN = 'plan',
 }
 
 export interface CustomCheckoutSessionPayload {

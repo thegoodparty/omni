@@ -5,6 +5,7 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { addDays, format } from 'date-fns'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CampaignPlanLevel, PlanPricingModel } from '../generated/prisma'
 import { CheckoutSessionMode, WebhookEventType } from './payments.types'
 
 // Route-level coverage for Pro fulfilment from `customer.subscription.created`.
@@ -186,6 +187,11 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
     expect(updated.details.subscriptionId).toBe('sub_pro_created')
     expect(updated.isPro).toBe(true)
     expect(updated.details.isProUpdatedAt).toBeDefined()
+    expect(updated).toMatchObject({
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.subscription,
+      planEndedAt: null,
+    })
     // Flipping Pro without this leaves the candidate Pro with no opponent
     // research started, because the sibling completion event then computes
     // `becamePro === false` and skips its own dispatch.
@@ -369,6 +375,11 @@ describe('POST /v1/payments/events — checkout.session.completed (regression)',
     )
     const afterCompleted = await readCampaign(campaign.id)
     expect(afterCompleted.isPro).toBe(true)
+    expect(afterCompleted).toMatchObject({
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.subscription,
+      planEndedAt: null,
+    })
 
     const res = await deliverStripeEvent(
       subscriptionCreatedEvent({

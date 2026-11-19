@@ -16,7 +16,12 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { Campaign, Prisma, User } from '../../generated/prisma'
+import {
+  Campaign,
+  CampaignPlanLevel,
+  Prisma,
+  User,
+} from '../../generated/prisma'
 import { formatISO } from 'date-fns'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -883,7 +888,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       },
       false,
     )
-    await this.setIsPro(campaign.id, false, false)
+    await this.setIsPro(campaign.id, false, false, {
+      plan: CampaignPlanLevel.free,
+      planEndedAt: new Date(),
+    })
     await this.crm.trackCampaign(campaign.id)
   }
 

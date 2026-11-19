@@ -19,7 +19,7 @@ Stripe-backed payments. Two controllers, both mounted under `/payments`:
 | `services/purchase.service.ts`     | Per-`PurchaseType` validation, amount calc, post-purchase handlers                                                                             |
 | `services/paymentEventsService.ts` | Stripe webhook event dispatcher (subscriptions, invoices, charges)                                                                             |
 | `payments.types.ts`                | `PaymentType`, `PaymentIntentPayload<T>`                                                                                                       |
-| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `SERVE_TEXT`, `POLL`) and per-type DTOs                                                    |
+| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `SERVE_TEXT`, `POLL`, `PLAN`) and per-type DTOs                                                    |
 
 Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suffix — historical, leave it.
 
@@ -69,7 +69,14 @@ Where Pro state lives (all of it — there is no subscription table):
   write path. Two events fulfil Pro, not one: `checkout.session.completed` and
   `customer.subscription.created` (from the subscription's own metadata), so a
   completion that is lost no longer strands a paying account on the free plan
-  (ENG-11182, ENG-11672).
+  (ENG-11182, ENG-11672). Both arms stamp `plan = pro`,
+  `planPricingModel = subscription` and clear `planEndedAt` in the same commit
+  as the flip, and run the one-time effects (opponent research, the agentic
+  10DLC kickoff, the Pro Slack and voter-file alerts) through
+  `PaymentEventsService.onBecamePro` only when `becamePro` is true, so they
+  fire once from whichever arm wins. `customer.subscription.deleted` writes
+  `plan = free` and stamps `planEndedAt`. The one-time plan purchase
+  (`PurchaseType.PLAN`, `src/campaigns/plans/`) calls the same `onBecamePro`.
 - `user.metaData.customerId` — Stripe customer id (backfilled on boot, or
   on first Manage Subscription click via
   `PurchaseController.recoverCustomerIdFromSubscription` when the boot-time

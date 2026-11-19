@@ -4,7 +4,12 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { Campaign, User } from '../../generated/prisma'
+import {
+  Campaign,
+  CampaignPlanLevel,
+  PlanPricingModel,
+  User,
+} from '../../generated/prisma'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
@@ -63,6 +68,16 @@ describe('PaymentEventsService', () => {
     markDisputedByIntent: vi.fn(),
   }
   const moduleRef = { get: vi.fn() }
+
+  const subscriptionProArgs = [
+    true,
+    true,
+    {
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.subscription,
+      planEndedAt: null,
+    },
+  ]
 
   const nowSeconds = () => Math.floor(Date.now() / 1000)
 
@@ -237,7 +252,10 @@ describe('PaymentEventsService', () => {
         mockCampaign.id,
         { subscriptionId: 'sub_test' },
       )
-      expect(campaignsService.setIsPro).toHaveBeenCalledWith(mockCampaign.id)
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
+        mockCampaign.id,
+        ...subscriptionProArgs,
+      )
     })
 
     it('does not log a duplicate alert when the stored subscriptionId matches (webhook replay)', async () => {
@@ -308,7 +326,10 @@ describe('PaymentEventsService', () => {
     it('enqueues the agentic kickoff after marking the campaign Pro', async () => {
       await service.handleEvent(subscriptionEvent)
 
-      expect(campaignsService.setIsPro).toHaveBeenCalledWith(mockCampaign.id)
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
+        mockCampaign.id,
+        ...subscriptionProArgs,
+      )
       expect(
         tcrComplianceService.enqueueAgenticKickoffIfNeeded,
       ).toHaveBeenCalledExactlyOnceWith(mockCampaign.id)
@@ -367,6 +388,21 @@ describe('PaymentEventsService', () => {
       await service.handleEvent(subscriptionEvent)
 
       expect(raceOpponentService.autoCollectOnProUpgrade).not.toHaveBeenCalled()
+    })
+
+    it('skips every one-time Pro effect when the other arm already fulfilled', async () => {
+      campaignsService.setIsPro.mockResolvedValue({ becamePro: false })
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(
+        tcrComplianceService.enqueueAgenticKickoffIfNeeded,
+      ).not.toHaveBeenCalled()
+      expect(slackService.message).not.toHaveBeenCalled()
+      expect(voterFileDownloadAccess.downloadAccessAlert).not.toHaveBeenCalled()
+      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(mockUser.id, {
+        customerId: 'cus_test',
+      })
     })
 
     it('does not fail the webhook when the dispatch throws', async () => {
@@ -509,7 +545,10 @@ describe('PaymentEventsService', () => {
         activeCampaign.id,
         expect.objectContaining({ subscriptionId: 'sub_test' }),
       )
-      expect(campaignsService.setIsPro).toHaveBeenCalledWith(activeCampaign.id)
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
+        activeCampaign.id,
+        ...subscriptionProArgs,
+      )
     })
 
     it('completes an election-day checkout for the active campaign', async () => {
@@ -528,6 +567,7 @@ describe('PaymentEventsService', () => {
 
       expect(campaignsService.setIsPro).toHaveBeenCalledWith(
         electionDayCampaign.id,
+        ...subscriptionProArgs,
       )
     })
 
@@ -638,6 +678,34 @@ describe('PaymentEventsService', () => {
       // Linking is not fulfilling: without the checkout's metadata stamp this
       // event cannot tell which campaign the subscription was sold for.
       expect(campaignsService.setIsPro).not.toHaveBeenCalled()
+    })
+
+    it('fulfils a stamped active subscription through onBecamePro', async () => {
+      const event = {
+        data: {
+          object: {
+            id: 'sub_new',
+            customer: 'cus_test',
+            status: 'active',
+            metadata: { userId: String(mockUser.id) },
+          },
+        },
+      } as unknown as Stripe.CustomerSubscriptionCreatedEvent
+
+      await service.customerSubscriptionCreatedHandler(event)
+
+      expect(campaignsService.setIsPro).toHaveBeenCalledExactlyOnceWith(
+        mockCampaign.id,
+        ...subscriptionProArgs,
+      )
+      expect(
+        raceOpponentService.autoCollectOnProUpgrade,
+      ).toHaveBeenCalledExactlyOnceWith(mockCampaign.id)
+      expect(
+        tcrComplianceService.enqueueAgenticKickoffIfNeeded,
+      ).toHaveBeenCalledExactlyOnceWith(mockCampaign.id)
+      expect(slackService.message).toHaveBeenCalledOnce()
+      expect(voterFileDownloadAccess.downloadAccessAlert).toHaveBeenCalledOnce()
     })
 
     it('error-logs a differing stored subscriptionId and leaves the campaign alone', async () => {
