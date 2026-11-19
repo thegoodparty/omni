@@ -5,6 +5,7 @@ import {
   P2PUpgradeModal,
   P2P_MODAL_VARIANTS,
 } from 'app/dashboard/shared/P2PUpgradeModal'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { ComplianceModal } from 'app/dashboard/shared/ComplianceModal'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
@@ -17,7 +18,8 @@ export const useTextOutreachGate = (
   source = 'outreach_page',
 ) => {
   const [campaign] = useCampaign()
-  const { isPro, hasFreeTextsOffer } = campaign || {}
+  const { hasFreeTextsOffer } = campaign || {}
+  const { isPaid: isPro } = usePlan()
   const [showP2PModal, setShowP2PModal] = useState(false)
   const [showComplianceModal, setShowComplianceModal] = useState(false)
   const [showSmsCutoffNotice, setShowSmsCutoffNotice] = useState(false)
