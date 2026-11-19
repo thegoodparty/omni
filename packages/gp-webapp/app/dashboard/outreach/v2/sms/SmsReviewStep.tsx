@@ -29,7 +29,18 @@ import {
   completeFreePurchase,
 } from 'app/dashboard/purchase/utils/purchaseFetch.utils'
 import { Spinner } from '@styleguide'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
+import {
+  creditLeftNote,
+  creditLines,
+  creditSourceLabel,
+  useOutreachCredit,
+} from 'app/dashboard/outreach/util/outreachCredit'
+import {
+  formatOutreachCost,
+  outreachCostCents,
+} from 'app/dashboard/outreach/util/outreachPricing'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { z } from 'zod'
 import { Intro } from '../social/Intro'
@@ -176,6 +187,7 @@ export const SmsReviewStep = ({
   const hasFetchedSession = useRef(false)
 
   const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
+  const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
   // A send the offer fully covers is never a hold: gp-api prices it $0, and
   // the flow waits for the built list before it opens checkout for one.
   const isFree =
@@ -183,19 +195,34 @@ export const SmsReviewStep = ({
     (hasFreeTextsOffer &&
       contactCount !== null &&
       contactCount <= FREE_TEXTS_OFFER.COUNT)
-  const freeTextsDollars =
-    hasFreeTextsOffer && contactCount !== null
+  const credit = useOutreachCredit()
+  const costCents =
+    contactCount === null
+      ? null
+      : outreachCostCents(contactCount, pricePerContact)
+  const lines =
+    credit.active && !isServe && costCents !== null
+      ? creditLines(costCents, credit.balanceCents)
+      : null
+  const freeTextsDollars = lines
+    ? lines.creditCents / 100
+    : hasFreeTextsOffer && contactCount !== null
       ? Math.min(contactCount, FREE_TEXTS_OFFER.COUNT) * pricePerContact
       : 0
   const stripeDollars = liveTotalDollars ?? checkoutSession?.amount ?? 0
-  // An immediate charge already has the free texts off its amount. A hold
-  // does not, so the total takes them off here the way capture will.
+  // An immediate charge already has the free texts or credit off its amount.
+  // A hold does not, so the total takes them off here the way capture will.
+  // A remainder under the Stripe minimum is forgiven, as it is on the
+  // immediate path.
+  const heldRemainderDollars = Math.max(
+    0,
+    stripeDollars - (checkoutSession?.isHold ? freeTextsDollars : 0),
+  )
   const totalDollars = isFree
     ? 0
-    : Math.max(
-        0,
-        stripeDollars - (checkoutSession?.isHold ? freeTextsDollars : 0),
-      )
+    : lines && checkoutSession?.isHold && heldRemainderDollars < 0.5
+      ? 0
+      : heldRemainderDollars
   // The card is authorized for the hold, not the total, until capture.
   const showsLargerHold =
     Boolean(checkoutSession?.isHold) && stripeDollars > totalDollars
@@ -209,9 +236,11 @@ export const SmsReviewStep = ({
   const summaryDollars =
     contactCount === null
       ? null
-      : isFree
-        ? 0
-        : contactCount * pricePerContact - freeTextsDollars
+      : lines
+        ? lines.totalCents / 100
+        : isFree
+          ? 0
+          : contactCount * pricePerContact - freeTextsDollars
 
   useEffect(() => {
     if (readOnlySummary || !outreachId || hasFetchedSession.current) return
@@ -370,11 +399,33 @@ export const SmsReviewStep = ({
               <dt className="text-muted-foreground">Price per outreach</dt>
               <dd className="text-foreground">${pricePerContact.toFixed(3)}</dd>
             </div>
+            {lines && costCents !== null && (
+              <>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Cost</dt>
+                  <dd className="text-foreground">
+                    {formatOutreachCost(costCents)}
+                  </dd>
+                </div>
+                {lines.creditCents > 0 && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">
+                      {creditSourceLabel(credit.balanceCents)}
+                    </dt>
+                    <dd className="text-foreground">
+                      {`\u2212${formatOutreachCost(lines.creditCents)}`}
+                    </dd>
+                  </div>
+                )}
+              </>
+            )}
             {hasFreeTextsOffer && (
               <div className="flex items-center justify-between gap-4 pt-1 text-sm font-medium text-link">
                 <span className="flex items-center gap-2">
                   <GiftIcon className="size-4" />
-                  {FREE_TEXTS_OFFER.COUNT.toLocaleString()} free texts included
+                  {planPricingEnabled
+                    ? 'Outreach credit applied'
+                    : `${FREE_TEXTS_OFFER.COUNT.toLocaleString()} free texts included`}
                 </span>
                 {freeTextsDollars > 0 && (
                   <span>{`\u2212$${money(freeTextsDollars)}`}</span>
@@ -394,6 +445,8 @@ export const SmsReviewStep = ({
             {readOnlySummary ? (
               summaryDollars !== null && summaryDollars > 0 ? (
                 `$${money(summaryDollars)}`
+              ) : lines ? (
+                '$0.00'
               ) : (
                 'Free'
               )
@@ -402,12 +455,21 @@ export const SmsReviewStep = ({
             ) : preparing || (!isFree && !checkoutSession) ? (
               <Loader2Icon className="size-4 animate-spin" />
             ) : isFree ? (
-              'Free'
+              lines ? (
+                '$0.00'
+              ) : (
+                'Free'
+              )
             ) : (
               `$${money(totalDollars)}`
             )}
           </span>
         </div>
+        {lines && lines.creditCents > 0 && lines.leftCents > 0 && (
+          <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+            {creditLeftNote(lines.leftCents)}
+          </p>
+        )}
       </Card>
 
       <Button

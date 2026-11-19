@@ -56,6 +56,15 @@ import {
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import {
+  creditLines,
+  useCreditUsedCents,
+  useOutreachCredit,
+} from 'app/dashboard/outreach/util/outreachCredit'
+import {
+  formatOutreachCost,
+  outreachCostCents,
+} from 'app/dashboard/outreach/util/outreachPricing'
 import { useUser } from '@shared/hooks/useUser'
 import { fetchOutreachDetail } from '../useOutreachDetail'
 import { LongPoll } from '@shared/utils/LongPoll'
@@ -481,6 +490,7 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
+  creditBeforeCents = null,
   showTestSend = false,
   onDone,
 }: {
@@ -491,6 +501,9 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
+  // The balance as the review last showed it, so the receipt can say what is
+  // left after this send. Null when the send did not run on credit.
+  creditBeforeCents?: number | null
   showTestSend?: boolean
   onDone: () => void
 }) => {
@@ -512,6 +525,11 @@ export const SuccessScreen = ({
     retry: false,
   })
   const receipt = paid ? receiptQuery.data : undefined
+  const creditUsedCents = useCreditUsedCents(
+    outreachId,
+    creditBeforeCents !== null,
+  )
+  const showCredit = creditBeforeCents !== null && creditUsedCents > 0
 
   return (
     <div className="space-y-6 py-8 text-center">
@@ -554,6 +572,16 @@ export const SuccessScreen = ({
                   ${receipt.amount.toFixed(2)}
                 </dd>
               </div>
+              {showCredit && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">
+                    Outreach credit used
+                  </dt>
+                  <dd className="text-foreground">
+                    {`\u2212${formatOutreachCost(creditUsedCents)}`}
+                  </dd>
+                </div>
+              )}
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Cost per outreach</dt>
                 <dd className="text-foreground">
@@ -575,6 +603,34 @@ export const SuccessScreen = ({
             <span className="font-semibold text-foreground">
               ${receipt.amount.toFixed(2)}
             </span>
+          </div>
+        </Card>
+      )}
+      {showCredit && !receipt && (
+        <Card className="gap-0 p-0 text-left">
+          <dl className="space-y-1.5 px-4 py-4 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">
+                Outreach credit used when it sends
+              </dt>
+              <dd className="text-foreground">
+                {formatOutreachCost(creditUsedCents)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">
+                Outreach credit left after
+              </dt>
+              <dd className="text-foreground">
+                {formatOutreachCost(
+                  Math.max((creditBeforeCents ?? 0) - creditUsedCents, 0),
+                )}
+              </dd>
+            </div>
+          </dl>
+          <div className="flex items-center justify-between border-t border-border px-4 py-4">
+            <span className="font-semibold text-foreground">Charged today</span>
+            <span className="font-semibold text-foreground">$0.00</span>
           </div>
         </Card>
       )}
@@ -779,6 +835,11 @@ export const SmsFlow = ({
   // checkout would then charge for the pre-edit message and date.
   const draftGenerationRef = useRef(0)
   const [scheduled, setScheduled] = useState(false)
+  const outreachCredit = useOutreachCredit()
+  // The balance as it stood before the send, kept so the success screen can
+  // say what is left once the campaign refetch has already taken it down.
+  const creditBeforeRef = useRef(outreachCredit.balanceCents)
+  if (!scheduled) creditBeforeRef.current = outreachCredit.balanceCents
   const [paidSend, setPaidSend] = useState(false)
 
   const draftRequestRef = useRef(0)
@@ -2017,6 +2078,13 @@ export const SmsFlow = ({
       ? Math.min(completedCount, FREE_TEXTS_OFFER.COUNT)
       : 0
     const billable = Math.max(completedCount - discount, 0)
+    const creditDollars =
+      outreachCredit.active && !surface.isServe
+        ? creditLines(
+            outreachCostCents(completedCount, PRICE_PER_MESSAGE),
+            creditBeforeRef.current,
+          ).creditCents / 100
+        : 0
     trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
       ...outreachEventProps({
         channel: 'text',
@@ -2027,7 +2095,9 @@ export const SmsFlow = ({
         // Always present on a paid channel, 0 included: a send fully covered
         // by the free-texts offer is a zero-cost text campaign, not a channel
         // without a price.
-        price: paid ? billable * PRICE_PER_MESSAGE : 0,
+        price: paid
+          ? Math.max(billable * PRICE_PER_MESSAGE - creditDollars, 0)
+          : 0,
         ...(draftOutreachId !== null
           ? { outreachCampaignId: draftOutreachId }
           : {}),
@@ -2498,6 +2568,11 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
+          creditBeforeCents={
+            outreachCredit.active && !surface.isServe
+              ? creditBeforeRef.current
+              : null
+          }
           showTestSend={isWinSms && previewFlagOn}
           onDone={onClose}
         />

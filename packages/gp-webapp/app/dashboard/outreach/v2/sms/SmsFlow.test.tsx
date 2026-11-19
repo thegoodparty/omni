@@ -3360,6 +3360,105 @@ describe('SuccessScreen receipt', () => {
   })
 })
 
+describe('SuccessScreen outreach credit', () => {
+  const detail = (creditReservedCents: number) => ({
+    status: 200 as const,
+    data: {
+      id: 57,
+      createdAt: new Date('2026-08-20T00:00:00Z'),
+      updatedAt: new Date('2026-08-20T00:00:00Z'),
+      campaignId: 1,
+      outreachType: 'p2p' as const,
+      projectId: null,
+      name: 'SMS',
+      error: null,
+      audienceRequest: null,
+      script: null,
+      message: null,
+      date: null,
+      imageUrl: null,
+      voterFileFilterId: null,
+      doorKnockingRouteId: null,
+      phoneListId: 9,
+      identityId: null,
+      didState: null,
+      didNpaSubset: [],
+      title: null,
+      textCount: null,
+      billableTextCount: null,
+      campaignPlanDueDate: null,
+      organizationSlug: null,
+      status: 'pending' as const,
+      archivedAt: null,
+      creditReservedCents,
+    },
+  })
+
+  it('says what a covered send used, what is left and that nothing was charged', async () => {
+    api.mock('GET /v1/outreach/:id', detail(8400))
+    render(
+      <SuccessScreen
+        contactCount={2400}
+        sendAt={null}
+        outreachId={57}
+        paid={false}
+        creditBeforeCents={17500}
+        onDone={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByText('Outreach credit used when it sends'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('$84.00')).toBeInTheDocument()
+    expect(screen.getByText('$91.00')).toBeInTheDocument()
+    expect(screen.getByText('Charged today')).toBeInTheDocument()
+    expect(screen.getByText('$0.00')).toBeInTheDocument()
+  })
+
+  it('adds the credit used to a paid receipt', async () => {
+    api.mock('GET /v1/outreach/:id', detail(4200))
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 200,
+      data: {
+        amount: 42,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: null,
+        paidAt: '2026-08-24T12:00:00.000Z',
+      },
+    })
+    render(
+      <SuccessScreen
+        contactCount={2400}
+        sendAt={null}
+        outreachId={57}
+        paid
+        creditBeforeCents={4200}
+        onDone={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Outreach credit used')).toBeInTheDocument()
+    expect(screen.getByText('\u2212$42.00')).toBeInTheDocument()
+    expect(screen.getByText('Charged today')).toBeInTheDocument()
+  })
+
+  it('shows no credit rows when the send did not run on credit', () => {
+    render(
+      <SuccessScreen
+        contactCount={2400}
+        sendAt={null}
+        outreachId={57}
+        paid={false}
+        onDone={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText(/Outreach credit/)).not.toBeInTheDocument()
+  })
+})
+
 describe('SuccessScreen test text', () => {
   it('keeps the test field disabled until the job exists, then enables it', async () => {
     let projectId: string | null = null

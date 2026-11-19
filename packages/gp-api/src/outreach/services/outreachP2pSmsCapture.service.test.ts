@@ -10,6 +10,7 @@ import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { P2pSmsSettleState } from 'src/generated/prisma'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
+import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
 import { OutreachP2pSmsPromoService } from './outreachP2pSmsPromo.service'
@@ -64,6 +65,7 @@ describe('OutreachP2pSmsCaptureService', () => {
   }
   let outreachService: { finalizeOutreachPurchase: ReturnType<typeof vi.fn> }
   let freeTexts: { restore: ReturnType<typeof vi.fn> }
+  let credits: { settle: ReturnType<typeof vi.fn> }
   const settingState = () => callSetting(sms)
 
   // Authorized hold + ready build with a stable count — the rendezvous
@@ -92,6 +94,7 @@ describe('OutreachP2pSmsCaptureService', () => {
             // Submitted to Peerly (projectId stamped) — capture never bills an
             // unsent send.
             projectId: 'job-sent',
+            creditReservedCents: 0,
             campaign: { hasFreeTextsOffer: false },
             p2pSms: { freeTextsApplied: false },
           }
@@ -131,14 +134,22 @@ describe('OutreachP2pSmsCaptureService', () => {
       finalizeOutreachPurchase: vi.fn().mockResolvedValue(undefined),
     }
     freeTexts = { restore: vi.fn().mockResolvedValue(true) }
+    credits = { settle: vi.fn().mockResolvedValue(undefined) }
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         OutreachP2pSmsCaptureService,
         {
           provide: PrismaService,
-          useValue: { outreachP2pSms: sms, outreach, peerlyPhoneList },
+          useValue: {
+            outreachP2pSms: sms,
+            outreach,
+            peerlyPhoneList,
+            $transaction: (fn: (tx: object) => unknown) =>
+              fn({ outreachP2pSms: sms }),
+          },
         },
+        { provide: OutreachCreditsService, useValue: credits },
         { provide: StripeService, useValue: stripe },
         { provide: OutreachService, useValue: outreachService },
         { provide: OutreachP2pSmsFreeTextsService, useValue: freeTexts },
@@ -334,6 +345,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       outreachRow: {
         phoneListId: PEERLY_LIST_ID,
         projectId: 'job-sent',
+        creditReservedCents: 0,
         campaign: { hasFreeTextsOffer: false },
         p2pSms: { freeTextsApplied: true },
       },
@@ -365,6 +377,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       outreachRow: {
         phoneListId: PEERLY_LIST_ID,
         projectId: 'job-sent',
+        creditReservedCents: 0,
         campaign: { hasFreeTextsOffer: false },
         p2pSms: { freeTextsApplied: false },
       },
@@ -388,6 +401,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       outreachRow: {
         phoneListId: PEERLY_LIST_ID,
         projectId: 'job-sent',
+        creditReservedCents: 0,
         campaign: { hasFreeTextsOffer: true },
         p2pSms: { freeTextsApplied: false },
       },
@@ -552,6 +566,7 @@ describe('OutreachP2pSmsCaptureService', () => {
         outreachRow: {
           phoneListId: PEERLY_LIST_ID,
           projectId: null,
+          creditReservedCents: 0,
           campaign: { hasFreeTextsOffer: false },
           p2pSms: { freeTextsApplied: false },
         },
@@ -560,6 +575,79 @@ describe('OutreachP2pSmsCaptureService', () => {
       await service.captureHold(OUTREACH_ID)
 
       expect(sms.updateMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('with reserved plan credit', () => {
+    const arrangeCredit = (reservedCents: number, leads = LEADS_LOADED) =>
+      arrange({
+        smsRow: {
+          outreachId: OUTREACH_ID,
+          settleState: P2pSmsSettleState.authorized,
+          authorizationIntentId: INTENT_ID,
+          authorizedAmountInCents: calcTextAmountInCents(leads),
+        },
+        outreachRow: {
+          phoneListId: PEERLY_LIST_ID,
+          projectId: 'job-sent',
+          creditReservedCents: reservedCents,
+          campaign: { hasFreeTextsOffer: false },
+          p2pSms: { freeTextsApplied: false },
+        },
+        build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: leads },
+      })
+
+    it('charges the actual cost less the credit and settles against the actual cost', async () => {
+      const reserved = 1000
+      arrangeCredit(reserved)
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
+        INTENT_ID,
+        AUTHORIZED - reserved,
+        `p2p-sms-capture-${INTENT_ID}`,
+      )
+      expect(credits.settle).toHaveBeenCalledWith(
+        OUTREACH_ID,
+        AUTHORIZED,
+        expect.anything(),
+      )
+    })
+
+    it('settles captured at $0, not voided, when the credit covers the send', async () => {
+      arrangeCredit(AUTHORIZED + 5000)
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
+      expect(stripe.voidHold).toHaveBeenCalledWith(INTENT_ID)
+      expect(settingState()(P2pSmsSettleState.voided)).toBeUndefined()
+      expect(settingState()(P2pSmsSettleState.captured)?.data).toMatchObject({
+        capturedAmountInCents: 0,
+      })
+      expect(credits.settle).toHaveBeenCalledWith(
+        OUTREACH_ID,
+        AUTHORIZED,
+        expect.anything(),
+      )
+    })
+
+    it('settles nothing for a send that reserved no credit', async () => {
+      arrange({})
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(credits.settle).not.toHaveBeenCalled()
+    })
+
+    it('leaves the credit reserved when the capture call fails', async () => {
+      arrangeCredit(1000)
+      stripe.capturePaymentIntent.mockRejectedValue(new Error('stripe down'))
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(credits.settle).not.toHaveBeenCalled()
     })
   })
 
@@ -630,6 +718,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       outreachRow: {
         phoneListId: PEERLY_LIST_ID,
         projectId: null,
+        creditReservedCents: 0,
         campaign: { hasFreeTextsOffer: false },
         p2pSms: { freeTextsApplied: false },
       },

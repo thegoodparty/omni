@@ -1,3 +1,4 @@
+import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
 import {
   BadGatewayException,
   BadRequestException,
@@ -127,6 +128,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly robocallCancel: OutreachRobocallCancelService,
     private readonly p2pSmsCancel: OutreachP2pSmsCancelService,
     private readonly features: FeaturesService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -1527,6 +1529,21 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         await revertClaim('promo restore failure')
         throw err
       }
+    }
+
+    // Plan credit reserved for the send goes back with the refund. A no-op
+    // for a send that reserved none; a failure reverts the claim like the
+    // restore above, since a cancelled row cannot be retried.
+    try {
+      await this.credits.release(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, campaignId },
+        `Credit release failed canceling outreach ${outreachId}; ` +
+          'claim reverted so cancel can retry',
+      )
+      await revertClaim('credit release failure')
+      throw err
     }
 
     // The cancel notice (CAS request 2026-09-09), covering both the

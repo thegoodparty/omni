@@ -28,6 +28,13 @@ describe('deriveMembershipState', () => {
     expect(state.isElectedOffice).toBe(true)
   })
 
+  it('reads the team plan as the team tier and a pro plan as pro', () => {
+    expect(
+      deriveMembershipState({ ...base, isPro: true, plan: 'team' }).tier,
+    ).toBe('team')
+    expect(deriveMembershipState({ ...base, plan: 'pro' }).tier).toBe('pro')
+  })
+
   it('needs verification for error and rejected records', () => {
     expect(
       deriveMembershipState({ ...base, isPro: true, tcrStatus: 'error' })

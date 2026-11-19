@@ -8,12 +8,14 @@ import {
 } from '@nestjs/common'
 import { addMinutes, isBefore } from 'date-fns'
 import {
+  EMAIL_MIN_CHARGE_CENTS,
   EmailConfirmDeclined,
   EmailConfirmResponse,
   EmailSend,
 } from '@goodparty_org/contracts'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { ContactUploadStuckService } from '@/contactUploads/services/contactUploadStuck.service'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import { SaveCardAndPlanResult } from '@/paymentHolds/paymentHolds.types'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -54,6 +56,7 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     private readonly holds: PaymentHoldsService,
     private readonly analytics: AnalyticsService,
     private readonly contactUploadStuck: ContactUploadStuckService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -136,17 +139,39 @@ export class OutreachEmailConfirmService extends createPrismaBase(
       froze &&
       (await this.client.outreachPaymentHold.count({ where: { outreachId } })) >
         0
+    // Credit pays first and the card holds the remainder. The reserve is
+    // idempotent, so a confirm retried after a decline gets the same amount.
+    // A remainder under Stripe's minimum is forgiven, so a send credit all but
+    // covers needs no card. A send already holding a (declined) hold row keeps
+    // it at the full price; credit settles first at capture, so the hold only
+    // ever over-covers.
+    const reservedCents =
+      scope.campaignId === null
+        ? 0
+        : await this.credits.reserveIfEnabled(
+            scope.campaignId,
+            outreachId,
+            priceCents,
+          )
+    const remainderCents = priceCents - reservedCents
+    const remainderHoldable = remainderCents >= EMAIL_MIN_CHARGE_CENTS
+    const coveredByCredit =
+      reservedCents > 0 && !remainderHoldable && !declinedBefore
     const card = {
       outreachId,
       userId: user.id,
       paymentMethodId,
-      estimateCents: priceCents,
+      estimateCents: remainderHoldable ? remainderCents : priceCents,
     }
     let plan: SaveCardAndPlanResult
     try {
-      plan = declinedBefore
-        ? await this.holds.updateCard(card)
-        : await this.holds.saveCardAndPlan(card)
+      if (coveredByCredit) {
+        plan = { outcome: 'scheduled' }
+      } else {
+        plan = declinedBefore
+          ? await this.holds.updateCard(card)
+          : await this.holds.saveCardAndPlan(card)
+      }
     } catch (err) {
       await this.returnToDraft(row.id, outreachId, row.outreach.date, froze)
       throw err
@@ -216,6 +241,7 @@ export class OutreachEmailConfirmService extends createPrismaBase(
           'Releasing a canceled email send hold failed',
         )
       }
+      await this.credits.release(outreachId)
       return this.emails.get(scope, outreachId)
     }
     if (status === OutreachStatus.in_progress) {

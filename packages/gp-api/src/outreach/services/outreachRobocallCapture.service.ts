@@ -5,6 +5,7 @@ import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { JobsService } from '@/jobs/jobs.service'
 import { calcRobocallAmountInCents } from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { OutreachCreditsService } from '@/outreachCredits/services/outreachCredits.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
@@ -69,6 +70,7 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     private readonly orphanedHolds: RobocallOrphanedHoldService,
     private readonly notification: OutreachNotificationService,
     private readonly jobs: JobsService,
+    private readonly credits: OutreachCreditsService,
   ) {
     super()
   }
@@ -285,6 +287,7 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
           { outreachId, intentStatus: intent.status },
           'robocall capture: zero-billable run with a gone hold; voided',
         )
+        await this.credits.release(outreachId)
         await this.transitionFromCapturing(
           outreachId,
           RobocallSettleState.voided,
@@ -324,6 +327,7 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
           'robocall: failed to record orphaned hold for reconcile',
         )
       }
+      await this.credits.release(outreachId)
       await this.transitionFromCapturing(outreachId, RobocallSettleState.voided)
       this.logger.info(
         { outreachId, completedCallCount },
@@ -385,6 +389,13 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     userId: number | undefined,
     completedCallCount: number,
   ): Promise<void> {
+    // Before the commit, so a failure leaves the row in capturing for the stale
+    // recovery to re-enter; both outcomes of the credit step are idempotent.
+    await this.settleCredit(
+      outreachId,
+      capturedAmountInCents,
+      completedCallCount,
+    )
     const commit = await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.capturing },
       data: {
@@ -423,6 +434,31 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       return
     }
     await this.emitReceipt(userId, outreachId, capturedAmountInCents)
+  }
+
+  // The credit drawn on this run is spent in full: the hold covers only the
+  // remainder, so the card amount plus the reserve is the whole estimate. A
+  // covered run that connected no calls owes nothing, so its reserve returns.
+  // A row with no reserve (flag off, no credit, a pre-credit run) is untouched.
+  private async settleCredit(
+    outreachId: number,
+    capturedAmountInCents: number,
+    completedCallCount: number,
+  ): Promise<void> {
+    const { creditReservedCents } =
+      await this.client.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+        select: { creditReservedCents: true },
+      })
+    if (creditReservedCents === 0) return
+    if (calcRobocallAmountInCents(completedCallCount) <= 0) {
+      await this.credits.release(outreachId)
+      return
+    }
+    await this.credits.settle(
+      outreachId,
+      capturedAmountInCents + creditReservedCents,
+    )
   }
 
   // Moves the row out of the capturing claim to a terminal (or back to settling
