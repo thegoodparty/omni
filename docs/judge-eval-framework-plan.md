@@ -27,13 +27,17 @@ The judge is a small test framework, like Vitest for agents.
 
 ```ts
 type EvalContext = {
-  api: AuthedFetch // signed in as this case's judge user; paths relative to baseUrl
+  api: AuthedFetch // signed in as this run's test user; paths relative to baseUrl
   baseUrl: string // dev (base arm) or the PR preview (candidate arm)
-  org: { slug: string } // a new org for this case and attempt
+  // The org bootstrap created for this run's test user. Every run gets a new
+  // user and so a new org; nothing has to create one.
+  org: { slug: string }
   runAgent: (name: string, input: unknown) => Promise<AgentRunResult>
 }
 
 definePairwiseAgentEvalSuite<Input>(name, {
+  mode: 'win' | 'serve', // which kind of test user a case needs
+  profile: Profile, // name, office, district, race: the same for a case's 3 attempts
   run: (input: Input, ctx: EvalContext) => Promise<string>,
   cases: Case<Input>[],
 })
@@ -53,6 +57,10 @@ type Case<Input> = {
 Rules:
 
 - **Every case runs 3 times on each side.** Not configurable.
+- **Every run gets a new test user.** All three attempts, on each side, so
+  each starts from a clean slate. The three attempts of one case share the
+  suite's profile, so only the identity is new and the attempts stay
+  comparable.
 - **Output is a string**: the exact text the judge reads. A background suite
   serializes its artifact.
 - **Cases are TypeScript**, in `<agent>.eval.ts` beside the agent. The
@@ -73,7 +81,7 @@ npx tsx packages/judge/run.ts \
   --base https://dev.goodparty.org \
   --candidate https://pr-3904.preview.goodparty.org \
   --suite trending_issues,top_community_issues \
-  --judge-model claude-sonnet-4-6 \
+  --judge-model anthropic/claude-sonnet-4-6 \
   --out ./judge-results
 ```
 
@@ -82,10 +90,10 @@ npx tsx packages/judge/run.ts \
 | `--base` | the base arm's URL: dev, running main |
 | `--candidate` | the candidate arm's URL: a PR preview |
 | `--suite` | suite names, comma-separated, or `all` |
-| `--judge-model` | the model every grading call uses |
+| `--judge-model` | an AI SDK model id, e.g. `anthropic/claude-sonnet-4-6` |
 | `--out` | where `results.json` and `results.md` are written |
 | `--concurrency` | cases in flight at once, default 16 |
-| `ANTHROPIC_API_KEY` | the environment holds the judge model's key |
+| the judge model provider's API key | in that provider's standard environment variable |
 
 It loads suites from the checkout it runs in, and imports nothing else from
 gp-api: the two URLs are the whole of its input.
@@ -104,8 +112,8 @@ runs still landing. At the end the process writes `results.json` and
 
 ### Signing in
 
-A run needs a real signed-in user, so reuse the sequence the e2e suite already
-runs. In `packages/gp-webapp/e2e-tests/tests/utils/api-registration.ts`,
+A run needs a real signed-in user, and gets a new one every time. In
+`packages/gp-webapp/e2e-tests/tests/utils/api-registration.ts`,
 `bootstrapTestUser` creates a real Clerk user with the backend SDK, calls
 `mintApiToken` for a one-hour API token, then provisions the user through the
 API before any browser session, every Clerk call through `clerkThrottle`.
@@ -116,6 +124,15 @@ them after three hours.
 sign-in it does at the end; the part the judge needs is everything before
 that. Extract it into a package both the judge and the e2e suite import, or
 copy it.
+
+**The org comes with the user.** Bootstrap creates it: a campaign for a Win
+suite, an elected office for a Serve suite, as the e2e helpers already do
+(`bootstrapTestUser` creates a campaign, `seedPrefilledElectedOffice` in
+`packages/gp-webapp/e2e-tests/src/helpers/serve.helper.ts` creates the
+office). So no run needs an org route, and `ctx.org` is just that user's org.
+A suite declares which kind it needs with `mode`, and gives its cases one
+`profile` — name, office, district, race — so that a case's three attempts
+run as three identities with the same profile.
 
 It needs `CLERK_SECRET_KEY` for the dev Clerk instance. Clerk's Backend API
 budget is 100 requests per 10 seconds per instance, shared with every other
@@ -167,8 +184,8 @@ Each phase is one PR, driven to delegate approval with every check green.
 
 ### 2. The framework
 
-- `definePairwiseAgentEvalSuite`, `EvalContext`, a judge user and org per case
-  and attempt, and the `run.ts` command above.
+- `definePairwiseAgentEvalSuite`, `EvalContext`, a test user per run (and so
+  an org per run), and the `run.ts` command above.
 - One runner process, one shared pool: for every case and attempt, base and
   candidate at once, each pair graded as soon as both sides land.
 - A new `judge.yml` of about 200 lines: wait for the preview, run the command,
@@ -185,6 +202,10 @@ One pair per attempt, three pairs per case. Each pair is judged in **both
 orders** — base as A and candidate as B, then swapped — and two orders that
 disagree are a tie. One grading call returns the winner, `handledWhen` as
 yes/partly/no per side, a score per dimension, and one sentence of reasoning.
+
+The call goes through the Vercel AI SDK — `generateObject` from `ai`, with a
+Zod schema for the verdict — never a provider SDK, so `--judge-model` is the
+only thing naming a provider and swapping providers is a flag change.
 
 A suite's verdict is a sign test over its non-tied pairs: BETTER or WORSE at
 p < 0.05, otherwise NO DIFFERENCE FOUND. It is also WORSE when the candidate's
@@ -232,9 +253,6 @@ The old runner stays for chat until the follow-ups below.
 
 ## Open questions
 
-- **Creating an org.** A case needs a fresh org, and no user route creates one
-  today. Either one exists that this has not found, or phase 1 adds one,
-  mounted in dev and previews only like the run routes.
 - **Background cost.** Background cases go from 1 run per side to 3. Raise the
   guard's $50-per-PR cap when its pricing moves.
 - **Dev agent capacity.** Both arms of a background sweep share dev's
