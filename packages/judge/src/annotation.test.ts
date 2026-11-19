@@ -19,6 +19,15 @@ const SECRETS = [
 ]
 
 describe('redactSecrets', () => {
+  // A Vercel bypass secret is opaque, so the pattern covers any unbroken run of
+  // URL-safe characters rather than guessing a vendor's alphabet.
+  it('covers a Vercel bypass secret, whose shape is not a known one', () => {
+    const bypass = 'Q2xpY2tUb0J5cGFzc1RoaXNWZXJjZWxCeXBhc3NTZWNyZXQ'
+    expect(redactSecrets(`x-vercel-protection-bypass: ${bypass}`)).toBe(
+      `x-vercel-protection-bypass: ${REDACTED}`,
+    )
+  })
+
   it('replaces every token-shaped string it is handed', () => {
     for (const secret of SECRETS) {
       const redacted = redactSecrets(`before ${secret} after`)
@@ -40,6 +49,16 @@ describe('excerpt', () => {
     expect(excerpt('x'.repeat(20), 10)).toBe(
       `${'x'.repeat(10)}\n… 10 more characters`,
     )
+  })
+
+  // A cut through a secret leaves a fragment no pattern matches any more, so
+  // redacting after the cut would miss exactly the case that matters.
+  it('redacts before it cuts, so a secret at the limit leaves no prefix', () => {
+    const secret = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz'
+    const cut = excerpt(`header ${secret} trailer`, 20)
+    expect(cut).not.toContain('sk-ant')
+    expect(cut).not.toContain('abcdefghij')
+    expect(cut).toBe('header [redacted] tr\n… 5 more characters')
   })
 })
 

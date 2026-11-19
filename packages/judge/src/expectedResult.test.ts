@@ -255,7 +255,7 @@ describe('registerSuite', () => {
       {
         name: 'long',
         isExpectedResultEvalSuite: true,
-        run: async () => 'x'.repeat(20_000),
+        run: async () => 'a long answer. '.repeat(1_000),
         judge: async () => ({ passed: true }),
         cases: [{ id: 'long', input: {}, expected: { passed: true } }],
       },

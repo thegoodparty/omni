@@ -10,8 +10,11 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bmt_[A-Za-z0-9_-]{12,}/g,
   // A JWT, which is what a signed-in test user's token arrives as.
   /\beyJ[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]{8,}){2}/g,
-  // A Vercel protection-bypass secret, and other long hex blobs.
-  /\b[A-Fa-f0-9]{32,}\b/g,
+  // A Vercel protection-bypass secret, a hex digest, and any other unbroken
+  // run of 32 URL-safe characters. This one is deliberately broad: over-
+  // redacting an annotation costs a reader a line of context, and missing a
+  // token costs the token.
+  /\b[A-Za-z0-9_-]{32,}\b/g,
 ]
 
 export const REDACTED = '[redacted]'
@@ -25,13 +28,18 @@ export const redactSecrets = (text: string): string =>
     text,
   )
 
+// Redact before cutting, never after: a cut through a secret leaves a short
+// fragment that no pattern matches any more, so the redaction would have
+// already passed over what the cut produced.
 export const excerpt = (
   text: string,
   limit: number = OUTPUT_EXCERPT_LIMIT,
-): string =>
-  text.length <= limit
-    ? text
-    : `${text.slice(0, limit)}\n… ${text.length - limit} more characters`
+): string => {
+  const redacted = redactSecrets(text)
+  return redacted.length <= limit
+    ? redacted
+    : `${redacted.slice(0, limit)}\n… ${redacted.length - limit} more characters`
+}
 
 // One line, so a report can print a prompt's opening without the rest of it
 // swallowing the record.
