@@ -39,10 +39,33 @@ const resultOf = (winner: GradedPair['winner']): SuiteResult => ({
       input: { topic: 't' },
       runs: [],
       pairs: [pairOf({ caseId: 'case-1', attempt: 1 } as PairRequest, winner)],
+      notJudged: [],
     },
   ],
   usage: { inputTokens: 0, outputTokens: 0 },
 })
+
+// Every attempt on both arms threw: nothing reached the grader.
+const cannotJudgeResult: SuiteResult = {
+  suite: 'a_suite',
+  mode: 'win',
+  profile: {},
+  dimensions: [],
+  cases: [
+    {
+      caseId: 'case-1',
+      input: { topic: 't' },
+      runs: [],
+      pairs: [],
+      notJudged: Array.from({ length: 3 }, (_, index) => ({
+        caseId: 'case-1',
+        attempt: index + 1,
+        failedArms: ['base' as const],
+      })),
+    },
+  ],
+  usage: { inputTokens: 0, outputTokens: 0 },
+}
 
 const argv = (out: string): string[] => [
   '--base',
@@ -109,6 +132,7 @@ describe('runJudge', () => {
           caseId: 'case-1',
           input: {},
           runs: [],
+          notJudged: [],
           pairs: Array.from({ length: 6 }, (_, index) =>
             pairOf(
               { caseId: 'case-1', attempt: index + 1 } as PairRequest,
@@ -123,6 +147,74 @@ describe('runJudge', () => {
       deps(async () => worse, { outputRoot: out }),
     )
     expect(verdictFor(worse).label).toBe('WORSE')
+    expect(code).toBe(1)
+  })
+
+  it('exits 2 on a suite it could not judge', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'judge-run-'))
+    const code = await runJudge(
+      argv('results'),
+      deps(async () => cannotJudgeResult, { outputRoot: out }),
+    )
+    expect(code).toBe(2)
+    const markdown = await readFile(join(out, 'results', 'results.md'), 'utf8')
+    expect(markdown).toContain("## a_suite: CAN'T JUDGE")
+  })
+
+  it('exits 1 when one suite is WORSE even if another cannot be judged', async () => {
+    // WORSE is read first: a regression someone can act on outranks a suite
+    // whose arms never ran.
+    const other = definePairwiseAgentEvalSuite<{ topic: string }>('b_suite', {
+      mode: 'win',
+      profile: {},
+      run: async () => 'out',
+      cases: [{ id: 'case-2', input: { topic: 't' } }],
+    })
+    const code = await runJudge(
+      argv('results'),
+      depsInto(
+        async (options) =>
+          options.suite.name === 'b_suite'
+            ? {
+                ...cannotJudgeResult,
+                suite: 'b_suite',
+                cases: cannotJudgeResult.cases.map((theCase) => ({
+                  ...theCase,
+                  caseId: 'case-2',
+                  notJudged: theCase.notJudged.map((entry) => ({
+                    ...entry,
+                    caseId: 'case-2',
+                  })),
+                })),
+              }
+            : {
+                ...resultOf('base'),
+                cases: [
+                  {
+                    caseId: 'case-1',
+                    input: {},
+                    runs: [],
+                    notJudged: [],
+                    pairs: Array.from({ length: 6 }, (_, index) =>
+                      pairOf(
+                        {
+                          caseId: 'case-1',
+                          attempt: index + 1,
+                        } as PairRequest,
+                        'base',
+                      ),
+                    ),
+                  },
+                ],
+              },
+        {
+          discoverSuitesFn: async () => [
+            { suite: suite as never, file: '/a.eval.ts' },
+            { suite: other as never, file: '/b.eval.ts' },
+          ],
+        },
+      ),
+    )
     expect(code).toBe(1)
   })
 
@@ -145,6 +237,29 @@ describe('runJudge', () => {
       }),
     )
     expect(code).toBe(2)
+  })
+
+  it('fails fast, naming the reason, when an arm cannot answer the run routes', async () => {
+    let ran = false
+    const code = await runJudge(
+      argv('results'),
+      depsInto(
+        async () => {
+          ran = true
+          return resultOf('tie')
+        },
+        {
+          probeArmFn: async (baseUrl) => ({
+            baseUrl,
+            ok: baseUrl !== 'https://candidate',
+            detail:
+              "GET /v1/agents/runs/x answered 404 for a route that does not exist (Cannot GET /v1/agents/runs/x), so this arm's gp-api may not have the run routes deployed",
+          }),
+        },
+      ),
+    )
+    expect(code).toBe(1)
+    expect(ran).toBe(false)
   })
 
   it('exits 1 without running anything when an arm is unreachable', async () => {
@@ -229,6 +344,7 @@ describe('runJudge', () => {
                     caseId: 'case-2',
                     input: {},
                     runs: [],
+                    notJudged: [],
                     pairs: Array.from({ length: 6 }, (_, index) =>
                       pairOf(
                         { caseId: 'case-2', attempt: index + 1 } as PairRequest,

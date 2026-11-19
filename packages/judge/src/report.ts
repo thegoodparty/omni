@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { CaseResult, SuiteResult } from './execute'
-import { outputOrFailure } from './execute'
+import type { ArmRun, CaseResult, SuiteResult } from './execute'
 import { handledRegressionP, readVerdict, type SuiteVerdict } from './stats'
+import type { ArmName } from './arm'
 
 // The two artifacts a run leaves behind: results.json, which holds every output,
 // every judgment and every token count, and results.md, which is what a person
@@ -45,6 +45,10 @@ export const verdictFor = (result: SuiteResult): SuiteVerdict => {
   const votes = result.cases.flatMap((theCase) =>
     theCase.pairs.map((pair) => pair.winner),
   )
+  const notJudged = result.cases.reduce(
+    (total, theCase) => total + theCase.notJudged.length,
+    0,
+  )
   const counts = result.cases.map(countHandling).reduce(
     (total, entry) => ({
       basePass: total.basePass + entry.basePass,
@@ -56,6 +60,7 @@ export const verdictFor = (result: SuiteResult): SuiteVerdict => {
   )
   return readVerdict({
     votes,
+    notJudged,
     handled: {
       ...counts,
       pWorse: handledRegressionP(
@@ -66,6 +71,18 @@ export const verdictFor = (result: SuiteResult): SuiteVerdict => {
       ),
     },
   })
+}
+
+// How many failed runs each arm left behind, which is what makes a suite
+// unjudgeable and says whose deploy to look at.
+const failuresByArm = (result: SuiteResult): Record<ArmName, number> => {
+  const failed = result.cases.flatMap((theCase) =>
+    theCase.runs.filter((run) => run.error !== null),
+  )
+  return {
+    base: failed.filter((run) => run.arm === 'base').length,
+    candidate: failed.filter((run) => run.arm === 'candidate').length,
+  }
 }
 
 const percent = (pass: number, total: number): string =>
@@ -86,10 +103,42 @@ const pairReasoning = (pair: CaseResult['pairs'][number]): string => {
   return first.reasoning
 }
 
+// A run of one arm that failed the same way every time is one broken deploy,
+// not a set of unrelated failures: nothing on that arm ever reached the agent,
+// so no pair involving it means anything. Named once, at the top of the report,
+// where the reader who sees CAN'T JUDGE looks first.
+export const armWideFailures = (
+  summary: RunSummary,
+): { arm: ArmName; status: number }[] => {
+  const runs: ArmRun[] = summary.suites.flatMap((outcome) =>
+    outcome.result.cases.flatMap((theCase) => theCase.runs),
+  )
+  const lines: { arm: ArmName; status: number }[] = []
+  for (const arm of ['base', 'candidate'] as const) {
+    const onArm = runs.filter((run) => run.arm === arm)
+    if (onArm.length === 0) continue
+    if (onArm.some((run) => run.error === null)) continue
+    const statuses = new Set(onArm.map((run) => run.httpStatus))
+    const status = [...statuses][0]
+    if (statuses.size !== 1 || status === null || status === undefined) {
+      continue
+    }
+    lines.push({ arm, status })
+  }
+  return lines
+}
+
 export const renderMarkdown = (summary: RunSummary): string => {
+  const title = `# Judge: ${summary.suites.map((outcome) => outcome.result.suite).join(', ')}`
+  const armWide = armWideFailures(summary).map(
+    ({ arm, status }) =>
+      `Every ${arm} run failed with ${status}: the ${arm} gp-api may not have the run routes deployed.`,
+  )
   const lines: string[] = [
-    `# Judge: ${summary.suites.map((outcome) => outcome.result.suite).join(', ')}`,
-    ``,
+    title,
+    ...(armWide.length > 0
+      ? [``, ...armWide.flatMap((line) => [line, ``])]
+      : []),
     `| | |`,
     `| --- | --- |`,
     `| Base | \`${summary.baseUrl}\` |`,
@@ -102,6 +151,7 @@ export const renderMarkdown = (summary: RunSummary): string => {
 
   for (const outcome of summary.suites) {
     const { result, verdict } = outcome
+    const failed = failuresByArm(result)
     lines.push(
       ``,
       `## ${result.suite}: ${verdict.label}`,
@@ -111,6 +161,8 @@ export const renderMarkdown = (summary: RunSummary): string => {
       `| Pairs for candidate | ${verdict.sign.forCandidate} |`,
       `| Pairs for base | ${verdict.sign.forBase} |`,
       `| Tied pairs | ${verdict.sign.ties} |`,
+      `| Pairs not judged | ${verdict.notJudged} |`,
+      `| Failed runs, base / candidate | ${failed.base} / ${failed.candidate} |`,
       `| p (candidate better) | ${formatP(verdict.sign.pBetter)} |`,
       `| p (base better) | ${formatP(verdict.sign.pWorse)} |`,
       `| handledWhen pass, base | ${verdict.handled.basePass}/${verdict.handled.baseTotal} (${percent(verdict.handled.basePass, verdict.handled.baseTotal)}) |`,
@@ -120,8 +172,8 @@ export const renderMarkdown = (summary: RunSummary): string => {
       ``,
       `### Per case`,
       ``,
-      `| Case | Candidate | Base | Tied | Verdict |`,
-      `| --- | --- | --- | --- | --- |`,
+      `| Case | Candidate | Base | Tied | Not judged | Verdict |`,
+      `| --- | --- | --- | --- | --- | --- |`,
     )
     for (const theCase of result.cases) {
       const forCandidate = theCase.pairs.filter(
@@ -132,13 +184,15 @@ export const renderMarkdown = (summary: RunSummary): string => {
       ).length
       const tied = theCase.pairs.filter((pair) => pair.winner === 'tie').length
       const caseVerdict =
-        forCandidate > forBase
-          ? 'candidate'
-          : forBase > forCandidate
-            ? 'base'
-            : 'tie'
+        theCase.pairs.length === 0
+          ? 'not judged'
+          : forCandidate > forBase
+            ? 'candidate'
+            : forBase > forCandidate
+              ? 'base'
+              : 'tie'
       lines.push(
-        `| \`${theCase.caseId}\` | ${forCandidate} | ${forBase} | ${tied} | ${caseVerdict} |`,
+        `| \`${theCase.caseId}\` | ${forCandidate} | ${forBase} | ${tied} | ${theCase.notJudged.length} | ${caseVerdict} |`,
       )
     }
 
@@ -174,20 +228,13 @@ export const renderMarkdown = (summary: RunSummary): string => {
   return `${lines.join('\n')}\n`
 }
 
-// results.json is the run, plus each run's judged text: the exact string the
-// judge read, which for a failed run is the marker rather than its output.
+// results.json is the run, with every output and every judgment. A run that
+// threw kept no output, and no pair holds it: `notJudged` is where it shows.
 export const buildResultsJson = (summary: RunSummary) => ({
   ...summary,
   suites: summary.suites.map(({ result, verdict }) => ({
     ...result,
     verdict,
-    cases: result.cases.map((theCase) => ({
-      ...theCase,
-      runs: theCase.runs.map((run) => ({
-        ...run,
-        judgedOutput: outputOrFailure(run),
-      })),
-    })),
   })),
 })
 

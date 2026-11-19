@@ -114,12 +114,12 @@ npx tsx packages/judge/src/run.ts \
 | File              | What                                                                                                              |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `src/suite.ts`    | `definePairwiseAgentEvalSuite`, `EvalContext`, `Case`, `grading`                                                  |
-| `src/arm.ts`      | One arm of one attempt: a fresh test user, its org, `ctx`, `probeArm`                                             |
+| `src/arm.ts`      | One arm of one attempt: a fresh test user, its org, `ctx`; `probeArm` checks the run route before anything runs   |
 | `src/apiRoot.ts`  | Whether an arm is a webapp (gp-api at `/api`) or a gp-api origin (`/v1`); a URL neither answers for is not an arm |
 | `src/runAgent.ts` | The two agent routes, and the poll                                                                                |
-| `src/execute.ts`  | One shared pool: six runs per case, a pair graded as soon as both sides land                                      |
+| `src/execute.ts`  | One shared pool: six runs per case; a pair is graded as soon as both sides land, and never when either threw      |
 | `src/grade.ts`    | The grading call, through the AI SDK's `generateObject`                                                           |
-| `src/stats.ts`    | The exact sign test and the handledWhen test                                                                      |
+| `src/stats.ts`    | The exact sign test, the handledWhen test, and CAN'T JUDGE                                                        |
 | `src/report.ts`   | `results.json` and `results.md`                                                                                   |
 | `src/cli.ts`      | Flags                                                                                                             |
 | `src/discover.ts` | The `packages/gp-api/src/**/*.eval.ts` glob                                                                       |
@@ -151,6 +151,33 @@ WORSE.
 The exact tests cannot reach p < 0.05 from a single case's three attempts (three
 of three is p = 0.125), which is the honest reading of that little data. A suite
 with one case reports NO DIFFERENCE FOUND however lopsided it looks.
+
+## A failed run is never graded
+
+The judge compares two outputs. A run that threw has none, so a pair with a
+failed run on either side never reaches the grader: it is counted as **not
+judged** and listed under "Runs that failed". Grading the marker
+`[the run failed: ...]` instead reads the arm that ran as the better one, which
+is how a candidate whose routes were not deployed yet scored 18-0 for a degraded
+build (PR #3926).
+
+A suite with no judged pairs, or with more than half of them not judged, is
+**CAN'T JUDGE**: its votes are the minority of its attempts, so reading a
+direction off them claims more than the run saw. The report names the side that
+failed and how often, and the command exits 2 — distinct from WORSE's 1, because
+nothing about the candidate was learned. WORSE is read first, so a real
+regression still exits 1.
+
+Two guards keep a whole sweep from being wasted this way:
+
+- **Before any run**, `probeArm` asks each arm for a run id no arm can hold
+  (`GET .../v1/agents/runs/<random uuid>`). The route existing is the signal:
+  its guard answers 401, or its handler answers 404 for the missing run. A
+  route that is not deployed answers Nest's own `Cannot GET ...` 404, which
+  fails the run before a single agent run or grading call is spent.
+- **Every run on one arm failing with the same HTTP status** is printed at the top
+  of `results.md`, naming the arm and status, because one broken deploy is not a
+  set of unrelated failures.
 
 ## Signing in
 

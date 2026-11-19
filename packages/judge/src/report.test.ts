@@ -69,32 +69,42 @@ const armUser = {
   clerkUserId: 'clerk-1',
 }
 
-const caseOf = (id: string, pairs: GradedPair[]): CaseResult => ({
+const caseOf = (
+  id: string,
+  pairs: GradedPair[],
+  notJudged: CaseResult['notJudged'] = [],
+  attempts = pairs.length,
+): CaseResult => ({
   caseId: id,
   input: { topic: id },
-  runs: pairs.flatMap((entry) => [
-    {
-      arm: 'base' as const,
-      caseId: id,
-      attempt: entry.attempt,
-      output: 'base output',
-      error: null,
-      setupMs: 1,
-      runMs: 2,
-      user: armUser,
-    },
-    {
-      arm: 'candidate' as const,
-      caseId: id,
-      attempt: entry.attempt,
-      output: 'candidate output',
-      error: null,
-      setupMs: 1,
-      runMs: 2,
-      user: armUser,
-    },
-  ]),
+  runs: Array.from({ length: attempts }, (_, index) => index + 1).flatMap(
+    (attempt) => [
+      {
+        arm: 'base' as const,
+        caseId: id,
+        attempt,
+        output: 'base output',
+        error: null,
+        httpStatus: null,
+        setupMs: 1,
+        runMs: 2,
+        user: armUser,
+      },
+      {
+        arm: 'candidate' as const,
+        caseId: id,
+        attempt,
+        output: 'candidate output',
+        error: null,
+        httpStatus: null,
+        setupMs: 1,
+        runMs: 2,
+        user: armUser,
+      },
+    ],
+  ),
   pairs,
+  notJudged,
 })
 
 describe('countHandling', () => {
@@ -168,8 +178,8 @@ describe('renderMarkdown', () => {
       caseOf('b', [pair('base')]),
     ])
     const markdown = renderMarkdown(summaryOf(result))
-    expect(markdown).toContain('| `a` | 1 | 0 | 0 | candidate |')
-    expect(markdown).toContain('| `b` | 0 | 1 | 0 | base |')
+    expect(markdown).toContain('| `a` | 1 | 0 | 0 | 0 | candidate |')
+    expect(markdown).toContain('| `b` | 0 | 1 | 0 | 0 | base |')
   })
 
   it('gives reasoning for every losing pair', () => {
@@ -234,6 +244,97 @@ describe('renderMarkdown', () => {
     expect(markdown).toContain('Runs that failed')
     expect(markdown).toContain('`a` attempt 1 (base)**: the agent route 500d')
   })
+
+  it('counts the pairs a failed run kept from the grader', () => {
+    const theCase = caseOf(
+      'a',
+      [pair('candidate')],
+      [
+        { caseId: 'a', attempt: 2, failedArms: ['base'] },
+        { caseId: 'a', attempt: 3, failedArms: ['base'] },
+      ],
+    )
+    const markdown = renderMarkdown(summaryOf(suiteResultOf([theCase])))
+    expect(markdown).toContain('| Pairs not judged | 2 |')
+    expect(markdown).toContain('| `a` | 1 | 0 | 0 | 2 | candidate |')
+  })
+
+  it('says which arm failed, and how often, on a suite it could not judge', () => {
+    const theCase = caseOf(
+      'a',
+      [],
+      [
+        { caseId: 'a', attempt: 1, failedArms: ['base'] },
+        { caseId: 'a', attempt: 2, failedArms: ['base'] },
+        { caseId: 'a', attempt: 3, failedArms: ['base'] },
+      ],
+      3,
+    )
+    for (const run of theCase.runs.filter((run) => run.arm === 'base')) {
+      run.output = null
+      run.error = 'Request failed with status code 404'
+      run.httpStatus = 404
+    }
+    const markdown = renderMarkdown(summaryOf(suiteResultOf([theCase])))
+    expect(markdown).toContain("## a_suite: CAN'T JUDGE")
+    expect(markdown).toContain('| Pairs not judged | 3 |')
+    expect(markdown).toContain('| Failed runs, base / candidate | 3 / 0 |')
+    expect(markdown).toContain('| `a` | 0 | 0 | 0 | 3 | not judged |')
+  })
+
+  it('names an arm whose every run failed the same way, at the top', () => {
+    const theCase = caseOf('a', [], [], 3)
+    for (const run of theCase.runs) {
+      run.error = 'Request failed with status code 404'
+      run.output = null
+      run.httpStatus = 404
+    }
+    const markdown = renderMarkdown(summaryOf(suiteResultOf([theCase])))
+    const [first, second, third] = markdown.split('\n')
+    expect(first).toBe('# Judge: a_suite')
+    expect(second).toBe('')
+    expect(third).toBe(
+      'Every base run failed with 404: the base gp-api may not have the run routes deployed.',
+    )
+    expect(markdown).toContain(
+      'Every candidate run failed with 404: the candidate gp-api may not have the run routes deployed.',
+    )
+  })
+
+  it('says nothing at the top when one arm had a run succeed', () => {
+    const theCase = caseOf('a', [], [], 3)
+    const failed = theCase.runs.filter((run) => run.arm === 'base').slice(0, 2)
+    for (const run of failed) {
+      run.error = 'Request failed with status code 404'
+      run.output = null
+      run.httpStatus = 404
+    }
+    const markdown = renderMarkdown(summaryOf(suiteResultOf([theCase])))
+    expect(markdown).not.toContain('Every base run failed')
+  })
+
+  it('says nothing at the top when the arm failed in more than one way', () => {
+    const theCase = caseOf('a', [], [], 3)
+    const baseRuns = theCase.runs.filter((run) => run.arm === 'base')
+    for (const [index, run] of baseRuns.entries()) {
+      run.output = null
+      run.httpStatus = index === 0 ? 500 : 404
+      run.error = `Request failed with status code ${run.httpStatus}`
+    }
+    const markdown = renderMarkdown(summaryOf(suiteResultOf([theCase])))
+    expect(markdown).not.toContain('Every base run failed')
+  })
+
+  it('says nothing at the top when a failed run died without a status', () => {
+    const theCase = caseOf('a', [], [], 3)
+    for (const run of theCase.runs) {
+      run.error = 'still running after 3600000ms'
+      run.output = null
+      run.httpStatus = null
+    }
+    const markdown = renderMarkdown(summaryOf(suiteResultOf([theCase])))
+    expect(markdown).not.toContain('Every base run failed')
+  })
 })
 
 describe('writeResults', () => {
@@ -245,6 +346,7 @@ describe('writeResults', () => {
     const json = JSON.parse(await readFile(jsonPath, 'utf8'))
     expect(json.baseUrl).toBe('https://base')
     expect(json.suites[0].cases[0].runs[0].output).toBe('base output')
+    expect(json.suites[0].cases[0].notJudged).toEqual([])
     expect(json.suites[0].cases[0].pairs[0].winner).toBe('candidate')
     expect(json.suites[0].verdict.label).toBeDefined()
     const markdown = await readFile(markdownPath, 'utf8')

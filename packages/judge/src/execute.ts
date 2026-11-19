@@ -1,3 +1,4 @@
+import axios from 'axios'
 import type { Grader, GradedPair } from './grade'
 import { DEFAULT_DIMENSIONS, type Dimension } from './grade'
 import { runPool } from './pool'
@@ -14,6 +15,12 @@ import type {
 // shared pool: sign in, setup, run, keep the output string. A pair is graded as
 // soon as attempt N exists on both sides, so grading overlaps the runs still
 // landing.
+//
+// A pair with a failed run on either side is never graded. Two outputs are what
+// the judge compares, and a run that threw has none: grading the marker instead
+// reads the arm that ran as the better one, which is how a candidate whose
+// routes were not deployed yet once scored 18-0 (PR #3926). Such a pair is
+// counted as not judged, and enough of them make the suite impossible to judge.
 
 export const ATTEMPTS_PER_SIDE = 3
 
@@ -24,10 +31,20 @@ export type ArmRun = {
   // The exact text the judge reads. Null when the run threw; `error` says why.
   output: string | null
   error: string | null
+  // The status the run died on, when it died on an HTTP response.
+  httpStatus: number | null
   // What the setup and the run spent, in wall-clock milliseconds.
   setupMs: number
   runMs: number
   user: ArmContext['user']
+}
+
+// One (case, attempt) that never reached the grader, and the arms that kept it
+// from doing so.
+export type NotJudgedPair = {
+  caseId: string
+  attempt: number
+  failedArms: ArmName[]
 }
 
 export type CaseResult = {
@@ -35,6 +52,7 @@ export type CaseResult = {
   input: unknown
   runs: ArmRun[]
   pairs: GradedPair[]
+  notJudged: NotJudgedPair[]
 }
 
 export type SuiteResult = {
@@ -60,6 +78,8 @@ export type ExecuteSuiteOptions = {
   now?: () => number
   // Called as each pair is graded, so a long run shows progress.
   onPairGraded?: (suiteName: string, pair: GradedPair) => void
+  // Called for each pair a failed run kept from the grader, for the same reason.
+  onPairNotJudged?: (suiteName: string, pair: NotJudgedPair) => void
 }
 
 type SideJob = {
@@ -78,14 +98,11 @@ const dimensionsFor = (
   return Object.entries(merged).map(([name, question]) => ({ name, question }))
 }
 
-// The text the judge reads for one run. It is the exact string the suite's
-// `run` returned, or, for a run that threw, a one-line marker that says so —
-// an arm that crashed is a real difference between the arms, not a hole in the
-// data to skip.
-export const outputOrFailure = (run: {
-  output: string | null
-  error: string | null
-}): string => run.output ?? `[the run failed: ${run.error ?? 'unknown error'}]`
+// The status a thrown run died on, when it died on an HTTP response rather than
+// on a timeout or a bug in a suite. The report names one arm-wide status to say
+// which deploy is missing a route.
+const httpStatusOf = (thrown: unknown): number | null =>
+  axios.isAxiosError(thrown) ? (thrown.response?.status ?? null) : null
 
 const taskFor = (suiteName: string, theCase: EvalCase<unknown>): string => {
   const parts = [`Suite: ${suiteName}`, `Case: ${theCase.id}`]
@@ -107,6 +124,7 @@ export const executeSuite = async (
     createArmContextFn = createArmContext,
     now = Date.now,
     onPairGraded,
+    onPairNotJudged,
   } = options
 
   const jobs: SideJob[] = []
@@ -129,6 +147,7 @@ export const executeSuite = async (
   // key sees it and does nothing.
   const pending = new Map<string, ArmRun>()
   const pairs: GradedPair[] = []
+  const notJudged: NotJudgedPair[] = []
   const gradingPromises = new Map<string, Promise<void>>()
 
   const noteRun = async (run: ArmRun): Promise<void> => {
@@ -138,6 +157,21 @@ export const executeSuite = async (
     const base = pending.get(`${key}\u0000base`)
     const candidate = pending.get(`${key}\u0000candidate`)
     if (!base || !candidate) return
+
+    const failedArms = [base, candidate]
+      .filter((side) => side.error !== null)
+      .map((side) => side.arm)
+    if (failedArms.length > 0) {
+      const skipped = {
+        caseId: run.caseId,
+        attempt: run.attempt,
+        failedArms,
+      }
+      notJudged.push(skipped)
+      onPairNotJudged?.(suite.name, skipped)
+      gradingPromises.set(key, Promise.resolve())
+      return
+    }
 
     const theCase = suite.cases.find((entry) => entry.id === run.caseId)!
     const grading = theCase.grading ?? {}
@@ -152,8 +186,9 @@ export const executeSuite = async (
         ...(grading.dimensions ? { dimensions: grading.dimensions } : {}),
       },
       dimensions: dimensionList,
-      baseOutput: outputOrFailure(base),
-      candidateOutput: outputOrFailure(candidate),
+      // Both are the suite's own output: a failed side never reaches here.
+      baseOutput: base.output!,
+      candidateOutput: candidate.output!,
     }
     const graded = grader.gradePair(pairRequest).then((pair) => {
       pairs.push(pair)
@@ -172,6 +207,7 @@ export const executeSuite = async (
     })
     let output: string | null = null
     let error: string | null = null
+    let httpStatus: number | null = null
     let setupMs = 0
     let runMs = 0
 
@@ -191,6 +227,7 @@ export const executeSuite = async (
       }
     } catch (thrown) {
       error = thrown instanceof Error ? thrown.message : String(thrown)
+      httpStatus = httpStatusOf(thrown)
     }
 
     const armRun: ArmRun = {
@@ -199,6 +236,7 @@ export const executeSuite = async (
       attempt: job.attempt,
       output,
       error,
+      httpStatus,
       setupMs,
       runMs,
       user: armContext.user,
@@ -214,6 +252,9 @@ export const executeSuite = async (
     input: theCase.input,
     runs: runs.filter((run) => run.caseId === theCase.id),
     pairs: pairs
+      .filter((pair) => pair.caseId === theCase.id)
+      .sort((left, right) => left.attempt - right.attempt),
+    notJudged: notJudged
       .filter((pair) => pair.caseId === theCase.id)
       .sort((left, right) => left.attempt - right.attempt),
   }))

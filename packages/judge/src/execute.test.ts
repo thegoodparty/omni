@@ -1,5 +1,6 @@
+import { AxiosError } from 'axios'
 import { describe, expect, it } from 'vitest'
-import { ATTEMPTS_PER_SIDE, executeSuite, outputOrFailure } from './execute'
+import { ATTEMPTS_PER_SIDE, executeSuite } from './execute'
 import type { GradedPair, Grader, PairRequest } from './grade'
 import type { ArmContext } from './arm'
 import { definePairwiseAgentEvalSuite, type EvalContext } from './suite'
@@ -43,11 +44,15 @@ const armFactory = (runs: string[]) => {
       created.push({ arm: options.arm, baseUrl: options.baseUrl })
       const output = runs[index % runs.length]!
       index += 1
+      const attempt = created.filter(
+        (entry) => entry.arm === options.arm,
+      ).length
       return {
         ctx: {
           api: {} as EvalContext['api'],
           baseUrl: options.baseUrl,
-          org: { slug: `org-${options.arm}-${created.length}` },
+          // Named by arm and attempt, so a test can fail one attempt on one arm.
+          org: { slug: `org-${options.arm}-${attempt}` },
           runAgent: async () => ({
             runId: `run-${created.length}`,
             status: 'completed' as const,
@@ -227,12 +232,15 @@ describe('executeSuite', () => {
     expect(result.cases[0]!.runs.every((run) => run.setupMs === 5)).toBe(true)
   })
 
-  it('turns a thrown run into a failure output, not a hole in the data', async () => {
+  it('never sends a pair to the grader when either side threw', async () => {
     const suite = definePairwiseAgentEvalSuite<{ topic: string }>('throwy', {
       mode: 'win',
       profile: {},
-      run: async () => {
-        throw new Error('the agent route 500d')
+      run: async (_input, ctx) => {
+        if (ctx.org.slug.startsWith('org-base')) {
+          throw new Error('the agent route 500d')
+        }
+        return 'candidate output'
       },
       cases: [{ id: 'case-0', input: { topic: 't' } }],
     })
@@ -249,9 +257,126 @@ describe('executeSuite', () => {
     const failed = result.cases[0]!.runs.find((run) => run.error !== null)
     expect(failed?.error).toBe('the agent route 500d')
     expect(failed?.output).toBeNull()
-    // The pair is still graded, so the failure counts against the arm that made it.
-    expect(requests).toHaveLength(ATTEMPTS_PER_SIDE)
-    expect(requests[0]!.baseOutput).toContain('the run failed')
+    // The candidate ran; the base did not. Grading that pair would read the arm
+    // that ran as the better one, which is the bug PR #3926 hit.
+    expect(requests).toHaveLength(0)
+    expect(result.cases[0]!.pairs).toHaveLength(0)
+    expect(result.cases[0]!.notJudged).toEqual(
+      Array.from({ length: ATTEMPTS_PER_SIDE }, (_, index) => ({
+        caseId: 'case-0',
+        attempt: index + 1,
+        failedArms: ['base'],
+      })),
+    )
+  })
+
+  it('names both arms when both sides threw', async () => {
+    const suite = definePairwiseAgentEvalSuite<{ topic: string }>('both', {
+      mode: 'win',
+      profile: {},
+      run: async () => {
+        throw new Error('every arm 404d')
+      },
+      cases: [{ id: 'case-0', input: { topic: 't' } }],
+    })
+    const { factory } = armFactory(['out'])
+    const { requests, grader } = recorder()
+    const result = await executeSuite({
+      suite,
+      baseUrl: 'https://base',
+      candidateUrl: 'https://candidate',
+      grader,
+      concurrency: 2,
+      createArmContextFn: factory as never,
+    })
+    expect(requests).toHaveLength(0)
+    expect(result.cases[0]!.notJudged[0]!.failedArms).toEqual([
+      'base',
+      'candidate',
+    ])
+  })
+
+  it('grades the attempts whose two runs both landed', async () => {
+    // The second attempt on each arm throws; the first and third are graded.
+    const suite = definePairwiseAgentEvalSuite<{ topic: string }>(
+      'partly_throwy',
+      {
+        mode: 'win',
+        profile: {},
+        run: async (_input, ctx) => {
+          if (ctx.org.slug.endsWith('-2')) throw new Error('flaky')
+          return 'out'
+        },
+        cases: [{ id: 'case-0', input: { topic: 't' } }],
+      },
+    )
+    const { factory } = armFactory(['out'])
+    const { requests, grader } = recorder()
+    const result = await executeSuite({
+      suite,
+      baseUrl: 'https://base',
+      candidateUrl: 'https://candidate',
+      grader,
+      concurrency: 6,
+      createArmContextFn: factory as never,
+    })
+    expect(requests.map((request) => request.attempt).sort()).toEqual([1, 3])
+    expect(result.cases[0]!.notJudged).toEqual([
+      { caseId: 'case-0', attempt: 2, failedArms: ['base', 'candidate'] },
+    ])
+  })
+
+  it('keeps the HTTP status a run died on', async () => {
+    const suite = definePairwiseAgentEvalSuite<{ topic: string }>(
+      'http_status',
+      {
+        mode: 'win',
+        profile: {},
+        run: async () => {
+          const error = new AxiosError('Request failed with status code 404')
+          error.response = { status: 404 } as never
+          throw error
+        },
+        cases: [{ id: 'case-0', input: { topic: 't' } }],
+      },
+    )
+    const { factory } = armFactory(['out'])
+    const { grader } = recorder()
+    const result = await executeSuite({
+      suite,
+      baseUrl: 'https://base',
+      candidateUrl: 'https://candidate',
+      grader,
+      concurrency: 2,
+      createArmContextFn: factory as never,
+    })
+    expect(result.cases[0]!.runs.map((run) => run.httpStatus)).toEqual([
+      404, 404, 404, 404, 404, 404,
+    ])
+  })
+
+  it('leaves the HTTP status null when the run did not die on a response', async () => {
+    const suite = definePairwiseAgentEvalSuite<{ topic: string }>('timeout', {
+      mode: 'win',
+      profile: {},
+      run: async () => {
+        throw new Error('still running after 3600000ms')
+      },
+      cases: [{ id: 'case-0', input: { topic: 't' } }],
+    })
+    const { factory } = armFactory(['out'])
+    const { grader } = recorder()
+    const result = await executeSuite({
+      suite,
+      baseUrl: 'https://base',
+      candidateUrl: 'https://candidate',
+      grader,
+      concurrency: 2,
+      createArmContextFn: factory as never,
+    })
+    expect(result.cases[0]!.runs.every((run) => run.httpStatus === null)).toBe(
+      true,
+    )
   })
 
   it('refuses a run that returns something other than a string', async () => {
@@ -322,17 +447,5 @@ describe('executeSuite', () => {
       inputTokens: 10 * ATTEMPTS_PER_SIDE,
       outputTokens: 2 * ATTEMPTS_PER_SIDE,
     })
-  })
-})
-
-describe('outputOrFailure', () => {
-  it('returns the output when there is one', () => {
-    expect(outputOrFailure({ output: 'text', error: null })).toBe('text')
-  })
-
-  it('marks a failed run as such, so the judge reads it as evidence', () => {
-    expect(outputOrFailure({ output: null, error: 'boom' })).toBe(
-      '[the run failed: boom]',
-    )
   })
 })

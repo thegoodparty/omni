@@ -49,6 +49,34 @@ const startArm = async (artifactText: string): Promise<Arm> => {
   }
 }
 
+// An arm serving a commit from before the run routes existed: `/v1/version` is
+// fine and every agent call is a route miss. What PR #3926's base arm was.
+const startArmWithoutRunRoutes = async (): Promise<Arm> => {
+  const server = createServer((request, response) => {
+    request.on('data', () => {})
+    request.on('end', () => {
+      if (request.url === '/api/v1/version') {
+        response
+          .writeHead(200, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ commit: 'test' }))
+        return
+      }
+      response.writeHead(404, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          message: `Cannot ${request.method} ${request.url}`,
+        }),
+      )
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${port}`,
+    closed: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  }
+}
+
 const arms: Arm[] = []
 
 afterEach(async () => {
@@ -90,6 +118,42 @@ const graderFor = () => {
   return createGrader({ model })
 }
 
+// The test user would otherwise be a real Clerk identity; the arms are real, so
+// only provisioning is faked.
+const realArmContexts = {
+  createArmContextFn: (async (options: {
+    arm: 'base' | 'candidate'
+    baseUrl: string
+  }) => {
+    const { createArmContext } = await import('./arm')
+    return createArmContext({
+      ...options,
+      mode: 'win',
+      profile: {},
+      provisionUser: async () => ({
+        user: {
+          id: 1,
+          firstName: 'T',
+          lastName: 'U',
+          email: 'test+clerk_test@test.goodparty.org',
+          name: 'T U',
+          zip: '82001',
+          phone: '2015550100',
+          password: 'p',
+        },
+        token: 'tok',
+        client: (await import('axios')).default.create({
+          baseURL: `${options.baseUrl}/api`,
+          headers: { common: { Authorization: 'Bearer tok' } },
+        }),
+        clerkUserId: 'clerk-1',
+        orgSlug: `org-${options.arm}`,
+      }),
+      pollIntervalMs: 1,
+    })
+  }) as never,
+}
+
 const suite = definePairwiseAgentEvalSuite<{ organizationSlug: string }>(
   'smoke',
   {
@@ -125,39 +189,7 @@ describe('a whole run', () => {
       candidateUrl: candidate.baseUrl,
       grader: graderFor(),
       concurrency: 6,
-      // The test user would otherwise be a real Clerk identity; the arms are
-      // real, so only provisioning is faked.
-      createArmContextFn: (async (options: {
-        arm: 'base' | 'candidate'
-        baseUrl: string
-      }) => {
-        const { createArmContext } = await import('./arm')
-        return createArmContext({
-          ...options,
-          mode: 'win',
-          profile: {},
-          provisionUser: async () => ({
-            user: {
-              id: 1,
-              firstName: 'T',
-              lastName: 'U',
-              email: 'test+clerk_test@test.goodparty.org',
-              name: 'T U',
-              zip: '82001',
-              phone: '2015550100',
-              password: 'p',
-            },
-            token: 'tok',
-            client: (await import('axios')).default.create({
-              baseURL: `${options.baseUrl}/api`,
-              headers: { common: { Authorization: 'Bearer tok' } },
-            }),
-            clerkUserId: 'clerk-1',
-            orgSlug: `org-${options.arm}`,
-          }),
-          pollIntervalMs: 1,
-        })
-      }) as never,
+      ...realArmContexts,
     })
 
     expect(result.cases[0]!.pairs).toHaveLength(3)
@@ -203,5 +235,45 @@ describe('a whole run', () => {
     expect(jsonPath.endsWith('results.json')).toBe(true)
     expect(markdownPath.endsWith('results.md')).toBe(true)
     expect(markdown).toContain('## smoke: NO DIFFERENCE FOUND')
+  })
+
+  it('grades nothing when one arm has no run routes, and says so', async () => {
+    // The shape of PR #3926: the base arm serves a commit from before the run
+    // routes, so every base run is a 404 while every candidate run succeeds.
+    const base = await startArmWithoutRunRoutes()
+    const candidate = await startArm('output from candidate')
+    arms.push(base, candidate)
+
+    const result = await executeSuite({
+      suite: suite as never,
+      baseUrl: base.baseUrl,
+      candidateUrl: candidate.baseUrl,
+      grader: graderFor(),
+      concurrency: 6,
+      ...realArmContexts,
+    })
+
+    expect(result.cases[0]!.pairs).toHaveLength(0)
+    expect(result.cases[0]!.notJudged).toHaveLength(3)
+    expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 })
+
+    const verdict = verdictFor(result)
+    expect(verdict.label).toBe("CAN'T JUDGE")
+
+    const summary = {
+      baseUrl: base.baseUrl,
+      candidateUrl: candidate.baseUrl,
+      judgeModel: 'anthropic/claude-sonnet-4-6',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      finishedAt: '2026-01-01T00:01:00.000Z',
+      attemptsPerSide: 3,
+      suites: [{ result, verdict }],
+    }
+    const markdown = renderMarkdown(summary)
+    expect(markdown).toContain("## smoke: CAN'T JUDGE")
+    expect(markdown).toContain(
+      'Every base run failed with 404: the base gp-api may not have the run routes deployed.',
+    )
+    expect(markdown).toContain('### Runs that failed')
   })
 })
