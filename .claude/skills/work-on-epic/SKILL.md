@@ -325,6 +325,9 @@ For each ready ticket (skip any already in a closed/done status):
       consumes, and one existing file to imitate as the pattern. Every file the
       subagent doesn't have to rediscover is minutes and tokens saved; don't make
       each implementer re-explore the monorepo the plan already mapped.
+    - The working rules in `docs/working-fast.md`: read the named files in one
+      batch, first edit within about 10 tool calls, no `node_modules` reads
+      until an error points there.
     - The instruction: **run the `work-on-clickup` flow in auto-`go` mode** —
       load repo conventions (its step 7), seed todos from the AC, implement
       (following its verify discipline: targeted tests while iterating, full
