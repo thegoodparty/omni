@@ -540,7 +540,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-11-19: 603 -> 600 removing the outreach-pro-gating-v2 flag. The legacy
 // door-knocking page gate, the value prop step and the candidate profile step
 // were client components that only rendered with the flag off.
-const BASELINE = 600
+// 2026-11-19: 600 -> 601 for the plans comparison page (PlansPage). It reads
+// the campaign plan and the pricing flag from client hooks, so it is the client
+// boundary under its server page.
+const BASELINE = 601
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

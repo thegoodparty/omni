@@ -31,6 +31,7 @@ import {
   type ProUpgradeSource,
 } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { usePlanPitch } from '../plan/usePlanPitch'
+import { SeeAllPlansLink } from '../plan/SeeAllPlansLink'
 import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 
 const TILE_ICONS = [UsersIcon, MessageSquareIcon, DoorOpenIcon, ShieldCheckIcon]
@@ -153,13 +154,16 @@ export const ProPitchDialog = ({
             ))}
           </div>
         </div>
-        <DialogFooter className="shrink-0 sm:justify-center">
+        <DialogFooter className="shrink-0 sm:flex-col sm:items-center sm:justify-center">
           <Button
             className="w-full sm:w-auto sm:min-w-[360px]"
             onClick={handleJoin}
           >
             {copy.pitchJoin}
           </Button>
+          {planPitch.enabled && (
+            <SeeAllPlansLink href={planPitch.allPlansHref} />
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
