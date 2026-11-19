@@ -247,6 +247,27 @@ describe('on the PMF Engine', () => {
     expect(await service.prisma.agentRun.count()).toBe(0)
   })
 
+  // A manifest that does not declare organization_slug declares
+  // `additionalProperties: false`, so the dispatch Lambda would refuse a params
+  // object carrying the org. The org travels on the envelope only.
+  it('drops the org from params where the manifest does not declare it', async () => {
+    const res = await startRun('meeting_schedule', {
+      organization_slug: ORG_SLUG,
+      state: 'MN',
+      office: 'Burnsville City Council Member',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const run = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: res.data.runId },
+    })
+    expect(run.organizationSlug).toBe(ORG_SLUG)
+    expect(run.params).toEqual({
+      state: 'MN',
+      office: 'Burnsville City Council Member',
+    })
+  })
+
   it('reads the artifact the run published to S3', async () => {
     const run = await service.prisma.experimentRun.create({
       data: {

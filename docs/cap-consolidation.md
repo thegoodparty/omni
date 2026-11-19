@@ -88,8 +88,10 @@ successful production traffic, not a merged PR.
 3. **The remaining background agents, in waves.** Each agent is one PR: its
    definition, its readers moved from `ExperimentRun` to `AgentRun`, its judge
    suite ([`judge-eval-framework-plan.md`](judge-eval-framework-plan.md)), and
-   its `qa/` manifest deleted. Its switch flips only after the universal judge
-   says same or better. Rollback is the switch.
+   its `qa/` manifest deleted. A migration PR is judged with
+   `/judge-eval <agent>` on the PR, which runs that agent's suite against the
+   PR's preview with the framework in `packages/judge`. Its switch flips only
+   after that says same or better. Rollback is the switch.
    - **Wave 1, web tools only:** `race_opponent_summary`,
      `opposition_research`, `opportunities_and_challenges`,
      `race_opponent_collection`, `self_research`, `meeting_schedule`. The

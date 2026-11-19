@@ -79,6 +79,7 @@
     "@fastify/websocket": "^11.2.0",
     "@geoapify/route-planner-sdk": "^2.0.0",
     "@goodparty_org/contracts": "*",
+    "@goodparty_org/judge": "*",
     "@goodparty_org/nest-common": "*",
     "@google/genai": "^2.3.0",
     "@graphql-codegen/typescript-resolvers": "^4.4.2",

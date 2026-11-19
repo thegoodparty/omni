@@ -32,6 +32,30 @@ import {
 // (judge-eval-framework-plan.md, "Not converted").
 const REFUSED_AGENTS: string[] = ['compliance_setup']
 
+// The PMF Engine agents whose manifest DECLARES organization_slug as a param,
+// and whose instruction reads it back out of PARAMS. Every other manifest
+// declares `additionalProperties: false` without it, so the dispatch Lambda
+// would refuse a params object that carries the org: there the org travels on
+// the dispatch envelope alone. No new agent belongs on this list, and it goes
+// away with the PMF Engine.
+const PMF_PARAMS_NAME_ORG = [
+  'find_existing_ordinances',
+  'top_community_issues',
+  'trending_issues',
+]
+
+// The org names the run's owner on the dispatch envelope. A params object only
+// carries it too where the agent's own manifest allows it.
+const pmfParams = (
+  name: string,
+  input: AgentRunInput,
+): Prisma.InputJsonObject => {
+  if (PMF_PARAMS_NAME_ORG.includes(name)) return input
+  return Object.fromEntries(
+    Object.entries(input).filter(([key]) => key !== 'organization_slug'),
+  )
+}
+
 // This route names its engine by the agent name it was given, so neither the
 // experiment type nor its params are known at compile time. Each engine
 // validates the input against its own schema on the way in, exactly as it does
@@ -156,7 +180,10 @@ export class AgentRunRoutesService extends createPrismaBase(MODELS.AgentRun) {
       // product's test-user guard refuses. No product dispatcher sets this.
       allowTestUser: true,
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      params: parsed as AgentJobContracts[DispatchedExperimentType]['Input'],
+      params: pmfParams(
+        name,
+        parsed,
+      ) as AgentJobContracts[DispatchedExperimentType]['Input'],
     })
     // Undefined means no dispatch queue is configured, which on a preview is
     // by design (src/agentExperiments/AGENTS.md).

@@ -14,11 +14,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.77",
+    "@goodparty_org/contracts": "*",
     "@goodparty_org/test-users": "*",
     "ai": "^6.0.182",
     "axios": "^1.17.0",
-    "zod": "4.4.3",
-    "@goodparty_org/contracts": "*"
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

@@ -1,5 +1,5 @@
-import axios from 'axios'
 import { createTestUser, type TestUser } from '@goodparty_org/test-users'
+import { probeApiVersion, resolveApiRoot } from './apiRoot'
 import type {
   EvalApi,
   EvalContext,
@@ -71,7 +71,9 @@ export const createArmContext = async (
 
   const created = await provision({
     product: mode,
-    apiBaseUrl: baseUrl,
+    // The API root, not the arm's root: an arm may be a webapp that proxies
+    // gp-api at /api or a gp-api origin that serves /v1 itself.
+    apiRoot: await resolveApiRoot(baseUrl),
     ...(profile.firstName ? { firstName: profile.firstName } : {}),
     ...(profile.lastName ? { lastName: profile.lastName } : {}),
     ...(profile.race ? { race: profile.race } : {}),
@@ -127,26 +129,16 @@ export type ArmReachability = {
 }
 
 // Fail before spending anything if an arm cannot be reached, or cannot answer
-// the run route the whole comparison depends on.
+// the run route the whole comparison depends on. The check is the arm's `/v1`
+// version route: it 200s on a live gp-api and fails when an origin resolves but
+// serves nothing — a preview that has not rolled out yet, or a URL that is not
+// an arm at all.
 export const probeArm = async (baseUrl: string): Promise<ArmReachability> => {
-  try {
-    const response = await axios.get(`${baseUrl}/`, {
-      timeout: 20_000,
-      validateStatus: () => true,
-    })
-    if (response.status >= 500) {
-      return {
-        baseUrl,
-        ok: false,
-        detail: `GET / returned ${response.status}`,
-      }
-    }
-    return { baseUrl, ok: true, detail: `GET / returned ${response.status}` }
-  } catch (error) {
-    return {
-      baseUrl,
-      ok: false,
-      detail: error instanceof Error ? error.message : String(error),
-    }
+  const apiRoot = await resolveApiRoot(baseUrl)
+  const { ok, status } = await probeApiVersion(apiRoot)
+  return {
+    baseUrl,
+    ok,
+    detail: `GET ${apiRoot}/v1/version returned ${status}`,
   }
 }

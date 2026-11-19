@@ -3,7 +3,7 @@
 The plan for replacing the universal judge's runners with a small eval
 framework, so every background agent can be judged quickly while it moves onto
 gp-api's own agents ([`cap-consolidation.md`](cap-consolidation.md)). Status:
-not started.
+phases 1 to 3 in this PR.
 
 ## Why
 
@@ -17,13 +17,13 @@ old engine on main". This framework is that check.
 
 The judge is a small test framework, like Vitest for agents.
 
-| Vitest | Here |
-| --- | --- |
-| Test file | **Suite**: one agent experience |
-| `it(...)` | **Case**: one scenario with an input |
-| `beforeEach` | **Setup**: state a case needs first |
-| Code under test | **Run**: drives the agent, returns text |
-| `expect(...)` | **Grading**: the judge compares base and candidate |
+| Vitest          | Here                                               |
+| --------------- | -------------------------------------------------- |
+| Test file       | **Suite**: one agent experience                    |
+| `it(...)`       | **Case**: one scenario with an input               |
+| `beforeEach`    | **Setup**: state a case needs first                |
+| Code under test | **Run**: drives the agent, returns text            |
+| `expect(...)`   | **Grading**: the judge compares base and candidate |
 
 ```ts
 type EvalContext = {
@@ -39,7 +39,7 @@ definePairwiseAgentEvalSuite<Input>(name, {
   mode: 'win' | 'serve', // which kind of test user a case needs
   profile: Profile, // name, office, district, race: the same for a case's 3 attempts
   run: (input: Input, ctx: EvalContext) => Promise<string>,
-  cases: Case<Input>[],
+  cases: Case < Input > [],
 })
 
 type Case<Input> = {
@@ -70,7 +70,9 @@ Rules:
   written yet.
 - **The judge talks only to a base URL and a candidate URL.** It imports no
   gp-api code and holds no AWS, S3, SQS or Databricks access. It holds a
-  judge-model key and a way to sign in a user.
+  judge-model key and a way to sign in a user. Either URL may be a webapp that
+  proxies gp-api at `/api` or a gp-api origin that serves `/v1` itself; which
+  one is a property of the URL, resolved once per arm.
 - **No page replay and no pinned data version.** Both arms run at the same
   time, so the web and the voter mart are the same for both.
 
@@ -85,15 +87,15 @@ npx tsx packages/judge/run.ts \
   --out ./judge-results
 ```
 
-| Input | What it is |
-| --- | --- |
-| `--base` | the base arm's URL: dev, running main |
-| `--candidate` | the candidate arm's URL: a PR preview |
-| `--suite` | suite names, comma-separated, or `all` |
-| `--judge-model` | an AI SDK model id, e.g. `anthropic/claude-sonnet-4-6` |
-| `--out` | where `results.json` and `results.md` are written |
-| `--concurrency` | cases in flight at once, default 16 |
-| the judge model provider's API key | in that provider's standard environment variable |
+| Input                              | What it is                                             |
+| ---------------------------------- | ------------------------------------------------------ |
+| `--base`                           | the base arm's URL: dev, running main                  |
+| `--candidate`                      | the candidate arm's URL: a PR preview                  |
+| `--suite`                          | suite names, comma-separated, or `all`                 |
+| `--judge-model`                    | an AI SDK model id, e.g. `anthropic/claude-sonnet-4-6` |
+| `--out`                            | where `results.json` and `results.md` are written      |
+| `--concurrency`                    | cases in flight at once, default 16                    |
+| the judge model provider's API key | in that provider's standard environment variable       |
 
 It loads suites from the checkout it runs in, and imports nothing else from
 gp-api: the two URLs are the whole of its input.
@@ -101,8 +103,10 @@ gp-api: the two URLs are the whole of its input.
 **Locally**, the same command with `--candidate http://localhost:3000`, or a
 preview URL, and an `--out` in the working tree.
 
-**In CI**, `judge.yml` waits for the preview, runs the command, and posts
-`results.md` as the PR comment. `/judge <suite>` triggers it.
+**In CI**, `judge-eval.yml` waits for the preview, runs the command, and posts
+`results.md` as the PR comment. `/judge-eval <suites>` triggers it. It is a
+workflow of its own rather than a mode of `judge.yml`, because the old judge
+still drives chat suites and has to keep working untouched.
 
 **Flow.** For every case and its three attempts, base and candidate run at
 once in one shared pool: sign in, setup, run, keep the output string. A pair
@@ -156,10 +160,10 @@ GET  /agents/runs/:runId             -> { status, artifact, error }
 
 This is what makes a migration PR judge itself:
 
-| Arm | Where | Engine for the agent being migrated |
-| --- | --- | --- |
-| Base | dev, running main | PMF Engine (its switch is off on dev) |
-| Candidate | the PR preview | gp-api (previews switch on every agent gp-api has) |
+| Arm       | Where             | Engine for the agent being migrated                |
+| --------- | ----------------- | -------------------------------------------------- |
+| Base      | dev, running main | PMF Engine (its switch is off on dev)              |
+| Candidate | the PR preview    | gp-api (previews switch on every agent gp-api has) |
 
 That works only for an agent gp-api already has. One gp-api has not built yet
 runs the PMF Engine on **both** arms, so the suite would compare PMF-Engine
@@ -192,8 +196,8 @@ Each phase is one PR, driven to delegate approval with every check green.
   an org per run), and the `run.ts` command above.
 - One runner process, one shared pool: for every case and attempt, base and
   candidate at once, each pair graded as soon as both sides land.
-- A new `judge.yml` of about 200 lines: wait for the preview, run the command,
-  post `results.md`. `/judge <suite>` keeps working.
+- A new `judge-eval.yml` of about 200 lines: wait for the preview, run the
+  command, post `results.md`. `/judge` and `judge.yml` keep working.
 - The old grader is not kept. The grader below is new and smaller, not
   `judge.ts`, `score.ts` and `report.ts` moved; the whole framework targets
   600 to 1,000 lines.
@@ -243,7 +247,7 @@ Background suites are judged only by the new framework once their wave lands.
 The old runner stays for chat until the follow-ups below.
 
 **Stop here.** At this point every background migration PR is judged by
-`/judge <suite>` in one run of about the length of one agent run.
+`/judge-eval <suites>` in one run of about the length of one agent run.
 
 ## Follow-ups, not scheduled
 

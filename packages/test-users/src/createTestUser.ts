@@ -55,6 +55,10 @@ export type CreateTestUserOptions = {
   // The gp-api to provision through, as the webapp root. Defaults to
   // API_BASE_URL, then BASE_URL.
   apiBaseUrl?: string
+  // The API root itself, when the caller has already resolved one: no `/api`
+  // is appended. The judge's arms point straight at a gp-api origin (a PR's
+  // preview), which serves `/v1` at its root and has no webapp proxy.
+  apiRoot?: string
   // Overrides the generated address. Staff-only surfaces need a
   // `qa-<uuid>+clerk_test@goodparty.org` shape, which gp-api's isTestUser and
   // the POTENTIAL_BUYER Amplitude segment both match.
@@ -90,7 +94,7 @@ export const createTestUser = async (
   options: CreateTestUserOptions,
 ): Promise<TestUser> => {
   requireClerkSecretKey()
-  const apiUrl = apiUrlFor(options.apiBaseUrl)
+  const apiUrl = options.apiRoot ?? apiUrlFor(options.apiBaseUrl)
   const generated = generateTestUserData()
   const password = `Test${randomUUID()}!`
   const zip = options.race?.zip || generated.zipCode

@@ -36,7 +36,9 @@ const startArm = async (): Promise<{
         headers: request.headers,
         body,
       })
-      if (request.url === '/') {
+      // A webapp root: gp-api is proxied at /api, and the origin's own /v1 is
+      // not what this arm serves. resolveApiRoot tells the two apart by that.
+      if (request.url === '/api/v1/version') {
         response.writeHead(200).end('ok')
         return
       }
@@ -81,6 +83,15 @@ const startArm = async (): Promise<{
     requests,
     pollsBeforeComplete,
   }
+}
+
+const serve404 = async (): Promise<{ server: Server; baseUrl: string }> => {
+  const server = createServer((_request, response) => {
+    response.writeHead(404).end('no api here')
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  return { server, baseUrl: `http://127.0.0.1:${port}` }
 }
 
 const fakeUser = (baseUrl: string): TestUser => ({
@@ -193,7 +204,7 @@ describe('createArmContext', () => {
     })
     expect(seen[0]).toMatchObject({
       product: 'serve',
-      apiBaseUrl: arm.baseUrl,
+      apiRoot: `${arm.baseUrl}/api`,
       firstName: 'Ada',
       lastName: 'Lovelace',
       positionId: 'pos-1',
@@ -209,6 +220,14 @@ describe('probeArm', () => {
     const result = await probeArm(arm.baseUrl)
     await new Promise<void>((resolve) => arm.server.close(() => resolve()))
     expect(result.ok).toBe(true)
+  })
+
+  it('reports an arm whose API answers 404 as not reachable', async () => {
+    const arm = await serve404()
+    const result = await probeArm(arm.baseUrl)
+    await new Promise<void>((resolve) => arm.server.close(() => resolve()))
+    expect(result.ok).toBe(false)
+    expect(result.detail).toContain('404')
   })
 
   it('reports an unreachable arm with its error', async () => {

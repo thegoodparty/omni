@@ -1,7 +1,7 @@
 import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { runJudge, type RunDeps } from './run'
 import { definePairwiseAgentEvalSuite } from './suite'
 import type { SuiteResult } from './execute'
@@ -71,7 +71,19 @@ const deps = (
   ...overrides,
 })
 
+// Where a run writes, per invocation. A default outputRoot is the invocation
+// directory, so a test that omits it leaves results/ in the checkout.
+let scratch = ''
+
+const depsInto = (
+  executeSuiteFn: RunDeps['executeSuiteFn'],
+  overrides: Partial<RunDeps> = {},
+): RunDeps => deps(executeSuiteFn, { outputRoot: scratch, ...overrides })
+
 describe('runJudge', () => {
+  beforeAll(async () => {
+    scratch = await mkdtemp(join(tmpdir(), 'judge-checkout-'))
+  })
   it('writes both artifacts and exits 0 when nothing got worse', async () => {
     const out = await mkdtemp(join(tmpdir(), 'judge-run-'))
     const code = await runJudge(
@@ -118,7 +130,7 @@ describe('runJudge', () => {
     expect(
       await runJudge(
         ['--nope'],
-        deps(async () => resultOf('tie')),
+        depsInto(async () => resultOf('tie')),
       ),
     ).toBe(2)
   })
@@ -126,7 +138,7 @@ describe('runJudge', () => {
   it('exits 2 on a judge model the AI SDK cannot resolve', async () => {
     const code = await runJudge(
       argv('results'),
-      deps(async () => resultOf('tie'), {
+      depsInto(async () => resultOf('tie'), {
         resolveJudgeModelFn: () => {
           throw new Error('bad model id')
         },
@@ -139,7 +151,7 @@ describe('runJudge', () => {
     let ran = false
     const code = await runJudge(
       argv('results'),
-      deps(
+      depsInto(
         async () => {
           ran = true
           return resultOf('tie')
@@ -160,7 +172,7 @@ describe('runJudge', () => {
   it('exits 2 when no suite matches', async () => {
     const code = await runJudge(
       argv('results'),
-      deps(async () => resultOf('tie'), {
+      depsInto(async () => resultOf('tie'), {
         discoverSuitesFn: async () => {
           throw new Error('no suites')
         },
@@ -177,7 +189,7 @@ describe('runJudge', () => {
     }[] = []
     await runJudge(
       [...argv('results'), '--concurrency', '4'],
-      deps(async (options) => {
+      depsInto(async (options) => {
         seen.push({
           baseUrl: options.baseUrl,
           candidateUrl: options.candidateUrl,
@@ -206,7 +218,7 @@ describe('runJudge', () => {
     })
     const code = await runJudge(
       argv('results'),
-      deps(
+      depsInto(
         async (options) =>
           options.suite.name === 'b_suite'
             ? {
