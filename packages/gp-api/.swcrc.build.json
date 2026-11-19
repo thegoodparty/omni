@@ -1,5 +1,8 @@
 {
-  "exclude": ["src/chats/evals/.*"],
+  "exclude": [
+    "src/chats/evals/.*",
+    ".*\\.eval\\.ts$"
+  ],
   "jsc": {
     "baseUrl": "./"
   }

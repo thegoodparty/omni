@@ -1,5 +1,5 @@
 import {
-  CampaignPlanState,
+  LockedCampaignState,
   holdsOneTimePlan,
 } from '@/campaigns/plans/planState.util'
 import {
@@ -919,7 +919,11 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     await this.setIsPro(campaign.id, false, false, (locked) =>
       holdsOneTimePlan(locked)
         ? null
-        : { plan: CampaignPlanLevel.free, planEndedAt: new Date() },
+        : {
+            plan: CampaignPlanLevel.free,
+            planEndedAt: new Date(),
+            outreachCreditCents: 0,
+          },
     )
     await this.crm.trackCampaign(campaign.id)
   }
@@ -963,7 +967,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // that row's Pro state as it is.
     data:
       | SetIsProData
-      | ((locked: CampaignPlanState) => SetIsProData | null) = {},
+      | ((locked: LockedCampaignState) => SetIsProData | null) = {},
   ): Promise<{ becamePro: boolean; campaign: Campaign }> {
     // Read outside the transaction: a flag evaluation is a network call and
     // must not run while the row lock is held. Only a Pro grant can offer
@@ -1010,6 +1014,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
             plan: true,
             planPricingModel: true,
             planEndedAt: true,
+            planEndsAtOverride: true,
+            details: true,
+            outreachCreditCents: true,
           },
         })
 

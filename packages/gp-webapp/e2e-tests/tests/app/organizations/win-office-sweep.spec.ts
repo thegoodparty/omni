@@ -5,10 +5,7 @@ import {
   runJob,
 } from 'src/helpers/vendor-mocks.helper'
 import { eventually } from 'tests/utils/eventually'
-import {
-  createHeadlessTestUser,
-  withGatewayRetry,
-} from 'tests/utils/headless-user'
+import { createTestUser, withGatewayRetry } from '@goodparty_org/test-users'
 
 type MyOffice = {
   campaignId: number | null
@@ -20,7 +17,7 @@ type MyOffice = {
 // winner their office. A fixture writes the result the same way and queues
 // one run of the real schedule. "I won" itself is election-result-flow.spec.ts.
 test('a DDHQ win gets its dormant office from the daily sweep', async () => {
-  const { client, campaignId } = await createHeadlessTestUser({
+  const { client, campaignId } = await createTestUser({
     product: 'win',
     election: 'passed_unanswered',
   })

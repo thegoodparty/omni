@@ -284,6 +284,55 @@ describe('POST /v1/payments/events — customer.subscription.deleted', () => {
     expect(updated.details.subscriptionId).toBeNull()
   })
 
+  it('zeroes the outreach credit balance when the subscription ends', async () => {
+    const seeded = await seedProCampaign(CANCELLATION_REQUESTED_SUB)
+    await service.prisma.campaign.update({
+      where: { id: seeded.id },
+      data: { outreachCreditCents: 12_500 },
+    })
+    spyOnSlack()
+
+    const res = await deliverStripeEvent(
+      subscriptionEvent({
+        type: WebhookEventType.CustomerSubscriptionDeleted,
+        subscriptionId: CANCELLATION_REQUESTED_SUB,
+        customerId: CANCELLATION_REQUESTED_CUSTOMER,
+        status: 'canceled',
+        cancellationReason: 'cancellation_requested',
+        canceledAt: nowInSeconds(),
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect((await readCampaign(seeded.id)).outreachCreditCents).toBe(0)
+  })
+
+  it('keeps the credit balance on a campaign that holds a one-time plan', async () => {
+    const seeded = await seedProCampaign('sub_beside_credit')
+    await service.prisma.campaign.update({
+      where: { id: seeded.id },
+      data: {
+        plan: CampaignPlanLevel.pro,
+        planPricingModel: PlanPricingModel.one_time,
+        outreachCreditCents: 9_000,
+      },
+    })
+    spyOnSlack()
+
+    await deliverStripeEvent(
+      subscriptionEvent({
+        type: WebhookEventType.CustomerSubscriptionDeleted,
+        subscriptionId: 'sub_beside_credit',
+        customerId: 'cus_beside_credit',
+        status: 'canceled',
+        cancellationReason: 'cancellation_requested',
+        canceledAt: nowInSeconds(),
+      }),
+    )
+
+    expect((await readCampaign(seeded.id)).outreachCreditCents).toBe(9_000)
+  })
+
   it('un-Pros a campaign whose subscription was cancelled by dunning exhaustion', async () => {
     const campaign = await seedProCampaign(DUNNING_EXHAUSTED_SUB)
     const slackMessage = spyOnSlack()

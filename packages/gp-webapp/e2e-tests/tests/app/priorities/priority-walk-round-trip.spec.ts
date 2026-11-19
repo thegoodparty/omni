@@ -10,7 +10,7 @@ import {
   seedPrefilledElectedOffice,
 } from 'src/helpers/serve.helper'
 import { createFlowStepHeading } from 'src/helpers/door-knocking-e2e'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // Cheyenne City Council Ward 1: resolves in every environment and has real
 // voter data, so the door-knocking pack and the list count are populated.

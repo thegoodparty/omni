@@ -23,6 +23,13 @@
     // type-check disagree on scope is one edit away from shipping something
     // nothing checked.
     "src/chats/evals/**",
+    // The eval suites, for the same reason: they are held by the judge runner
+    // (packages/judge), never by the app, and they import that workspace
+    // package. Nothing in src/ imports a *.eval.ts, so dropping them from the
+    // build costs nothing. `npm run types` runs against tsconfig.json, which
+    // keeps them in the type-check program — a suite that stops compiling is
+    // still a red CI job.
+    "**/*.eval.ts",
     "**/*spec.ts"
   ]
 }

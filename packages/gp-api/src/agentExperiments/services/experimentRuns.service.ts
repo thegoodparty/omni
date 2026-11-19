@@ -30,6 +30,10 @@ export type ExperimentRunDispatchInput<
   clerkUserId: string | undefined
   params: AgentJobContracts[ExperimentType]['Input']
   priority?: DispatchPriority
+  // The Universal Judge's run route dispatches as a @test.goodparty.org user,
+  // so it is the one caller that must skip the test-user guard below. No
+  // product dispatcher sets this.
+  allowTestUser?: boolean
 }
 
 // Each resume is a full paid agent run (~$1). The slowest legitimate
@@ -127,6 +131,7 @@ export class ExperimentRunsService extends createPrismaBase(
     priority?: DispatchPriority
     resumeAttempts?: number
     stage?: string | null
+    allowTestUser?: boolean
   }): Promise<ExperimentRun | undefined> {
     const queueUrl = await this.resolveQueueUrl()
     if (!queueUrl) {
@@ -143,8 +148,9 @@ export class ExperimentRunsService extends createPrismaBase(
       },
     })
     if (
-      isTestUser({ email: organization?.owner.email ?? '' }) ||
-      organization?.testModeCreatedAt
+      !input.allowTestUser &&
+      (isTestUser({ email: organization?.owner.email ?? '' }) ||
+        organization?.testModeCreatedAt)
     ) {
       this.logger.info(
         {
@@ -224,6 +230,7 @@ export class ExperimentRunsService extends createPrismaBase(
       organizationSlug: input.organizationSlug,
       clerkUserId: input.clerkUserId,
       priority: input.priority ?? 'DEFAULT',
+      allowTestUser: input.allowTestUser,
       // AgentJobContracts inputs are JSON-serializable objects validated by Zod;
       // the assertion bridges the structural index-signature gap that InputJsonObject
       // requires but the generated contract types don't declare.

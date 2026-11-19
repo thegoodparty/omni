@@ -241,6 +241,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Auth, JWT, Clerk M2M, roles                              | `src/authentication/AGENTS.md`                       |
 | Agent experiments                                        | `src/agentExperiments/AGENTS.md`                     |
 | Agents that run inside gp-api (`AgentsService.run`)      | `src/agents/AGENTS.md`                               |
+| Running any background agent over HTTP (the judge's door) | `src/agents/AGENTS.md` § The judge's run routes      |
 | Speech: dictation, text to speech, recordings            | `src/speech/AGENTS.md`                               |
 | Schema / migrations                                      | `prisma/AGENTS.md`                                   |
 | `@goodparty_org/contracts`                               | `contracts/AGENTS.md` + `docs/contracts.md`          |

@@ -9,7 +9,7 @@ import { eventually } from 'tests/utils/eventually'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
 import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import { withGatewayRetry } from '@goodparty_org/test-users'
 
 // Pro upgrade happy path: a filed candidate walks
 // guidance → status → EIN → the filing-details form (campaign verification's

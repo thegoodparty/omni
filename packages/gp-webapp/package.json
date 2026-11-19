@@ -167,6 +167,7 @@
     "@clerk/testing": "^2.1.2",
     "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^9.39.4",
+    "@goodparty_org/test-users": "*",
     "@grafana/faro-cli": "^0.13.4",
     "@playwright/test": "^1.48.1",
     "@serwist/cli": "^9.5.11",
