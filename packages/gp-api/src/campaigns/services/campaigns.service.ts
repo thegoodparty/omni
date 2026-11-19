@@ -913,16 +913,11 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     )
     // A one-time plan outlives a stray subscription on the same campaign, so
     // the subscription ending must not take the plan's Pro with it.
-    const current = await this.model.findUniqueOrThrow({
-      where: { id: campaign.id },
-      select: { plan: true, planPricingModel: true, planEndedAt: true },
-    })
-    if (!holdsOneTimePlan(current)) {
-      await this.setIsPro(campaign.id, false, false, {
-        plan: CampaignPlanLevel.free,
-        planEndedAt: new Date(),
-      })
-    }
+    await this.setIsPro(campaign.id, false, false, (locked) =>
+      holdsOneTimePlan(locked)
+        ? null
+        : { plan: CampaignPlanLevel.free, planEndedAt: new Date() },
+    )
     await this.crm.trackCampaign(campaign.id)
   }
 
@@ -961,7 +956,11 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     campaignId: number,
     isPro: boolean = true,
     trackCampaign: boolean = true,
-    data: SetIsProData | ((locked: CampaignPlanState) => SetIsProData) = {},
+    // A function is decided against the locked row; returning null leaves
+    // that row's Pro state as it is.
+    data:
+      | SetIsProData
+      | ((locked: CampaignPlanState) => SetIsProData | null) = {},
   ): Promise<{ becamePro: boolean; campaign: Campaign }> {
     // Read outside the transaction: a flag evaluation is a network call and
     // must not run while the row lock is held. Only a Pro grant can offer
@@ -1011,7 +1010,11 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           },
         })
 
-        const isBecomingProFirstTime = !existingCampaign.isPro && isPro
+        const resolvedData =
+          typeof data === 'function' ? data(existingCampaign) : data
+        const nextIsPro = resolvedData === null ? existingCampaign.isPro : isPro
+        const isBecomingProFirstTime =
+          !existingCampaign.isPro && nextIsPro === true
         const shouldGrantOffer =
           isBecomingProFirstTime &&
           !existingCampaign.freeTextsOfferRedeemedAt &&
@@ -1020,8 +1023,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         const campaign = await tx.campaign.update({
           where: { id: campaignId },
           data: {
-            ...(typeof data === 'function' ? data(existingCampaign) : data),
-            isPro,
+            ...resolvedData,
+            isPro: nextIsPro,
             ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
           },
         })
