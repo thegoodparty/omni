@@ -36,7 +36,7 @@ const runPlanAction = async <T>(
   }
 }
 
-export const setCampaignPlan = (
+export const setCampaignPlan = async (
   campaignId: number,
   userId: number,
   input: AdminSetPlan
@@ -45,7 +45,7 @@ export const setCampaignPlan = (
     client.campaigns.setPlan(campaignId, input)
   )
 
-export const extendCampaignPlan = (
+export const extendCampaignPlan = async (
   campaignId: number,
   userId: number,
   input: AdminExtendPlan
