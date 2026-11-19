@@ -55,6 +55,7 @@ test('filed candidate buys Pro once and lands on the success step with a Good th
       metadata: { campaignId: mine.data.id, plan: 'pro' },
       returnUrl: 'https://example.invalid/',
     },
+    { validateStatus: () => true },
   )
   test.skip(
     probe.status === 403,
