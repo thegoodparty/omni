@@ -120,9 +120,9 @@
         "office": "City Council Member",
         "district_descriptor": "FLINT CITY WARD 3, MI",
         "l2_district_type": "City_Ward",
-        "l2_district_name": "FLINT CITY WARD 3"
+        "l2_district_name": "FLINT CITY WARD 3 (EST.)"
       },
-      "condition": "A ward whose loudest ward-specific coverage is a resolved story: office City Council Member, district_descriptor FLINT CITY WARD 3, MI with the L2 pair City_Ward / FLINT CITY WARD 3. On 2026-10-09 the instruction's own first query returned the November 2024 council deadlock over the vacant Third Ward seat, since filled, a May 2025 community meeting and an undated piece built on 2017 figures; the 2026 items are city minutes and a column. The freshness window is twelve months. Whether the old story dominated this run's results is not established from the input. Sources are live-searched, so the two arms read different pages; the judge scores source rules (count, dates, jurisdiction, labeling) and not source truth, which it cannot see.",
+      "condition": "A ward whose loudest ward-specific coverage is a resolved story: office City Council Member, district_descriptor FLINT CITY WARD 3, MI with the L2 pair City_Ward / FLINT CITY WARD 3 (EST.). On 2026-10-09 the instruction's own first query returned the November 2024 council deadlock over the vacant Third Ward seat, since filled, a May 2025 community meeting and an undated piece built on 2017 figures; the 2026 items are city minutes and a column. The freshness window is twelve months. Whether the old story dominated this run's results is not established from the input. Sources are live-searched, so the two arms read different pages; the judge scores source rules (count, dates, jurisdiction, labeling) and not source truth, which it cannot see.",
       "handledWhen": "every cited source carries a byline date inside the twelve-month window and no issue restates the 2024 council vacancy or the seat deadlock as a current resident concern. An issue built on that story with a recent anniversary source is partly; one presented as current is no.",
       "dimensions": [
         {
@@ -165,9 +165,9 @@
         "office": "City Council Member",
         "district_descriptor": "District 8, Phoenix, AZ",
         "l2_district_type": "City_Council_Commissioner_District",
-        "l2_district_name": "8"
+        "l2_district_name": "PHOENIX CITY CNCL 8"
       },
-      "condition": "No stressor: office City Council Member, district_descriptor District 8, Phoenix, AZ with the L2 pair City_Council_Commissioner_District / 8, a district with dense daily coverage and an unambiguous name. Unscored; judged in both orders to show how often and how strongly a difference is called when there is nothing to find. Sources are live-searched, so the two arms read different pages; the judge scores source rules (count, dates, jurisdiction, labeling) and not source truth, which it cannot see."
+      "condition": "No stressor: office City Council Member, district_descriptor District 8, Phoenix, AZ with the L2 pair City_Council_Commissioner_District / PHOENIX CITY CNCL 8, a district with dense daily coverage and an unambiguous name. Unscored; judged in both orders to show how often and how strongly a difference is called when there is nothing to find. Sources are live-searched, so the two arms read different pages; the judge scores source rules (count, dates, jurisdiction, labeling) and not source truth, which it cannot see."
     }
   ]
 }
