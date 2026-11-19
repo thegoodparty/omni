@@ -1,6 +1,7 @@
 import { defineAgent } from '@/agents/defineAgent'
 import { checkLink } from '@/agents/tools/checkLink'
 import { fetchPage } from '@/agents/tools/fetchPage'
+import { renderPage } from '@/agents/tools/renderPage'
 import { webSearch } from '@/agents/tools/webSearch'
 import { CommunityIssueService } from '../services/communityIssue.service'
 import { getCommunityIssues } from './getCommunityIssues.tool'
@@ -18,7 +19,7 @@ export const trendingIssuesAgent = defineAgent({
   output: TrendingIssuesOutputSchema,
   model: 'claude-sonnet-4-6',
   prompt: TRENDING_ISSUES_PROMPT,
-  tools: { getCommunityIssues, webSearch, checkLink, fetchPage },
+  tools: { getCommunityIssues, webSearch, checkLink, fetchPage, renderPage },
   onArtifact: (output, run, { get }) =>
     get(CommunityIssueService).ingestAgentArtifact(
       { runId: run.runId, organizationSlug: run.input.organizationSlug },

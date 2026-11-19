@@ -1041,6 +1041,23 @@ jwIDAQAB
           StringEquals: { 'cloudwatch:namespace': 'GpApi/Jobs' },
         },
       },
+      {
+        // renderPage opens one AgentCore Browser session at a time and drives
+        // it over its automation stream. Only the AWS-managed browser: the
+        // same actions and resource GpApiPreviewRoleBoundary and the
+        // gp-engineer profile allow (ops #537).
+        Effect: 'Allow',
+        Action: [
+          'bedrock-agentcore:StartBrowserSession',
+          'bedrock-agentcore:GetBrowserSession',
+          'bedrock-agentcore:ListBrowserSessions',
+          'bedrock-agentcore:StopBrowserSession',
+          'bedrock-agentcore:ConnectBrowserAutomationStream',
+        ],
+        Resource: [
+          'arn:aws:bedrock-agentcore:us-west-2:aws:browser/aws.browser.v1',
+        ],
+      },
       ...caseScoutPermissions,
       ...(emailOutreach?.taskRolePermissions ?? []),
       ...(localDevEnvSecretArns.length > 0

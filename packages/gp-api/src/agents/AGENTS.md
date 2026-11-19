@@ -6,23 +6,25 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 
 ## Key files
 
-| Path                        | What                                                                                                             |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `agents.registry.ts`        | `AGENTS`: every agent by name. The name is the run's `agentName`                                                 |
-| `defineAgent.ts`            | `AgentDefinition` and `defineAgent`                                                                              |
-| `agents.service.ts`         | `AgentsService.run(name, input)` and the `agentRun` worker                                                       |
-| `aiSdkLoop.ts`              | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget                                           |
-| `manifest.ts`               | The run's manifest (input and output schema) and its `shapeHash`                                                 |
-| `agentMessages.ts`          | `AgentMessage` rows ↔ the AI SDK's messages, both ways                                                           |
-| `agentRunSpans.ts`          | Grafana Agent Observability attributes and spans (`otel.ts` loads it)                                            |
-| `agentModels.ts`            | Model id to provider model; tests swap in a mock model here                                                      |
-| `tools/tool.ts`             | `AgentTool`, `defineTool` and `ToolContext`                                                                      |
-| `tools/webSearch.ts`        | Brave web search: ranked result URLs with titles and snippets                                                    |
-| `tools/fetchPage.ts`        | A web page as markdown, 10,000 characters a call (`offset` reads on), and its own published date                 |
-| `tools/checkLink.ts`        | HEAD status and final URL                                                                                        |
-| `tools/agentWeb.service.ts` | Plain HTTP behind the private-address guard, on every redirect hop                                               |
-| `tools/judgeReplay.ts`      | Serves the judge's recorded pages to a judge run                                                                 |
-| `tools/queryDatabricks.ts`  | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
+| Path                            | What                                                                                                             |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `agents.registry.ts`            | `AGENTS`: every agent by name. The name is the run's `agentName`                                                 |
+| `defineAgent.ts`                | `AgentDefinition` and `defineAgent`                                                                              |
+| `agents.service.ts`             | `AgentsService.run(name, input)` and the `agentRun` worker                                                       |
+| `aiSdkLoop.ts`                  | The loop: `streamText`, a row per step, `submitOutput`, nudges, budget                                           |
+| `manifest.ts`                   | The run's manifest (input and output schema) and its `shapeHash`                                                 |
+| `agentMessages.ts`              | `AgentMessage` rows ↔ the AI SDK's messages, both ways                                                           |
+| `agentRunSpans.ts`              | Grafana Agent Observability attributes and spans (`otel.ts` loads it)                                            |
+| `agentModels.ts`                | Model id to provider model; tests swap in a mock model here                                                      |
+| `tools/tool.ts`                 | `AgentTool`, `defineTool` and `ToolContext`                                                                      |
+| `tools/webSearch.ts`            | Brave web search: ranked result URLs with titles and snippets                                                    |
+| `tools/fetchPage.ts`            | A web page as markdown, 10,000 characters a call (`offset` reads on), and its own published date                 |
+| `tools/checkLink.ts`            | HEAD status and final URL                                                                                        |
+| `tools/renderPage.ts`           | Last resort: a page in an AgentCore managed browser, as markdown (10,000 characters), five a run                 |
+| `tools/agentBrowser.service.ts` | One AgentCore Browser session per render, stopped every time; one at a time and five a run                       |
+| `tools/agentWeb.service.ts`     | Plain HTTP behind the private-address guard, on every redirect hop                                               |
+| `tools/judgeReplay.ts`          | Serves the judge's recorded pages to a judge run                                                                 |
+| `tools/queryDatabricks.ts`      | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
 
 Agents live with their product: `trending_issues` is
 `src/communityIssues/trendingIssuesAgent/`, `top_community_issues` is
@@ -93,6 +95,27 @@ JavaScript comes back as a failure value. It also returns the page's own
 `<time datetime>`, then JSON-LD — an agent that has to put a source inside a
 window dates it from the page, never from a search snippet. Failures are
 values, never throws, so one bad URL does not end a run.
+
+`renderPage` is the last resort for a page `fetchPage` could not read (403,
+401, a bot check, no readable text), as the PMF Engine's Chromium render was.
+`AgentBrowserService` opens an AgentCore Browser session on the managed
+`aws.browser.v1` for each render and stops it in a `finally`, whatever
+happened. A run's renders queue, so it holds one session at a time, and it
+gets five (`MAX_RENDERS_PER_RUN`, counted in the process). Every document
+request the rendered page's target makes, each redirect hop included, is
+paused over CDP (`Fetch.enable`) and refused unless its URL passes
+`fetchPage`'s checks and its hostname resolves to public addresses only.
+Popups, out-of-process frames and the page's own XHRs are not intercepted,
+and the browser does its own DNS lookup; that is acceptable because the
+browser runs in AWS's network, not gp-api's, and only the page's text comes
+back. The final URL is checked
+again. The page is cut at 10 MB and the render ends at 60 seconds or on
+`ctx.signal`. A judge run reads the recorded page first, as `fetchPage`
+does. Failures are values (`blocked_host`, `render_limit`, `timeout`,
+`browser_unavailable`, `http_error`, `no_text`, ...). Its `execute_tool`
+span carries `gp.tool.ok` and `gp.tool.reason`, never the page. The task
+role's grant is in `deploy/index.ts`. `renderPage.live.test.ts` renders real
+pages under `gp-engineer` when `RENDER_PAGE_LIVE=1`.
 
 ## Databricks
 
