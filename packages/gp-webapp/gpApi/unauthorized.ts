@@ -19,10 +19,19 @@ import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
  * ('Invalid password'), a campaign id that does not match — and sending a
  * signed-in user to `/login` for one of those would throw away what they were
  * doing. An unrecognised message therefore stays with the caller, as before.
+ *
+ * A bare one can still come from a live session: the guard also throws it when a
+ * Bearer was sent but could not be resolved (a Clerk user with no email, for
+ * instance), and `/login` sends a signed-in user straight back to the page. That
+ * would reload the page forever, so a tab asks for a sign-in at most once a
+ * minute — the second time it stays where it is, which is what it did before
+ * this change.
  */
 const UNAUTHORIZED_STATUS = 401
 const NO_SESSION_MESSAGE = 'Unauthorized'
 const SIGN_IN_PATH = '/login'
+const SIGN_IN_REQUESTED_AT_KEY = 'gp-sign-in-requested-at'
+const SIGN_IN_COOLDOWN_MS = 60_000
 
 const responseStatus = (error: unknown): number | undefined =>
   (error as { response?: { status?: number } } | null)?.response?.status
@@ -42,6 +51,31 @@ export const isMissingSessionError = (error: unknown): boolean =>
  */
 let signingIn = false
 
+/**
+ * `sessionStorage` rather than the flag above, because the loop this guards
+ * against goes through `/login` and back as a full page load, which resets
+ * module state. Storage access throws where a browser blocks it; a tab that
+ * cannot remember has simply not been redirected yet.
+ */
+const askedToSignInRecently = (now: number): boolean => {
+  try {
+    const requestedAt = Number(
+      window.sessionStorage.getItem(SIGN_IN_REQUESTED_AT_KEY),
+    )
+    return now - requestedAt < SIGN_IN_COOLDOWN_MS
+  } catch {
+    return false
+  }
+}
+
+const rememberSignInRequest = (now: number): void => {
+  try {
+    window.sessionStorage.setItem(SIGN_IN_REQUESTED_AT_KEY, String(now))
+  } catch {
+    // Blocked storage: the redirect still helps this load.
+  }
+}
+
 export const requestSignIn = (): void => {
   if (signingIn || typeof window === 'undefined') return
 
@@ -50,7 +84,11 @@ export const requestSignIn = (): void => {
   // here would loop.
   if (pathname.startsWith(SIGN_IN_PATH)) return
 
+  const now = Date.now()
+  if (askedToSignInRecently(now)) return
+
   signingIn = true
+  rememberSignInRequest(now)
 
   const returnTo = `${pathname}${search}`
   const redirectUrl = isSafeInternalPath(returnTo)

@@ -3,10 +3,10 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { clientRequest } from './typed-request'
 import { resetSignInRequestForTests } from './unauthorized'
 
-// A request the /api rewrite could not authenticate means the tab lost its
-// session, so the page must not keep failing every query on it: `clientRequest`
-// sends the user to sign in, with the current path to come back to, and then
-// rethrows so callers still see the error (ENG-11674).
+// A request with no session means the tab lost it, so the page must not keep
+// failing every query on it: `clientRequest` sends the user to sign in, with the
+// current path to come back to, and then rethrows so callers still see the error
+// (ENG-11674).
 const stubLocation = (pathname: string, search = '') => {
   const assign = vi.fn()
   // `href` too: ofetch resolves the request URL against the window location,
@@ -22,22 +22,25 @@ const noSessionResponse = () => ({
   data: { message: 'Unauthorized', statusCode: 401 },
 })
 
+const failedRequest = async () =>
+  expect(clientRequest('GET /v1/onboarding/voter-issues', {})).rejects.toThrow()
+
 describe('clientRequest on a 401', () => {
   beforeEach(() => {
     resetSignInRequestForTests()
+    window.sessionStorage.clear()
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
-  it('sends the user to sign in when the request went out with no session', async () => {
+  it('sends the user to sign in when the request had no session', async () => {
     const assign = stubLocation('/dashboard/campaign-plan', '?tab=plan')
     api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
 
-    await expect(
-      clientRequest('GET /v1/onboarding/voter-issues', {}),
-    ).rejects.toThrow()
+    await failedRequest()
 
     expect(assign).toHaveBeenCalledWith(
       `/login?redirect_url=${encodeURIComponent(
@@ -59,6 +62,39 @@ describe('clientRequest on a 401', () => {
     expect(assign).toHaveBeenCalledTimes(1)
   })
 
+  // The guard also throws a bare Unauthorized when a Bearer could not be
+  // resolved, with a live session behind it. `/login` then sends the user
+  // straight back to this page, as a full load that resets module state, so
+  // without a cooldown that remembers across loads the page reloads forever.
+  it('stays put when a reload of the same page asks again straight away', async () => {
+    stubLocation('/dashboard/campaign-plan')
+    api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
+    await failedRequest()
+
+    resetSignInRequestForTests()
+    const assignAfterReload = stubLocation('/dashboard/campaign-plan')
+    api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
+    await failedRequest()
+
+    expect(assignAfterReload).not.toHaveBeenCalled()
+  })
+
+  it('asks again once the cooldown has passed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-19T03:00:00Z'))
+    stubLocation('/dashboard/campaign-plan')
+    api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
+    await failedRequest()
+
+    vi.setSystemTime(new Date('2026-11-19T03:01:01Z'))
+    resetSignInRequestForTests()
+    const assignLater = stubLocation('/dashboard/campaign-plan')
+    api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
+    await failedRequest()
+
+    expect(assignLater).toHaveBeenCalledTimes(1)
+  })
+
   // A few routes 401 for their own reasons with a live session and say why in
   // the message. Sending a signed-in user to /login for one of those would throw
   // away what they were doing.
@@ -69,9 +105,7 @@ describe('clientRequest on a 401', () => {
       data: { message: 'Invalid password', statusCode: 401 },
     })
 
-    await expect(
-      clientRequest('GET /v1/onboarding/voter-issues', {}),
-    ).rejects.toThrow()
+    await failedRequest()
 
     expect(assign).not.toHaveBeenCalled()
   })
@@ -83,9 +117,7 @@ describe('clientRequest on a 401', () => {
       data: { message: 'boom' },
     })
 
-    await expect(
-      clientRequest('GET /v1/onboarding/voter-issues', {}),
-    ).rejects.toThrow()
+    await failedRequest()
 
     expect(assign).not.toHaveBeenCalled()
   })
@@ -94,9 +126,7 @@ describe('clientRequest on a 401', () => {
     const assign = stubLocation('/login', '?redirect_url=%2Fdashboard')
     api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
 
-    await expect(
-      clientRequest('GET /v1/onboarding/voter-issues', {}),
-    ).rejects.toThrow()
+    await failedRequest()
 
     expect(assign).not.toHaveBeenCalled()
   })
