@@ -21,11 +21,7 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
     const column = planColumnsFor(currentPlan).find((c) => c.plan === plan)
     if (plan === 'free' || !column?.cta) return null
     if (planRank(plan) <= planRank(currentPlan)) return null
-    // The wizard behind this link only buys Pro, so Team stays off until
-    // ENG-11691 builds plan checkout and reads `plan`.
-    return {
-      href: plan === 'pro' ? planCheckoutHref(plan, column.cta) : null,
-    }
+    return { href: planCheckoutHref(plan, column.cta) }
   }
 
   return (

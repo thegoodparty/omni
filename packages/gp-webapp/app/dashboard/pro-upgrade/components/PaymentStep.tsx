@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
-import { Button, ProBadge, Spinner } from '@styleguide'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { Badge, Button, ProBadge, Spinner } from '@styleguide'
 import { CalendarClockIcon } from '@styleguide/components/ui/icons'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
@@ -16,7 +17,16 @@ import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/Check
 import { useCheckoutSession } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import CheckoutPayment from 'app/dashboard/purchase/components/CheckoutPayment'
 import PurchaseError from 'app/dashboard/purchase/components/PurchaseError'
-import { createProSubscriptionCheckoutSession } from 'app/dashboard/purchase/utils/purchaseFetch.utils'
+import {
+  completeCheckoutSession,
+  createPlanCheckoutSession,
+  createProSubscriptionCheckoutSession,
+} from 'app/dashboard/purchase/utils/purchaseFetch.utils'
+import { useCampaign } from '@shared/hooks/useCampaign'
+import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
+import { useWinPerCampaignPricingFlag } from 'app/shared/experiments/winPerCampaignPricingFlag'
+import { carryQueryString, type ProUpgradePlan } from '../proUpgradePlanParams'
+import { useProUpgradeCarry } from './proUpgradeCarryContext'
 import { PRO_UPGRADE_STEP, proUpgradeStepPath } from '../proUpgradeStep'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
@@ -60,19 +70,100 @@ const OrderSummary = (): React.JSX.Element => {
   )
 }
 
+const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`
+
+const TEAM_UPGRADE_CENTS = PLAN_PRICING.teamCents - PLAN_PRICING.proCents
+
+interface PlanCheckout {
+  plan: ProUpgradePlan
+  name: string
+  priceCents: number
+  // A Pro holder buying Team pays the difference only.
+  isUpgrade: boolean
+  chargeCents: number
+}
+
+const planCheckout = (
+  plan: ProUpgradePlan,
+  isUpgrade: boolean,
+): PlanCheckout => {
+  const priceCents =
+    plan === 'team' ? PLAN_PRICING.teamCents : PLAN_PRICING.proCents
+  return {
+    plan,
+    name: plan === 'team' ? 'Team' : 'Pro',
+    priceCents,
+    isUpgrade,
+    chargeCents: isUpgrade ? TEAM_UPGRADE_CENTS : priceCents,
+  }
+}
+
+// Design: the one-time plan card. The total reads the live Stripe total so a
+// promo code shows in it; the lines above are the plan's own price.
+const PlanOrderSummary = ({
+  checkout: order,
+}: {
+  checkout: PlanCheckout
+}): React.JSX.Element => {
+  const checkoutResult = useCheckout()
+  const total =
+    checkoutResult.type === 'loading' || checkoutResult.type === 'error'
+      ? null
+      : checkoutResult.checkout.total.total.minorUnitsAmount
+  return (
+    <div className="flex flex-col gap-2.5 rounded-xl border border-base-border bg-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[15px] font-semibold">{order.name}</span>
+        {order.plan === 'team' ? (
+          <Badge className="font-bold italic">TEAM</Badge>
+        ) : (
+          <ProBadge />
+        )}
+      </div>
+      <div className="h-px bg-base-border" />
+      {order.isUpgrade ? (
+        <>
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span>Team plan</span>
+            <span className="font-medium">
+              {dollars(PLAN_PRICING.teamCents)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span>Pro, already paid</span>
+            <span className="font-medium">
+              &minus;{dollars(PLAN_PRICING.proCents)}
+            </span>
+          </div>
+        </>
+      ) : (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span>{`${order.name} plan with ${formatPlanCents(PLAN_PRICING.includedCreditCents)} outreach credit`}</span>
+          <span className="font-medium">{dollars(order.priceCents)}</span>
+        </div>
+      )}
+      <div className="h-px bg-base-border" />
+      <div className="flex items-center justify-between gap-3 text-[15px] font-semibold">
+        <span>Total</span>
+        <span>{total === null ? '—' : dollars(total)}</span>
+      </div>
+    </div>
+  )
+}
+
 // Verification starts at payment, so a texting or standalone launch says so
 // under the price. In the closing week it names the cutoff instead, and once
 // texting has closed there is nothing to verify, so it says nothing.
-const SmsVerificationLine = (): React.JSX.Element | null => {
+const SmsVerificationLine = ({
+  openCopy = SMS_CUTOFF_COPY.paymentVerificationStarts,
+}: {
+  openCopy?: string
+}): React.JSX.Element | null => {
   const { channel } = useProUpgradeWizard()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   if (channel !== 'sms' && channel !== null) return null
   if (smsCompliance === 'open') {
-    return (
-      <p className="mt-2 text-sm text-base-muted-foreground">
-        {SMS_CUTOFF_COPY.paymentVerificationStarts}
-      </p>
-    )
+    return <p className="mt-2 text-sm text-base-muted-foreground">{openCopy}</p>
   }
   if (smsCompliance === 'closing' && smsCutoffDate) {
     return (
@@ -91,29 +182,27 @@ const SmsVerificationLine = (): React.JSX.Element | null => {
 const PaymentFrame = ({
   onBack,
   summary,
+  intro,
+  footnote,
   children,
 }: {
   onBack: () => void
   summary?: React.ReactNode
+  intro: React.ReactNode
+  footnote: string
   children: React.ReactNode
 }): React.JSX.Element => (
   <div className="flex min-h-full flex-1 flex-col gap-4">
     <div>
       <h1 className="mb-2 text-xl font-semibold">Complete your upgrade</h1>
-      <p className="text-base text-base-muted-foreground">
-        Pro is $10/mo, cancel anytime.
-      </p>
-      <SmsVerificationLine />
+      {intro}
     </div>
     {summary}
     <div className="rounded-xl border border-base-border bg-card p-4">
       <p className="mb-3 font-semibold">Payment details</p>
       {children}
     </div>
-    <p className="text-xs text-base-muted-foreground">
-      By subscribing, you authorize us to charge you according to the terms
-      until you cancel.
-    </p>
+    <p className="text-xs text-base-muted-foreground">{footnote}</p>
     <StepFooter align="start">
       <Button variant="ghost" size="large" onClick={onBack}>
         Back
@@ -122,15 +211,55 @@ const PaymentFrame = ({
   </div>
 )
 
+const SUBSCRIPTION_INTRO = (
+  <>
+    <p className="text-base text-base-muted-foreground">
+      Pro is $10/mo, cancel anytime.
+    </p>
+    <SmsVerificationLine />
+  </>
+)
+
+const SUBSCRIPTION_FOOTNOTE =
+  'By subscribing, you authorize us to charge you according to the terms until you cancel.'
+
+const planIntro = (order: PlanCheckout): React.ReactNode => (
+  <>
+    <p className="text-base text-base-muted-foreground">
+      {order.isUpgrade
+        ? 'You only pay the difference from Pro.'
+        : `${order.name} is ${formatPlanCents(order.priceCents)} per campaign.`}
+    </p>
+    {!order.isUpgrade && (
+      <SmsVerificationLine openCopy="Texting registration takes 1 to 2 weeks. Everything else unlocks now." />
+    )}
+  </>
+)
+
+const PLAN_FOOTNOTE = 'Secure payment through Stripe. One payment.'
+
+interface PaymentContentProps {
+  onConfirmed?: () => void
+  onPaymentSuccess?: (sessionId: string) => Promise<void>
+  onBack: () => void
+  submitLabel: string | ((totalDollars: number | null) => string)
+  intro: React.ReactNode
+  footnote: string
+  summary: React.ReactNode
+}
+
 const PaymentContent = ({
   onConfirmed,
+  onPaymentSuccess,
   onBack,
-}: {
-  onConfirmed: () => void
-  onBack: () => void
-}): React.JSX.Element => {
+  submitLabel,
+  intro,
+  footnote,
+  summary,
+}: PaymentContentProps): React.JSX.Element => {
   const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
   const hasFetchedSession = useRef(false)
+  const [total, setTotal] = useState<number | null>(null)
 
   useEffect(() => {
     if (!hasFetchedSession.current) {
@@ -147,7 +276,7 @@ const PaymentContent = ({
   // being bounced to an error screen.
   if (error && !checkoutSession) {
     return (
-      <PaymentFrame onBack={onBack}>
+      <PaymentFrame onBack={onBack} intro={intro} footnote={footnote}>
         <PurchaseError error={error} serverError={undefined} />
       </PaymentFrame>
     )
@@ -155,7 +284,7 @@ const PaymentContent = ({
 
   if (!checkoutSession) {
     return (
-      <PaymentFrame onBack={onBack}>
+      <PaymentFrame onBack={onBack} intro={intro} footnote={footnote}>
         <div className="flex justify-center py-12">
           <Spinner />
         </div>
@@ -166,9 +295,18 @@ const PaymentContent = ({
   return (
     <CheckoutPayment
       onPaymentConfirmed={onConfirmed}
-      submitLabel="Complete upgrade"
+      onPaymentSuccess={onPaymentSuccess}
+      onTotalChange={setTotal}
+      submitLabel={
+        typeof submitLabel === 'string' ? submitLabel : submitLabel(total)
+      }
       renderLayout={(form) => (
-        <PaymentFrame onBack={onBack} summary={<OrderSummary />}>
+        <PaymentFrame
+          onBack={onBack}
+          summary={summary}
+          intro={intro}
+          footnote={footnote}
+        >
           {form}
         </PaymentFrame>
       )}
@@ -176,13 +314,8 @@ const PaymentContent = ({
   )
 }
 
-const PaymentStep = (): React.JSX.Element => {
+const SubscriptionPayment = (): React.JSX.Element => {
   const { goToStep, goToPreviousStep } = useProUpgradeWizard()
-  const { plan } = usePlan()
-
-  useEffect(() => {
-    trackEvent(EVENTS.ProUpgrade.Compliance.PaymentViewed, { plan })
-  }, [plan])
 
   const createSession = useCallback(
     () => createProSubscriptionCheckoutSession(SUCCESS_RETURN_URL),
@@ -195,9 +328,102 @@ const PaymentStep = (): React.JSX.Element => {
 
   return (
     <CheckoutSessionProvider createSession={createSession}>
-      <PaymentContent onConfirmed={handleConfirmed} onBack={goToPreviousStep} />
+      <PaymentContent
+        onConfirmed={handleConfirmed}
+        onBack={goToPreviousStep}
+        submitLabel="Complete upgrade"
+        intro={SUBSCRIPTION_INTRO}
+        footnote={SUBSCRIPTION_FOOTNOTE}
+        summary={<OrderSummary />}
+      />
     </CheckoutSessionProvider>
   )
+}
+
+const PlanPayment = (): React.JSX.Element => {
+  const { goToStep, goToPreviousStep } = useProUpgradeWizard()
+  const carry = useProUpgradeCarry()
+  const { plan: heldPlan } = usePlan()
+  const [campaign] = useCampaign()
+  const campaignId = campaign?.id
+
+  const isUpgrade = carry.plan === 'team' && heldPlan === 'pro'
+  const order = planCheckout(
+    carry.plan ?? (heldPlan === 'pro' ? 'team' : 'pro'),
+    isUpgrade,
+  )
+
+  // Stripe returns here after a redirecting method (Afterpay, 3DS), and the
+  // URL has to say what was bought, since the page loads fresh.
+  const returnUrl = `${SUCCESS_RETURN_URL}${carryQueryString({
+    ...carry,
+    plan: order.plan,
+    fromPro: isUpgrade,
+  })}`
+
+  const createSession = useCallback(() => {
+    if (!campaignId) {
+      return Promise.reject(new Error('Your campaign could not be loaded.'))
+    }
+    return createPlanCheckoutSession(campaignId, order.plan, returnUrl)
+  }, [campaignId, order.plan, returnUrl])
+
+  const handlePaymentSuccess = useCallback(
+    async (sessionId: string) => {
+      const response = await completeCheckoutSession(sessionId)
+      if (!response.ok) {
+        throw new Error(
+          'Your payment went through, but we could not finish the upgrade. Refresh in a moment, or contact support if it does not update.',
+        )
+      }
+      if (isUpgrade) carry.markFromPro()
+      goToStep(PRO_UPGRADE_STEP.SUCCESS)
+    },
+    [goToStep, isUpgrade, carry],
+  )
+
+  const submitLabel = useCallback(
+    (total: number | null) =>
+      `Pay ${formatPlanCents(
+        total === null ? order.chargeCents : Math.round(total * 100),
+      )}`,
+    [order.chargeCents],
+  )
+
+  return (
+    <CheckoutSessionProvider createSession={createSession}>
+      <PaymentContent
+        onPaymentSuccess={handlePaymentSuccess}
+        onBack={goToPreviousStep}
+        submitLabel={submitLabel}
+        intro={planIntro(order)}
+        footnote={PLAN_FOOTNOTE}
+        summary={<PlanOrderSummary checkout={order} />}
+      />
+    </CheckoutSessionProvider>
+  )
+}
+
+// With the per-campaign flag on, the plan is a one-time PLAN purchase; with
+// it off, the Pro subscription stays exactly as it was. The flag is awaited
+// so a candidate is never shown one checkout and charged through the other.
+const PaymentStep = (): React.JSX.Element => {
+  const { plan } = usePlan()
+  const { ready, enabled } = useWinPerCampaignPricingFlag()
+
+  useEffect(() => {
+    trackEvent(EVENTS.ProUpgrade.Compliance.PaymentViewed, { plan })
+  }, [plan])
+
+  if (!ready) {
+    return (
+      <div className="flex justify-center py-12">
+        <Spinner />
+      </div>
+    )
+  }
+
+  return enabled ? <PlanPayment /> : <SubscriptionPayment />
 }
 
 export default PaymentStep

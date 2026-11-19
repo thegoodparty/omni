@@ -66,23 +66,29 @@ describe('PlansPage', () => {
     )
   })
 
-  it('keeps Team off until plan checkout reads the plan', () => {
+  it('points the Team CTA at the upgrade entry with plan=team for a Free campaign', () => {
     render(<PlansPage highlightTeam={false} />)
 
-    const name = `Join Team for $${PLAN_PRICING.teamCents / 100}`
-    expect(screen.queryAllByRole('link', { name })).toHaveLength(0)
-    for (const button of screen.getAllByRole('button', { name })) {
-      expect(button).toBeDisabled()
-    }
+    const team = screen.getAllByRole('link', {
+      name: `Join Team for $${PLAN_PRICING.teamCents / 100}`,
+    })
+    expect(team[0]).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/dashboard\/pro-upgrade\?.*&plan=team$/),
+    )
   })
 
-  it('prices Team as the difference for a Pro campaign, still off', () => {
+  it('prices Team as the difference for a Pro campaign and links to plan=team', () => {
     mockPlan.current = 'pro'
     render(<PlansPage highlightTeam={false} />)
 
-    const name = `Join Team for $${(PLAN_PRICING.teamCents - PLAN_PRICING.proCents) / 100}`
-    expect(screen.queryAllByRole('link', { name })).toHaveLength(0)
-    expect(screen.getAllByRole('button', { name }).length).toBeGreaterThan(0)
+    const team = screen.getAllByRole('link', {
+      name: `Join Team for $${(PLAN_PRICING.teamCents - PLAN_PRICING.proCents) / 100}`,
+    })
+    expect(team[0]).toHaveAttribute(
+      'href',
+      expect.stringMatching(/&plan=team$/),
+    )
   })
 
   it('marks the current plan and disables its CTA', () => {

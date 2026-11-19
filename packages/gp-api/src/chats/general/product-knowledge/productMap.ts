@@ -301,7 +301,7 @@ const WIN_AREAS: ProductArea[] = [
       'A table compares what each plan includes (stacked cards on a phone). Each plan is one payment for the campaign',
       'Pro and Team include outreach credit for texts and robocalls. Team adds logins for teammates',
       'The current plan is marked, and its button is off',
-      'Pro has a button that starts the upgrade. The Team button is off until Team checkout ships',
+      'Pro and Team each have a button that starts the upgrade. A Pro campaign pays only the difference to join Team',
     ],
     gate: 'No tab. Reached from See all plans in a Pro or Team pitch, and only for campaigns on per-campaign pricing.',
   },

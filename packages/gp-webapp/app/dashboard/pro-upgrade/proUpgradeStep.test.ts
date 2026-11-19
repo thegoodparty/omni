@@ -19,6 +19,14 @@ describe('deriveProUpgradeStep', () => {
   })
 })
 
+describe('deriveProUpgradeStep, Pro to Team', () => {
+  it('sends a Pro holder buying Team straight to payment', () => {
+    expect(deriveProUpgradeStep({ isPro: true, upgradeToTeam: true })).toBe(
+      PRO_UPGRADE_STEP.PAYMENT,
+    )
+  })
+})
+
 describe('PRO_UPGRADE_STEP_ORDER', () => {
   it('opens on guidance and collects filing details before payment', () => {
     expect(PRO_UPGRADE_STEP_ORDER).toEqual([

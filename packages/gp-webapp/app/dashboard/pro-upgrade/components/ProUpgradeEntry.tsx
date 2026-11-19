@@ -17,8 +17,12 @@ import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
 import { clientRequest } from 'gpApi/typed-request'
 import type { Eligibility } from 'gpApi/api-endpoints'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
+import { useWinPerCampaignPricingFlag } from 'app/shared/experiments/winPerCampaignPricingFlag'
 import { parseProUpgradeAttribution } from '../proUpgradeAttribution'
+import { carryQueryString } from '../proUpgradePlanParams'
 import { deriveProUpgradeStep, proUpgradeStepPath } from '../proUpgradeStep'
+import { useProUpgradeCarry } from './proUpgradeCarryContext'
 
 // Wizard index: derives the resume step from canonical state and redirects to
 // it. There is no server-side wizard session (tech doc v2), so every entry
@@ -59,7 +63,21 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
       clientRequest('GET /v1/eligibility', {}).then((res) => res.data),
   })
 
-  const ready = !campaignPending && !eligibilityPending
+  // The flag only decides whether a Pro holder asking for Team goes straight
+  // to payment, so it is read without counting an exposure.
+  const { ready: flagReady, enabled: planPricing } =
+    useWinPerCampaignPricingFlag(false)
+  const carry = useProUpgradeCarry()
+  const { plan: heldPlan } = usePlan()
+  const upgradeToTeam =
+    planPricing && carry.plan === 'team' && heldPlan === 'pro'
+
+  // Only a Team request needs the flag settled to pick its step; waiting on it
+  // for everyone would hold every other entry behind the flag fetch.
+  const ready =
+    !campaignPending &&
+    !eligibilityPending &&
+    (flagReady || carry.plan !== 'team')
   const hasError = campaignError || eligibilityError
   // Already-Pro users have nothing left to buy — let derivation route them to
   // the post-payment SUCCESS surface instead of a purchase-blocked screen.
@@ -71,10 +89,14 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
     // undefined, which would mis-derive a returning Pro candidate as new.
     if (!ready || hasError || purchaseBlocked) return
 
-    const step = deriveProUpgradeStep({ isPro: Boolean(campaign?.isPro) })
+    const step = deriveProUpgradeStep({
+      isPro: Boolean(campaign?.isPro),
+      upgradeToTeam,
+    })
 
-    // An already-Pro candidate is routed to success, not into a purchase.
-    if (!campaign?.isPro && !flowStartedRef.current) {
+    // An already-Pro candidate is routed to success, not into a purchase;
+    // the exception is a Pro holder buying Team.
+    if ((!campaign?.isPro || upgradeToTeam) && !flowStartedRef.current) {
       flowStartedRef.current = true
       trackEvent(
         EVENTS.ProUpgrade.Compliance.FlowStarted,
@@ -82,8 +104,17 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
       )
     }
 
-    router.replace(proUpgradeStepPath(step))
-  }, [ready, hasError, purchaseBlocked, campaign, router, searchParams])
+    router.replace(`${proUpgradeStepPath(step)}${carryQueryString(carry)}`)
+  }, [
+    ready,
+    hasError,
+    purchaseBlocked,
+    campaign,
+    router,
+    searchParams,
+    upgradeToTeam,
+    carry,
+  ])
 
   // Spinner only while the canonical-state queries are pending.
   if (!ready)
