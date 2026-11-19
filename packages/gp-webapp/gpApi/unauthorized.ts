@@ -1,4 +1,5 @@
 import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
+import { isPublicPath } from '@shared/auth/publicPaths'
 
 /**
  * gp-api answers 401 on a route that needs a session when the request carried
@@ -26,13 +27,17 @@ import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
  * would reload the page forever, so a tab asks for a sign-in at most once a
  * minute — the second time it stays where it is, which is what it did before
  * this change.
+ *
+ * A public page is never redirected: a visitor with no account asking an
+ * authenticated question there (the sign-up page checking `/v1/users/me`) is
+ * normal, and navigating them would replace the page they came for — which is
+ * exactly what broke the sign-up E2E on the first draft of this change.
  */
 const UNAUTHORIZED_STATUS = 401
 const NO_SESSION_MESSAGE = 'Unauthorized'
 const SIGN_IN_PATH = '/login'
 const SIGN_IN_REQUESTED_AT_KEY = 'gp-sign-in-requested-at'
 const SIGN_IN_COOLDOWN_MS = 60_000
-
 const responseStatus = (error: unknown): number | undefined =>
   (error as { response?: { status?: number } } | null)?.response?.status
 
@@ -80,9 +85,9 @@ export const requestSignIn = (): void => {
   if (signingIn || typeof window === 'undefined') return
 
   const { pathname, search } = window.location
-  // Already on the sign-in page: nothing to redirect to, and redirecting from
-  // here would loop.
-  if (pathname.startsWith(SIGN_IN_PATH)) return
+  // Already on the sign-in page, or on one that takes visitors with no session:
+  // nothing to redirect to, and redirecting from here would loop.
+  if (pathname.startsWith(SIGN_IN_PATH) || isPublicPath(pathname)) return
 
   const now = Date.now()
   if (askedToSignInRecently(now)) return

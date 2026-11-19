@@ -122,6 +122,18 @@ describe('clientRequest on a 401', () => {
     expect(assign).not.toHaveBeenCalled()
   })
 
+  // A visitor with no account asking an authenticated question on a public page
+  // is normal — the sign-up page checks /v1/users/me — and navigating them would
+  // replace the page they came for.
+  it('does not redirect from a page visitors with no session can see', async () => {
+    const assign = stubLocation('/sign-up')
+    api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())
+
+    await failedRequest()
+
+    expect(assign).not.toHaveBeenCalled()
+  })
+
   it('does not redirect from the sign-in page itself', async () => {
     const assign = stubLocation('/login', '?redirect_url=%2Fdashboard')
     api.mock('GET /v1/onboarding/voter-issues', noSessionResponse())

@@ -105,7 +105,7 @@ If you call from a context where `next/headers` is unavailable, use `clientReque
 ## Error semantics
 
 - **Typed system**: throws `FetchError` on non-2xx; caller wraps in try/catch.
-- **A bare `Unauthorized` 401 is the one failure the client acts on itself.** gp-api's guards throw exactly that when a request carries no session, so `clientRequest` turns it into `/login?redirect_url=<current path>` once, and at most once a minute in a tab (`unauthorized.ts`); react-query does not retry any 401; and `reportClientError` drops this one (a signed-out state must not file a front-end error alert). A 401 with its own message comes from a live session and is untouched. See `docs/api-clients.md` § Auth.
+- **A bare `Unauthorized` 401 is the one failure the client acts on itself.** gp-api's guards throw exactly that when a request carries no session, so `clientRequest` turns it into `/login?redirect_url=<current path>` once, and at most once a minute in a tab (`unauthorized.ts`), from a page that requires a session (never a public one — see `@shared/auth/publicPaths`); react-query does not retry any 401; and `reportClientError` drops this one (a signed-out state must not file a front-end error alert). A 401 with its own message comes from a live session and is untouched. See `docs/api-clients.md` § Auth.
 - **Legacy system**: returns `Response` on non-2xx, `false` on parse failure, never throws. New code should not depend on this.
 
 ## Gotchas
