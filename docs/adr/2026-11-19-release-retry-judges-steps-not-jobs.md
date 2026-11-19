@@ -48,7 +48,7 @@ the Pulumi apply. The jobs API had the distinguishing evidence all along:
 ## Alternatives rejected
 
 - **Keep the job list and only split gp-api's build into its own job.** Fixes
-  one job; `Dev gp-ai` has the same shape (two lambda builds, then 13 Terraform
+  one job; `Dev gp-ai` has the same shape (two lambda builds, then 12 Terraform
   applies) and every future deploy job would repeat it. Splitting is still worth
   doing for blast radius, as a follow-up.
 - **Retry any lost-runner job mid-run.** Unsafe: an apply that started can hold
