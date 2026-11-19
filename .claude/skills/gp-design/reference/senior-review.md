@@ -3,12 +3,15 @@
 Every `gp-design` run has this review once, as step 8 of
 `reference/options-workflow.md`, after step 7's checks and before step 9's
 build shapes, so they are built once on the final options. Nothing is
-published or shown before it. It is a fresh subagent that did not
-build the page, so it judges the result, not the intent.
+published or shown before it. Its reviewers are fresh subagents that did
+not build the page, so they judge the result, not the intent.
 
 ## Brief for the reviewer
 
-Give the subagent this brief, with the paths filled in:
+Run it as two fresh subagents at the same time, the task reviewer and the
+rules reviewer. Give each this brief with the paths filled in, and only its
+own block of questions. Then merge their lists, keeping one copy of a
+finding both raise.
 
 > You are a senior product designer at GoodParty reviewing a design an agent
 > just built. Be rigorous and independent; don't assume it's good. Do not
@@ -34,33 +37,38 @@ Give the subagent this brief, with the paths filled in:
 > against the reference screens in `docs/product-design.md` §13 for the same
 > kind of screen.
 >
-> Review it the way a senior designer would. Does it solve the task and follow
-> every clause of the designer's direction? Answer every question in
-> `reference/review-lens.md` against the page. On an options page, are the
-> three options really different approaches, not one design three ways?
-> Does any option change an existing system (lists, filters, outreach) the
-> ticket doesn't ask to change? Read `<work>/notes/coverage.md`:
-> is every clause of the ticket and the direction on it, and is each one
-> really drawn on the screen it names or asked in #questions? Does any option
-> reverse or drop an active ADR a person decided without a quoted task clause
-> asking for it? That is a Do. Does it follow the rulebook and the
-> design system, built only from existing components through their documented
-> props, with no undeclared restyles and no hardcoded colors, sizes or
-> spacing? Check every declared mutation (the Mutations list): is there an
-> existing product solution it duplicates, and is there really no component?
-> Any undeclared visual override or hardcoded value is a Do. Is every copied
-> screen faithful to today's product? Does it hold up
-> on a phone and on desktop? Are the hierarchy, copy and every state (empty,
-> loading, AI working, error, filled) right? Does every loading or AI working
-> state take the same space as the content that replaces it, so nothing
-> jumps when it arrives? Read the accessibility lines from
+> Review it the way a senior designer would, through the questions in your
+> block.
+>
+> **Task reviewer.** Does it solve the task and follow every clause of the
+> designer's direction? Answer every question in `reference/review-lens.md`
+> against the page. On an options page, are the three options really
+> different approaches, not one design three ways? Does any option change an
+> existing system (lists, filters, outreach) the ticket doesn't ask to
+> change? Read `<work>/notes/coverage.md`: is every clause of the ticket and
+> the direction on it, and is each one really drawn on the screen it names
+> or asked in #questions? Does any option reverse or drop an active ADR a
+> person decided without a quoted task clause asking for it? That is a Do.
+> Does it hold up on a phone and on desktop? Are the hierarchy, copy and
+> every state (empty, loading, AI working, error, filled) right? Does every
+> loading or AI working state take the same space as the content that
+> replaces it, so nothing jumps when it arrives? Is nothing invented, and is
+> nothing drawn that the task didn't ask for? Are the open questions and the
+> list of what changes honest, complete and ranked?
+>
+> **Rules reviewer.** Does it follow the rulebook and the design system,
+> built only from existing components through their documented props, with
+> no undeclared restyles and no hardcoded colors, sizes or spacing? Check
+> every declared mutation (the Mutations list): is there an existing product
+> solution it duplicates, and is there really no component? Any undeclared
+> visual override or hardcoded value is a Do. Is every copied screen
+> faithful to today's product? Does every rule in `learned.md` hold, and
+> does the copy pass the copy docs? Read the accessibility lines from
 > `scripts/flow/shoot.mjs`: one on markup the design adds is a Do; one on a
-> screen copied as shipped goes under "Rulebook vs code". Check the hover and
-> focus crops in `controls/`; disable each control that can be disabled and
-> screenshot it, which no crop shows. Is nothing invented, and is nothing drawn that the task
-> didn't ask for? Does it change a component other screens use without
-> asking under Decisions needed? Are the open
-> questions and the list of what changes honest, complete and ranked?
+> screen copied as shipped goes under "Rulebook vs code". Check the hover
+> and focus crops in `controls/`; disable each control that can be disabled
+> and screenshot it, which no crop shows. Does it change a component other
+> screens use without asking under Decisions needed?
 >
 > Return two lists, each item tagged Do, Consider or Nit:
 >
@@ -78,7 +86,8 @@ Give the subagent this brief, with the paths filled in:
    a rule) is not fixed silently: it goes under "Decisions needed" in
    `#questions`.
 2. Rebuild and rerun step 7's check, with `shoot.mjs --only` on the screens
-   and states the fixes touched. Then one fresh subagent gets list A,
+   and states the fixes touched. Then one fresh subagent, on a faster model
+   (Sonnet) since it only compares, gets list A,
    the page and the list of screens and states the fixes touched, and,
    without editing, checks only those: that each fix landed and broke
    nothing near it, and whether each Do is fixed or listed under Decisions
