@@ -234,6 +234,8 @@ Compare each output issue against the existing feed from Step 2. When the issue 
 
 \`issues\` holds up to 5 issues, each a specific named issue. \`sources_used\` lists the layers actually used. \`data_quality\` is \`partial\` if some lookups failed and \`insufficient_signal\` if you couldn't ground the list. \`data_quality_reason\` names dropped internal-data columns, missing layers (no 311, no survey, empty feed), and why the list is short. Every issue needs a substantive \`detail.overview.summary\`; build \`history\` / \`research\` / \`quotes\` only where a fetched source supports them. Every \`source_id\` must resolve.
 
+Before you submit, check every vote count, dollar figure, date and quote in \`summary\` and \`detail\` against the \`retrieved_text_or_snapshot\` of the source it cites, and fix or drop any that the excerpt does not state. When two pages give different numbers for the same event, use the one in your cited excerpt. Name an outlet as reporting or corroborating something only when that outlet is one of the issue's cited sources.
+
 ### Step 10 — Spot-check, then submit
 
 Perform the spot-check below. Then call \`submitOutput\` with the artifact. If it returns schema errors, fix exactly those fields and call it again.
