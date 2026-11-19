@@ -54,10 +54,14 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 - **Work done through a task's button closes the task.** `taskAction` puts
   the task's id on the flow's URL (`trackerTaskId` + `phase`), each flow
   sends it with the record it creates, and gp-api ticks the task once that
-  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). They
-  keep "Mark done" all the same, since work started from the hub or done
-  offline carries no task id. Only the story task, which the server ticks
-  however the story gets finished, has none (`taskClosesItself`).
+  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). Work
+  started from the hub carries no task id and closes nothing; matching it to
+  a task by channel was rejected, because it would close a task the
+  candidate never opened. Outreach tasks (an action and no own link) and the
+  story task, which the server ticks however the story gets finished, offer
+  no "Mark done" or "Mark not done" on the card or the row. A task whose
+  outreach went out from the hub stays open until the candidate skips it;
+  closing it from the hub is a gp-api follow-up.
 - **Text tasks after the texting cutoff.** gp-api swaps open text sends for
   robocalls once `smsCompliance` is `'closed'`, so none should reach the
   page. One that still does (no own link, not done) keeps no way into the
@@ -67,6 +71,19 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   row disables "Start outreach" the same way. The legacy Home list
   (`campaign-manager/CampaignManagerTasks.tsx`) disables the card's "Start
   outreach" the same way, through `TaskCard`'s `ctaDisabledReason`.
+- **The free robocall offer has ended.** It closed with the Nov 3, 2026
+  general, so `useRobocallFreeOffer` always answers no offer without asking
+  gp-api, and none of the offer handling below ever applies. While the offer
+  was live, its plan task (found by its link, `isFreeOfferTaskHref`) led the
+  next-task card whenever it was open, due and not Not for me, with the
+  shared `FreeOfferLabel`, the offer's tint (`FREE_OFFER_CARD_CLASS`), the
+  `FREE_OFFER_CTA` button and no Mark done. That code stays until the
+  experiment's readout decides how it ends.
+- **The election result question leads Home's deck.** While the campaign
+  manager chat's `electionResult.pending` holds, the manager surface draws
+  `campaign-manager/ElectionResultHomeCard` as the front card, the tasks as
+  the layers behind, even with no plan yet. See
+  `app/dashboard/election-result/AGENTS.md`.
 - **A row's link label comes from its own `cta`, falling back to "Open".**
   Only the story task sets `cta` today ("Add your story"); the manager's task
   list prefers the same column.
@@ -95,11 +112,12 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 - **Skipping is saved on the server.** The next task's Skip (on the card and
   its row), every other open row's menu, and the API (`useSetTrackerTaskAside`, optimistic like
   completion) offer "Show in 3 days", which moves the task's date three days
-  out so the plan sorts it behind what's due sooner, and "Not for me", which
+  out; the plan list still shows it, but it can't be the next task (or join
+  Home's deck, or count toward "Get a head start") until that date, and "Not for me", which
   sets it aside until "Bring it back" in its menu. Tasks dated by fact (the
   Election admin dates, Election Day) can't be put off, and ballot access
   can't be Not for me; the rules live in contracts' `TrackerTaskSkip.ts`,
-  shared with gp-api. `buildTrackerStrategy` never makes a not-for-me task
+  shared with gp-api. `buildTrackerStrategy` never makes a not-for-me or put-off task
   the next one (`canBeNext`).
 - **A row's date line is its status line.** Open tasks show when they're due
   (orange and in words when soon or overdue); a done task says Done (check

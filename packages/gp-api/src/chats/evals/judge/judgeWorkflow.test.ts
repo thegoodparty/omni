@@ -21,7 +21,6 @@ import { identifierOutputLines } from './judgeIdentifiers'
 import { ARM_KEY_ENV, KEY_ENV, restoreRealModelKey } from './modelKey'
 import { ARM_AWS_ENV } from './awsCredentials'
 import { EXPLICIT_SELECTION, SELECTION_ENV } from './sweepEnv'
-import { JUDGE_PREFIX } from './records'
 
 // The sweep's three processes each read their spend switch from their own
 // workflow step, so the steps can disagree — and the first version of this
@@ -586,11 +585,6 @@ describe('judge.yml keeps records in the private bucket', () => {
   const choose = steps.find(
     (step) => step.name === 'Choose where records are kept',
   )
-  const POLICY = path.resolve(
-    __dirname,
-    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
-  )
-
   const run = (credentials: string): { env: string; stdout: string } => {
     const script = runBlockOf(choose?.body ?? '')
     expect(script.split('\n')[0]).toBe('set -euo pipefail')
@@ -620,17 +614,6 @@ describe('judge.yml keeps records in the private bucket', () => {
     const { env, stdout } = run('failure')
     expect(env).toMatch(/^JUDGE_RECORDS_DIR=\S+\/judge-records$/)
     expect(stdout).toContain('::warning::')
-  })
-
-  // The bucket the step names is the one the role may write, under the
-  // prefix the store writes.
-  it('names the bucket the policy grants', () => {
-    const tf = readFileSync(POLICY, 'utf8')
-    const bucket = /artifacts_bucket\s*=\s*"([^"]+)"/
-      .exec(tf)?.[1]
-      ?.replace('${var.environment}', 'dev')
-    expect(bucket).toBe('gp-agent-artifacts-dev')
-    expect(tf).toMatch(/Sid\s*=\s*"KeepJudgeRecords"/)
   })
 
   it('leaves no step mapping a records variable itself', () => {
@@ -826,32 +809,43 @@ describe('judge.yml tells both arms where a background run goes', () => {
   })
 })
 
-// THE ROLE IS THE WHOLE BLAST RADIUS. This job stages an agent config and
-// sends a dispatch that starts a Fargate run, so what it may do is decided
-// entirely by which role it assumes — and the convenient wrong answer, the
-// admin deploy role every other workflow in this repo uses, is one word away.
-describe('judge.yml assumes a role scoped to the judge', () => {
+// THE ROLE IS THE WHOLE BLAST RADIUS. Both jobs that take credentials run
+// from main but act on a pull request, and the sweep runs the pull request's
+// own code with them in its environment. So they assume the pull-request role
+// (thegoodparty/ops, which trusts judge.yml on main for this), and the
+// convenient wrong answer, the admin deploy role every main job uses, is one
+// word away.
+describe('judge.yml assumes the pull-request role', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8')
+  const PULL_REQUEST_ROLE =
+    'arn:aws:iam::333022194791:role/github-actions-preview-deploy'
   const credentials = stepsOf(yaml).find((step) =>
     step.name.startsWith('Get credentials for staging'),
+  )
+  const ruling = stepsOf(yaml).find((step) =>
+    step.name.startsWith('Get credentials for the guard ledger'),
   )
 
   it('exchanges the OIDC token for credentials at all', () => {
     expect(credentials?.body).toContain(
-      'uses: aws-actions/configure-aws-credentials@v5',
+      'uses: aws-actions/configure-aws-credentials@',
     )
   })
 
-  it('assumes the judge role and not the admin deploy role', () => {
-    expect(credentials?.body).toContain(
-      'role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep',
+  it('assumes the pull-request role and never the admin deploy role', () => {
+    const assumed = [...yaml.matchAll(/role-to-assume: (\S+)/g)].map(
+      (match) => match[1],
     )
-    expect(credentials?.body).not.toContain('AWS_ROLE_ARN')
-    expect(credentials?.body).not.toContain('pulumi-deploy')
+    expect(assumed).toEqual([PULL_REQUEST_ROLE, PULL_REQUEST_ROLE])
+    for (const step of [credentials, ruling]) {
+      expect(step?.body).toContain(`role-to-assume: ${PULL_REQUEST_ROLE}`)
+      expect(step?.body).not.toContain('AWS_ROLE_ARN')
+      expect(step?.body).not.toContain('pulumi-deploy')
+    }
   })
 
   // A chat-only sweep touches no AWS. Failing the job on a role that is not
-  // deployed yet would mean one missing IAM grant stops every sweep of every
+  // available would mean one missing IAM grant stops every sweep of every
   // shape, rather than the background ones that actually need it.
   it('does not fail a chat-only sweep when the role is unavailable', () => {
     expect(credentials?.body).toContain('continue-on-error: true')
@@ -868,7 +862,10 @@ describe('judge.yml assumes a role scoped to the judge', () => {
   // one-hour session cleared a 20-minute bar and the assertion passed on
   // exactly the bug it was written for. The sweep job is the one holding
   // these credentials.
-  it('holds credentials longer than the job that uses them can run', () => {
+  //
+  // AND NO MORE THAN FOUR HOURS, the role's own cap in thegoodparty/ops. A
+  // longer request makes the assume FAIL, not shorten.
+  it('holds credentials longer than the job, within the role cap', () => {
     const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:'))
     const jobMinutes = Number(
       /timeout-minutes: (\d+)/.exec(sweepJob)?.[1] ?? '0',
@@ -878,242 +875,13 @@ describe('judge.yml assumes a role scoped to the judge', () => {
       /role-duration-seconds: (\d+)/.exec(credentials?.body ?? '')?.[1],
     )
     expect(seconds).toBeGreaterThan(jobMinutes * 60)
+    expect(seconds).toBeLessThanOrEqual(4 * 3600)
   })
 
   // The permission without the exchange is the state this replaced: a token
   // minted and nothing that accepts it.
   it('holds the permission that makes the exchange possible', () => {
     expect(yaml).toContain('id-token: write')
-  })
-})
-
-// THE ROLE'S TRUST, held from the workflow side. It lives in gp-ai's
-// Terraform beside the policy it attaches, so a merged omni PR can change who
-// gets AWS credentials; these are the review that change does not otherwise
-// get. Text scans, like the rest of this file: gp-api declares no HCL parser,
-// and what matters is a handful of exact values in one block we own.
-describe('the judge role trusts exactly judge.yml on main', () => {
-  const MODULE = path.resolve(
-    __dirname,
-    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
-  )
-  const tf = readFileSync(MODULE, 'utf8')
-  const yaml = readFileSync(WORKFLOW, 'utf8')
-  const role = tf.slice(tf.indexOf('resource "aws_iam_role" "judge_sweep"'))
-  const roleBlock = role.slice(0, role.indexOf('\n}\n') + 2)
-  const trust = roleBlock.slice(roleBlock.indexOf('assume_role_policy'))
-  // The `{ ... }` that follows `key =`, braces balanced, quotes optional on
-  // the key: HCL accepts `Effect` and `"Effect"` alike, and a check that saw
-  // only one spelling let a second statement through in the other.
-  const KEY = (name: string) => `(?:"${name}"|\\b${name})\\s*=`
-  const blockAfter = (text: string, name: string): string[] => {
-    const out: string[] = []
-    const re = new RegExp(`${KEY(name)}\\s*\\{`, 'g')
-    for (const match of text.matchAll(re)) {
-      let depth = 0
-      const start = (match.index ?? 0) + match[0].length - 1
-      for (let at = start; at < text.length; at += 1) {
-        if (text[at] === '{') depth += 1
-        if (text[at] === '}') depth -= 1
-        if (depth === 0) {
-          out.push(text.slice(start + 1, at))
-          break
-        }
-      }
-    }
-    return out
-  }
-  // The keys written at the top level of an object body, quoted or not.
-  const topKeys = (body: string): string[] => {
-    const keys: string[] = []
-    let depth = 0
-    for (const line of body.split('\n')) {
-      if (depth === 0) {
-        const key = /^\s*"?([A-Za-z0-9_:.-]+)"?\s*=/.exec(line)?.[1]
-        if (key) keys.push(key)
-      }
-      depth += (line.match(/[{[]/g) ?? []).length
-      depth -= (line.match(/[}\]]/g) ?? []).length
-    }
-    return keys
-  }
-  const condition = (key: string): string[] =>
-    [
-      ...trust.matchAll(
-        new RegExp(
-          `"token\\.actions\\.githubusercontent\\.com:${key}"\\s*=\\s*"([^"]*)"`,
-          'g',
-        ),
-      ),
-    ].map((match) => match[1] ?? '')
-
-  it('finds the role and its trust', () => {
-    expect(roleBlock).toContain('assume_role_policy')
-    expect(trust).toContain('jsonencode(')
-  })
-
-  // The name judge.yml assumes, read off judge.yml rather than restated: a
-  // rename on one side leaves the sweep with credentials for nothing.
-  it('is the role judge.yml assumes', () => {
-    const arn = /role-to-assume: (arn:aws:iam::\d+:role\/(\S+))/.exec(yaml)
-    expect(arn?.[2]).toBeDefined()
-    expect(tf).toMatch(
-      new RegExp(`judge_role_name\\s*=\\s*"${arn?.[2] ?? 'missing'}"`),
-    )
-    expect(roleBlock).toMatch(/^ {2}name\s*=\s*local\.judge_role_name$/m)
-  })
-
-  it('trusts exactly one statement, by web identity, from GitHub', () => {
-    for (const name of ['Effect', 'Principal', 'Action', 'Condition']) {
-      expect(trust.match(new RegExp(KEY(name), 'g'))).toHaveLength(1)
-    }
-    const principal = blockAfter(trust, 'Principal')
-    expect(principal).toHaveLength(1)
-    expect(topKeys(principal[0] ?? '')).toEqual(['Federated'])
-    expect(trust).toMatch(/Action\s*=\s*"sts:AssumeRoleWithWebIdentity"/)
-    expect(trust).toMatch(
-      /Federated\s*=\s*"arn:aws:iam::\$\{data\.aws_caller_identity\.current\.account_id\}:oidc-provider\/\$\{local\.github_oidc\}"/,
-    )
-    expect(tf).toMatch(
-      /github_oidc\s*=\s*"token\.actions\.githubusercontent\.com"/,
-    )
-  })
-
-  // StringEquals only: a StringLike or ForAnyValue operator is how a pattern
-  // or a list would sneak a second subject in.
-  it('compares every claim exactly', () => {
-    const conditions = blockAfter(trust, 'Condition')
-    expect(conditions).toHaveLength(1)
-    expect(topKeys(conditions[0] ?? '')).toEqual(['StringEquals'])
-    const equals = blockAfter(conditions[0] ?? '', 'StringEquals')
-    expect(topKeys(equals[0] ?? '').sort()).toEqual(
-      [
-        'token.actions.githubusercontent.com:aud',
-        'token.actions.githubusercontent.com:job_workflow_ref',
-        'token.actions.githubusercontent.com:sub',
-      ].sort(),
-    )
-    expect(trust).not.toMatch(/StringLike|ForAnyValue|ForAllValues/)
-    expect(trust).not.toContain('*')
-    expect(trust).not.toContain('pull_request')
-  })
-
-  it('pins the audience, the ref and the one workflow file', () => {
-    expect(condition('aud')).toEqual(['sts.amazonaws.com'])
-    expect(condition('sub')).toEqual([
-      'repo:thegoodparty/omni:ref:refs/heads/main',
-    ])
-    expect(condition('job_workflow_ref')).toEqual([
-      `thegoodparty/omni/.github/workflows/${path.basename(WORKFLOW)}@refs/heads/main`,
-    ])
-  })
-
-  // The two claims have to name the same ref, or neither pin means anything:
-  // judge.yml is reached by relative path, so GitHub resolves it from the
-  // caller's ref, and a job on a branch presents that branch in both claims.
-  it('names the same ref in both claims', () => {
-    const subjectRef = condition('sub')[0]?.split(':ref:')[1]
-    const workflowRef = condition('job_workflow_ref')[0]?.split('@')[1]
-    expect(subjectRef).toBe('refs/heads/main')
-    expect(workflowRef).toBe(subjectRef)
-  })
-
-  // Exactly what judge.yml asks for, which is longer than the sweep job and
-  // no longer than four hours. A shorter cap makes the assume FAIL, not
-  // shorten: the request names a duration the role refuses.
-  it('allows exactly the session judge.yml asks for', () => {
-    const asked = Number(/role-duration-seconds: (\d+)/.exec(yaml)?.[1])
-    const allowed = Number(
-      /max_session_duration\s*=\s*(\d+)/.exec(roleBlock)?.[1],
-    )
-    expect(asked).toBeGreaterThan(0)
-    expect(allowed).toBe(asked)
-    expect(allowed).toBeLessThanOrEqual(4 * 3600)
-  })
-
-  // The judge's own policy, and no other: attaching the deploy role's would
-  // undo the point of a role of its own.
-  it('attaches the judge policy and nothing else', () => {
-    const attachments = [
-      ...tf.matchAll(
-        /resource "aws_iam_role_policy_attachment" "\w+" \{([^}]*)\}/g,
-      ),
-    ].map((match) => match[1] ?? '')
-    expect(attachments).toHaveLength(1)
-    expect(attachments[0]).toMatch(/role\s*=\s*aws_iam_role\.judge_sweep\.name/)
-    expect(attachments[0]).toMatch(
-      /policy_arn\s*=\s*aws_iam_policy\.judge_sweep\.arn/,
-    )
-    expect(tf).not.toMatch(
-      /aws_iam_role_policy"|managed_policy_arns|inline_policy/,
-    )
-  })
-})
-
-// WHAT judge.yml ASKS AWS FOR, THE POLICY HAS TO GRANT. The first live
-// background sweep assumed the role and then could not look the dispatch queue
-// up, because the policy granted SendMessage and not GetQueueUrl, so every
-// background agent was refused. Pinned from both files, so neither can drift.
-describe('the judge policy grants what the sweep job calls', () => {
-  const POLICY = path.resolve(
-    __dirname,
-    '../../../../../gp-ai/infrastructure/modules/universal-judge-sweep-policy/main.tf',
-  )
-  const tf = readFileSync(POLICY, 'utf8')
-  const yaml = readFileSync(WORKFLOW, 'utf8')
-  const statement = (sid: string): string => {
-    // Alignment is terraform fmt's, so it moves with the neighbouring keys.
-    const at = tf.search(new RegExp(`Sid\\s*=\\s*"${sid}"`))
-    expect(at, `no ${sid} statement`).toBeGreaterThan(-1)
-    // To the end of the Resource list: an ARN interpolates `${...}`, so the
-    // first `}` is inside it, not the statement's end.
-    return tf.slice(at, tf.indexOf(']', tf.indexOf('Resource', at)) + 1)
-  }
-  const actions = (sid: string): string[] =>
-    [
-      ...(/Action\s*=\s*\[([^\]]*)\]/.exec(statement(sid))?.[1] ?? '').matchAll(
-        /"([^"]+)"/g,
-      ),
-    ].map((match) => match[1] ?? '')
-
-  it('grants the queue lookup the sweep job runs', () => {
-    expect(yaml).toContain('aws sqs get-queue-url --queue-name "$queue"')
-    expect(actions('DispatchJudgeRuns')).toContain('sqs:GetQueueUrl')
-  })
-
-  // Send and look up, nothing else: receiving or deleting would let a sweep
-  // consume the queue the platform dispatches real runs from.
-  it('grants the dispatch queue nothing but send and look up', () => {
-    expect(actions('DispatchJudgeRuns').sort()).toEqual([
-      'sqs:GetQueueUrl',
-      'sqs:SendMessage',
-    ])
-    expect(statement('DispatchJudgeRuns')).toContain('${local.dispatch_queue}')
-  })
-
-  // The record store writes under one head prefix, and real run artifacts
-  // share this bucket, so the grant is pinned to that prefix and to the two
-  // actions the store calls. Derived from records.ts so a renamed prefix fails
-  // here rather than as a denied write after both arms were paid for.
-  it('keeps records under the store prefix only, with no delete', () => {
-    expect(actions('KeepJudgeRecords').sort()).toEqual([
-      's3:GetObject',
-      's3:PutObject',
-    ])
-    // The whole list, so a second and wider ARN beside this one fails too.
-    const resources = statement('KeepJudgeRecords').match(
-      /Resource\s*=\s*\[([^\]]*)\]/,
-    )?.[1]
-    expect(resources?.split(',').map((one) => one.trim())).toEqual([
-      `"arn:aws:s3:::\${local.artifacts_bucket}/${JUDGE_PREFIX}/*"`,
-    ])
-    // Read off the Action lists, not the whole file: the header comment names
-    // DeleteObject in order to say it is absent.
-    const granted = [...tf.matchAll(/Action\s*=\s*\[([^\]]*)\]/g)]
-      .map((match) => match[1] ?? '')
-      .join(',')
-    expect(granted).toContain('s3:PutObject')
-    expect(granted).not.toMatch(/Delete|Acl|Tagging/)
   })
 })
 
@@ -1333,15 +1101,21 @@ describe('judge.yml resolves one set of identifiers for both arms', () => {
   // any invocation but the real one. A failed resolution must leave the
   // outputs empty and the sweep running; a good one must reach them whole.
   describe('the resolver, run', () => {
+    // One executable for both runs, sourcing each run's body: macOS checks a
+    // newly written executable on its first exec, which cost more than the
+    // step.
+    const fakes = mkdtempSync(path.join(tmpdir(), 'judge-identifiers-bin-'))
+    writeFileSync(
+      path.join(fakes, 'npx'),
+      '#!/usr/bin/env bash\n' +
+        '[ "$1" = tsx ] && [ "$2" = the-entry ] || exit 97\n' +
+        '. "$FAKE_NPX_BODY"\n',
+    )
+    chmodSync(path.join(fakes, 'npx'), 0o755)
+
     const runResolver = (npx: string) => {
       const dir = mkdtempSync(path.join(tmpdir(), 'judge-identifiers-'))
-      writeFileSync(
-        path.join(dir, 'npx'),
-        '#!/usr/bin/env bash\n' +
-          '[ "$1" = tsx ] && [ "$2" = the-entry ] || exit 97\n' +
-          `${npx}\n`,
-      )
-      chmodSync(path.join(dir, 'npx'), 0o755)
+      writeFileSync(path.join(dir, 'npx-body'), `${npx}\n`)
       const output = path.join(dir, 'github-output')
       writeFileSync(output, '')
       const script = path.join(dir, 'run.sh')
@@ -1350,7 +1124,8 @@ describe('judge.yml resolves one set of identifiers for both arms', () => {
         cwd: dir,
         encoding: 'utf8',
         env: {
-          PATH: `${dir}:${process.env.PATH}`,
+          PATH: `${fakes}:${process.env.PATH}`,
+          FAKE_NPX_BODY: path.join(dir, 'npx-body'),
           RUNNER_TEMP: dir,
           GITHUB_OUTPUT: output,
           IDENTIFIERS_ENTRY: 'the-entry',
@@ -1544,6 +1319,36 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
   const dollars = (cents: number) =>
     `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
 
+  // Written once for every run rather than per run: macOS checks a newly
+  // written executable on its first exec, which cost more than the step.
+  const fakes = mkdtempSync(path.join(tmpdir(), 'judge-estimate-bin-'))
+  writeFileSync(
+    path.join(fakes, 'npx'),
+    '#!/bin/bash\necho "$*" >> "$FAKE_DIR/npx.args"\n' +
+      'if [ -n "$FAKE_CLI_FAILS" ]; then\n' +
+      '  [[ "$*" == *--reference* ]] || exit 1\n' +
+      'fi\n' +
+      'cat "$FAKE_DIR/plan.fixture"\n' +
+      '[ -z "$FAKE_CLI_FAILS" ] || exit "$FAKE_CLI_FAILS"\n',
+  )
+  // Stands in for the base ref's files; a GitHub API that does not answer
+  // must not fail the step.
+  writeFileSync(
+    path.join(fakes, 'gh'),
+    '#!/bin/bash\necho "$*" >> "$FAKE_DIR/gh.args"\ncase "$FAKE_GH" in\n' +
+      Object.entries({
+        ok: 'echo "// $*"',
+        '404': 'echo "gh: Not Found (HTTP 404)" >&2; exit 1',
+        '403': 'echo "gh: Forbidden (HTTP 403)" >&2; exit 1',
+        error: 'echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1',
+      })
+        .map(([answer, body]) => `  ${answer}) ${body} ;;\n`)
+        .join('') +
+      'esac\n',
+  )
+  chmodSync(path.join(fakes, 'npx'), 0o755)
+  chmodSync(path.join(fakes, 'gh'), 0o755)
+
   // Run, not read, with the WHOLE run block and a fake `npx` standing in for
   // the CLI, so no slice boundary decides what is tested. The step is
   // `set -u`, so a variable read before it is set fails here too.
@@ -1563,32 +1368,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     // has to be inside the scratch directory.
     const cli = path.join(dir, 'judge/cli.ts')
     execFileSync('mkdir', [path.dirname(cli)])
-    const bin = path.join(dir, 'bin')
-    execFileSync('mkdir', [bin])
     writeFileSync(path.join(dir, 'plan.fixture'), plan)
-    writeFileSync(
-      path.join(bin, 'npx'),
-      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'npx.args')}"\n` +
-        (cliFails === undefined
-          ? ''
-          : `[[ "$*" == *--reference* ]] || exit 1\n`) +
-        `cat "${path.join(dir, 'plan.fixture')}"\n` +
-        (cliFails === undefined ? '' : `exit ${cliFails}\n`),
-    )
-    // Stands in for the base ref's files; a GitHub API that does not answer
-    // must not fail the step.
-    writeFileSync(
-      path.join(bin, 'gh'),
-      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'gh.args')}"\n` +
-        {
-          ok: `echo "// $*"\n`,
-          '404': 'echo "gh: Not Found (HTTP 404)" >&2; exit 1\n',
-          '403': 'echo "gh: Forbidden (HTTP 403)" >&2; exit 1\n',
-          error: 'echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1\n',
-        }[gh],
-    )
-    chmodSync(path.join(bin, 'npx'), 0o755)
-    chmodSync(path.join(bin, 'gh'), 0o755)
     const output = path.join(dir, 'output')
     writeFileSync(output, '')
     writeFileSync(path.join(dir, 'summary'), '')
@@ -1601,7 +1381,10 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
         encoding: 'utf8',
         stdio: 'pipe',
         env: {
-          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          PATH: `${fakes}:${process.env.PATH ?? ''}`,
+          FAKE_DIR: dir,
+          FAKE_GH: gh,
+          FAKE_CLI_FAILS: cliFails === undefined ? '' : String(cliFails),
           RUNNER_TEMP: dir,
           GITHUB_OUTPUT: output,
           GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
@@ -1654,22 +1437,22 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     const selection = selectAgents({ kind: 'list', ids })
     const plan = formatPlan(selection)
     const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
-    expect(cents).toEqual([1000, 900, 4900])
+    expect(cents).toEqual([1250, 1350, 8150])
 
     const result = runEstimate(plan, ids.join(','))
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=68\.00$/m)
+    expect(result.outputs).toMatch(/^usd=107\.50$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
     const row = (id: string, shape: string, price: string) =>
       new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
-    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(1000)))
+    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(1250)))
     expect(result.comment).toMatch(
-      row('race_opponent_summary', 'background', dollars(900)),
+      row('race_opponent_summary', 'background', dollars(1350)),
     )
     expect(result.comment).toMatch(
-      row('self_research', 'background', `${dollars(4900)} \\(unmeasured\\)`),
+      row('self_research', 'background', `${dollars(8150)} \\(unmeasured\\)`),
     )
   })
 
@@ -1813,7 +1596,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       return agent === undefined ? -1 : estimateAgent(agent).cents
     }
     expect(worst('ordinance_flow')).toBe(4250)
-    expect(worst('self_research')).toBe(4900)
+    expect(worst('self_research')).toBe(8150)
     const result = runEstimate(
       'Universal Judge — plan (4 agents)\n\n' +
         '  chief_of_staff  [chat]  cases: chief_of_staff.json\n' +
@@ -1823,7 +1606,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
     )
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=134\.00$/m)
+    expect(result.outputs).toMatch(/^usd=166\.50$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
     )
@@ -1832,7 +1615,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
     expect(result.comment).toMatch(row('chief_of_staff', '42\\.50'))
     expect(result.comment).toMatch(row('ordinance_flow', '42\\.50'))
-    expect(result.comment).toMatch(row('self_research', '49\\.00'))
+    expect(result.comment).toMatch(row('self_research', '81\\.50'))
   })
 })
 
@@ -1925,7 +1708,12 @@ describe('the arms reach AWS on the role, not on the stub', () => {
       })
       .filter((client) => client.any > 0)
     expect(found).toEqual([
-      { file: 'sweep.eval.test.ts', any: 2, exact: 2 },
+      { file: 'braveKey.ts', any: 1, exact: 1 },
+      { file: 'guard/appendGuardBaselineTrailerCli.ts', any: 2, exact: 2 },
+      { file: 'guard/guardBaselineCli.ts', any: 2, exact: 2 },
+      { file: 'guard/guardLedgerCli.ts', any: 1, exact: 1 },
+      { file: 'guard/judgeSpendCli.ts', any: 2, exact: 2 },
+      { file: 'sweep.eval.test.ts', any: 3, exact: 3 },
       { file: 'sweepEnv.ts', any: 1, exact: 1 },
     ])
   })
@@ -2249,6 +2037,114 @@ describe('judge-schema-check.yml', () => {
     expect(yaml).toMatch(/^ {10}JUDGE_SPEND: 'true'$/m)
     expect(yaml).toContain(
       'ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+    )
+  })
+})
+
+// The verdict reaches the PR from a job that runs no branch code, because the
+// job that does run it holds the Anthropic key and no pull-requests token.
+describe('judge.yml posts the verdict on the PR', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const sweepJob = yaml.slice(
+    yaml.indexOf('\n  sweep:'),
+    yaml.indexOf('\n  verdict:'),
+  )
+  const verdictJob = yaml.slice(yaml.indexOf('\n  verdict:'))
+
+  it('saves the report where the verdict job can fetch it', () => {
+    const judging = stepsOf(yaml).find(
+      (step) => step.name === 'Judge both arms',
+    )
+    expect(judging?.body).toContain(
+      `trap 'cp "$GITHUB_STEP_SUMMARY" "$REPORT_FILE" 2>/dev/null || true' EXIT`,
+    )
+    const keep = stepsOf(yaml).find(
+      (step) => step.name === 'Keep the report for the PR',
+    )
+    expect(keep?.body).toContain('actions/upload-artifact')
+    expect(keep?.body).toContain('name: judge-report')
+  })
+
+  it('posts from a job that checks out and runs nothing from the branch', () => {
+    expect(verdictJob).toMatch(/^ {4}needs: \[plan, sweep\]$/m)
+    expect(verdictJob).toMatch(/^ {6}pull-requests: write$/m)
+    expect(verdictJob).not.toContain('actions/checkout')
+    expect(verdictJob).not.toContain('npx ')
+    expect(verdictJob).toContain('issues.createComment')
+  })
+
+  it('rewrites its own comment rather than adding one per sweep', () => {
+    expect(verdictJob).toContain('issues.updateComment')
+    expect(verdictJob).toContain("c.user?.login === 'github-actions[bot]'")
+  })
+
+  it('tolerates only a locked conversation when posting', () => {
+    expect(verdictJob).toContain('if (err.status !== 403) throw err')
+  })
+
+  it('warns when a failed sweep left a partial report', () => {
+    expect(verdictJob).toContain("process.env.SWEEP_RESULT === 'success'")
+    expect(verdictJob).toContain('so this report may be incomplete')
+  })
+
+  it('keeps the pull-requests token away from the sweep job', () => {
+    expect(sweepJob.length).toBeGreaterThan(0)
+    expect(sweepJob).not.toMatch(/^ {6}pull-requests: write$/m)
+  })
+})
+
+// ENG-11593: `guard_context` is the one channel from judge-guard.yml (no AWS
+// role at all) to judge.yml's sweep job (which holds it and writes the
+// ledger line). It has to default to empty on both files that declare it, so
+// a person's `/judge` run — which never sets it — behaves exactly as before
+// and writes no ledger line; that is the whole point of a story that adds a
+// new required-by-nobody input to an entry point real users already drive by
+// hand.
+describe('judge_context is optional everywhere it is declared', () => {
+  const REQUEST = path.resolve(path.dirname(WORKFLOW), 'judge-request.yml')
+  const requestYaml = readFileSync(REQUEST, 'utf8')
+  const judgeYaml = readFileSync(WORKFLOW, 'utf8')
+
+  const inputBlock = (yaml: string): string =>
+    /^ {6}guard_context:\n((?: {8}.*\n)*)/m.exec(yaml)?.[1] ?? ''
+
+  it('judge-request.yml declares guard_context optional, default empty', () => {
+    const block = inputBlock(requestYaml)
+    expect(block).toContain('required: false')
+    expect(block).toMatch(/default: (''|"")/)
+  })
+
+  it('judge.yml declares guard_context optional, default empty', () => {
+    const block = inputBlock(judgeYaml)
+    expect(block).toContain('required: false')
+    expect(block).toMatch(/default: (''|"")/)
+  })
+
+  it('judge-request.yml threads its own input through to judge.yml unchanged', () => {
+    expect(requestYaml).toContain('guard_context: ${{ inputs.guard_context }}')
+  })
+
+  it('the sweep job parses guard_context before either arm can spend', () => {
+    const steps = stepsOf(judgeYaml)
+    const names = steps.map((step) => step.name)
+    const parse = steps.find((step) => step.name === 'Parse the guard context')
+    expect(parse).toBeDefined()
+    expect(parse?.body).toContain(
+      'npx tsx src/chats/evals/judge/guard/parseGuardContextCli.ts',
+    )
+    expect(names.indexOf('Parse the guard context')).toBeLessThan(
+      names.indexOf('Capture the base arm'),
+    )
+  })
+
+  it('writes the ledger line from the sweep job, never from judge-guard.yml', () => {
+    const ledgerStep = stepsOf(judgeYaml).find(
+      (step) => step.name === "Write the guard sweep's ledger line",
+    )
+    expect(ledgerStep).toBeDefined()
+    expect(ledgerStep?.body).toMatch(/^ {8}if: always\(\)/m)
+    expect(ledgerStep?.body).toContain(
+      "steps.guard_context.outputs.present == 'true'",
     )
   })
 })

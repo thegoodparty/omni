@@ -198,6 +198,11 @@ export default function PrecinctFilter({
   return (
     <div className="space-y-2">
       <span className={labelClassName}>Precinct</span>
+      <p className="text-sm text-muted-foreground">
+        Precincts are election districts set by the county. They don’t always
+        follow city lines, so a precinct named for a city can leave out voters
+        whose mailing address is in that city.
+      </p>
 
       <ToggleGroup
         type="multiple"

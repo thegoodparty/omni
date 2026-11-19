@@ -28,3 +28,17 @@ export const ElectedOfficeSchema = z.object({
 })
 
 export type ElectedOffice = z.infer<typeof ElectedOfficeSchema>
+
+// `GET /v1/elected-office/mine`: each of the caller's offices, plus what its
+// linked Win campaign says. The active org can be the office's own `eo-*`
+// org, where the client has no campaign to read, so the server answers.
+export const MyElectedOfficeSchema = ElectedOfficeSchema.extend({
+  hasWinIssues: z.boolean(),
+  campaignWasEverPro: z.boolean(),
+  // An office prepared ahead of an ever-Pro campaign's result: dormant, and
+  // not a win, so Serve onboarding must send its holder to report the result
+  // rather than adopt it. PUT /v1/elected-office/:id refuses the pledge.
+  prepared: z.boolean(),
+})
+
+export type MyElectedOffice = z.infer<typeof MyElectedOfficeSchema>

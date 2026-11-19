@@ -18,7 +18,7 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { numberFormatter } from 'helpers/numberHelper'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { FetchError } from 'ofetch'
 import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/dashboard/contacts/crm/shared/constants'
@@ -37,7 +37,7 @@ import {
 const OFFICE_TEMPLATE_TOKEN = '{office}'
 const DEFAULT_OFFICE_NAME = 'your office'
 const CONTACTS_STATS_ROUTE = 'GET /v1/contacts/stats'
-const SENTRY_CONTEXT_FETCH_CONTACTS_STATS =
+const ERROR_CONTEXT_FETCH_CONTACTS_STATS =
   'onboarding.pathToVictory.fetchContactsStats'
 
 const CHECKLIST_ITEMS = [
@@ -92,7 +92,7 @@ const useRegisteredVoters = (campaignId: number | undefined) => {
 
   useEffect(() => {
     // A write-in office can never resolve a district, so this could only 400 —
-    // and the catch below reports every one of those to Sentry. The checklist
+    // and the catch below reports every one of those as an error. The checklist
     // already degrades to null, which is the same thing the catch produces.
     if (isUnresolvable) {
       setRegisteredVoters(null)
@@ -111,7 +111,7 @@ const useRegisteredVoters = (campaignId: number | undefined) => {
         // "We have no constituent data for this office" is an expected state,
         // not an error — a district that resolves but has no stats row raises
         // it just like an unresolvable one, and the predicate above can't see
-        // that case. Reporting it made a normal office a Sentry event.
+        // that case. Reporting it made a normal office an error report.
         if (
           error instanceof FetchError &&
           extractApiErrorInfo(error.data).errorCode ===
@@ -119,8 +119,8 @@ const useRegisteredVoters = (campaignId: number | undefined) => {
         ) {
           return
         }
-        reportErrorToSentry(error, {
-          context: SENTRY_CONTEXT_FETCH_CONTACTS_STATS,
+        reportClientError(error, {
+          context: ERROR_CONTEXT_FETCH_CONTACTS_STATS,
           campaignId,
         })
       })

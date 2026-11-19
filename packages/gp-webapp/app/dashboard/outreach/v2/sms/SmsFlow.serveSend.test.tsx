@@ -16,6 +16,13 @@ import {
   SERVE_SMS_SAMPLE_FIRST_NAME,
 } from './smsCompose.util'
 
+// No test here is about hover, and the pointer move user-event makes before
+// every click fires a round of hover events (and re-renders) for nothing.
+let user: ReturnType<typeof userEvent.setup>
+beforeEach(() => {
+  user = userEvent.setup({ skipHover: true })
+})
+
 // The Serve send path: everything SmsFlow does BELOW compose when the
 // surface is Serve. The assertions that matter most here are the negative
 // ones — that no Peerly phone list is derived, that no campaignId and no
@@ -148,7 +155,9 @@ const attachImage = async () => {
     type: 'image/png',
   })
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
-  await userEvent.upload(input, file)
+  await user.upload(input, file)
+  // FileReader hands the image over a tick after upload resolves.
+  await screen.findByRole('button', { name: 'Remove image' })
 }
 
 const openServeFlow = (
@@ -170,10 +179,10 @@ const openServeFlow = (
 
 // Drives purpose -> audience -> compose -> schedule -> review on Serve.
 const runServeToReview = async () => {
-  await userEvent.click(await screen.findByText('Explain a recent decision'))
-  await userEvent.click(await screen.findByText('Choose a constituent list'))
-  await userEvent.click(await screen.findByText('Northside residents'))
-  await userEvent.click(
+  await user.click(await screen.findByText('Explain a recent decision'))
+  await user.click(await screen.findByText('Choose a constituent list'))
+  await user.click(await screen.findByText('Northside residents'))
+  await user.click(
     await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
   )
   await screen.findByText(/drafted body/)
@@ -181,11 +190,11 @@ const runServeToReview = async () => {
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
   )
-  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-  await userEvent.click(
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
+  await user.click(
     await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
   )
-  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
 }
 
 describe('SmsFlow serve send path', () => {
@@ -213,6 +222,7 @@ describe('SmsFlow serve send path', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],
@@ -320,6 +330,8 @@ describe('SmsFlow serve send path', () => {
     })
     expect(body.message).toContain('{{first_name}}')
     expect(body.message).toContain('Reply STOP to opt out.')
+    // Nobody edited the AI's draft, so it is stored as the message.
+    expect(body.aiDraft).toBe(body.message)
     expect(body.name).toEqual(expect.stringContaining('Northside residents'))
 
     // The two Win-only fields, named explicitly: a Serve org has no campaign
@@ -355,12 +367,11 @@ describe('SmsFlow serve send path', () => {
       initialPurpose: 'report_back',
       initialScript:
         'this is Jane, your City Council Member. Thanks for answering. Most of you named parking near the school.',
-      initialAsksToJoinCivicPanel: true,
       preselectedListId: 41,
       reportBackForOutreachId: 77,
       proposalLink: { proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7' },
     })
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
     await screen.findByText(/Most of you named parking/)
@@ -372,11 +383,11 @@ describe('SmsFlow serve send path', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await userEvent.click(
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
       await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0]).toMatchObject({
@@ -386,6 +397,59 @@ describe('SmsFlow serve send path', () => {
     })
     expect(bodies[0]?.message).not.toContain('Reply JOIN')
     expect(bodies[0]?.name).toEqual(expect.stringContaining('Northside'))
+  })
+
+  // The calendar opens a day later for round 2, as the create requires. A
+  // priority's text ends on the residents' calls to action together: its
+  // reply line, then the opt-out directly under it, with no civic panel line.
+  it("carries a round 2 card's size onto the create", async () => {
+    const bodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
+      bodies.push(body as unknown as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          outreachId: 93,
+          recipientCount: 300,
+          excludedOptedOutCount: 0,
+          excludedDuplicateCount: 0,
+        },
+      }
+    })
+    openServeFlow({
+      initialScript:
+        'this is Jane, your City Council Member. Is parking near the school the problem to fix first? Reply YES or NO.',
+      preselectedListId: 41,
+      roundTwoSize: 300,
+      proposalLink: {
+        proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7',
+        priorityId: 'priority-1',
+      },
+    })
+    await user.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await screen.findByText(/parking near the school/)
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /^Monday, September 7(?!\d)/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({
+      roundTwoSize: 300,
+      voterFileFilterId: 41,
+      priorityId: 'priority-1',
+    })
+    expect(bodies[0]?.message).toMatch(
+      /first\? Reply YES or NO\.\nReply STOP to opt out\.$/,
+    )
+    expect(bodies[0]?.message).not.toContain('Reply JOIN')
   })
 
   // The one screen that promises a preview used to show the raw merge
@@ -412,7 +476,7 @@ describe('SmsFlow serve send path', () => {
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0]!.message).toContain('{{first_name}}')
 
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: 'Preview message' }),
     )
     expect(
@@ -516,10 +580,10 @@ describe('SmsFlow serve send path', () => {
   it('identifies the official by the office they hold, grammarized', async () => {
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -537,7 +601,7 @@ describe('SmsFlow serve send path', () => {
 
     // A second tone, to prove the wiring is tone-keyed and not a constant.
     // (All four are pinned in smsCompose.util.test.ts.)
-    await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
@@ -555,7 +619,7 @@ describe('SmsFlow serve send path', () => {
       preselectedListId: 41,
       reportBackForOutreachId: 77,
     })
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
     await waitFor(() =>
@@ -603,6 +667,7 @@ describe('SmsFlow win send path (unchanged)', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],
@@ -642,10 +707,10 @@ describe('SmsFlow win send path (unchanged)', () => {
       />,
     )
 
-    await userEvent.click(await screen.findByText('Introduce myself to voters'))
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Likely voters'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Likely voters'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -658,16 +723,17 @@ describe('SmsFlow win send path (unchanged)', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(await screen.findByRole('button', { name: WIN_DAY }))
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByText('Pick a date'))
+    await user.click(await screen.findByRole('button', { name: WIN_DAY }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled())
     expect(createP2pPhoneList).toHaveBeenCalled()
     expect(createOutreach).toHaveBeenCalledWith(
       expect.objectContaining({ campaignId: 9, scheduledLocalTime: '10:00' }),
       expect.anything(),
+      expect.any(Function),
     )
     expect(createCheckoutSession).toHaveBeenCalledWith(
       'TEXT',

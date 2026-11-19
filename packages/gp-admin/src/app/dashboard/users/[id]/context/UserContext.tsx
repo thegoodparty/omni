@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, type ReactNode } from 'react'
-import type { User } from '@goodparty_org/sdk'
+import type { User } from '@/shared/gpApi'
 
 const UserContext = createContext<User | null>(null)
 

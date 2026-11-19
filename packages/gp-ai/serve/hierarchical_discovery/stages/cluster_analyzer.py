@@ -64,7 +64,7 @@ Writing guidelines:
 Handling outliers: focus the theme and summary on what most notes share. Do not try to account for every note.
 
 Output:
-1. Theme: one 2-4 word label for the shared concern. One topic only, no "and", "&" or commas. Be specific: "Storm Drain Maintenance", not "Infrastructure Concerns".
+1. Theme: one 2-4 word label for the shared concern, in sentence case: capitalize the first word and proper nouns only. One topic only, no "and", "&" or commas. Be specific: "Storm drain maintenance", not "Infrastructure concerns". Keep names as they are: "Main Street flooding".
 2. Issues summary: one sentence, in active voice, saying what is wrong or what these residents want done.
 3. Detailed analysis: what residents are experiencing, why it matters to them, and what they want done, as briefly as the notes allow. One or two sentences when the notes agree, more only when they show distinct concerns."""
 

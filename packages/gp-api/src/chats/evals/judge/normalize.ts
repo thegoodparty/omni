@@ -74,7 +74,7 @@ export interface NormalizedCase {
 // all are reported apart from a real verdict. `identicalConfig` is the odd
 // one out: nothing failed, but both arms of that pair hashed to the same
 // config, so the agent saw no difference and there was nothing to compare.
-export type ExclusionReason = 'toolError' | 'infraError' | 'identicalConfig'
+export type ExclusionReason = 'infraError' | 'identicalConfig'
 
 export interface ExcludedCase {
   agentId: string
@@ -498,16 +498,7 @@ const exclusionFor = (
   const infra: Arm[] = []
   if (base.status === 'infraError') infra.push('base')
   if (candidate.status === 'infraError') infra.push('candidate')
-  // infraError first: a run that died never got far enough for a tool
-  // error to mean anything about it.
-  if (infra.length > 0) return { reason: 'infraError', arms: infra }
-  // Only a chat pair gets this far: isComparable never fails a background
-  // record for a tool error, because its verdict is on the final artifact
-  // and a run that hit a failing Bash snippet and recovered still made one.
-  const tool: Arm[] = []
-  if (base.telemetry.toolErrors > 0) tool.push('base')
-  if (candidate.telemetry.toolErrors > 0) tool.push('candidate')
-  return { reason: 'toolError', arms: tool }
+  return { reason: 'infraError', arms: infra }
 }
 
 // Pairs one agent's records by case and attempt, and blinds every pair that

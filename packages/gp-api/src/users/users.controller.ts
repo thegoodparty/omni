@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common'
 import { UsersService } from './services/users.service'
 import {
+  ChangeUserEmailOutputSchema,
   ListUsersPaginationSchema,
   ReadUserOutputSchema,
   UpdatePasswordSchema,
@@ -38,6 +39,7 @@ import { CacheControls, MimeTypes } from 'http-constants-ts'
 import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { AuthenticationService } from '../authentication/authentication.service'
 import {
+  ChangeUserEmailInputSchema,
   UpdateUserAdminInputSchema,
   UpdateUserInputSchema,
 } from './schemas/UpdateUserInput.schema'
@@ -83,6 +85,13 @@ export class UsersController {
   @ResponseSchema(ReadUserOutputSchema)
   async updateMe(@ReqUser() user: User, @Body() body: UpdateUserInputSchema) {
     return this.usersService.updateUser({ id: user.id }, body ?? {})
+  }
+
+  @Post('me/sync-email')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(ReadUserOutputSchema)
+  async syncEmail(@ReqUser() user: User) {
+    return this.usersService.syncEmailFromClerk(user)
   }
 
   @Get('me/metadata')
@@ -158,6 +167,16 @@ export class UsersController {
     @Body() body: UpdateUserAdminInputSchema,
   ) {
     return this.usersService.updateUser({ id }, body)
+  }
+
+  @UseGuards(M2MOnly)
+  @Put(':id/email')
+  @ResponseSchema(ChangeUserEmailOutputSchema)
+  changeEmail(
+    @Param() { id }: UserIdParamSchema,
+    @Body() { email }: ChangeUserEmailInputSchema,
+  ) {
+    return this.usersService.changeEmailAsStaff(id, email)
   }
 
   @UseGuards(UserOwnerOrAdminGuard)

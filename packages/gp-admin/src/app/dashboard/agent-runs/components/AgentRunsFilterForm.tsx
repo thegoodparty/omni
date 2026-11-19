@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Box, Button, Flex, Select, Text, TextField } from '@radix-ui/themes'
 import { HiX } from 'react-icons/hi'
-import type { ExperimentRunStatus } from '@goodparty_org/sdk'
+import type { ExperimentRunStatus } from '@/shared/gpApi'
 import {
   AGENT_RUN_STATUSES,
   SEARCH_PARAMS,

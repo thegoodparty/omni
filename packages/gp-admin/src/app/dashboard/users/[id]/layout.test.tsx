@@ -20,7 +20,7 @@ vi.mock('next/navigation', () => ({
 
 // Controllable SdkError so the catch-branch tests can drive the 404-vs-rethrow
 // logic without constructing the real SDK error.
-vi.mock('@goodparty_org/sdk', () => {
+vi.mock('@/shared/gpApi', () => {
   class SdkError extends Error {
     status: number
     constructor(statusCode: number, message: string) {
@@ -30,7 +30,7 @@ vi.mock('@goodparty_org/sdk', () => {
   }
   return { SdkError }
 })
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError } from '@/shared/gpApi'
 
 // --- GP API client ---
 // gpAction wraps an M2M-authenticated SDK client; mock it to actually invoke the

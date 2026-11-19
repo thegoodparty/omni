@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { isBefore } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -16,14 +15,6 @@ import {
 } from '../../generated/prisma'
 import { OutreachNotificationService } from './outreachNotification.service'
 
-// Every 15 minutes, offset :11 — distinct from the overdue sweep (:12,:27,…) and
-// the send sweep (:04,:14,…). This sweep makes NO CallHub or Stripe call (it
-// reads rows, reads the configured dial rate from env, and posts Slack), so the
-// offset is only about not joining the top-of-hour herd; a stuck backlog is
-// paged ONCE per run (the dedupe CAS), so 15 minutes is ample.
-const ROBOCALL_BACKLOG_SWEEP_CRON = '11,26,41,56 * * * *'
-const ROBOCALL_BACKLOG_SWEEP_JOB = 'robocallBacklogAlertSweep'
-
 // The projection must advance the pool at the SAME money-safe ceiling the send
 // sweep frees a run at, or it would predict the wrong dial times. These read the
 // SAME env vars the send sweep reads (so a tuning change keeps both in step) at
@@ -33,10 +24,17 @@ const envInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback
 }
+// Float-preserving sibling for the fractional safety divisor; see the send
+// service for why truncation would silently drop the haircut.
+const envNumber = (value: string | undefined, fallback: number): number => {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 const robocallDialEstimateBufferMinutes = () =>
-  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 30)
+  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 10)
 const robocallDialSafetyRateDivisor = () =>
-  Math.max(1, envInt(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 2))
+  Math.max(1, envNumber(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 1.1))
 
 // Proactively pages CAS when the strictly-serial send queue's backlog is
 // projected to push a robocall past its scheduled DAY — BEFORE it is late.
@@ -57,15 +55,12 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
     super()
   }
 
-  // Prod-only: it reads the real send pipeline's queue and stamps a prod dedupe
-  // column, so it must not fire on dev/preview. No CronLockService: the
-  // single-owner `backlogAlertedAt IS NULL` CAS elects one alerter per run, so
-  // two replicas racing both project the same queue but only ONE stamps and
-  // posts. @Cron (not @Interval) so the schedule survives deploys.
-  @Cron(ROBOCALL_BACKLOG_SWEEP_CRON, {
-    name: ROBOCALL_BACKLOG_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
+  // Deliberately prod-only, NOT VENDOR_CRONS_ENABLED: an alerting cron would page
+  // from mock environments. It reads the real send pipeline's queue and stamps a prod dedupe
+  // column, so it must not fire on dev/preview. The robocallBacklogAlertSweep
+  // schedule (src/jobs/jobs.registry.ts) runs it as one job, since it projects
+  // the whole queue at once. The single-owner `backlogAlertedAt IS NULL` CAS
+  // elects one alerter per run, so a retried pass stamps and posts once.
   async sweepBacklogAlerts(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
 

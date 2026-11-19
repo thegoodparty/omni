@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -10,7 +11,13 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, toast } from '@styleguide'
+import { Badge, Button, Checkbox, cn, Input, Label, toast } from '@styleguide'
+import {
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  pickedNextStepsMessage,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
+} from '@goodparty_org/contracts'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
@@ -40,6 +47,7 @@ import {
 import {
   clarifyWidgetTool,
   isQuestionTool,
+  MANAGED_PANEL_OFFER_TOOL,
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
 import {
@@ -49,7 +57,7 @@ import {
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { useOrganization } from '@shared/organization-picker'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type {
@@ -64,9 +72,13 @@ import {
 } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import {
-  civicPanelWidgetTools,
-  SAVE_PANEL_WEEKLY_TIME_TOOL,
-} from './civicPanelWidgets'
+  isManagedExplainerOffer,
+  managedExplainerChoice,
+  managedPanelWidgetTools,
+  type ManagedExplainerSource,
+  type ManagedPanelWidgetContext,
+} from './managedPanelWidgets'
+import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
   isToolRefusal,
@@ -272,7 +284,8 @@ const LIST_PROPOSAL_TOOL = 'present_list_proposal'
 
 type CosWidgetContext = CardWidgetContext &
   ClarifyWidgetContext &
-  ComposeHandoffWidgetContext
+  ComposeHandoffWidgetContext &
+  ManagedPanelWidgetContext
 
 // show_list_map is deliberately not here: its map renders after the turn's
 // prose, once per turn, and moving it would change where it appears.
@@ -280,7 +293,7 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   ...cardWidgetTools,
   clarifyWidgetTool,
   composeHandoffWidgetTool,
-  ...civicPanelWidgetTools,
+  ...managedPanelWidgetTools,
 ])
 
 // Pulls the widget payload back out of a persisted turn. Returns null for
@@ -374,6 +387,10 @@ function ChiefOfStaffChatThread({
   const [liveWidgets, setLiveWidgets] = useState<
     PositionedWidget<CosWidgetContext>[]
   >([])
+  // The managed civic panel explainer's analytics: what asked for it, and
+  // whether the question waiting on an answer is its offer.
+  const managedSourceRef = useRef<ManagedExplainerSource>('chat')
+  const managedOfferActiveRef = useRef(false)
   // Which list the holder is drawing on, if any. Owned HERE rather than by
   // the map card that opens it: a streaming turn's row is rebuilt under a
   // new key the moment it commits, so an overlay mounted inside the card
@@ -392,6 +409,15 @@ function ChiefOfStaffChatThread({
     null,
   )
   const [introProgress, setIntroProgress] = useState(0)
+  // Read once at mount: the intro effect writes the flag on its first tick, so
+  // a live read would call an intro that is still typing already seen.
+  const [introSeenAtMount] = useState(() => {
+    try {
+      return window.localStorage.getItem(introSeenKey(scope)) === '1'
+    } catch {
+      return false
+    }
+  })
   // Sends this session, visible OR hidden. Any send gates the with-greeting
   // starter chips off, even a hidden kickoff (which adds no user turn).
   const [sendCount, setSendCount] = useState(0)
@@ -529,6 +555,15 @@ function ChiefOfStaffChatThread({
           }
           return true
         }
+        if (
+          event.type === 'tool_call' &&
+          isManagedExplainerOffer(event.toolName, event.args)
+        ) {
+          trackEvent(EVENTS.Contacts.CivicPanelManagedInviteValuePropViewed, {
+            source: managedSourceRef.current,
+          })
+          managedSourceRef.current = 'chat'
+        }
         if (event.type === 'tool_call' && cosWidgets.has(event.toolName)) {
           const instance = cosWidgets.resolve(
             {
@@ -576,19 +611,6 @@ function ChiefOfStaffChatThread({
             queryKey: ['list-people', orgSlug],
           })
         }
-        // A saved weekly time made or changed the panel's plan, which the
-        // home's panel card and the next step card both follow.
-        if (
-          event.type === 'tool_result' &&
-          event.toolName === SAVE_PANEL_WEEKLY_TIME_TOOL
-        ) {
-          void queryClient.invalidateQueries({
-            queryKey: ['civic-panel-plan', orgSlug],
-          })
-          void queryClient.invalidateQueries({
-            queryKey: ['chief-of-staff', 'cards'],
-          })
-        }
         return false
       },
     })
@@ -617,7 +639,7 @@ function ChiefOfStaffChatThread({
           })
         })
         .catch((err) => {
-          reportErrorToSentry(err, {
+          reportClientError(err, {
             surface: analyticsLabel,
             phase: 'attachment-poll',
           })
@@ -638,7 +660,7 @@ function ChiefOfStaffChatThread({
         try {
           await deleteChatAttachment(conversationId, id)
         } catch (err) {
-          reportErrorToSentry(err, {
+          reportClientError(err, {
             surface: analyticsLabel,
             phase: 'attachment-delete',
           })
@@ -662,11 +684,8 @@ function ChiefOfStaffChatThread({
   // The intro plays only on the user's first chat (they have no prior
   // conversations) and only once ever (a localStorage flag), typing in character
   // by character. An onboarding-card opener bypasses both gates.
-  const { data: priorConversations } = useChatHistory(
-    active && !conversationIdOverride,
-    chatApi,
-    historyKey,
-  )
+  const { data: priorConversations, isPending: historyPending } =
+    useChatHistory(active && !conversationIdOverride, chatApi, historyKey)
   const isFirstChat =
     !conversationIdOverride &&
     priorConversations !== undefined &&
@@ -681,15 +700,10 @@ function ChiefOfStaffChatThread({
   useEffect(() => {
     const isOpener = opener !== undefined
     if (!isOpener && !isFirstChat) return
-    if (!isOpener) {
-      let seen = false
-      try {
-        seen = window.localStorage.getItem(introSeenKey(scope)) === '1'
-      } catch {
-        seen = false
-      }
-      if (seen) return
-    }
+    // The mount snapshot, not a live read: the first tick below writes the
+    // flag, so a re-run (the intro's text changing as a name loads) would
+    // otherwise read its own write and leave the intro half typed.
+    if (!isOpener && introSeenAtMount) return
 
     const step = Math.max(2, Math.ceil(introTotal / 120))
     const id = setInterval(() => {
@@ -707,7 +721,7 @@ function ChiefOfStaffChatThread({
       })
     }, 28)
     return () => clearInterval(id)
-  }, [opener, isFirstChat, introTotal, scope])
+  }, [opener, isFirstChat, introTotal, scope, introSeenAtMount])
 
   const introParts = useMemo(() => {
     let remaining = introProgress
@@ -784,7 +798,7 @@ function ChiefOfStaffChatThread({
         setMessages(msgs)
       }
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: analyticsLabel,
         phase: 'init',
         conversationIdOverride,
@@ -823,7 +837,7 @@ function ChiefOfStaffChatThread({
       void queryClient.invalidateQueries({ queryKey: historyKey })
       return id
     } catch (err) {
-      reportErrorToSentry(err, {
+      reportClientError(err, {
         surface: analyticsLabel,
         phase: 'init',
       })
@@ -874,7 +888,7 @@ function ChiefOfStaffChatThread({
           scope,
         })
       } catch (err) {
-        reportErrorToSentry(err, {
+        reportClientError(err, {
           surface: analyticsLabel,
           phase: 'attachment-upload',
         })
@@ -989,7 +1003,7 @@ function ChiefOfStaffChatThread({
           })
         }
       } catch (err) {
-        reportErrorToSentry(err, {
+        reportClientError(err, {
           surface: analyticsLabel,
           phase: 'attachment-link',
         })
@@ -1171,6 +1185,15 @@ function ChiefOfStaffChatThread({
       } else {
         lastUserContentRef.current = trimmed
         lastUserViaRef.current = opts?.via ?? 'composer'
+        if (managedOfferActiveRef.current) {
+          managedOfferActiveRef.current = false
+          trackEvent(
+            EVENTS.Contacts.CivicPanelManagedInviteValuePropCompleted,
+            {
+              choice: managedExplainerChoice(trimmed),
+            },
+          )
+        }
       }
       const id = await ensureConversationId()
       if (!id) {
@@ -1258,6 +1281,28 @@ function ChiefOfStaffChatThread({
     setPendingBoundaryNote(listCreatedMessage(list))
   }, [])
 
+  // The invite review approves the panel browser -> API, so the agent hears
+  // whether the official set it up or backed out from one hidden turn, on
+  // the same queue.
+  const handleManagedPanelInviteClosed = useCallback(
+    (setUp: boolean) => {
+      if (setUp) {
+        void queryClient.invalidateQueries({
+          queryKey: managedCivicPanelQueryOptions(orgSlug).queryKey,
+        })
+        void queryClient.invalidateQueries({
+          queryKey: ['chief-of-staff', 'cards'],
+        })
+      }
+      setPendingBoundaryNote(
+        setUp
+          ? MANAGED_CIVIC_PANEL_SET_UP_MESSAGE
+          : MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+      )
+    },
+    [queryClient, orgSlug],
+  )
+
   // Queued rather than sent, because a boundary can be saved while a turn is
   // still streaming — the drawer is mounted by this component precisely so it
   // survives that — and `deliver` refuses a send with one in flight. Dropping
@@ -1279,6 +1324,13 @@ function ChiefOfStaffChatThread({
     (content: string) => deliver(content, { hidden: false, via: 'clarify' }),
     [deliver],
   )
+
+  // Labels of the combinable cards picked so far. Sent in card order, not
+  // click order, so the steps run in the order the official sees them.
+  const [picked, setPicked] = useState<string[]>([])
+  // What the official types under a picked write-in card (Something else).
+  const [ownText, setOwnText] = useState('')
+  const nextStepIdPrefix = useId()
 
   const onSend = useCallback((): void => {
     const text = composer.trim()
@@ -1331,6 +1383,9 @@ function ChiefOfStaffChatThread({
       return
     }
     kickedOffRef.current = pendingKickoff
+    if (pendingKickoff === START_MANAGED_CIVIC_PANEL_MESSAGE) {
+      managedSourceRef.current = 'home_card'
+    }
     void deliver(pendingKickoff, { hidden: true })
   }, [
     active,
@@ -1375,6 +1430,9 @@ function ChiefOfStaffChatThread({
   const onSuggestionClick = useCallback(
     (s: ChatSuggestion) => {
       if (s.kickoff) {
+        if (s.kickoff === START_MANAGED_CIVIC_PANEL_MESSAGE) {
+          managedSourceRef.current = 'intro_next_step'
+        }
         void deliver(s.kickoff, { hidden: true })
         return
       }
@@ -1397,20 +1455,6 @@ function ChiefOfStaffChatThread({
       composerInputRef.current?.focus()
     }
   }, [busy, active])
-
-  const { scrollRef, onScroll } = usePinnedAutoScroll([
-    visibleMessages,
-    visibleSegments,
-    playback,
-    // The map is the one thing that can grow the transcript without any of
-    // the above changing: onEvent consumes the show_list_map call, so a turn
-    // that draws a map and says nothing pushes no segment and commits no
-    // message until it settles. Without this the card renders below the fold
-    // and the follow-scroll has nothing to react to.
-    liveListMap,
-    liveListProposal,
-    liveWidgets,
-  ])
 
   // `liveListMap` counts as something on screen. onEvent consumes the
   // show_list_map call, so a turn that draws a map and says nothing pushes no
@@ -1441,6 +1485,14 @@ function ChiefOfStaffChatThread({
     }
     return null
   }, [visibleMessages])
+  useEffect(() => {
+    managedOfferActiveRef.current =
+      activeClarifyId !== null &&
+      (
+        visibleMessages.find((message) => message.id === activeClarifyId)
+          ?.segments ?? []
+      ).some((segment) => segment.toolName === MANAGED_PANEL_OFFER_TOOL)
+  }, [activeClarifyId, visibleMessages])
   // An answer is the next thing the user said, so an answered question
   // reloads with that answer showing.
   const clarifyAnswerById = useMemo(() => {
@@ -1510,6 +1562,49 @@ function ChiefOfStaffChatThread({
     [suggestions, sendContent],
   )
 
+  const pickedCards = effectiveSuggestions.filter(
+    (s) => s.combinable && picked.includes(s.label),
+  )
+  const pickedSteps = pickedCards.filter((s) => !s.writeIn)
+  const writingOwn = pickedCards.some((s) => s.writeIn)
+  const ownItem = writingOwn ? ownText.trim() : ''
+  const canStart = pickedCards.length > 0 && (!writingOwn || ownItem !== '')
+
+  // One step alone does exactly what clicking that card alone did, and their
+  // own words alone go as their own message. Anything more goes as a single
+  // visible turn listing the steps in card order, their own item last, which
+  // the agent works through in that order.
+  const startPicked = useCallback((): void => {
+    if (!canStart || busy) return
+    pickedCards.forEach((card) => card.onPicked?.())
+    const [first] = pickedSteps
+    setPicked([])
+    setOwnText('')
+    if (first && pickedSteps.length === 1 && !ownItem) {
+      onSuggestionClick(first)
+      return
+    }
+    if (!first) {
+      void answerClarify(ownItem)
+      return
+    }
+    void sendContent(
+      pickedNextStepsMessage([
+        ...pickedSteps.map((s) => s.label),
+        ...(ownItem ? [ownItem] : []),
+      ]),
+    )
+  }, [
+    canStart,
+    busy,
+    pickedCards,
+    pickedSteps,
+    ownItem,
+    onSuggestionClick,
+    answerClarify,
+    sendContent,
+  ])
+
   const showIntro =
     (opener !== undefined || isFirstChat) &&
     visibleMessages.length === 0 &&
@@ -1517,6 +1612,24 @@ function ChiefOfStaffChatThread({
     visibleSegments.length === 0 &&
     !playback &&
     !streamError
+
+  // The starters wait for the intro to finish typing, so on a short screen the
+  // message lands first and the cards follow it into view. Until the history
+  // answers we cannot know whether the first-chat intro will play, and showing
+  // the starters meanwhile would flash them away again.
+  const introMayPlay =
+    opener !== undefined ||
+    (!conversationIdOverride &&
+      !introSeenAtMount &&
+      (historyPending || isFirstChat))
+  const introTyping =
+    introMayPlay &&
+    visibleMessages.length === 0 &&
+    !sending &&
+    visibleSegments.length === 0 &&
+    !playback &&
+    !streamError &&
+    introProgress < introTotal
 
   // The with-greeting chips show only while the conversation is pristine:
   // nothing sent this session and the transcript is at most the single seeded
@@ -1538,9 +1651,33 @@ function ChiefOfStaffChatThread({
       : (visibleMessages.length === 0 && !playback) ||
         (showSuggestionsWithGreeting && isPristineGreeting)) &&
     !sending &&
-    !streamError
+    !streamError &&
+    !loading &&
+    !introTyping &&
+    !playback &&
+    // A question waiting on its own options must not get starters under it.
+    activeClarifyId === null
   const suggestionsAsCards = effectiveSuggestions.some((s) =>
     Boolean(s.description),
+  )
+  const multiSelect = effectiveSuggestions.some((s) => s.combinable)
+
+  const { scrollRef, onScroll } = usePinnedAutoScroll(
+    [
+      visibleMessages,
+      visibleSegments,
+      playback,
+      // The map is the one thing that can grow the transcript without any of
+      // the above changing: onEvent consumes the show_list_map call, so a turn
+      // that draws a map and says nothing pushes no segment and commits no
+      // message until it settles. Without this the card renders below the fold
+      // and the follow-scroll has nothing to react to.
+      liveListMap,
+      liveListProposal,
+      liveWidgets,
+      showStarters,
+    ],
+    { sending },
   )
 
   return (
@@ -1621,6 +1758,7 @@ function ChiefOfStaffChatThread({
                   clarifyAnswer: clarifyAnswerById[m.id],
                   onClarifyAnswer: answerClarify,
                   onComposeHandoff: handleComposeHandoff,
+                  onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
                 }}
                 onCitationClick={
                   attachmentsEnabled && conversationId
@@ -1678,6 +1816,7 @@ function ChiefOfStaffChatThread({
                 clarifyInteractive: false,
                 onClarifyAnswer: answerClarify,
                 onComposeHandoff: handleComposeHandoff,
+                onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
               }}
               onCitationClick={
                 attachmentsEnabled && conversationId
@@ -1724,54 +1863,118 @@ function ChiefOfStaffChatThread({
             )}
           </div>
         )}
-      </div>
 
-      {showStarters && (
-        <div
-          className={
-            suggestionsAsCards
-              ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 px-3 pb-1 pt-2'
-              : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2'
-          }
-        >
-          {effectiveSuggestions.map((s) =>
-            suggestionsAsCards ? (
-              <button
-                key={s.label}
-                type="button"
-                disabled={busy}
-                onClick={() => onSuggestionClick(s)}
-                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50 disabled:pointer-events-none disabled:opacity-50"
-              >
-                <span className="block text-sm font-semibold text-foreground">
-                  {s.label}
-                </span>
-                {s.description && (
-                  <span className="mt-0.5 block text-sm text-muted-foreground">
-                    {s.description}
-                  </span>
-                )}
-              </button>
-            ) : (
-              <Badge
-                key={s.label}
-                asChild
-                variant="soft"
-                shape="pill"
-                className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
-              >
+        {showStarters && (
+          <div
+            role={multiSelect ? 'group' : undefined}
+            aria-label={multiSelect ? 'Next steps' : undefined}
+            className={
+              suggestionsAsCards
+                ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300'
+                : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300'
+            }
+          >
+            {effectiveSuggestions.map((s, i) =>
+              s.combinable ? (
+                <div key={s.label} className="flex flex-col gap-2">
+                  <Label
+                    htmlFor={`${nextStepIdPrefix}-${i}`}
+                    className={cn(
+                      'flex w-full cursor-pointer items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50',
+                      'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5',
+                      busy && 'pointer-events-none opacity-50',
+                    )}
+                  >
+                    <Checkbox
+                      id={`${nextStepIdPrefix}-${i}`}
+                      checked={picked.includes(s.label)}
+                      onCheckedChange={(state) =>
+                        setPicked((prev) =>
+                          state === true
+                            ? [...prev.filter((l) => l !== s.label), s.label]
+                            : prev.filter((l) => l !== s.label),
+                        )
+                      }
+                      disabled={busy}
+                      className="mt-0.5 shrink-0"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-foreground">
+                        {s.label}
+                      </span>
+                      {s.description && (
+                        <span className="mt-0.5 block text-sm font-normal text-muted-foreground">
+                          {s.description}
+                        </span>
+                      )}
+                    </span>
+                  </Label>
+                  {s.writeIn && picked.includes(s.label) && (
+                    <Input
+                      value={ownText}
+                      onChange={(e) => setOwnText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          startPicked()
+                        }
+                      }}
+                      placeholder="Type your own..."
+                      aria-label="Write your own"
+                      disabled={busy}
+                      autoFocus
+                    />
+                  )}
+                </div>
+              ) : suggestionsAsCards ? (
                 <button
+                  key={s.label}
                   type="button"
                   disabled={busy}
                   onClick={() => onSuggestionClick(s)}
+                  className="w-full rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50 disabled:pointer-events-none disabled:opacity-50"
                 >
-                  {s.label}
+                  <span className="block text-sm font-semibold text-foreground">
+                    {s.label}
+                  </span>
+                  {s.description && (
+                    <span className="mt-0.5 block text-sm text-muted-foreground">
+                      {s.description}
+                    </span>
+                  )}
                 </button>
-              </Badge>
-            ),
-          )}
-        </div>
-      )}
+              ) : (
+                <Badge
+                  key={s.label}
+                  asChild
+                  variant="soft"
+                  shape="pill"
+                  className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onSuggestionClick(s)}
+                  >
+                    {s.label}
+                  </button>
+                </Badge>
+              ),
+            )}
+            {multiSelect && (
+              <Button
+                type="button"
+                size="small"
+                className="self-start"
+                onClick={startPicked}
+                disabled={busy || !canStart}
+              >
+                Start
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="border-t border-border px-3 py-3">
         {quickPrompts && quickPrompts.length > 0 && showStarters && (

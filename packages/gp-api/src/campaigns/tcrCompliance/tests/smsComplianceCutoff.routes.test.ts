@@ -1,11 +1,11 @@
 import { addDays, format, subMinutes } from 'date-fns'
 import Stripe from 'stripe'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { WebhookEventType } from '@/payments/payments.types'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { WebsitesService } from '@/websites/services/websites.service'
@@ -93,10 +93,7 @@ const spyOnTrack = () =>
     .spyOn(service.app.get(AnalyticsService), 'track')
     .mockResolvedValue({ event: 'stub', userId: 'stub' })
 
-const spyOnQueue = () =>
-  vi
-    .spyOn(service.app.get(QueueProducerService), 'sendMessage')
-    .mockResolvedValue(undefined)
+const spyOnQueue = () => vi.spyOn(service.app.get(JobsService), 'send')
 
 beforeEach(() => {
   vi.spyOn(
@@ -233,6 +230,92 @@ describe('POST /v1/campaigns/tcr-compliance/agentic', () => {
   })
 })
 
+describe('POST /v1/campaigns/tcr-compliance/agentic restart', () => {
+  // DDL outlives the row cleanup between tests.
+  afterEach(async () => {
+    await service.prisma.$executeRawUnsafe(
+      'DROP TRIGGER IF EXISTS test_fail_tcr_insert ON tcr_compliance',
+    )
+  })
+
+  it('keeps the failed record and the campaign details when the replacement insert fails', async () => {
+    const campaign = await seedCampaign(electionDateIn(OPEN_DAYS_OUT), {
+      isPro: true,
+    })
+    const failed = await seedRecord(campaign.id, {
+      status: TcrComplianceStatus.error,
+    })
+    const queue = spyOnQueue()
+    await service.prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_fail_tcr_insert() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'tcr insert failed'; END;
+      $$ LANGUAGE plpgsql
+    `)
+    await service.prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_fail_tcr_insert
+      BEFORE INSERT ON tcr_compliance
+      FOR EACH ROW EXECUTE FUNCTION test_fail_tcr_insert()
+    `)
+
+    const res = await service.client.post(
+      '/v1/campaigns/tcr-compliance/agentic',
+      submission,
+      orgHeaders(campaign.slug),
+    )
+
+    expect(res.status).toBe(500)
+    const kept = await service.prisma.tcrCompliance.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(kept.id).toBe(failed.id)
+    expect(kept.status).toBe(TcrComplianceStatus.error)
+    const after = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(after.details.einNumber).toBeUndefined()
+    expect(queue).not.toHaveBeenCalled()
+  })
+})
+
+describe('agentic kickoff claim', () => {
+  // Both callers pass the publish gate before either claims, so only the
+  // kickoffSentAt compare-and-swap keeps a payment webhook replay from
+  // enqueueing a second paid agent run.
+  it('enqueues one kickoff when two deliveries race for the same record', async () => {
+    const campaign = await seedCampaign(electionDateIn(OPEN_DAYS_OUT), {
+      isPro: true,
+    })
+    await seedRecord(campaign.id)
+    let arrived = 0
+    let releaseBoth: () => void = () => undefined
+    const bothArrived = new Promise<void>((resolve) => {
+      releaseBoth = resolve
+    })
+    vi.spyOn(
+      service.app.get(WebsitesService),
+      'getContentForCampaign',
+    ).mockImplementation(async () => {
+      arrived += 1
+      if (arrived === 2) releaseBoth()
+      await bothArrived
+      return publishableContent
+    })
+    const queue = spyOnQueue()
+    const tcr = service.app.get(CampaignTcrComplianceService)
+
+    await Promise.all([
+      tcr.enqueueAgenticKickoffIfNeeded(campaign.id),
+      tcr.enqueueAgenticKickoffIfNeeded(campaign.id),
+    ])
+
+    expect(queue).toHaveBeenCalledTimes(1)
+    const record = await service.prisma.tcrCompliance.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(record.kickoffSentAt).not.toBeNull()
+  })
+})
+
 describe('POST /v1/campaigns/tcr-compliance', () => {
   it('rejects a legacy submission past the cutoff', async () => {
     const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
@@ -344,38 +427,6 @@ describe('Pro payment webhook', () => {
   })
 })
 
-describe('stranded kickoff sweep', () => {
-  it('skips records past the cutoff and still dispatches open ones', async () => {
-    const closed = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT), {
-      isPro: true,
-    })
-    const open = await seedCampaign(electionDateIn(OPEN_DAYS_OUT), {
-      isPro: true,
-    })
-    const createdAt = subMinutes(new Date(), 30)
-    await seedRecord(closed.id, { createdAt })
-    await seedRecord(open.id, { createdAt })
-    vi.spyOn(
-      service.app.get(WebsitesService),
-      'getContentForCampaign',
-    ).mockResolvedValue(publishableContent)
-    const queue = spyOnQueue()
-
-    await service.app
-      .get(CampaignTcrComplianceService)
-      .sweepStrandedAgenticKickoffs()
-
-    expect(queue).toHaveBeenCalledTimes(1)
-    expect(queue.mock.calls[0]?.[0]).toMatchObject({
-      data: { campaignId: open.id },
-    })
-    const closedRecord = await service.prisma.tcrCompliance.findUniqueOrThrow({
-      where: { campaignId: closed.id },
-    })
-    expect(closedRecord.kickoffSentAt).toBeNull()
-  })
-})
-
 describe('SMS compliance window on reads', () => {
   it('returns the window on GET /v1/campaigns/mine', async () => {
     const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
@@ -453,5 +504,23 @@ describe('SMS compliance window on reads', () => {
 
     expect(res.status).toBe(200)
     expect(res.data.smsCompliance).toBe('closed')
+  })
+
+  // ENG-11328: legacy TCR records (approved before the kickoffSentAt column
+  // shipped on 2026-05-16) have kickoffSentAt NULL forever but a live Peerly
+  // identity; they must read as not_applicable at the cutoff — otherwise the
+  // audience picker shows "Not available for this race" even though the
+  // candidate is actively texting.
+  it('returns not_applicable on compliance-state for a legacy record with a Peerly identity', async () => {
+    const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
+    await seedRecord(campaign.id, { peerlyIdentityId: '11539648' })
+
+    const res = await service.client.get(
+      '/v1/campaigns/tcr-compliance/mine/compliance-state',
+      orgHeaders(campaign.slug),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.data.smsCompliance).toBe('not_applicable')
   })
 })

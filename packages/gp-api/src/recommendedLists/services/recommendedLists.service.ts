@@ -4,6 +4,7 @@ import { z } from 'zod'
 import {
   encodePrecinctPair,
   RECOMMENDED_LIST_VARIANT_VALUES,
+  ROBOCALL_FREE_OFFER_VARIANT,
   type IdOverrides,
   type RecommendedListChannel,
   type RecommendedListIntent,
@@ -11,7 +12,7 @@ import {
 } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { CampaignIdeologyService } from '@/campaignIdeology/services/campaignIdeology.service'
-import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
+import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { ElectionCode } from '@/elections/types/elections.types'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
@@ -35,7 +36,13 @@ import {
   type SavedDedupeFilter,
 } from '../recommendedListsDedupe.util'
 import { VOTE_GOAL_FLOOR_SHARE } from '../recommendedLists.consts'
+import {
+  globalVariantOrder,
+  isEarlyVoteWindowOpen,
+} from '../recommendedListsEarlyVoteWindow.util'
+import { BallotReadyService } from '@/elections/services/ballotReady.service'
 import { type AffinityColumn } from '@/peopleDb/affinityColumns.const'
+import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
 
 export type Recommendation = {
   variant: RecommendedListVariant
@@ -81,6 +88,7 @@ type ResolvedScope = {
 // campaignStrategy.service.ts twice.
 const CampaignRaceSchema = z.object({
   raceId: z.string().nullable().optional().catch(null),
+  electionDate: z.string().nullable().optional().catch(null),
 })
 
 // No floor at all, so any non-empty list qualifies.
@@ -106,6 +114,9 @@ const sizeFloor = (
   // is sized by precinct size and not by the race. Judging it against a
   // whole race's vote goal would suppress nearly every one.
   if (channel === 'doorKnocking') return NO_FLOOR
+  // Half the district's precincts by construction, and free: its size is
+  // whatever the random half holds, not something to judge against the race.
+  if (variant === ROBOCALL_FREE_OFFER_VARIANT) return NO_FLOOR
   // Always offered beside a larger recommendation for the same intent, so a
   // small supporter list is additive rather than the candidate's only
   // option.
@@ -153,6 +164,20 @@ const COST_IN_CENTS: Record<
   doorKnocking: null,
 }
 
+// The offer's universe has no precincts of its own. Without the campaign's
+// treatment set it would be every landline in the district, the control
+// half included, so it is dropped rather than served that way.
+const withOfferPrecincts = (
+  variant: RecommendedListVariant,
+  filter: VoterFilterBase | null,
+  offerPrecincts: string[] | null,
+): VoterFilterBase | null => {
+  if (variant !== ROBOCALL_FREE_OFFER_VARIANT || filter === null) return filter
+  return offerPrecincts?.length
+    ? { ...filter, precincts: offerPrecincts }
+    : null
+}
+
 @Injectable()
 export class RecommendedListsService {
   constructor(
@@ -160,7 +185,9 @@ export class RecommendedListsService {
     private readonly ideology: CampaignIdeologyService,
     private readonly voterFileFilters: VoterFileFilterService,
     private readonly reads: VoterRecommendedListsService,
-    private readonly electionApi: ElectionApiService,
+    private readonly raceContextService: RaceContextService,
+    private readonly ballotReady: BallotReadyService,
+    private readonly freeOffer: RobocallFreeOfferService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(RecommendedListsService.name)
@@ -210,7 +237,41 @@ export class RecommendedListsService {
       (variant) => RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket,
     )
 
-    const [eligible, ideologyBucket, savedFilters, race] = await Promise.all([
+    // The global set is the one surface the early-vote window governs (see
+    // globalVariantOrder). A purpose or variant that names early voting comes
+    // in with an intent or a variant and is never gated.
+    const isGlobal = !variant && !intent && !channel
+
+    // The free robocall offer is never one of an intent's recommendations:
+    // the robocall flow shows it in a section of its own, asked for by
+    // variant, and the voter data page shows it first in the global set.
+    // Other channels never get it.
+    const offerAsked =
+      (variant === ROBOCALL_FREE_OFFER_VARIANT || isGlobal) &&
+      (channel === null || channel === 'robocall')
+
+    // Asked for by variant, the offer is settled before anything else: the
+    // offer endpoint asks on every page load for every Win campaign, so a
+    // campaign without the offer (every one while the coupon is unset) must
+    // cost nothing past here, and must not fail on a district it lacks.
+    let requestedOfferPrecincts: string[] | null = null
+    if (variant === ROBOCALL_FREE_OFFER_VARIANT) {
+      if (!offerAsked) return []
+      requestedOfferPrecincts = await this.freeOffer.resolveOffer(
+        organization,
+        campaign,
+      )
+      if (!requestedOfferPrecincts?.length) return []
+    }
+
+    const [
+      eligible,
+      ideologyBucket,
+      savedFilters,
+      race,
+      earlyVoteWindow,
+      offerPrecincts,
+    ] = await Promise.all([
       this.contacts.resolveEligibleDistrict(organization),
       // Never throws: a classification failure returns null, which hides
       // the ideology variants. That is the common case, not the edge one.
@@ -226,9 +287,20 @@ export class RecommendedListsService {
       // before the counts, but it is an election-api round-trip and
       // nothing else here waits on it.
       this.raceSizingContext(campaign),
+      isGlobal ? this.earlyVoteWindowOpen(campaign) : false,
+      isGlobal
+        ? this.globalOfferPrecincts(organization, campaign)
+        : requestedOfferPrecincts,
     ])
 
     const { votesNeededToWin, electionCode } = race
+    const base = (
+      isGlobal ? globalVariantOrder(earlyVoteWindow) : variants
+    ).filter((variant) => variant !== ROBOCALL_FREE_OFFER_VARIANT)
+    const ordered: RecommendedListVariant[] = offerPrecincts?.length
+      ? [ROBOCALL_FREE_OFFER_VARIANT, ...base]
+      : base
+    if (ordered.length === 0) return []
 
     const district = await this.reads.resolveDistrict(
       eligible.districtId,
@@ -237,14 +309,13 @@ export class RecommendedListsService {
 
     // A null filter is an ideology variant with no bucket to match
     // against; that null is how those variants hide.
-    const drafts = variants
+    const drafts = ordered
       .map((variant) => ({
         variant,
-        filter: buildVariantFilter(
+        filter: withOfferPrecincts(
           variant,
-          channel,
-          ideologyBucket,
-          electionCode,
+          buildVariantFilter(variant, channel, ideologyBucket, electionCode),
+          offerPrecincts,
         ),
       }))
       .filter((draft): draft is VariantDraft => draft.filter !== null)
@@ -286,10 +357,9 @@ export class RecommendedListsService {
 
     const costInCents = channel ? COST_IN_CENTS[channel] : null
 
-    // Two intents can describe the same universe (early voting duplicates
-    // persuasion and event audiences by decision), so a global request
-    // would otherwise show one list twice. Kept under the first intent in
-    // registry order; the same payload comparison as the saved-list dedupe.
+    // Two intents can describe the same universe, so a global request would
+    // otherwise show one list twice. Kept under the first intent in display
+    // order; the same payload comparison as the saved-list dedupe.
     const seen: SavedDedupeFilter[] = []
     const distinct = sized.filter(isSized).filter((draft) => {
       if (findEquivalentFilter(draft.filter, seen) !== null) return false
@@ -297,15 +367,19 @@ export class RecommendedListsService {
       return true
     })
 
-    // variantsForIntent already returns registry display order and neither
-    // the map nor the filters above disturb it.
+    // `ordered` is already display order (registry order, or the global
+    // early-vote order) and neither the map nor the filters above disturb it.
     return distinct.map(({ variant, filter, count }) => ({
       variant,
       intent: RECOMMENDED_LISTS_REGISTRY[variant].intent,
       filter,
       count,
       ...(votesNeededToWin ? { voteGoalShare: count / votesNeededToWin } : {}),
-      ...(costInCents ? { estimatedCostCents: costInCents(count) } : {}),
+      // No price on the free offer: a cost on a card labelled free reads as
+      // a charge.
+      ...(costInCents && variant !== ROBOCALL_FREE_OFFER_VARIANT
+        ? { estimatedCostCents: costInCents(count) }
+        : {}),
       copy: fillCopy(variant, ideologyBucket ? { bucket: ideologyBucket } : {}),
       existingFilterId: findEquivalentFilter(filter, savedFilters),
     }))
@@ -326,13 +400,39 @@ export class RecommendedListsService {
         'Recommended lists are not available for this organization',
       )
     }
-    const [ideologyBucket, { electionCode }] = await Promise.all([
-      RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket
-        ? this.ideology.bucketForCampaign(campaign.id)
-        : null,
-      this.raceSizingContext(campaign),
-    ])
-    return buildVariantFilter(variant, null, ideologyBucket, electionCode)
+    const [ideologyBucket, { electionCode }, offerPrecincts] =
+      await Promise.all([
+        RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket
+          ? this.ideology.bucketForCampaign(campaign.id)
+          : null,
+        this.raceSizingContext(campaign),
+        variant === ROBOCALL_FREE_OFFER_VARIANT
+          ? this.freeOffer.resolveOffer(organization, campaign)
+          : null,
+      ])
+    return withOfferPrecincts(
+      variant,
+      buildVariantFilter(variant, null, ideologyBucket, electionCode),
+      offerPrecincts,
+    )
+  }
+
+  // The voter data page's global set must not fail because the offer could
+  // not be resolved (it is one card among many); a request for the offer
+  // itself still does.
+  private async globalOfferPrecincts(
+    organization: Organization,
+    campaign: Campaign,
+  ): Promise<string[] | null> {
+    try {
+      return await this.freeOffer.resolveOffer(organization, campaign)
+    } catch (error) {
+      this.logger.warn(
+        { err: error, campaignId: campaign.id },
+        'Robocall free offer could not be resolved; leaving it out',
+      )
+      return null
+    }
   }
 
   // The two things about the race that shape a recommendation: the vote goal
@@ -363,7 +463,7 @@ export class RecommendedListsService {
 
     try {
       const { winNumberEffective, electionCode } =
-        await this.electionApi.getRaceContext(raceId)
+        await this.raceContextService.getRaceContext(raceId)
       return {
         votesNeededToWin:
           winNumberEffective && winNumberEffective > 0
@@ -379,6 +479,27 @@ export class RecommendedListsService {
       )
       return { votesNeededToWin: null, electionCode: null }
     }
+  }
+
+  // Early-vote start from BallotReady when it has one. fetchMilestones never
+  // throws (a failed lookup is null), and a null start falls back to two
+  // weeks out inside isEarlyVoteWindowOpen, so a BallotReady outage moves
+  // the window rather than hiding it.
+  private async earlyVoteWindowOpen(campaign: Campaign): Promise<boolean> {
+    const parsed = CampaignRaceSchema.safeParse(campaign.details)
+    const raceId = parsed.success ? (parsed.data.raceId ?? '').trim() : ''
+    const electionDate = parsed.success
+      ? (parsed.data.electionDate ?? null)
+      : null
+    if (!electionDate) return false
+    const milestones = raceId
+      ? await this.ballotReady.fetchMilestones(raceId)
+      : null
+    return isEarlyVoteWindowOpen(
+      new Date().toISOString().slice(0, 10),
+      electionDate,
+      milestones?.early_voting?.start ?? null,
+    )
   }
 
   private async sizeDraft(

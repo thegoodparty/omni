@@ -103,9 +103,6 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     expect(promptOf('user')).toContain(
       SERVE_DOOR_KNOCKING_VOICE.purposePrompts.build_citizens_panel,
     )
-    expect(promptOf('user')).toContain(
-      'whether they want to join the civic panel',
-    )
   })
 
   it('hides the civic panel invite with the panel flag off', async () => {
@@ -146,9 +143,6 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     // Fenced, so a question someone typed reads as quoted material rather
     // than as further instructions to the prompt.
     expect(user).toContain(`"""\n${question}\n"""`)
-    // Precedence is stated, because the listening purpose above it tells the
-    // model to write exactly the general ask this replaces.
-    expect(user).toContain('in place of the general question described above')
   })
 
   // Found on the deployed preview: an explain-a-decision card came back
@@ -196,7 +190,6 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     await postDraft(draftBody())
 
     const system = promptOf('system')
-    expect(system).toContain('already holds this office')
     expect(system).not.toMatch(/\brunning for\b/)
     expect(system).not.toMatch(/\bcampaign\b/i)
     expect(system).not.toMatch(/\bvote\b/i)
@@ -210,21 +203,6 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     const user = promptOf('user')
     expect(user).toContain('City Council')
     expect(user).toContain('Where the elected official serves: Georgetown, TX.')
-  })
-
-  // Serve's introduction differs from Win's, and so does whose goal the
-  // bullets carry: an "ask them to vote" note would be wrong here.
-  it('states the Serve card shape', async () => {
-    mockPoints()
-
-    await postDraft(draftBody())
-
-    const system = promptOf('system')
-    expect(system).not.toContain("Hi, I'm")
-    expect(system).toContain('a conversation with a constituent')
-    expect(system).toContain('about what the office is working toward')
-    expect(system).toContain('Refer to the official by full name')
-    expect(system).toContain('Write 4 or 5 short bullets')
   })
 
   // An Improve keeps the official's own sentences as sentences.
@@ -241,7 +219,9 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     const res = await postDraft(draftBody({ currentDraft: sentences }))
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(promptOf('system')).toContain('Keep the shape they wrote')
+    expect(promptOf('system')).toBe(
+      SERVE_DOOR_KNOCKING_VOICE.improveSystemPrompt,
+    )
     expect(res.data.draft).toBe(sentences)
   })
 

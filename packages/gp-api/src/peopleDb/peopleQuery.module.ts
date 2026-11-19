@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { DistrictsModule } from '@/electionDb/districts/districts.module'
-import { ElectionApiDistrictService } from './services/electionApiDistrict.service'
+import { PositionsModule } from '@/electionDb/positions/positions.module'
+import { ElectionDistrictService } from './services/electionDistrict.service'
 import { StatsService } from './services/stats.service'
 import { VoterQueryService } from './services/voterQuery.service'
 import { VoterDownloadService } from './services/voterDownload.service'
@@ -13,16 +14,17 @@ import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client
 import { VoterReadLogService } from './databricks/voterReadLog.service'
 import { VoterRecommendedListsService } from './services/voterRecommendedLists.service'
 import { PeopleDatasetService } from './services/peopleDataset.service'
+import { PeopleEmailFixtureService } from './services/peopleEmailFixture.service'
 
 @Module({
-  imports: [DistrictsModule],
+  imports: [DistrictsModule, PositionsModule],
   providers: [
     PeopleDbxStatementClient,
     VoterReadLogService,
     DatabricksVoterService,
     DatabricksVoterDownloadService,
     DatabricksVoterPackService,
-    ElectionApiDistrictService,
+    ElectionDistrictService,
     StatsService,
     VoterQueryService,
     VoterDownloadService,
@@ -30,6 +32,7 @@ import { PeopleDatasetService } from './services/peopleDataset.service'
     VoterPackService,
     VoterRecommendedListsService,
     PeopleDatasetService,
+    PeopleEmailFixtureService,
   ],
   exports: [
     StatsService,
@@ -39,6 +42,7 @@ import { PeopleDatasetService } from './services/peopleDataset.service'
     VoterPackService,
     VoterRecommendedListsService,
     PeopleDatasetService,
+    PeopleEmailFixtureService,
   ],
 })
 export class PeopleQueryModule {}

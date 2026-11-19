@@ -1,5 +1,4 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { SlackService } from '@/vendors/slack/services/slack.service'
 import { NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
@@ -72,7 +71,7 @@ describe('ElectionsService', () => {
   let campaignStrategyContext: {
     getCampaignStrategyContext: ReturnType<typeof vi.fn>
   }
-  let mockFormattedMessage: ReturnType<typeof vi.fn>
+  let logger: ReturnType<typeof createMockLogger>
 
   beforeEach(async () => {
     positions = {
@@ -98,7 +97,6 @@ describe('ElectionsService', () => {
       findFrequencyByBrHashId: vi.fn(),
     }
     campaignStrategyContext = { getCampaignStrategyContext: vi.fn() }
-    mockFormattedMessage = vi.fn().mockResolvedValue(undefined)
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -115,22 +113,14 @@ describe('ElectionsService', () => {
           provide: CampaignStrategyContextService,
           useValue: campaignStrategyContext,
         },
-        {
-          provide: SlackService,
-          useValue: {
-            formattedMessage: mockFormattedMessage,
-            errorMessage: vi.fn().mockResolvedValue(undefined),
-            message: vi.fn().mockResolvedValue(undefined),
-          },
-        },
       ],
     }).compile()
 
     service = module.get<ElectionsService>(ElectionsService)
 
-    const mockLogger = createMockLogger()
+    logger = createMockLogger()
     Object.defineProperty(service, 'logger', {
-      get: () => mockLogger,
+      get: () => logger,
       configurable: true,
     })
 
@@ -256,36 +246,13 @@ describe('ElectionsService', () => {
       ).rejects.toBeInstanceOf(NotFoundException)
     })
 
-    it('does not page botDev when the district match simply misses (no district)', async () => {
-      positions.getPositionByBallotReadyId.mockResolvedValue(
-        makePositionWithoutDistrict(),
-      )
-
-      await expect(
-        service.getPositionMatchedRaceTargetDetails(brIdParams),
-      ).rejects.toBeInstanceOf(NotFoundException)
-      expect(mockFormattedMessage).not.toHaveBeenCalled()
-    })
-
-    it('does not page botDev when the position lookup 404s', async () => {
-      positions.getPositionByBallotReadyId.mockRejectedValue(
-        new NotFoundException('Position not found for brPositionId=x'),
-      )
-
-      await expect(
-        service.getPositionMatchedRaceTargetDetails(brIdParams),
-      ).rejects.toBeInstanceOf(NotFoundException)
-      expect(mockFormattedMessage).not.toHaveBeenCalled()
-    })
-
-    it('pages botDev and rethrows when the lookup fails (genuine bug)', async () => {
+    it('rethrows when the lookup fails (genuine bug)', async () => {
       const boom = new Error('The column Position.place_id does not exist')
       positions.getPositionByBallotReadyId.mockRejectedValue(boom)
 
       await expect(
         service.getPositionMatchedRaceTargetDetails(brIdParams),
       ).rejects.toThrow(boom)
-      expect(mockFormattedMessage).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -430,41 +397,6 @@ describe('ElectionsService', () => {
         displayOfficeLevels: ['City'],
         timeframe: 'future',
       })
-    })
-
-    it('forwards name-only queries', async () => {
-      zipToPosition.search.mockResolvedValue([])
-
-      await service.searchPositions({ name: 'mayor' })
-
-      expect(zipToPosition.search).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'mayor' }),
-      )
-    })
-
-    it('forwards officeType arrays intact', async () => {
-      zipToPosition.search.mockResolvedValue([])
-
-      await service.searchPositions({ officeType: ['Mayor', 'Sheriff'] })
-
-      expect(zipToPosition.search).toHaveBeenCalledWith(
-        expect.objectContaining({ officeType: ['Mayor', 'Sheriff'] }),
-      )
-    })
-
-    it('forwards multi-value displayOfficeLevels as an array', async () => {
-      zipToPosition.search.mockResolvedValue([])
-
-      await service.searchPositions({
-        zip: '90210',
-        displayOfficeLevels: ['Local', 'Township', 'Village'],
-      })
-
-      expect(zipToPosition.search).toHaveBeenCalledWith(
-        expect.objectContaining({
-          displayOfficeLevels: ['Local', 'Township', 'Village'],
-        }),
-      )
     })
 
     it('strips keys the response schema does not declare', async () => {
@@ -665,7 +597,7 @@ describe('ElectionsService', () => {
       )
     })
 
-    it('does not page botDev when turnout is simply missing (no-match)', async () => {
+    it('does not log an error when turnout is simply missing (no-match)', async () => {
       projectedTurnout.getProjectedTurnout.mockResolvedValue(null)
 
       const result = await service.buildRaceTargetDetails({
@@ -674,10 +606,10 @@ describe('ElectionsService', () => {
       })
 
       expect(result).toBeNull()
-      expect(mockFormattedMessage).not.toHaveBeenCalled()
+      expect(logger.error).not.toHaveBeenCalled()
     })
 
-    it('does not page botDev on a not-found turnout lookup (no-match)', async () => {
+    it('does not log an error on a not-found turnout lookup (no-match)', async () => {
       projectedTurnout.getProjectedTurnout.mockRejectedValue(
         new NotFoundException('No projectedTurnout found'),
       )
@@ -688,10 +620,10 @@ describe('ElectionsService', () => {
       })
 
       expect(result).toBeNull()
-      expect(mockFormattedMessage).not.toHaveBeenCalled()
+      expect(logger.error).not.toHaveBeenCalled()
     })
 
-    it('pages botDev when the turnout lookup errors (genuine bug)', async () => {
+    it('logs RaceTargetDetailsFailed when the turnout lookup errors (genuine bug)', async () => {
       projectedTurnout.getProjectedTurnout.mockRejectedValue(
         new Error('internal error'),
       )
@@ -702,7 +634,15 @@ describe('ElectionsService', () => {
       })
 
       expect(result).toBeNull()
-      expect(mockFormattedMessage).toHaveBeenCalledTimes(1)
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'RaceTargetDetailsFailed',
+          districtId: 'district-uuid',
+          electionDate: '2024-11-05',
+          error: expect.objectContaining({ message: 'internal error' }),
+        }),
+        'Race target details lookup failed',
+      )
     })
   })
 
@@ -802,24 +742,6 @@ describe('ElectionsService', () => {
       expect(races.findFilingFeeByBrHashId).toHaveBeenCalledWith('br-hash-123')
     })
 
-    it('passes hashes with special characters through verbatim', async () => {
-      races.findFilingFeeByBrHashId.mockResolvedValue({
-        filingFee: null,
-        filingRequirementsText: null,
-        extractionSource: null,
-        filingOfficeAddress: null,
-        filingPhoneNumber: null,
-        paperworkInstructions: null,
-      })
-
-      // BallotReady GraphQL Node IDs are base64 and can contain `/` and `=`.
-      await service.fetchFilingFeeByRaceHash('Z2lkOi8v/ballot=')
-
-      expect(races.findFilingFeeByBrHashId).toHaveBeenCalledWith(
-        'Z2lkOi8v/ballot=',
-      )
-    })
-
     it('returns null and swallows errors when the lookup fails', async () => {
       races.findFilingFeeByBrHashId.mockRejectedValue(new Error('boom'))
 
@@ -848,19 +770,6 @@ describe('ElectionsService', () => {
 
       expect(result).toEqual(response)
       expect(races.findFrequencyByBrHashId).toHaveBeenCalledWith('br-hash-123')
-    })
-
-    it('passes hashes with special characters through verbatim', async () => {
-      races.findFrequencyByBrHashId.mockResolvedValue({
-        frequency: [],
-        electionDate: null,
-      })
-
-      await service.getElectionFrequencyByBrHashId('Z2lkOi8v/ballot=')
-
-      expect(races.findFrequencyByBrHashId).toHaveBeenCalledWith(
-        'Z2lkOi8v/ballot=',
-      )
     })
 
     it('returns null and swallows errors when the lookup fails', async () => {

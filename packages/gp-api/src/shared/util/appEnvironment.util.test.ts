@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   APP_ROOT,
+  VENDOR_CRONS_ENABLED,
   VENDOR_MODE,
   resolveAppRoot,
+  resolveVendorCronsEnabled,
   resolveVendorMode,
   vendorBaseUrl,
 } from './appEnvironment.util'
@@ -88,16 +90,16 @@ describe('resolveVendorMode', () => {
     expect(resolveVendorMode('preview', undefined)).toBe('mock')
   })
 
-  it('defaults to live when OTEL_SERVICE_ENVIRONMENT is dev', () => {
-    expect(resolveVendorMode('dev', undefined)).toBe('live')
+  it('defaults to mock when OTEL_SERVICE_ENVIRONMENT is dev', () => {
+    expect(resolveVendorMode('dev', undefined)).toBe('mock')
   })
 
   it('defaults to live when OTEL_SERVICE_ENVIRONMENT is prod', () => {
     expect(resolveVendorMode('prod', undefined)).toBe('live')
   })
 
-  it('explicit VENDOR_MODE=mock overrides dev default', () => {
-    expect(resolveVendorMode('dev', 'mock')).toBe('mock')
+  it('VENDOR_MODE=live on dev returns live (rollback lever)', () => {
+    expect(resolveVendorMode('dev', 'live')).toBe('live')
   })
 
   it('explicit VENDOR_MODE=live overrides local default', () => {
@@ -126,5 +128,26 @@ describe('vendorBaseUrl', () => {
     const result = vendorBaseUrl('geoapify', LIVE)
     expect(result).toMatch(/\/v1\/vendor-mocks\/geoapify$/)
     expect(result).not.toBe(LIVE)
+  })
+})
+
+describe('resolveVendorCronsEnabled', () => {
+  it('is true on prod (live vendors)', () => {
+    expect(resolveVendorCronsEnabled(true, 'live')).toBe(true)
+  })
+
+  it('is true in mock mode on a non-prod deploy', () => {
+    expect(resolveVendorCronsEnabled(false, 'mock')).toBe(true)
+  })
+
+  it('is false on a non-prod deploy in live mode', () => {
+    expect(resolveVendorCronsEnabled(false, 'live')).toBe(false)
+  })
+})
+
+describe('VENDOR_CRONS_ENABLED (wired from env)', () => {
+  // .env.test is non-prod and mock, so the gate is open in tests.
+  it('is true in the test environment', () => {
+    expect(VENDOR_CRONS_ENABLED).toBe(true)
   })
 })

@@ -4,10 +4,11 @@ import { OutreachStatus, OutreachType, Prisma } from 'src/generated/prisma'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
-import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from 'src/queue/queue.types'
+import { JobsService } from '@/jobs/jobs.service'
+import { outreachTextSendJob } from '../util/outreachTextSendJob.util'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
-import { REPORT_BACK_UNSENT_STATUSES } from './outreachReportBack.service'
+import { isUndrawnSample } from 'src/priorities/util/roundTwo.util'
+import { OutreachReportBackService } from './outreachReportBack.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
@@ -15,6 +16,7 @@ import {
   SlackChannel,
   SlackMessageType,
 } from 'src/vendors/slack/slackService.types'
+import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 
 /**
@@ -37,7 +39,7 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 // What rides in the Stripe checkout session. Deliberately just ids.
 //
 // Draft-first is required here, not preferred: a Stripe metadata VALUE caps at
-// 500 characters and `SMS_COMPOSED_MAX_LENGTH` is 1000, so the poll pattern of
+// 500 characters and `SMS_COMPOSED_MAX_LENGTH` is 2000, so the poll pattern of
 // carrying the message through checkout metadata cannot work. Everything the
 // send needs is already on the row.
 //
@@ -70,11 +72,12 @@ export class OutreachServeSmsPurchaseHandlerService
   implements PurchaseHandler<unknown>
 {
   constructor(
-    private readonly queueProducer: QueueProducerService,
+    private readonly jobs: JobsService,
     private readonly priorityStatus: PriorityStatusService,
     private readonly stripe: StripeService,
     private readonly slack: SlackService,
     private readonly analytics: AnalyticsService,
+    private readonly reportBack: OutreachReportBackService,
   ) {
     super()
   }
@@ -129,8 +132,9 @@ export class OutreachServeSmsPurchaseHandlerService
    *    can win it.
    *  - A caller that loses the claim does not assume the work happened. It
    *    re-reads the row and decides from its state (`confirmClaimed` below).
-   *  - The queue message carries a deterministic deduplication id, so two
-   *    callers racing within SQS's dedup window produce one send, not two.
+   *  - The outreachTextSend job is keyed on (outreach, sendSeq), so two
+   *    callers racing while the first job is queued produce one send, not
+   *    two.
    *  - The delivery consumer is itself idempotent (deterministic CSV key,
    *    `skipDuplicates` recipient capture, CAS `pending → in_progress`), so a
    *    duplicate message outside that window is a no-op rather than a second
@@ -170,6 +174,8 @@ export class OutreachServeSmsPurchaseHandlerService
         textCount: true,
         reportBackForOutreachId: true,
         outreachType: true,
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
+        roundTwo: { select: { id: true, textCount: true, status: true } },
       },
     })
 
@@ -208,12 +214,20 @@ export class OutreachServeSmsPurchaseHandlerService
     const claimed = row.reportBackForOutreachId
       ? await this.claimReportBack(
           outreachId,
+          organizationSlug,
           row.reportBackForOutreachId,
           claimWhere,
           claimData,
           sessionId,
         )
-      : await this.model.updateMany({ where: claimWhere, data: claimData })
+      : row.roundTwo?.status === OutreachStatus.pending_payment
+        ? await this.claimWithFollowUp(
+            claimWhere,
+            claimData,
+            row.roundTwo,
+            sessionId,
+          )
+        : await this.model.updateMany({ where: claimWhere, data: claimData })
 
     const isPoll = row.outreachType === OutreachType.poll
 
@@ -238,6 +252,17 @@ export class OutreachServeSmsPurchaseHandlerService
       return
     }
 
+    // A priority's round 2 is paid for now and handed off once its list is
+    // drawn, close to its send date. The draw enqueues it then, and only
+    // then puts the priority's check out.
+    if (isUndrawnSample(row.voterFileFilter)) {
+      this.logger.info(
+        { outreachId, organizationSlug, sessionId },
+        'Serve round 2 text claimed after payment; held for its draw',
+      )
+      return
+    }
+
     try {
       await this.enqueueSend(outreachId)
     } catch (error) {
@@ -247,20 +272,35 @@ export class OutreachServeSmsPurchaseHandlerService
       // guard on `status = pending` means a revert can never clobber a status
       // something else has since moved on. `stripeCheckoutSessionId` is left
       // in place deliberately: the row is paid, and a bare `pending_payment`
-      // with no session id would read as an unpaid draft.
-      await this.model.updateMany({
+      // with no session id would read as an unpaid draft. A follow-up claimed
+      // with it goes back too, so it can never send without its first half.
+      const revert = {
         where: {
           id: outreachId,
           organizationSlug,
           status: OutreachStatus.pending,
         },
         data: { status: OutreachStatus.pending_payment },
-      })
+      }
+      if (row.roundTwo) {
+        await this.client.$transaction([
+          this.client.outreach.updateMany(revert),
+          this.client.outreach.updateMany({
+            where: {
+              roundOneOutreachId: outreachId,
+              status: OutreachStatus.pending,
+            },
+            data: { status: OutreachStatus.pending_payment },
+          }),
+        ])
+      } else {
+        await this.model.updateMany(revert)
+      }
       this.logger.error(
         { error, outreachId, organizationSlug, sessionId },
         'Serve SMS send could not be enqueued after payment; claim reverted',
       )
-      // Not a BadRequestException: an SQS failure is transient, so Stripe
+      // Not a BadRequestException: a queue failure is transient, so Stripe
       // should redeliver and the retry re-claims from pending_payment.
       throw error
     }
@@ -269,11 +309,37 @@ export class OutreachServeSmsPurchaseHandlerService
       { outreachId, organizationSlug, sessionId },
       'Serve SMS send claimed and enqueued after payment',
     )
+    if (row.reportBackForOutreachId) {
+      void this.trackReportBackSent(
+        organizationSlug,
+        row.reportBackForOutreachId,
+      )
+    }
 
     // Paid and scheduled is when a text counts as out. Outside the revert
     // above: the send stands even if this write fails, and the throw makes
     // Stripe redeliver, which lands in the lost-claim branch and records it.
     await this.priorityStatus.recordOutreachSent(outreachId)
+  }
+
+  // Only the claim that won reaches this, so a redelivered webhook never
+  // counts a report back twice. Telemetry: it never fails the purchase.
+  private async trackReportBackSent(
+    organizationSlug: string,
+    reportBackForOutreachId: number,
+  ): Promise<void> {
+    try {
+      const facts = await this.reportBack.reportBackFacts(
+        organizationSlug,
+        reportBackForOutreachId,
+      )
+      if (!facts) return
+      await trackForOffice(this.client, this.analytics, { organizationSlug }, [
+        [EVENTS.Priorities.ReportBackSent, { ...facts, channel: 'text' }],
+      ])
+    } catch (err) {
+      this.logger.warn({ err, organizationSlug }, 'Report back event failed')
+    }
   }
 
   // A paid expansion stops at `pending` like the poll it belongs to, and the
@@ -548,22 +614,27 @@ export class OutreachServeSmsPurchaseHandlerService
   // checkout session so staff can refund it from the console's Canceled tab.
   private async claimReportBack(
     outreachId: number,
+    organizationSlug: string,
     reportBackForOutreachId: number,
     where: Prisma.OutreachWhereInput,
     data: Prisma.OutreachUpdateManyMutationInput,
     sessionId: string,
   ): Promise<{ count: number }> {
+    const priorityId = await this.reportBack.priorityOf(
+      organizationSlug,
+      reportBackForOutreachId,
+    )
     const outcome = await this.client.$transaction(async (tx) => {
-      const lockKey = `report_back:${reportBackForOutreachId}`
+      // One report back goes out per priority, so the lock is the priority's.
+      const lockKey = `report_back:${priorityId ?? reportBackForOutreachId}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
-      const sibling = await tx.outreach.findFirst({
-        where: {
-          reportBackForOutreachId,
-          id: { not: outreachId },
-          status: { notIn: REPORT_BACK_UNSENT_STATUSES },
-        },
-        select: { id: true },
-      })
+      const sibling = priorityId
+        ? await this.reportBack.sentReportBack(
+            organizationSlug,
+            priorityId,
+            outreachId,
+          )
+        : null
       if (!sibling) {
         return {
           claimed: await tx.outreach.updateMany({ where, data }),
@@ -579,7 +650,7 @@ export class OutreachServeSmsPurchaseHandlerService
           canceledBy: 'report_back_already_sent',
         },
       })
-      return { claimed: null, duplicateOf: sibling.id }
+      return { claimed: null, duplicateOf: sibling.outreachId }
     })
     if (outcome.claimed) return outcome.claimed
     this.logger.error(
@@ -590,6 +661,38 @@ export class OutreachServeSmsPurchaseHandlerService
     throw new BadRequestException(
       `A report back on outreach ${reportBackForOutreachId} already went out`,
     )
+  }
+
+  // A priority text's follow-up is paid for in its first send's checkout,
+  // so both are claimed in one write: a paid first send never leaves its
+  // follow-up unpaid, and the follow-up then waits on its draw like any
+  // round 2. Each records what it billed.
+  private claimWithFollowUp(
+    claimWhere: Prisma.OutreachWhereInput,
+    claimData: Prisma.OutreachUpdateManyMutationInput,
+    followUp: { id: number; textCount: number | null },
+    sessionId: string,
+  ): Promise<{ count: number }> {
+    return this.client.$transaction(async (tx) => {
+      const claimed = await tx.outreach.updateMany({
+        where: claimWhere,
+        data: claimData,
+      })
+      if (claimed.count === 0) return claimed
+      await tx.outreach.updateMany({
+        where: { id: followUp.id, status: OutreachStatus.pending_payment },
+        data: {
+          status: OutreachStatus.pending,
+          ...(followUp.textCount === null
+            ? {}
+            : { billableTextCount: followUp.textCount }),
+          ...(sessionId.startsWith('cs_')
+            ? { stripeCheckoutSessionId: sessionId }
+            : {}),
+        },
+      })
+      return claimed
+    })
   }
 
   // The same refund a cancel-before-send issues, keyed on the row so a
@@ -607,9 +710,11 @@ export class OutreachServeSmsPurchaseHandlerService
           ? session.payment_intent
           : session.payment_intent?.id
       if (paymentIntentId) {
+        // Keyed on the payment: outreach ids repeat across PR previews,
+        // which share one Stripe account.
         await this.stripe.refundPaymentIntent(
           paymentIntentId,
-          `outreach-cancel-${outreachId}`,
+          `outreach-cancel-${paymentIntentId}`,
         )
       }
     } catch (err) {
@@ -654,6 +759,7 @@ export class OutreachServeSmsPurchaseHandlerService
         status: true,
         textCount: true,
         reportBackForOutreachId: true,
+        roundTwo: { select: { status: true, textCount: true } },
       },
     })
 
@@ -675,14 +781,17 @@ export class OutreachServeSmsPurchaseHandlerService
     // Two drafts of one report back can both reach checkout (two tabs, or
     // Back and forward again); only the first paid may go out.
     if (draft.reportBackForOutreachId) {
-      const paid = await this.model.findFirst({
-        where: {
-          reportBackForOutreachId: draft.reportBackForOutreachId,
-          id: { not: draft.id },
-          status: { notIn: REPORT_BACK_UNSENT_STATUSES },
-        },
-        select: { id: true },
-      })
+      const priorityId = await this.reportBack.priorityOf(
+        organizationSlug,
+        draft.reportBackForOutreachId,
+      )
+      const paid = priorityId
+        ? await this.reportBack.sentReportBack(
+            organizationSlug,
+            priorityId,
+            draft.id,
+          )
+        : null
       if (paid) {
         throw new BadRequestException(
           `A report back on outreach ${draft.reportBackForOutreachId} already went out`,
@@ -698,7 +807,13 @@ export class OutreachServeSmsPurchaseHandlerService
       )
     }
 
-    return { textCount: draft.textCount }
+    // A priority text's follow-up is bought with it: one checkout, both
+    // counts.
+    const followUp =
+      draft.roundTwo?.status === OutreachStatus.pending_payment
+        ? (draft.roundTwo.textCount ?? 0)
+        : 0
+    return { textCount: draft.textCount + followUp }
   }
 
   /**
@@ -713,9 +828,9 @@ export class OutreachServeSmsPurchaseHandlerService
    *    draft; no redelivery can fix that, so acknowledge loudly rather than
    *    retrying for days. Refunding is a human decision.
    *  - `pending`: claimed, but nothing proves the enqueue landed (unlike
-   *    Win's `projectId` there is no stamp for it). Re-enqueue. The consumer
-   *    is idempotent and the deduplication id collapses a near-simultaneous
-   *    duplicate, so this is strictly safer than assuming a send exists.
+   *    Win's `projectId` there is no stamp for it). Re-enqueue. The job is
+   *    idempotent and its key collapses a duplicate of one still queued or
+   *    running, so this is strictly safer than assuming a send exists.
    *  - Anything further along (`in_progress`, `completed`, ...): the handoff
    *    already happened. Return without enqueuing.
    */
@@ -726,7 +841,10 @@ export class OutreachServeSmsPurchaseHandlerService
   ): Promise<void> {
     const row = await this.model.findFirst({
       where: { id: outreachId, organizationSlug, campaignId: null },
-      select: { status: true },
+      select: {
+        status: true,
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
+      },
     })
 
     if (!row) {
@@ -759,6 +877,14 @@ export class OutreachServeSmsPurchaseHandlerService
       return
     }
 
+    if (
+      row.status === OutreachStatus.pending &&
+      isUndrawnSample(row.voterFileFilter)
+    ) {
+      // A round 2 text waiting on its draw, which enqueues it.
+      return
+    }
+
     if (row.status === OutreachStatus.pending) {
       this.logger.info(
         { outreachId, organizationSlug },
@@ -775,28 +901,17 @@ export class OutreachServeSmsPurchaseHandlerService
   }
 
   /**
-   * Per-outreach FIFO message group, so two deliveries for the same send
-   * serialize instead of racing each other through the delivery layer.
-   *
-   * `throwOnError` because the producer swallows failures by default, and a
-   * swallowed failure here would leave a paid row claimed with no send behind
-   * it. The deduplication id is deterministic over (outreach, sendSeq): inside
-   * SQS's dedup window — which is exactly the window the webhook/redirect race
-   * lives in — a duplicate collapses to one message, while a later Stripe
-   * redelivery is allowed through so a genuinely lost message can still be
-   * recovered.
+   * Grouped per outreach, so two jobs for the same send serialize instead of
+   * racing each other through the delivery layer. The key is deterministic
+   * over (outreach, sendSeq): while the first job is still queued or running
+   * (the window the webhook/redirect race lives in) a duplicate collapses to
+   * one job, while a later Stripe redelivery is let through so a genuinely
+   * lost send can still be recovered. A failed send throws, so a paid row is
+   * never left claimed with no send behind it.
    */
   private async enqueueSend(outreachId: number): Promise<void> {
-    await this.queueProducer.sendMessage(
-      {
-        type: QueueType.OUTREACH_TEXT_SEND,
-        data: { outreachId, sendSeq: INITIAL_SEND_SEQ },
-      },
-      `${MessageGroup.outreachTextSend}-${outreachId}`,
-      {
-        throwOnError: true,
-        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-${INITIAL_SEND_SEQ}`,
-      },
-    )
+    await this.jobs.sendMany('outreachTextSend', [
+      outreachTextSendJob({ outreachId, sendSeq: INITIAL_SEND_SEQ }),
+    ])
   }
 }

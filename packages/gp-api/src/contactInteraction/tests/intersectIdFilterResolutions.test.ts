@@ -1,8 +1,9 @@
 import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
+import { MAX_RESOLVED_ID_SET_SIZE } from '../resolvedIdSetCap.const'
 import {
   intersectIdFilterResolutions,
-  MAX_RESOLVED_ID_SET_SIZE,
   type IdFilterResolution,
 } from '../services/activityConditionResolution.service'
 
@@ -123,20 +124,30 @@ describe('intersectIdFilterResolutions', () => {
   // enforce this), but their UNION isn't — two ~70k sets with little
   // overlap can combine past the transport cap.
   it('throws when the unioned notIn exclusions exceed MAX_RESOLVED_ID_SET_SIZE', () => {
-    const half = Math.ceil(MAX_RESOLVED_ID_SET_SIZE / 2) + 1
-    const aIds = Array.from({ length: half }, (_, i) => `a-${i}`)
-    const bIds = Array.from({ length: half }, (_, i) => `b-${i}`)
+    appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 4
+    const aIds = ['a-1', 'a-2', 'a-3']
+    const bIds = ['b-1', 'b-2']
 
     expect(() =>
       intersectIdFilterResolutions(notInFilter(aIds), notInFilter(bIds)),
     ).toThrow(BadRequestException)
   })
 
-  it('does not throw when the unioned notIn exclusions stay at or under the cap', () => {
-    const ids = Array.from(
-      { length: MAX_RESOLVED_ID_SET_SIZE },
-      (_, i) => `p-${i}`,
+  // ENG-11424: an org that had contacted 139,811 people got a 400 (shown as no
+  // count) for "Prior contacts made = 0" under the old 100k cap.
+  it('accepts a 139,811-person contacted set (ENG-11424)', () => {
+    const ids = Array.from({ length: 139_811 }, (_, i) => `p-${i}`)
+    const result = intersectIdFilterResolutions(
+      { kind: 'none' },
+      notInFilter(ids),
     )
+    expect(result.kind).toBe('filter')
+    expect(MAX_RESOLVED_ID_SET_SIZE).toBeGreaterThanOrEqual(139_811)
+  })
+
+  it('does not throw when the unioned notIn exclusions stay at or under the cap', () => {
+    appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 4
+    const ids = ['p-1', 'p-2', 'p-3', 'p-4']
     const result = intersectIdFilterResolutions(
       notInFilter(ids),
       notInFilter(ids),

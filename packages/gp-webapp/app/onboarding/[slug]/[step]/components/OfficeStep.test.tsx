@@ -82,7 +82,8 @@ vi.mock('./OfficeStepForm', () => ({
   default: () => <div data-testid="office-step-form" />,
 }))
 
-vi.mock('@styleguide', () => ({
+vi.mock('@styleguide/components/ui/button', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   Button: ({
     children,
     onClick,
@@ -108,7 +109,6 @@ const baseCampaign: Campaign = {
   isDemo: false,
   data: {} as Campaign['data'],
   details: { zip: '90210' } as Campaign['details'],
-  aiContent: {} as Campaign['aiContent'],
   vendorTsData: {} as Campaign['vendorTsData'],
   userId: 1,
   canDownloadFederal: false,

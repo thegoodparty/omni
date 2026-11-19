@@ -116,7 +116,7 @@ describe('PersonProfilesController.uploadImage', () => {
       publishedAt: new Date(),
     })
     await controller.uploadImage(OWNER, 'avatar', file())
-    expect(revalidation.revalidatePerson).toHaveBeenCalledWith('person-1')
+    expect(revalidation.revalidatePerson).toHaveBeenCalledWith('person-1', [])
   })
 
   it('400s when no file is attached', async () => {

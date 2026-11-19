@@ -115,7 +115,6 @@ describe('PurchaseService', () => {
     campaignEmail: null,
     data: {},
     details: {},
-    aiContent: {},
     vendorTsData: {},
     userId: 1,
     canDownloadFederal: false,
@@ -227,7 +226,7 @@ describe('PurchaseService', () => {
         amount: 105,
       })
 
-      await service.createCheckoutSession({
+      const result = await service.createCheckoutSession({
         user: mockUser,
         dto: {
           type: PurchaseType.TEXT,
@@ -236,6 +235,7 @@ describe('PurchaseService', () => {
         metadata: { campaignId: mockCampaign.id },
       })
 
+      expect(result.isHold).toBe(true)
       // A hold takes promo codes like any checkout, and the session carries
       // the hold decision for a code that leaves it no PaymentIntent.
       expect(
@@ -273,7 +273,7 @@ describe('PurchaseService', () => {
         amount: 105,
       })
 
-      await service.createCheckoutSession({
+      const result = await service.createCheckoutSession({
         user: mockUser,
         dto: {
           type: PurchaseType.TEXT,
@@ -286,6 +286,8 @@ describe('PurchaseService', () => {
         },
         metadata: { campaignId: mockCampaign.id },
       })
+
+      expect(result.isHold).toBe(false)
 
       // An immediate-capture checkout keeps promo-code support.
       expect(
@@ -458,6 +460,7 @@ describe('PurchaseService', () => {
       expect(result.id).toMatch(/^free_\d+_1$/)
       expect(result.clientSecret).toBe('')
       expect(result.amount).toBe(0)
+      expect(result.isHold).toBe(false)
 
       // Assert: Should NOT execute post-purchase handler during session creation
       // Post-purchase is deferred to completeFreePurchase() when user explicitly confirms

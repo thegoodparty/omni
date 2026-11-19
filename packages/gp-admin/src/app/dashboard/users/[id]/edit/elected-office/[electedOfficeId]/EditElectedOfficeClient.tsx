@@ -6,7 +6,7 @@ import { useToast } from '@/components/Toast'
 import { updateElectedOffice } from '@/app/dashboard/elected-offices/actions'
 import { ElectedOfficeForm } from '../../components/ElectedOfficeForm'
 import type { ElectedOfficeFormData } from '../../schema'
-import type { ElectedOffice } from '@goodparty_org/sdk'
+import type { ElectedOffice } from '@/shared/gpApi'
 
 interface EditElectedOfficeClientProps {
   electedOffice: ElectedOffice

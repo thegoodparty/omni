@@ -70,7 +70,7 @@ New agent tasks automatically pull the latest image with the same tag. No ECS se
 
 ## 3.1 Initial Secret Population (first deploy)
 
-After Terraform creates `broker-{env}` and `broker-service-tokens-{env}` they are empty (both use `ignore_changes = [secret_string]`). Populate them before the broker can do work.
+Terraform creates `broker-{env}` and `broker-service-tokens-{env}` with no value and never manages one, so a plan has no secret value to read. Populate them before the broker can do work.
 
 Prerequisites: `AI_SECRETS_{ENV_UPPER}` already holds `PMF_ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `BRAINTRUST_API_KEY`, `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_API_KEY`.
 

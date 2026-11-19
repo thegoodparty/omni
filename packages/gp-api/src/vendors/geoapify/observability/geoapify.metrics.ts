@@ -43,9 +43,10 @@ const creditsCounter = meter.createCounter('geoapify.credits', {
  * `route_planner` optimization and a `routing` fetch for the path geometry.
  * The waypoint ledger counts only the first in its `waypoints` column, which
  * is the unit the per-organization quota caps; its `credits` column and the
- * counters here cover both.
+ * counters here cover both. `reverse_geocode` is the civic panel naming a
+ * census tract: one credit, at most once per tract ever.
  */
-export type GeoapifyApi = 'route_planner' | 'routing'
+export type GeoapifyApi = 'route_planner' | 'routing' | 'reverse_geocode'
 
 export type GeoapifyCallResult = 'success' | 'failed'
 

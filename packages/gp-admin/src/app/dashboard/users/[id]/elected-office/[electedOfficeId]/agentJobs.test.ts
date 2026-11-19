@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type {
-  AgentRunListItem,
-  BriefingDispatchPreview,
-} from '@goodparty_org/sdk'
+import type { AgentRunListItem, BriefingDispatchPreview } from '@/shared/gpApi'
 import { describeBriefingPreview, hasActiveRun, isActiveRun } from './agentJobs'
 
 const basePreview: BriefingDispatchPreview = {

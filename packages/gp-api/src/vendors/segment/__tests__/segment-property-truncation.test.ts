@@ -14,7 +14,7 @@ describe('SegmentService.trackEvent property truncation', () => {
   let service: SegmentService
 
   beforeEach(() => {
-    process.env.SEGMENT_WRITE_KEY = 'test-key'
+    vi.stubEnv('SEGMENT_WRITE_KEY', 'test-key')
     service = new SegmentService(createMockLogger())
   })
 

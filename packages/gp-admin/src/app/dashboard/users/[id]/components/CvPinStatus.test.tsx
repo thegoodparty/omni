@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ComplianceStateOutput, User } from '@goodparty_org/sdk'
+import type { ComplianceStateOutput, User } from '@/shared/gpApi'
 import { CvPinStatus } from './CvPinStatus'
 import { UserProvider } from '../context/UserContext'
 
@@ -19,11 +19,6 @@ vi.mock('@clerk/nextjs', () => ({
 const mockShowToast = vi.fn()
 vi.mock('@/components/Toast', () => ({
   useToast: () => ({ showToast: mockShowToast }),
-}))
-
-const mockCaptureException = vi.fn()
-vi.mock('@sentry/nextjs', () => ({
-  captureException: (...args: unknown[]) => mockCaptureException(...args),
 }))
 
 const mockListCampaigns = vi.fn()
@@ -277,7 +272,6 @@ describe('CvPinStatus', () => {
         expect.stringContaining('refresh the page')
       )
     )
-    expect(mockCaptureException).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: /resend cv pin/i })).toBeEnabled()
   })
 
@@ -737,7 +731,6 @@ describe('CvPinStatus', () => {
       expect(mockShowToast).not.toHaveBeenCalledWith(
         expect.stringContaining('Failed to update filing link')
       )
-      expect(mockCaptureException).toHaveBeenCalledTimes(1)
     })
 
     it('hides the override controls without write_campaigns permission', async () => {
@@ -977,7 +970,6 @@ describe('CvPinStatus', () => {
           expect.stringContaining('refresh the page')
         )
       )
-      expect(mockCaptureException).toHaveBeenCalledTimes(1)
       expect(screen.getByRole('checkbox')).not.toBeChecked()
     })
 

@@ -9,6 +9,7 @@ import type {
 } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   DOOR_KNOCK_STATUSES,
   DoorKnockingTurf,
   type ProposalLink,
@@ -71,6 +72,7 @@ import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolutio
 import { usePrecinctOptions } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { useOrganization } from '@shared/organization-picker'
 import { useOfflineQueueDrain } from 'app/dashboard/shared/dictation/useOfflineMemo'
+import { useCivicPanelReachScript } from 'app/dashboard/contacts/citizens-panel/civicPanelReachScript'
 
 // One loading vocabulary for both waits that show behind the walk drawer:
 // the pack download (4.5s p50 / 34s p95) AND the VoterMapCanvas chunk
@@ -144,10 +146,12 @@ interface NativeDoorKnockingPageProps {
   proposalLink?: ProposalLink
   // Where the `?create=1` link was pressed.
   createSource?: OutreachFlowSource
-  // A civic panel plan's door step: the purpose it answered, handed to the
-  // create flow, and the walkable area it drew, loaded as the turf's boundary
+  // A link's purpose, handed to the create flow, and its walkable area,
+  // loaded as the turf's boundary
   // on the first arrival at the draw step. Spent once, like `?listId=`.
   initialPurpose?: ServeDoorKnockingPurpose
+  // A priority card's question, for the community input purpose it carries.
+  initialQuestion?: string
   prefillArea?: PolygonRing
   // The agent surface that opened the create flow, for the Outreach events.
   launchSource?: OutreachLaunchSource
@@ -196,6 +200,7 @@ export default function NativeDoorKnockingPage({
   proposalLink,
   createSource,
   initialPurpose,
+  initialQuestion,
   prefillArea,
   launchSource,
 }: NativeDoorKnockingPageProps) {
@@ -205,6 +210,7 @@ export default function NativeDoorKnockingPage({
   useOfflineQueueDrain()
   const router = useRouter()
   const organization = useOrganization()
+  const civicPanelDoorScript = useCivicPanelReachScript('door')
   const isElectedOfficial = Boolean(organization?.electedOfficeId)
   // Win-only filters — contacts made, political party, voter likelihood — are
   // hidden for an `eo-` org, matching the CRM wizard, because gp-api rejects
@@ -232,8 +238,7 @@ export default function NativeDoorKnockingPage({
   // Win or Serve, decided once here and handed down — see
   // `doorKnockingSurface.tsx` for why nothing below may re-derive it. A
   // Campaign takes precedence over an ElectedOffice, which is the same order
-  // `DoorKnockingPageGate` resolves access in and the same order gp-api's
-  // create endpoint chooses a scope in.
+  // gp-api's create endpoint chooses a scope in.
   const serveMode = !campaign && isElectedOfficial
   // Which hub this surface belongs to, and so where every exit from it lands.
   const hubPath = serveMode ? SERVE_HUB : OUTREACH_HUB
@@ -1617,6 +1622,14 @@ export default function NativeDoorKnockingPage({
                   {...(serveMode &&
                     carriedListId !== undefined &&
                     initialPurpose && { initialPurpose })}
+                  {...(serveMode &&
+                    carriedListId !== undefined &&
+                    initialQuestion && { initialQuestion })}
+                  {...(serveMode &&
+                    carriedListId !== undefined &&
+                    initialPurpose === BUILD_CITIZENS_PANEL_PURPOSE && {
+                      initialTalkingPoints: civicPanelDoorScript,
+                    })}
                   siblingTurfs={siblingTurfs}
                   campaignOutreachId={campaignOutreachId}
                   trackerTaskId={trackerTaskId}

@@ -68,6 +68,10 @@ const isPublicRoute = createRouteMatcher([
   // redirect_url where nothing can redeem it. The ticket is redeemed
   // client-side on the page (same pattern as /serve/welcome).
   '/team-invite(.*)',
+  // Unsubscribe and reply-address confirmation pages, opened from outreach
+  // email by people with no account. Each GET only loads state; the action is
+  // a button POST.
+  '/email/(.*)',
   // Machine endpoint: gated by its own REVALIDATE_SECRET (see
   // app/api/revalidate/route.ts), not a Clerk user session.
   '/api/revalidate',
@@ -128,12 +132,12 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 export const config = {
   matcher: [
     // Skip Next.js internals and all static files, unless found in search params.
-    // `mx/` (the first-party Segment proxy, see next.config.ts) and
-    // `monitoring` (Sentry's `tunnelRoute`, set at the bottom of the same file)
-    // are both telemetry sinks that must not reach Clerk. Neither is in
-    // `isPublicRoute`, so without this they 307 logged-out visitors to /login
-    // and silently drop exactly the events and errors they exist to carry.
-    '/((?!_next|mx/|monitoring|[^?]*\\.(?:html?|css|js(?:on)?|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // `mx/` (the first-party Segment proxy, see next.config.ts) and `fx` (the
+    // Grafana Faro relay, app/fx/route.ts) are telemetry sinks that must not
+    // reach Clerk. Neither is in `isPublicRoute`, so without this they 307
+    // logged-out visitors to /login and silently drop exactly the events and
+    // errors they exist to carry.
+    '/((?!_next|mx/|fx$|[^?]*\\.(?:html?|css|js(?:on)?|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
     // Always run for API routes
     '/(api|trpc)(.*)',
   ],

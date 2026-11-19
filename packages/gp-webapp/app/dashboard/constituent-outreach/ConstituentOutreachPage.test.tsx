@@ -15,7 +15,6 @@ import type {
   SocialAsset,
   SocialAssetPlatform,
 } from '@goodparty_org/contracts'
-import { CIVIC_PANEL_JOIN_LINE } from '@goodparty_org/contracts'
 import ConstituentOutreachPage from './ConstituentOutreachPage'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 
@@ -99,6 +98,13 @@ vi.mock('@shared/experiments/serveSmsFlag', () => ({
   useServeSmsFlag: () => serveSmsFlag,
 }))
 
+// `serve-email-outreach`, off unless a test turns it on.
+const serveEmailFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/experiments/serveEmailOutreachFlag', () => ({
+  SERVE_EMAIL_OUTREACH_FLAG_KEY: 'serve-email-outreach',
+  useServeEmailOutreachFlag: () => serveEmailFlag,
+}))
+
 // `serve-citizen-panels`, off unless a test turns it on.
 const panelsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
 vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
@@ -129,6 +135,7 @@ const mockPhoneBankingAudience = () => {
         robocall: null,
         phoneBanking: 10,
         doorKnocking: null,
+        email: 0,
         polls: null,
       },
       outreachHistory: [],
@@ -334,7 +341,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     // appears twice.
     expect(
       screen.getAllByText(
-        'No campaigns yet. Pick a channel above to create your first.',
+        'No outreach yet. Pick a channel above to send your first.',
       ),
     ).toHaveLength(2)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
@@ -677,8 +684,7 @@ describe('ConstituentOutreachPage — the serve-sms-outreach gate', () => {
   })
 })
 
-// The Chief of Staff's "Build your civic panel" card links here.
-describe("ConstituentOutreachPage — the civic panel card's link", () => {
+describe('ConstituentOutreachPage — the compose=text link', () => {
   const arriveWith = (params: string) => {
     vi.mocked(useSearchParams).mockReturnValue(
       new URLSearchParams(params) as ReturnType<typeof useSearchParams>,
@@ -696,123 +702,12 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     vi.useRealTimers()
   })
 
-  it('runs the panel card through the sample, the locked JOIN ask, the date and the priced review', async () => {
+  // The panel invite only goes out in the managed panel's waves, so a link
+  // naming it opens the ordinary picker without it.
+  it('opens a plain text flow, never on the panel invite', async () => {
     mockPhoneBankingAudience()
-    // The district's cell phones, of which the panel text reaches a draw.
-    api.mock('POST /v1/contacts/count', {
-      status: 200,
-      data: { count: 58520 },
-    })
     serveSmsFlag.enabled = true
     panelsFlag.enabled = true
-    arriveWith('compose=text&purpose=build_citizens_panel')
-    // Tuesday, so the first bookable send day is Friday the 4th.
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-09-01T12:00:00Z'))
-    const created: Record<string, unknown>[] = []
-    api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
-      created.push(body as Record<string, unknown>)
-      return {
-        status: 200,
-        data: {
-          outreachId: 501,
-          recipientCount: 8000,
-          excludedOptedOutCount: 0,
-          excludedDuplicateCount: 0,
-        },
-      }
-    })
-    const saved: Record<string, unknown>[] = []
-    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
-      saved.push(body as Record<string, unknown>)
-      return { status: 200, data: { id: 88, name: 'Civic panel invite' } }
-    })
-    api.mock('POST /v1/outreach/serve/sms/draft', {
-      status: 200,
-      data: { draft: 'I want to hear from you before I decide.' },
-    })
-
-    render(<ConstituentOutreachPage outreaches={[]} />)
-
-    const proceed = await screen.findByRole('button', {
-      name: 'Continue (8,000)',
-    })
-    expect(proceed).toBeEnabled()
-    expect(screen.queryByText('Explain a recent decision')).toBeNull()
-    expect(router.replace).toHaveBeenCalledWith(
-      '/dashboard/constituent-outreach',
-      { scroll: false },
-    )
-    await user.click(proceed)
-    expect(
-      await screen.findByDisplayValue('Civic panel invite'),
-    ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await waitFor(() => expect(saved).toHaveLength(1))
-    expect(saved[0]).toMatchObject({
-      name: 'Civic panel invite',
-      hasCellPhone: true,
-      sample: { size: 8000 },
-    })
-    expect(
-      await screen.findByText(/Reply JOIN to join my civic panel/),
-    ).toBeInTheDocument()
-    const ask = screen.getByRole('checkbox', {
-      name: /join your civic panel/i,
-    })
-    expect(ask).toBeChecked()
-    expect(ask).toBeDisabled()
-    await user.upload(
-      document.querySelector('input[type="file"]') as HTMLInputElement,
-      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
-    )
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
-    // The date comes after the message.
-    await user.click(
-      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    // Review prices the draw. The live total is Stripe's, which jsdom
-    // cannot mount, so the per-text price and the count stand in for it.
-    expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
-      0,
-    )
-    expect(screen.getByText('8,000')).toBeInTheDocument()
-    expect(screen.getByText('$0.035')).toBeInTheDocument()
-    await waitFor(() => expect(created).toHaveLength(1))
-    expect(created[0]).toMatchObject({ voterFileFilterId: 88 })
-    expect(created[0]?.message).toContain(CIVIC_PANEL_JOIN_LINE)
-  })
-
-  // Back from the seeded draw goes to the purpose picker like any flow, and
-  // the draw is still there on the way forward again.
-  it('goes back to the purpose picker from the first step, keeping the draw', async () => {
-    mockPhoneBankingAudience()
-    api.mock('POST /v1/contacts/count', {
-      status: 200,
-      data: { count: 58520 },
-    })
-    serveSmsFlag.enabled = true
-    panelsFlag.enabled = true
-    arriveWith('compose=text&purpose=build_citizens_panel')
-
-    render(<ConstituentOutreachPage outreaches={[]} />)
-
-    await screen.findByRole('button', { name: 'Continue (8,000)' })
-    await user.click(screen.getByRole('button', { name: 'Back' }))
-    await user.click(screen.getByRole('button', { name: 'Back' }))
-    expect(
-      await screen.findByRole('button', { name: /Build your civic panel/ }),
-    ).toHaveAttribute('aria-pressed', 'true')
-  })
-
-  it('opens a plain text flow with serve-citizen-panels off', async () => {
-    mockPhoneBankingAudience()
-    serveSmsFlag.enabled = true
     arriveWith('compose=text&purpose=build_citizens_panel')
 
     render(<ConstituentOutreachPage outreaches={[]} />)
@@ -945,5 +840,128 @@ describe('ConstituentOutreachPage — a chat card send', () => {
           ),
       ).toHaveLength(2),
     )
+  })
+})
+
+describe('ConstituentOutreachPage — email rows', () => {
+  const emailSend = (status: string) => ({
+    id: 31,
+    status,
+    goal: 'Share an update',
+    layout: '',
+    theme: '',
+    subject: '',
+    headline: null,
+    body: '',
+    imageUrl: null,
+    buttonLabel: null,
+    buttonUrl: null,
+    paidForBy: null,
+    date: null,
+    voterFileFilterId: null,
+    recipientCount: 0,
+    content: {
+      layout: 'personal_letter' as const,
+      theme: 'classic_blue' as const,
+      subject: 'Ward 2 update',
+      blocks: [{ type: 'paragraph' as const, text: 'Hi there' }],
+    },
+    recipientCap: null,
+    priceCents: null,
+    sentCount: 0,
+    pauseReason: null,
+    stopping: false,
+    cardDeclined: false,
+    estimate: null,
+    deliveryCounts: null,
+  })
+
+  const emailRow = (status: string) =>
+    [
+      {
+        id: 31,
+        date: '2026-11-03',
+        outreachType: 'email',
+        name: 'Ward 2 update',
+        status,
+      },
+    ] as unknown as HistoryRow[]
+
+  const openRow = async () => {
+    const row = within(desktopTable()).getByText('Ward 2 update').closest('tr')
+    expect(row).toHaveAttribute('role', 'button')
+    await user.click(row as HTMLElement)
+    return screen.findByRole('dialog')
+  }
+
+  it('opens a sent email, read from the serve email route, even with the flag off', async () => {
+    let reads = 0
+    api.mock('GET /v1/outreach/serve/email/:id', ({ params }) => {
+      reads += 1
+      expect(params.id).toBe('31')
+      return { status: 200, data: emailSend('completed') }
+    })
+    api.mock('POST /v1/outreach/serve/email/preview', {
+      status: 200,
+      data: { html: '<p>Hi there</p>' },
+    })
+    render(<ConstituentOutreachPage outreaches={emailRow('completed')} />)
+
+    await openRow()
+    await waitFor(() => expect(reads).toBeGreaterThan(0))
+  })
+
+  it('reopens a draft email in the flow, even with the flag off', async () => {
+    api.mock('GET /v1/outreach/serve/email/:id', {
+      status: 200,
+      data: emailSend('draft'),
+    })
+    api.mock('GET /v1/outreach/serve/email/sender', {
+      status: 200,
+      data: {
+        localPart: 'dana.ruiz',
+        address: 'dana.ruiz@outreachmail.goodparty.org',
+        displayName: 'Dana Ruiz',
+        forwardToEmail: 'dana@example.com',
+        pendingForwardToEmail: null,
+        warmingStep: 0,
+        availableCap: 1000,
+      },
+    })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    render(<ConstituentOutreachPage outreaches={emailRow('draft')} />)
+
+    const drawer = await openRow()
+    await user.click(
+      within(drawer).getByRole('button', { name: 'Schedule email' }),
+    )
+
+    // A goal that is no preset reopens as custom, and with no list saved the
+    // flow resumes on who to reach.
+    expect(
+      await screen.findByText('Everyone with an email'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('Who do you want to reach?').length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('deletes a draft email through the serve email route', async () => {
+    let deleted: string | undefined
+    api.mock('DELETE /v1/outreach/serve/email/:id', ({ params }) => {
+      deleted = params.id
+      return { status: 200, data: undefined }
+    })
+    render(<ConstituentOutreachPage outreaches={emailRow('draft')} />)
+
+    const drawer = await openRow()
+    await user.click(within(drawer).getByRole('button', { name: 'Delete' }))
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Delete',
+      }),
+    )
+
+    await waitFor(() => expect(deleted).toBe('31'))
   })
 })

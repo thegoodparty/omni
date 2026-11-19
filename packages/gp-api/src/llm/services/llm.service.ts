@@ -8,6 +8,7 @@ import {
   streamText as realStreamText,
   tool,
   type LanguageModel,
+  type LanguageModelUsage,
   type ModelMessage,
   type PrepareStepFunction,
   type Tool,
@@ -24,9 +25,11 @@ import {
   type LlmMessage,
   type LlmToolChoice,
 } from '../types/llmMessages.types'
+import { agentTraceTracer, type AgentTraceIdentity } from './agentTrace'
 import { toModelMessages } from './messageConversion'
 
 export { toModelMessages } from './messageConversion'
+export type { AgentTraceIdentity } from './agentTrace'
 
 export interface LlmChatCompletionOptions {
   messages: LlmMessage[]
@@ -266,12 +269,19 @@ export interface LlmStreamOptions {
     filename?: string
     providerMetadata?: Record<string, Record<string, unknown>>
   }) => void
+  // Groups this turn's spans into one Grafana Agent Observability
+  // conversation. Set by the chat turn; a call with none stays a plain Tempo
+  // trace.
+  agentTrace?: AgentTraceIdentity
 }
 
 export interface LlmStreamUsage {
+  // Every input token the turn sent, cache reads and writes included.
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
 }
 
 export interface LlmStreamResult {
@@ -279,6 +289,11 @@ export interface LlmStreamResult {
   finalText: Promise<string>
   toolCalls: Promise<ToolCall[]>
   usage: Promise<LlmStreamUsage>
+  // The turn's model messages (each step's assistant message and the tool
+  // results after it) and each step's usage, for the chat store. Absent on
+  // results built by hand in tests.
+  responseMessages?: Promise<ModelMessage[]>
+  stepUsages?: Promise<LlmStreamUsage[]>
   model: string
 }
 
@@ -325,12 +340,13 @@ export const defaultAnthropicProviderFactory: AnthropicProviderFactory = ({
 // Inputs and outputs are deliberately off. They default to ON, and prompts here
 // carry voter and campaign data while responses are unbounded — neither belongs
 // in a span attribute.
-const llmTelemetry = (functionId: string) =>
+const llmTelemetry = (functionId: string, agentTrace?: AgentTraceIdentity) =>
   ({
     isEnabled: true,
     functionId,
     recordInputs: false,
     recordOutputs: false,
+    ...(agentTrace && { tracer: agentTraceTracer(agentTrace) }),
   }) as const
 
 @Injectable()
@@ -559,6 +575,7 @@ export class LlmService {
       onToolInputStart,
       onStreamError,
       onSource,
+      agentTrace,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -605,7 +622,19 @@ export class LlmService {
             // rewritten by withToolPartsAsText and closed with
             // toolBudgetExhaustedNote (see their comments for why).
             stopWhen: stepCountIs(maxSteps + 1),
-            experimental_telemetry: llmTelemetry('llm.stream-chat-completion'),
+            // Anthropic caches nothing unless asked. Top-level cacheControl
+            // puts the breakpoint on the last block and moves it as the
+            // conversation grows, so each tool step reads the previous step's
+            // prompt at a tenth of the price. Only here: a one-shot call
+            // never repeats its prompt, so it would pay the write premium on
+            // every request and never read it back.
+            providerOptions: {
+              anthropic: { cacheControl: { type: 'ephemeral' } },
+            },
+            experimental_telemetry: llmTelemetry(
+              'llm.stream-chat-completion',
+              agentTrace,
+            ),
             ...(toolSet && { tools: toolSet, prepareStep }),
             // streamText swallows errors by default (they surface only on the
             // stream) — log them so a mid-generation provider failure is not
@@ -694,17 +723,68 @@ export class LlmService {
         ),
     )
 
+    const finalText = Promise.resolve(result.text)
+    const toolCalls = Promise.resolve(result.toolCalls).then((calls) =>
+      this.mapAiSdkToolCalls(calls),
+    )
+    const toStreamUsage = (u: LanguageModelUsage): LlmStreamUsage => ({
+      inputTokens: u.inputTokens ?? 0,
+      outputTokens: u.outputTokens ?? 0,
+      totalTokens: u.totalTokens ?? 0,
+      cacheReadTokens: u.inputTokenDetails?.cacheReadTokens ?? 0,
+      cacheWriteTokens: u.inputTokenDetails?.cacheWriteTokens ?? 0,
+    })
+    const usage = Promise.resolve(result.totalUsage).then(toStreamUsage)
+    const responseMessages = Promise.resolve(result.response).then(
+      (response) => response.messages,
+    )
+    // One usage per assistant message in response.messages. A step whose
+    // output was empty (a final step that streamed no text) adds no assistant
+    // message, so its usage is folded into the step before it, keeping the
+    // turn's totals.
+    const stepUsages = Promise.resolve(result.steps).then((steps) => {
+      const usages: LlmStreamUsage[] = []
+      let messageCount = 0
+      for (const step of steps) {
+        const added = step.response.messages.slice(messageCount)
+        messageCount = step.response.messages.length
+        const usage = toStreamUsage(step.usage)
+        const last = usages[usages.length - 1]
+        if (!last || added.some((m) => m.role === 'assistant')) {
+          usages.push(usage)
+          continue
+        }
+        last.inputTokens += usage.inputTokens
+        last.outputTokens += usage.outputTokens
+        last.totalTokens += usage.totalTokens
+        last.cacheReadTokens =
+          (last.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0)
+        last.cacheWriteTokens =
+          (last.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+      }
+      return usages
+    })
+    // A stream that ends with no output rejects all three, and callers await
+    // only some of them. Node exits on an unhandled rejection, which took dev
+    // gp-api down mid-release (ENG-11524). The no-op handlers mark them
+    // handled; a caller that awaits one still gets the rejection.
+    for (const pending of [
+      finalText,
+      toolCalls,
+      usage,
+      responseMessages,
+      stepUsages,
+    ]) {
+      pending.catch(() => undefined)
+    }
+
     return {
       textStream: result.textStream,
-      finalText: Promise.resolve(result.text),
-      toolCalls: Promise.resolve(result.toolCalls).then((calls) =>
-        this.mapAiSdkToolCalls(calls),
-      ),
-      usage: Promise.resolve(result.totalUsage).then((u) => ({
-        inputTokens: u.inputTokens ?? 0,
-        outputTokens: u.outputTokens ?? 0,
-        totalTokens: u.totalTokens ?? 0,
-      })),
+      finalText,
+      toolCalls,
+      usage,
+      responseMessages,
+      stepUsages,
       model,
     }
   }

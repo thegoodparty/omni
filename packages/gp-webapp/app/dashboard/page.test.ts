@@ -48,14 +48,11 @@ class RedirectError extends Error {
 }
 
 const ELECTED_OFFICE_PATH = apiRoutes.electedOffice.current.path
-const TCR_PATH = apiRoutes.campaign.tcrCompliance.fetch.path
 
 const delay = <T>(value: T, ms = LATENCY_MS): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms))
 
-// Routes serverFetch results by endpoint path so the page's two distinct
-// serverFetch calls (elected-office gate, then tcr compliance) resolve
-// independently. `hasElectedOffice` toggles the chief-of-staff redirect gate.
+// `hasElectedOffice` toggles the chief-of-staff redirect gate.
 const wireServerFetch = ({
   hasElectedOffice,
   latency = 0,
@@ -72,9 +69,6 @@ const wireServerFetch = ({
         latency,
       )
     }
-    if (endpoint.path === TCR_PATH) {
-      return delay({ ok: true, data: { registered: true } }, latency)
-    }
     return delay({ ok: false, data: null }, latency)
   })
 
@@ -89,10 +83,7 @@ async function serialBaseline(): Promise<void> {
     mockRedirect('/dashboard/chief-of-staff')
     return
   }
-  await Promise.all([
-    mockServerFetch(apiRoutes.campaign.tcrCompliance.fetch),
-    mockFetchUserWebsite(),
-  ])
+  await mockFetchUserWebsite()
 }
 
 beforeEach(() => {
@@ -105,7 +96,7 @@ beforeEach(() => {
 })
 
 describe('dashboard Page behavior', () => {
-  it('redirects to chief-of-staff when a current elected office exists, skipping tcr/website', async () => {
+  it('redirects to chief-of-staff when a current elected office exists, skipping the website', async () => {
     wireServerFetch({ hasElectedOffice: true })
 
     await expect(Page()).rejects.toMatchObject({
@@ -117,11 +108,10 @@ describe('dashboard Page behavior', () => {
       ([endpoint]) => (endpoint as ApiRoute).path,
     )
     expect(fetchedPaths).toContain(ELECTED_OFFICE_PATH)
-    expect(fetchedPaths).not.toContain(TCR_PATH)
     expect(mockFetchUserWebsite).not.toHaveBeenCalled()
   })
 
-  it('renders the dashboard (fetching tcr + website) when there is no current elected office', async () => {
+  it('renders the dashboard (fetching the website) when there is no current elected office', async () => {
     wireServerFetch({ hasElectedOffice: false })
 
     await expect(Page()).resolves.toBeDefined()
@@ -129,13 +119,12 @@ describe('dashboard Page behavior', () => {
     const fetchedPaths = mockServerFetch.mock.calls.map(
       ([endpoint]) => (endpoint as ApiRoute).path,
     )
-    expect(fetchedPaths).toContain(ELECTED_OFFICE_PATH)
-    expect(fetchedPaths).toContain(TCR_PATH)
+    expect(fetchedPaths).toEqual([ELECTED_OFFICE_PATH])
     expect(mockFetchUserWebsite).toHaveBeenCalledTimes(1)
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 
-  it('honors the candidateAccess gate redirect and skips tcr/website', async () => {
+  it('honors the candidateAccess gate redirect and skips the website', async () => {
     mockCandidateAccess.mockImplementation(() => {
       throw new RedirectError('/sign-up')
     })
@@ -146,10 +135,6 @@ describe('dashboard Page behavior', () => {
       url: '/sign-up',
     })
 
-    const fetchedPaths = mockServerFetch.mock.calls.map(
-      ([endpoint]) => (endpoint as ApiRoute).path,
-    )
-    expect(fetchedPaths).not.toContain(TCR_PATH)
     expect(mockFetchUserWebsite).not.toHaveBeenCalled()
   })
 
@@ -200,6 +185,7 @@ describe('dashboard Page benchmark', () => {
     // auth → orgs → campaign-status round trips that the elected-office fetch
     // now overlaps with.
     mockCandidateAccess.mockImplementation(() => delay(undefined))
+    mockFetchUserWebsite.mockImplementation(() => delay(null))
     wireServerFetch({ hasElectedOffice: false, latency: LATENCY_MS })
 
     const beforeStart = performance.now()
@@ -215,8 +201,8 @@ describe('dashboard Page benchmark', () => {
       `[bench dashboard] before=${beforeMs.toFixed(1)}ms after=${afterMs.toFixed(1)}ms (latency ${LATENCY_MS}ms/call)`,
     )
 
-    // BEFORE ~= candidateAccess + electedOffice serial then tcr||website (~3L);
-    // AFTER ~= max(candidateAccess, electedOffice) then tcr||website (~2L).
+    // BEFORE ~= candidateAccess + electedOffice serial then website (~3L);
+    // AFTER ~= max(candidateAccess, electedOffice) then website (~2L).
     expect(beforeMs).toBeGreaterThan(LATENCY_MS * 2.5)
     expect(afterMs).toBeLessThan(beforeMs)
     expect(beforeMs - afterMs).toBeGreaterThan(LATENCY_MS * 0.5)

@@ -6,7 +6,6 @@ import {
   ChatAttachmentSource,
   ChatAttachmentStatus,
   ChatConversation,
-  ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
   ChatScope,
@@ -27,7 +26,11 @@ import {
   MAX_BUFFERED_CHUNKS,
   MAX_CHAT_HISTORY_MESSAGES,
 } from './chatStream.service'
-import type { ChatStoreService, PersistedSegment } from './chatStore.prisma'
+import type {
+  ChatMessageWithSegments,
+  ChatStoreService,
+  PersistedSegment,
+} from './chatStore.prisma'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import type { ChatAttachmentsService } from './chatAttachments.service'
 import type { S3Service } from '@/vendors/aws/services/s3.service'
@@ -49,19 +52,25 @@ interface AppendArgs {
   conversationId: string
   role: ChatMessageRole
   content: string
-  clientMessageId?: string
+  id?: string
   segments?: PersistedSegment[]
+  inputTokens?: number
+  outputTokens?: number
+  agentMessages?: unknown
 }
 
 class FakeChatStore {
   private conversations = new Map<string, ChatConversation>()
-  private messagesByConversation = new Map<string, ChatMessage[]>()
+  private messagesByConversation = new Map<string, ChatMessageWithSegments[]>()
   private nextMessageId = 1
   public events: string[] = []
   public lastListRecentLimit: number | undefined
   public listRecentCalls = 0
   public deletedBeforeUserAppend = false
   public lastAppendedSegments: PersistedSegment[] | undefined
+  public userAppendIds: (string | undefined)[] = []
+  public replayedFor: string | undefined
+  public replyConversationId = ''
 
   seedConversation(seed: FakeConversationSeed): ChatConversation {
     const row: ChatConversation = {
@@ -85,16 +94,25 @@ class FakeChatStore {
     content: string
     createdAt?: Date
     segments?: PersistedSegment[]
-  }): ChatMessage {
-    const row: ChatMessage = {
+  }): ChatMessageWithSegments {
+    const row: ChatMessageWithSegments = {
       id: `seed-${this.nextMessageId++}`,
       conversationId: args.conversationId,
       role: args.role,
       content: args.content,
-      clientMessageId: null,
+      model: null,
+      inputTokens: null,
+      outputTokens: null,
       createdAt: args.createdAt ?? new Date(),
-      segments: args.segments ?? [],
-    } as unknown as ChatMessage
+      segments: (args.segments ?? []).map((s, ordinal) => ({
+        kind: s.kind,
+        text: s.text ?? null,
+        toolName: s.toolName ?? null,
+        toolCallId: s.toolCallId ?? null,
+        payload: s.payload ?? null,
+        ordinal,
+      })),
+    }
     const list = this.messagesByConversation.get(args.conversationId) ?? []
     list.push(row)
     this.messagesByConversation.set(args.conversationId, list)
@@ -113,7 +131,9 @@ class FakeChatStore {
     return Promise.resolve(row)
   }
 
-  listMessagesByConversation(conversationId: string): Promise<ChatMessage[]> {
+  listMessagesByConversation(
+    conversationId: string,
+  ): Promise<ChatMessageWithSegments[]> {
     const list = this.messagesByConversation.get(conversationId) ?? []
     return Promise.resolve([...list])
   }
@@ -121,7 +141,7 @@ class FakeChatStore {
   listRecentMessagesByConversation(
     conversationId: string,
     limit: number,
-  ): Promise<ChatMessage[]> {
+  ): Promise<ChatMessageWithSegments[]> {
     this.listRecentCalls += 1
     this.lastListRecentLimit = limit
     this.events.push('listRecentMessagesByConversation')
@@ -130,13 +150,29 @@ class FakeChatStore {
     return Promise.resolve([...sliced])
   }
 
+  replayedReplyTo({
+    userMessageId,
+  }: {
+    userMessageId: string
+  }): Promise<ChatMessageWithSegments | null> {
+    this.replayedFor = userMessageId
+    const list = this.messagesByConversation.get(this.replyConversationId) ?? []
+    const userIndex = list.findIndex((m) => m.id === userMessageId)
+    if (userIndex === -1) return Promise.resolve(null)
+    const reply = list
+      .slice(userIndex + 1)
+      .find((m) => m.role === ChatMessageRole.assistant)
+    return Promise.resolve(reply ?? null)
+  }
+
   appendUserMessageIfAlive(args: {
     conversationId: string
     ownerUserId: number
     content: string
-    clientMessageId?: string
-  }): Promise<ChatMessage | null> {
+    id?: string
+  }): Promise<{ message: ChatMessageWithSegments; replayed: boolean } | null> {
     this.events.push('appendUserMessageIfAlive')
+    this.userAppendIds.push(args.id)
     if (this.deletedBeforeUserAppend) {
       const row = this.conversations.get(args.conversationId)
       if (row) row.deletedAt = new Date()
@@ -145,37 +181,40 @@ class FakeChatStore {
     if (!row) return Promise.resolve(null)
     if (row.ownerUserId !== args.ownerUserId) return Promise.resolve(null)
     if (row.deletedAt !== null) return Promise.resolve(null)
+    // The id is the primary key, so a repeated send finds its own turn.
+    const list = this.messagesByConversation.get(args.conversationId) ?? []
+    const existing =
+      args.id === undefined ? undefined : list.find((m) => m.id === args.id)
+    if (existing) return Promise.resolve({ message: existing, replayed: true })
     return this.appendMessage({
       conversationId: args.conversationId,
       role: ChatMessageRole.user,
       content: args.content,
-      ...(args.clientMessageId !== undefined && {
-        clientMessageId: args.clientMessageId,
-      }),
-    })
+      ...(args.id !== undefined && { id: args.id }),
+    }).then((message) => ({ message, replayed: false }))
   }
 
-  appendMessage(args: AppendArgs): Promise<ChatMessage> {
+  appendMessage(args: AppendArgs): Promise<ChatMessageWithSegments> {
     this.events.push(`appendMessage:${args.role}`)
     if (args.segments !== undefined) this.lastAppendedSegments = args.segments
-    if (args.clientMessageId !== undefined) {
-      const list = this.messagesByConversation.get(args.conversationId) ?? []
-      const existing = list.find(
-        (m) =>
-          (m as unknown as { clientMessageId: string | null })
-            .clientMessageId === args.clientMessageId,
-      )
-      if (existing) return Promise.resolve(existing)
-    }
-    const row: ChatMessage = {
-      id: `msg-${this.nextMessageId++}`,
+    const row: ChatMessageWithSegments = {
+      id: args.id ?? `msg-${this.nextMessageId++}`,
       conversationId: args.conversationId,
       role: args.role,
       content: args.content,
-      clientMessageId: args.clientMessageId ?? null,
+      model: null,
+      inputTokens: null,
+      outputTokens: null,
       createdAt: new Date(),
-      segments: args.segments ?? [],
-    } as unknown as ChatMessage
+      segments: (args.segments ?? []).map((s, ordinal) => ({
+        kind: s.kind,
+        text: s.text ?? null,
+        toolName: s.toolName ?? null,
+        toolCallId: s.toolCallId ?? null,
+        payload: s.payload ?? null,
+        ordinal,
+      })),
+    }
     const list = this.messagesByConversation.get(args.conversationId) ?? []
     list.push(row)
     this.messagesByConversation.set(args.conversationId, list)
@@ -190,7 +229,7 @@ class FakeChatStore {
     return Promise.resolve()
   }
 
-  getPersistedMessages(conversationId: string): ChatMessage[] {
+  getPersistedMessages(conversationId: string): ChatMessageWithSegments[] {
     return [...(this.messagesByConversation.get(conversationId) ?? [])]
   }
 
@@ -384,10 +423,11 @@ const baseStreamArgs = (
     userMessage: string
     tools: Record<string, LlmStreamTool>
     signal: AbortSignal
-    clientMessageId: string
+    userMessageId: string
     maxSteps: number
     attachmentIds: string[]
     scope: ChatScope
+    agentName: string
     judgeSweepId: string
   }> = {},
 ) => ({
@@ -397,14 +437,17 @@ const baseStreamArgs = (
   tools: overrides.tools ?? {},
   userMessage: overrides.userMessage ?? SAMPLE_USER,
   ...(overrides.signal && { signal: overrides.signal }),
-  ...(overrides.clientMessageId !== undefined && {
-    clientMessageId: overrides.clientMessageId,
+  ...(overrides.userMessageId !== undefined && {
+    userMessageId: overrides.userMessageId,
   }),
   ...(overrides.maxSteps !== undefined && { maxSteps: overrides.maxSteps }),
   ...(overrides.attachmentIds !== undefined && {
     attachmentIds: overrides.attachmentIds,
   }),
   ...(overrides.scope !== undefined && { scope: overrides.scope }),
+  ...(overrides.agentName !== undefined && {
+    agentName: overrides.agentName,
+  }),
   ...(overrides.judgeSweepId !== undefined && {
     judgeSweepId: overrides.judgeSweepId,
   }),
@@ -549,6 +592,45 @@ describe('ChatStreamService', () => {
       expect(userIdx).toBeGreaterThanOrEqual(0)
       expect(llmIdx).toBeGreaterThanOrEqual(0)
       expect(userIdx).toBeLessThan(llmIdx)
+    })
+
+    it('groups the turn under its chat scope for Agent Observability', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(
+        service.stream(
+          baseStreamArgs({
+            userMessage: 'hello',
+            scope: ChatScope.chief_of_staff,
+          }),
+        ),
+      )
+
+      expect(firstOrThrow(llm.calls).options.agentTrace).toEqual({
+        conversationId: CONVERSATION_ID,
+        agentName: ChatScope.chief_of_staff,
+      })
+    })
+
+    it('files the turn under an explicit agent name over the scope', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(
+        service.stream(
+          baseStreamArgs({
+            userMessage: 'hello',
+            scope: ChatScope.chief_of_staff,
+            agentName: ChatScope.briefing_annotation,
+          }),
+        ),
+      )
+
+      expect(firstOrThrow(llm.calls).options.agentTrace).toEqual({
+        conversationId: CONVERSATION_ID,
+        agentName: ChatScope.briefing_annotation,
+      })
     })
 
     it('passes the persisted user message in history to llm', async () => {
@@ -700,6 +782,7 @@ describe('ChatStreamService', () => {
 
       expect(seen).toEqual([
         {
+          conversationId: CONVERSATION_ID,
           toolEvents: [
             {
               toolCallId: 'test-query_constituent_data',
@@ -728,7 +811,9 @@ describe('ChatStreamService', () => {
         }),
       )
 
-      expect(seen).toEqual([{ toolEvents: [] }])
+      expect(seen).toEqual([
+        { toolEvents: [], conversationId: CONVERSATION_ID },
+      ])
     })
 
     it('gives two calls to the same tool their own results, by id', async () => {
@@ -1135,7 +1220,6 @@ describe('ChatStreamService', () => {
       expect(system).toContain(
         '[Card you showed: present_outreach_proposal {"channel":"text"}]',
       )
-      expect(system).toContain('record a card the app drew for you')
     })
 
     it('leaves turns with only non-card tools as their text', async () => {
@@ -1160,56 +1244,51 @@ describe('ChatStreamService', () => {
     })
   })
 
-  describe('idempotency via clientMessageId', () => {
-    it('forwards clientMessageId to appendMessage for the user row only', async () => {
+  describe('idempotency via the client-supplied message id', () => {
+    it('writes the user turn under the id the client sent', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([{ kind: 'text', delta: 'ok' }])
-      const appendArgsSeen: AppendArgs[] = []
-      const origAppend = store.appendMessage.bind(store)
-      store.appendMessage = (args: AppendArgs) => {
-        appendArgsSeen.push(args)
-        return origAppend(args)
-      }
+      const userMessageId = '5f4a1f34-94a4-4f8a-9a3d-4a0e2b6c1d77'
 
-      await collect(
-        service.stream(baseStreamArgs({ clientMessageId: 'client-xyz' })),
-      )
+      await collect(service.stream(baseStreamArgs({ userMessageId })))
 
-      const userAppend = appendArgsSeen.find(
-        (a) => a.role === ChatMessageRole.user,
-      )
-      const assistantAppend = appendArgsSeen.find(
-        (a) => a.role === ChatMessageRole.assistant,
-      )
-      expect(userAppend?.clientMessageId).toBe('client-xyz')
-      expect(assistantAppend?.clientMessageId).toBeUndefined()
+      expect(store.userAppendIds).toEqual([userMessageId])
+      const userRow = store
+        .getPersistedMessages(CONVERSATION_ID)
+        .find((m) => m.role === ChatMessageRole.user)
+      expect(userRow?.id).toBe(userMessageId)
     })
 
-    it('does not double-persist user message when same clientMessageId is sent twice', async () => {
+    it('replays the stored reply instead of running the turn twice', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      store.replyConversationId = CONVERSATION_ID
       llm.setScript([{ kind: 'text', delta: 'ok' }])
-      await collect(
-        service.stream(
-          baseStreamArgs({
-            userMessage: 'first-text',
-            clientMessageId: 'dupe-1',
-          }),
-        ),
+      const userMessageId = '5f4a1f34-94a4-4f8a-9a3d-4a0e2b6c1d77'
+
+      await collect(service.stream(baseStreamArgs({ userMessageId })))
+
+      // Second delivery of the same send: the reply is already stored, so the
+      // turn must not run again.
+      llm.setScript([{ kind: 'text', delta: 'a second answer' }])
+      const chunks = await collect(
+        service.stream(baseStreamArgs({ userMessageId })),
       )
 
-      llm.setScript([{ kind: 'text', delta: 'ok2' }])
-      await collect(
-        service.stream(
-          baseStreamArgs({
-            userMessage: 'first-text',
-            clientMessageId: 'dupe-1',
-          }),
-        ),
-      )
-
+      expect(chunks).toEqual([
+        { type: 'text', delta: 'ok' },
+        {
+          type: 'done',
+          assistantMessageId: expect.any(String) as unknown as string,
+        },
+      ])
+      expect(llm.calls).toHaveLength(1)
       const persisted = store.getPersistedMessages(CONVERSATION_ID)
-      const userRows = persisted.filter((m) => m.role === ChatMessageRole.user)
-      expect(userRows).toHaveLength(1)
+      expect(
+        persisted.filter((m) => m.role === ChatMessageRole.user),
+      ).toHaveLength(1)
+      expect(
+        persisted.filter((m) => m.role === ChatMessageRole.assistant),
+      ).toHaveLength(1)
     })
   })
 

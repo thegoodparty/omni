@@ -9,6 +9,8 @@ import {
   Param,
   Post,
   Put,
+  Query,
+  StreamableFile,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -17,6 +19,7 @@ import {
   PriorityReadStatusSchema,
   PriorityResultsSchema,
   PrioritySchema,
+  PriorityThemeCommentsSchema,
   parsePriorityStatus,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -29,17 +32,32 @@ import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { FeaturesService } from '@/features/services/features.service'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { z } from 'zod'
-import { ElectedOffice, PrioritySource, User } from '../generated/prisma'
+import { isDevOnlyRouteEnabled } from '@/constituentFeedback/util/devOnlyRoute.util'
+import {
+  ElectedOffice,
+  Priority,
+  PrioritySource,
+  User,
+} from '../generated/prisma'
 import {
   CreatePriorityDto,
   PriorityIdParamDto,
+  PriorityThemeCommentsExportQueryDto,
+  PriorityThemeParamDto,
   SetOnboardingPrioritiesDto,
   UpdatePriorityDto,
 } from './schemas/priority.schema'
 import { PriorityStatusResponseSchema } from './schemas/priorityStatus.schema'
+import {
+  RoundTwoDrawResponseSchema,
+  RoundTwoOutreachParamDto,
+} from './schemas/roundTwoDraw.schema'
 import { PrioritiesService } from './services/priorities.service'
 import { PriorityOnboardingService } from './services/priorityOnboarding.service'
 import { PriorityResultsService } from './services/priorityResults.service'
+import { PriorityRoundTwoDrawService } from './services/priorityRoundTwoDraw.service'
+import { PriorityThemeCommentsService } from './services/priorityThemeComments.service'
+import { shownNextAction } from './services/priorityStatus.service'
 import { currentStepOf, priorityToApi } from './util/priority.util'
 
 @Controller('priorities')
@@ -52,14 +70,35 @@ export class PrioritiesController {
     private readonly onboarding: PriorityOnboardingService,
     private readonly priorityResults: PriorityResultsService,
     private readonly features: FeaturesService,
+    private readonly roundTwo: PriorityRoundTwoDrawService,
+    private readonly themeComments: PriorityThemeCommentsService,
   ) {}
 
   @Get()
   @McpTool({ description: 'List priorities for the elected office.' })
   @ResponseSchema(z.array(PrioritySchema))
   async list(@ReqElectedOffice() electedOffice: ElectedOffice) {
-    const priorities = await this.prioritiesService.listActive(electedOffice.id)
-    return priorities.map(priorityToApi)
+    const [priorities, names] = await Promise.all([
+      this.prioritiesService.listActive(electedOffice.id),
+      this.officialNames(electedOffice),
+    ])
+    return priorities.map((priority) => this.toApi(priority, names))
+  }
+
+  // The office's official, whose name a shown nextAction must not use.
+  private async officialNames(
+    electedOffice: ElectedOffice,
+  ): Promise<(string | null)[]> {
+    const user = await this.prioritiesService.client.user.findUnique({
+      where: { id: electedOffice.userId },
+      select: { firstName: true, lastName: true },
+    })
+    return [user?.firstName ?? null, user?.lastName ?? null]
+  }
+
+  private toApi(priority: Priority, names: (string | null)[]) {
+    const dto = priorityToApi(priority)
+    return { ...dto, nextAction: shownNextAction(dto.nextAction, names) }
   }
 
   @Get('onboarding')
@@ -92,7 +131,10 @@ export class PrioritiesController {
     return {
       status: parsePriorityStatus(priority.status),
       currentStep: currentStepOf(priority),
-      nextAction: priority.nextAction,
+      nextAction: shownNextAction(
+        priority.nextAction,
+        await this.officialNames(electedOffice),
+      ),
     }
   }
 
@@ -113,6 +155,40 @@ export class PrioritiesController {
     return this.priorityResults.resultsFor(electedOffice, id)
   }
 
+  // What people said behind one theme, words only (PriorityThemeComments).
+  @Get(':id/results/themes/:themeId/comments')
+  @ResponseSchema(PriorityThemeCommentsSchema)
+  async resultsThemeComments(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqUser() user: User,
+    @Param() { id, themeId }: PriorityThemeParamDto,
+  ) {
+    await this.assertResultsEnabled(user)
+    return this.themeComments.commentsFor(electedOffice, id, themeId)
+  }
+
+  // The comments as a CSV of comment and theme, one theme's or every
+  // theme's. A file, so no @ResponseSchema; the webapp links to it
+  // directly, as the polls download does.
+  @Get(':id/results/comments/download')
+  async downloadComments(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqUser() user: User,
+    @Param() { id }: PriorityIdParamDto,
+    @Query() { themeId }: PriorityThemeCommentsExportQueryDto,
+  ): Promise<StreamableFile> {
+    await this.assertResultsEnabled(user)
+    return this.themeComments.commentsCsv(electedOffice, id, themeId)
+  }
+
+  private async assertResultsEnabled(user: User): Promise<void> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CITIZEN_PANELS_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
+  }
+
   @Get(':id/read-status')
   @ResponseSchema(PriorityReadStatusSchema)
   async readStatus(
@@ -128,6 +204,22 @@ export class PrioritiesController {
     return this.priorityResults.readStatusFor(electedOffice, id)
   }
 
+  // Dev and preview only: draws one of the office's round 2 texts now,
+  // whatever its send date, so a reviewer need not wait for the job.
+  @Post('round-two/:outreachId/draw')
+  @ResponseSchema(RoundTwoDrawResponseSchema)
+  async drawRoundTwo(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { outreachId }: RoundTwoOutreachParamDto,
+  ) {
+    // 404, not 403: on prod the route should not admit it exists.
+    if (!isDevOnlyRouteEnabled()) throw new NotFoundException()
+    return this.roundTwo.drawForOffice(
+      electedOffice.organizationSlug,
+      outreachId,
+    )
+  }
+
   @Get(':id')
   @ResponseSchema(PrioritySchema)
   async get(
@@ -140,7 +232,7 @@ export class PrioritiesController {
     if (!priority) {
       throw new NotFoundException('Priority not found')
     }
-    return priorityToApi(priority)
+    return this.toApi(priority, await this.officialNames(electedOffice))
   }
 
   @Post()
@@ -155,7 +247,7 @@ export class PrioritiesController {
       PrioritySource.user_stated,
       'priorities_page',
     )
-    return priorityToApi(created)
+    return this.toApi(created, await this.officialNames(electedOffice))
   }
 
   @Put(':id')
@@ -172,7 +264,7 @@ export class PrioritiesController {
     if (!updated) {
       throw new NotFoundException('Priority not found')
     }
-    return priorityToApi(updated)
+    return this.toApi(updated, await this.officialNames(electedOffice))
   }
 
   @Delete(':id')

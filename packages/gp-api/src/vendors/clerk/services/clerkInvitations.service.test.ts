@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClerkClient } from '@clerk/backend'
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
   CLERK_API_TIMEOUT_MS,
@@ -38,8 +38,10 @@ const makeService = ({
     invitations: { createInvitation, getInvitationList, revokeInvitation },
     users: { getUser, updateUserMetadata, getUserList },
   } as unknown as ClerkClient
+  const logger = createMockLogger()
   return {
-    service: new ClerkInvitationsService(clerkClient, createMockLogger()),
+    service: new ClerkInvitationsService(clerkClient, logger),
+    logger,
     createInvitation,
     getInvitationList,
     revokeInvitation,
@@ -71,10 +73,74 @@ describe('ClerkInvitationsService', () => {
       })
     })
 
+    it('does not email a test-domain invitee', async () => {
+      const createInvitation = vi.fn().mockResolvedValue({
+        id: 'inv_1',
+        emailAddress: 'x@test.goodparty.org',
+      })
+      const { service } = makeService({ createInvitation })
+
+      await service.createTeamInvitation({
+        emailAddress: 'x@test.goodparty.org',
+        redirectUrl: 'https://app.goodparty.org/team-invite',
+        publicMetadata: metadata,
+      })
+
+      expect(createInvitation).toHaveBeenCalledWith(
+        expect.objectContaining({ notify: false }),
+      )
+    })
+
     it('throws BadGatewayException when Clerk rejects the invitation', async () => {
       const createInvitation = vi
         .fn()
         .mockRejectedValue(new Error('clerk_error: email already invited'))
+      const { service } = makeService({ createInvitation })
+
+      await expect(
+        service.createTeamInvitation({
+          emailAddress: 'a@b.com',
+          redirectUrl: 'https://app.goodparty.org/team-invite',
+          publicMetadata: metadata,
+        }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    it('maps a Clerk 400 to BadRequestException and logs its codes without meta', async () => {
+      const apiError = Object.assign(new Error('Bad Request'), {
+        clerkError: true,
+        status: 400,
+        clerkTraceId: 'trace_2',
+        errors: [{ code: 'form_param_format_invalid', meta: { x: 'a@b.com' } }],
+      })
+      const createInvitation = vi.fn().mockRejectedValue(apiError)
+      const { service, logger } = makeService({ createInvitation })
+
+      await expect(
+        service.createTeamInvitation({
+          emailAddress: 'a@b.com',
+          redirectUrl: 'https://app.goodparty.org/team-invite',
+          publicMetadata: metadata,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException)
+      expect(logger.error).toHaveBeenCalledWith(
+        {
+          err: apiError,
+          clerkStatus: 400,
+          clerkErrorCodes: ['form_param_format_invalid'],
+          clerkTraceId: 'trace_2',
+        },
+        'Failed to create Clerk team invitation',
+      )
+    })
+
+    it('keeps BadGatewayException for a Clerk 5xx', async () => {
+      const apiError = Object.assign(new Error('boom'), {
+        clerkError: true,
+        status: 502,
+        errors: [{ code: 'internal_clerk_error' }],
+      })
+      const createInvitation = vi.fn().mockRejectedValue(apiError)
       const { service } = makeService({ createInvitation })
 
       await expect(
@@ -179,6 +245,59 @@ describe('ClerkInvitationsService', () => {
       await expect(
         service.listPendingTeamInvitations('acme'),
       ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    it("logs Clerk's status, error codes, trace id and the failing page offset, without error meta", async () => {
+      // Same shape @clerk/backend throws for a non-2xx response; meta can
+      // carry email addresses, which must not reach the log fields.
+      const apiError = Object.assign(new Error(''), {
+        clerkError: true,
+        status: 502,
+        clerkTraceId: 'trace_1',
+        errors: [
+          {
+            code: 'internal_clerk_error',
+            message: 'Oops, an unexpected error occurred',
+            meta: { emailAddresses: ['invitee@example.com'] },
+          },
+        ],
+      })
+      const getInvitationList = vi
+        .fn()
+        .mockResolvedValueOnce({
+          data: [{ id: 'inv_1', publicMetadata: null }],
+          totalCount: 501,
+        })
+        .mockRejectedValueOnce(apiError)
+      const { service, logger } = makeService({ getInvitationList })
+
+      await expect(
+        service.listPendingTeamInvitations('acme'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(logger.error).toHaveBeenCalledWith(
+        {
+          err: apiError,
+          offset: 500,
+          clerkStatus: 502,
+          clerkErrorCodes: ['internal_clerk_error'],
+          clerkTraceId: 'trace_1',
+        },
+        'Failed to list Clerk team invitations',
+      )
+    })
+
+    it('logs only the offset for a failure that is not a Clerk API error', async () => {
+      const err = new Error('down')
+      const getInvitationList = vi.fn().mockRejectedValue(err)
+      const { service, logger } = makeService({ getInvitationList })
+
+      await expect(
+        service.listPendingTeamInvitations('acme'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(logger.error).toHaveBeenCalledWith(
+        { err, offset: 0 },
+        'Failed to list Clerk team invitations',
+      )
     })
 
     describe('page retries', () => {

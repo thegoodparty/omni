@@ -12,8 +12,13 @@ permissions:
 # Cancel superseded PR runs: a new push makes the in-flight result irrelevant,
 # and while cancel was off the new run also queued behind it. The Vercel preview
 # is re-aliased by the next run, so a killed deploy self-heals. Never on main.
+#
+# On main the group is the run id, so pushes never share a group. A shared
+# group still dropped runs with cancel-in-progress off: GitHub keeps one
+# pending run per group, so a third quick merge cancelled the queued one,
+# and release.yml then failed that commit as "cancelled".
 concurrency:
-  group: candidate-sites-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: candidate-sites-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -21,10 +26,10 @@ env:
 
 jobs:
   ci:
-    name: Validate
+    name: Validate (candidate-sites)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -63,7 +68,7 @@ jobs:
     outputs:
       url: ${{ steps.vercel.outputs.url }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -93,9 +98,9 @@ jobs:
         id: vercel
         uses: ./.github/actions/vercel-deploy
         with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-token: ${{ secrets.VERCEL_PREVIEW_TOKEN }}
           vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_CANDIDATE_SITES }}
           target: ${{ steps.ctx.outputs.target }}
           git-branch: ${{ steps.ctx.outputs.branch }}
-          pr-alias: ${{ github.event_name == 'pull_request' && format('candidate-sites-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
+          preview-name: candidate-sites

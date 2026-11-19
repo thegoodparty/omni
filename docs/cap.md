@@ -16,6 +16,9 @@ share a goal and almost no code:
 The two meet at exactly one seam: interactive agents **read** the artifacts that
 background agents **produce**. Nothing else crosses.
 
+Background agents are moving into gp-api, onto the AI SDK chat already uses, one
+agent at a time: [`cap-consolidation.md`](cap-consolidation.md).
+
 ## What CAP is not
 
 CAP is always about agents that run **within the product** — work done on behalf of a
@@ -132,7 +135,7 @@ to read the verdict: `packages/gp-api/src/chats/evals/judge/README.md`.
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Understanding / changing a background agent             | [`cap-background-agents.md`](cap-background-agents.md)                                       |
 | Understanding / changing an interactive chat            | [`cap-interactive-agents.md`](cap-interactive-agents.md)                                     |
+| The plan for moving every agent into gp-api             | [`cap-consolidation.md`](cap-consolidation.md)                                               |
 | The gp-api transport layer for runs                     | `packages/gp-api/src/agentExperiments/AGENTS.md`                                             |
 | Writing/running an eval, changing a prompt safely       | `packages/runbooks/books/pmf-eval-system.md`                                                 |
-| Bulk-dispatching a cohort (briefings, community issues) | the `bulk-briefing-cohort` / `bulk-community-issues-cohort` skills                           |
 | The agent runtime, broker, dispatch internals           | `packages/gp-ai/pmf_engine/control_plane/README.md`, `packages/gp-ai/broker/ARCHITECTURE.md` |

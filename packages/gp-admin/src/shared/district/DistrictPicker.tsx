@@ -7,7 +7,7 @@ import { InfoCard } from '@/app/dashboard/users/[id]/components/InfoCard'
 import { fetchDistrictTypes, fetchDistrictNames } from './district-actions'
 import { districtTypeLabel } from './districtTypeLabel'
 import { DISTRICT_FORM_SECTION_TITLE } from '@/app/dashboard/users/[id]/edit/constants'
-import type { DistrictTypeItem, DistrictNameItem } from '@goodparty_org/sdk'
+import type { DistrictTypeItem, DistrictNameItem } from '@/shared/gpApi'
 
 const SELECT_NONE = '__none__'
 

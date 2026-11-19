@@ -15,9 +15,16 @@ import { VercelError } from '@vercel/sdk/models/vercelerror'
 import { parsePhoneNumberWithError } from 'libphonenumber-js'
 import { PinoLogger } from 'nestjs-pino'
 import { resolveEnvVar } from '../../../shared/env/env'
+import {
+  vendorBaseUrl,
+  VENDOR_MODE,
+} from '../../../shared/util/appEnvironment.util'
 
 const VERCEL_NOT_CONFIGURED_MESSAGE =
   'Candidate domains are disabled: set VERCEL_TOKEN and VERCEL_PROJECT_ID'
+
+const VERCEL_MOCK_TOKEN = 'mock-vercel-token'
+const VERCEL_MOCK_PROJECT_ID = 'mock-vercel-project'
 
 type VercelConfig = {
   token: string
@@ -28,6 +35,17 @@ type VercelConfig = {
 const resolveVercelConfig = (): VercelConfig | null => {
   const token = resolveEnvVar('VERCEL_TOKEN')
   const projectId = resolveEnvVar('VERCEL_PROJECT_ID')
+  // The Vercel mock accepts any bearer token, so mock mode stays configured
+  // when the secret blob has no Vercel keys (domain purchase is on in mock mode).
+  if (VENDOR_MODE === 'mock') {
+    return {
+      token: token.configured ? token.value : VERCEL_MOCK_TOKEN,
+      projectId: projectId.configured
+        ? projectId.value
+        : VERCEL_MOCK_PROJECT_ID,
+      teamId: process.env.VERCEL_TEAM_ID,
+    }
+  }
   if (!token.configured || !projectId.configured) {
     return null
   }
@@ -46,10 +64,14 @@ const resolveVercelConfig = (): VercelConfig | null => {
 // fast and leaves the request time to return its 502.
 export const VERCEL_REQUEST_TIMEOUT_MS = 30_000
 
+// The SDK's default host; spelled out because vendorBaseUrl needs the live URL.
+const VERCEL_API_URL = 'https://api.vercel.com'
+
 const vercelConfig = resolveVercelConfig()
 const vercelClient = vercelConfig
   ? new Vercel({
       bearerToken: vercelConfig.token,
+      serverURL: vendorBaseUrl('vercel', VERCEL_API_URL),
       timeoutMs: VERCEL_REQUEST_TIMEOUT_MS,
     })
   : null
@@ -89,6 +111,12 @@ export class VercelService {
       projectId: vercelConfig.projectId,
       teamId: vercelConfig.teamId,
     }
+  }
+
+  // The project candidate domains attach to; the Vercel mock records it on each
+  // project_domain, which is what mock-mode verify-live matches against.
+  getProjectId(): string {
+    return this.requireClient().projectId
   }
 
   isVercelNotFoundError(e: unknown): e is NotFound {

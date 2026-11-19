@@ -1,8 +1,24 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { UserSection } from './UserSection'
 import { UserProvider } from '../context/UserContext'
-import { UserRole, type User } from '@goodparty_org/sdk'
+import { UserRole, type User } from '@/shared/gpApi'
+
+// Loads its own state through server actions; covered by its own test.
+vi.mock('./PublicProfileCard', () => ({
+  PublicProfileCard: () => <div>Public profile card</div>,
+}))
+
+vi.mock('@/components/ProtectedContent', () => ({
+  ProtectedContent: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}))
+
+// Calls a server action; covered by its own test.
+vi.mock('./ChangeEmailDialog', () => ({
+  ChangeEmailDialog: () => <button>Change</button>,
+}))
 
 const mockUser: User = {
   id: 123,

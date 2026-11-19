@@ -111,10 +111,10 @@ const score = (
 ): AgentScore =>
   scoreAgent({ normalized, judgments }, { ...DEFAULT_JUDGE_CONFIG, ...config })
 
-// Only the case count gate gets in the way of most of these tests, so
-// lower it rather than inventing twenty cases each time.
+// Most of these tests are about the interval, so make it decide from one
+// case up rather than inventing eight cases each time.
 const noFloor = (extra: Partial<JudgeConfig> = {}): Partial<JudgeConfig> => ({
-  gates: { ...DEFAULT_JUDGE_CONFIG.gates, minCases: 1 },
+  gates: { ...DEFAULT_JUDGE_CONFIG.gates, bootstrapMinCases: 1 },
   orderSwap: { enabled: false, fraction: 0 },
   ...extra,
 })
@@ -527,11 +527,12 @@ describe("cannot_determine and CAN'T SAY", () => {
 
   // THE BACKGROUND BUDGET LANDS UNDER THE FLOOR — checked against the gate
   // itself rather than restated as `3 < 20`. The number of judgments is
-  // DERIVED from the budget, and every one of them is a unanimous win, so the
-  // gate is the only thing standing between this and a confident BETTER. A
-  // budget change that clears the floor turns this red, which is the point:
-  // background verdicts would then start reading as conclusive.
-  it('gates a comparison at the background budget, however clear it looks', () => {
+  // DERIVED from the budget: a background sweep at the default cap, every
+  // pair a unanimous win. Five of five is p = 1/32 under the sign test, so
+  // this is the fewest cases that can read BETTER. A budget cut that drops
+  // the cap under five turns this red, which is the point: background
+  // verdicts would go back to never deciding.
+  it('decides a unanimous comparison at the background budget', () => {
     const { attemptsPerCase, maxCases } = DEFAULT_JUDGE_CONFIG.background
     expect(maxCases).toBeDefined()
     const pairs = (maxCases ?? 0) * attemptsPerCase
@@ -542,20 +543,133 @@ describe("cannot_determine and CAN'T SAY", () => {
       orderSwap: { enabled: false, fraction: 0 },
     })
     expect(result.overall.delta).toBe(1)
-    expect(result.label).toBe("CAN'T SAY")
-    expect(result.labelNote).toMatch(/below the floor of 20/)
+    expect(result.overall.interval).toBeNull()
+    expect(result.overall.sign).toEqual({
+      forCandidate: 5,
+      forBase: 0,
+      pBetter: 1 / 32,
+      pWorse: 1,
+    })
+    expect(result.label).toBe('BETTER')
+    expect(result.labelNote).toContain('5 of 5 cases favoured the candidate')
+    expect(result.labelNote).toContain('decided by count')
   })
 
-  it('gates below the case-count floor whatever the delta says', () => {
-    const judgments = Array.from({ length: 5 }, (_, i) =>
+  it('reads 4 of 4 as too few comparisons, whatever the delta says', () => {
+    const judgments = Array.from({ length: 4 }, (_, i) =>
       judgment({ caseId: `case-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'X' }),
     )
     const result = score(judgments, {
       orderSwap: { enabled: false, fraction: 0 },
     })
     expect(result.overall.delta).toBe(1)
+    expect(result.overall.sign?.pBetter).toBe(1 / 16)
     expect(result.label).toBe("CAN'T SAY")
-    expect(result.labelNote).toMatch(/below the floor of 20/)
+    expect(result.labelNote).toMatch(/^too few comparisons to decide/)
+    expect(result.labelNote).toContain('4 of 4 cases favoured the candidate')
+  })
+
+  it('reads 4 of 5 as too few comparisons', () => {
+    const judgments = Array.from({ length: 5 }, (_, i) =>
+      judgment({
+        caseId: `case-${i}`,
+        slotMap: X_IS_CANDIDATE,
+        verdict: i === 0 ? 'X' : 'Y',
+      }),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+    })
+    expect(result.overall.sign).toEqual({
+      forCandidate: 1,
+      forBase: 4,
+      pBetter: 31 / 32,
+      pWorse: 6 / 32,
+    })
+    expect(result.label).toBe("CAN'T SAY")
+    expect(result.labelNote).toContain('4 the base')
+    expect(result.labelNote).toContain('0.188 for WORSE')
+  })
+
+  it('reads 5 of 5 for the base as WORSE', () => {
+    const judgments = Array.from({ length: 5 }, (_, i) =>
+      judgment({ caseId: `case-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'Y' }),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+    })
+    expect(result.label).toBe('WORSE')
+    expect(result.labelNote).toContain('5 of 5 cases favoured the base')
+    expect(result.regressions).toEqual([
+      'task_success',
+      'instruction_adherence',
+      'user_utility',
+    ])
+  })
+
+  // One vote per case, as the interval resamples one score per case. Three
+  // attempts of one case that all went the base's way are one vote, not
+  // three, so two such cases are 2 of 2 (p = 1/4) and never 6 of 6.
+  it('counts a case as one vote however many attempts it ran', () => {
+    const judgments = [1, 2].flatMap((c) =>
+      [1, 2, 3].map((attempt) =>
+        judgment({
+          caseId: `case-${c}`,
+          attempt,
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'Y',
+        }),
+      ),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+    })
+    expect(result.overall.losses).toBe(6)
+    expect(result.overall.sign).toEqual({
+      forCandidate: 0,
+      forBase: 2,
+      pBetter: 1,
+      pWorse: 1 / 4,
+    })
+    expect(result.label).toBe("CAN'T SAY")
+  })
+
+  // A case whose attempts netted to zero is not a vote either way: with
+  // seven of them and five for the base, the count is 5 of 5, not 5 of 12.
+  it('drops tied cases from the count', () => {
+    const judgments = Array.from({ length: 12 }, (_, i) =>
+      judgment({
+        caseId: `case-${i}`,
+        slotMap: X_IS_CANDIDATE,
+        verdict: i < 5 ? 'Y' : 'tie',
+      }),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+      gates: { ...DEFAULT_JUDGE_CONFIG.gates, bootstrapMinCases: 20 },
+    })
+    expect(result.overall.sign).toEqual({
+      forCandidate: 0,
+      forBase: 5,
+      pBetter: 1,
+      pWorse: 1 / 32,
+    })
+    expect(result.label).toBe('WORSE')
+  })
+
+  // From the cutover up the interval decides and the count is not computed,
+  // so a reader never sees two tests on one row.
+  it('switches to the interval at gates.bootstrapMinCases', () => {
+    const n = DEFAULT_JUDGE_CONFIG.gates.bootstrapMinCases
+    const judgments = Array.from({ length: n }, (_, i) =>
+      judgment({ caseId: `case-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'Y' }),
+    )
+    const result = score(judgments, {
+      orderSwap: { enabled: false, fraction: 0 },
+    })
+    expect(result.overall.sign).toBeNull()
+    expect(result.overall.interval).toEqual({ lower: -1, upper: -1 })
+    expect(result.label).toBe('WORSE')
   })
 
   // An ungraded judgment is a judge failure. It has to be countable apart
@@ -627,7 +741,7 @@ describe('labels', () => {
       noFloor({
         gates: {
           ...DEFAULT_JUDGE_CONFIG.gates,
-          minCases: 1,
+          bootstrapMinCases: 1,
           practicalMargin: 0.6,
         },
       }),
@@ -646,7 +760,7 @@ describe('labels', () => {
       noFloor({
         gates: {
           ...DEFAULT_JUDGE_CONFIG.gates,
-          minCases: 1,
+          bootstrapMinCases: 1,
           practicalMargin: 0.1,
         },
       }),
@@ -953,31 +1067,20 @@ describe('the measured layer', () => {
 })
 
 describe('exclusion counts', () => {
-  it('counts tool errors, infra errors and unpaired records apart', () => {
+  it('counts infra errors and unpaired records apart', () => {
     const agent: NormalizedAgent = {
       ...normalizeAgent(BLOCKED_PAIR, () => 0),
-      excluded: [
-        ...normalizeAgent(TOOL_ERROR_PAIR, () => 0).excluded,
-        ...normalizeAgent(INFRA_ERROR_PAIR, () => 0).excluded,
-      ],
+      excluded: normalizeAgent(INFRA_ERROR_PAIR, () => 0).excluded,
       unpaired: normalizeAgent([BASE], () => 0).unpaired,
     }
     const result = score([], noFloor(), agent)
     expect(result.exclusions).toEqual({
       ungradedReasons: [],
-      toolError: 1,
       infraError: 1,
       identicalConfig: 0,
       unpaired: 1,
       ungraded: 0,
-      toolErrorCauses: [
-        {
-          tool: 'query_constituent_data',
-          errorClass: 'PeopleDbxUnavailableError',
-          pairs: 1,
-          arms: ['candidate'],
-        },
-      ],
+      toolErrorCauses: [],
     })
   })
 })
@@ -1148,9 +1251,9 @@ describe('ungraded reasons reach the score', () => {
 // A COUNT WITHOUT A CAUSE. Two live sweeps excluded every pair for a tool
 // error and said only how many; naming the tool took a diagnostic branch.
 //
-// The records here are background-shaped, so their pairs are SCORED rather
-// than excluded and the causes land in `scoredToolErrorCauses`. The grouping
-// is the same function either way; the chat case below pins the other list.
+// A tool error does not exclude a pair, so these pairs are SCORED and the
+// causes land in `scoredToolErrorCauses`. The grouping is the same function
+// either way; the identical-config cases below pin the exclusion list.
 describe('tool error causes', () => {
   const TRACEBACK =
     "Exit code 1\nTraceback (most recent call last):\nKeyError: 'PARAMS_JSON'"
@@ -1205,9 +1308,8 @@ describe('tool error causes', () => {
     )
 
     const result = scoreGraded(agent)
-    // None of these pairs was excluded: a background tool error is evidence
-    // beside the verdict, not a reason to drop the pair.
-    expect(result.exclusions.toolError).toBe(0)
+    // None of these pairs was excluded: a tool error is evidence beside the
+    // verdict, not a reason to drop the pair.
     expect(result.exclusions.toolErrorCauses).toEqual([])
     expect(result.scoredToolErrorCauses).toEqual([
       {
@@ -1273,36 +1375,33 @@ describe('tool error causes', () => {
       () => 0,
     )
     const result = scoreGraded(agent)
-    // Each list on its own: merged, a cause routed to the wrong one would pass.
-    // The broker tool was on a background record, so it was scored.
-    expect(result.scoredToolErrorCauses.map((c) => c.tool)).toEqual([
+    expect(result.scoredToolErrorCauses.map((c) => c.tool).sort()).toEqual([
       'mcp__broker__GET_community_issues',
+      'query_constituent_data',
+      'unknown',
     ])
-    // The chat records keep the old rule and are excluded.
-    expect(result.exclusions.toolErrorCauses.map((c) => c.tool).sort()).toEqual(
-      ['query_constituent_data', 'unknown'],
-    )
+    expect(result.exclusions.toolErrorCauses).toEqual([])
   })
 
-  it('is empty when nothing was excluded for a tool error', () => {
+  it('is empty when no pair hit a tool error', () => {
     const agent = normalizeAgent(CHAT_PAIR, () => 0)
     expect(score([], noFloor(), agent).exclusions.toolErrorCauses).toEqual([])
     expect(score([], noFloor(), agent).scoredToolErrorCauses).toEqual([])
   })
 
-  // Chat keeps the old rule: its tool-error pair is excluded, so its cause is
-  // an exclusion cause and never a scored one.
-  it('keeps a chat tool error in the exclusion list only', () => {
-    const result = score(
-      [],
-      noFloor(),
-      normalizeAgent(TOOL_ERROR_PAIR, () => 0),
-    )
-    expect(result.exclusions.toolError).toBe(1)
-    expect(result.exclusions.toolErrorCauses.map((c) => c.tool)).toEqual([
+  // A chat pair is judged on the answer its user received, so a failed tool
+  // there is a scored cause, never an exclusion one.
+  it('lists a chat tool error as scored, not excluded', () => {
+    const result = scoreGraded(normalizeAgent(TOOL_ERROR_PAIR, () => 0))
+    expect(result.exclusions.toolErrorCauses).toEqual([])
+    expect(result.scoredToolErrorCauses.map((c) => c.tool)).toEqual([
       'query_constituent_data',
     ])
-    expect(result.scoredToolErrorCauses).toEqual([])
+    expect(result.evidence.toolErrors).toEqual({
+      base: 0,
+      candidate: 1,
+      delta: 1,
+    })
   })
 
   // The decision this rests on: a background pair whose arms hit a failing
@@ -1312,7 +1411,6 @@ describe('tool error causes', () => {
     const result = scoreGraded(
       normalizeAgent(BACKGROUND_TOOL_ERROR_PAIR, () => 0),
     )
-    expect(result.exclusions.toolError).toBe(0)
     expect(result.evidence.pairs).toBe(1)
     expect(result.evidence.toolErrors).toEqual({
       base: 2,
@@ -1355,7 +1453,7 @@ describe('tool error causes', () => {
     expect(result.evidence.toolErrors.base).toBe(1)
   })
 
-  // A background pair with tool errors is no longer excluded for them, so
+  // A pair with tool errors is no longer excluded for them, so
   // when its arms share a config digest it is excluded as identicalConfig
   // instead. Before, it was a tool-error exclusion and its causes were
   // listed; they must still be, under the exclusion list, naming only the

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
@@ -21,6 +21,7 @@ import {
   Button,
   Card,
   Overline,
+  PhoneMessagePreview,
   Progress,
   StatusText,
   Table,
@@ -37,6 +38,7 @@ import {
   ChartColumnIcon,
   CheckCircleIcon,
   ClockIcon,
+  CreditCardIcon,
   DollarSignIcon,
   DoorOpenIcon,
   FileTextIcon,
@@ -53,6 +55,10 @@ import {
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useWinSmsPreviewEditFlag } from 'app/shared/experiments/winSmsPreviewEditFlag'
+import { SmsTestSendForm } from './sms/SmsTestSendForm'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { reportQueryOptions } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { VoterFileFilters } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { FetchError } from 'ofetch'
@@ -71,13 +77,19 @@ import {
 } from 'app/dashboard/door-knocking/native/campaignLifecycle'
 import { MarkDoneDialog } from 'app/dashboard/door-knocking/native/MarkDoneDialog'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
-import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import {
+  followUpDrewNobody,
+  followUpPickedAt,
+  getHistoryStatusLabel,
+  isEmailRow,
+  type HistoryRow,
+} from './historyStatus.util'
 import {
   SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import { RESUME_COPY, type GateChannel } from './gate/gateCopy'
+import { RESUME_COPY, type ResumeChannel } from './gate/gateCopy'
 import { shortOutreachDate } from './outreachDate.util'
 import {
   fetchOutreachDetail,
@@ -86,9 +98,16 @@ import {
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
-import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
+import {
+  EditSmsMessageSheet,
+  savedCommitteeOf,
+} from './sms/EditSmsMessageSheet'
+import { withSampleFirstName } from './sms/smsCompose.util'
+import { useCampaign } from '@shared/hooks/useCampaign'
+import { SmsRepliesSection } from './SmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
+import { EmailDrawerSections } from './email/EmailDrawerSections'
 import { socialPurposeLabel } from './socialPurposes'
 import {
   CONTINUE_LABELS,
@@ -102,6 +121,7 @@ import { FollowUpOutstandingSection } from './FollowUpOutstandingSection'
 import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
 import { CampaignTurfList } from './CampaignTurfList'
+import { getOutreachHistoryCopy } from './outreachHistoryCopy'
 import {
   DetailsSection,
   FilterGroup,
@@ -203,7 +223,57 @@ interface OutreachDetailsDrawerProps {
 interface DetailRow extends HistoryRow {
   // The list endpoint joins the whole VoterFileFilter row, so the saved list's
   // name rides along with its criteria flags.
-  voterFileFilter?: VoterFileFilters & { name?: string | null }
+  voterFileFilter?: VoterFileFilters & {
+    name?: string | null
+    sampleSize?: number | null
+    sampledAt?: Date | string | null
+  }
+}
+
+// Its own component so the flag read, and the exposure it tracks, happens only
+// where the Win treatment shows rather than on every drawer Serve also opens.
+// The export route is gated on issue capture, not on this flag, so Download
+// waits for both rather than offering a link that 404s.
+const WinSmsMessage = ({
+  script,
+  imageUrl,
+  isServe,
+  fallback,
+}: {
+  script: string
+  imageUrl: string | null
+  isServe: boolean
+  fallback: ReactNode
+}) => {
+  const { enabled } = useWinSmsPreviewEditFlag(!isServe)
+  const [campaign] = useCampaign()
+  if (isServe || !enabled) return fallback
+  return (
+    <DetailsSection title="Message">
+      <div className="space-y-3">
+        <PhoneMessagePreview
+          imageUrl={imageUrl}
+          script={withSampleFirstName(script)}
+          senderName={savedCommitteeOf(script) ?? campaign?.ownerName}
+        />
+        <p className="text-sm text-muted-foreground">
+          Each person sees their own first name.
+        </p>
+      </div>
+    </DetailsSection>
+  )
+}
+
+const WinSmsReplies = ({ outreachId }: { outreachId: number }) => {
+  const { enabled } = useWinSmsPreviewEditFlag()
+  const issueCapture = useIssueCaptureFlag(false)
+  return enabled ? (
+    <SmsRepliesSection
+      outreachId={outreachId}
+      mode="win"
+      canDownload={issueCapture.enabled}
+    />
+  ) : null
 }
 
 export const OutreachDetailsDrawer = ({
@@ -216,6 +286,7 @@ export const OutreachDetailsDrawer = ({
   isServe = false,
   onCallFollowUpList,
 }: OutreachDetailsDrawerProps) => {
+  const copy = getOutreachHistoryCopy(isServe)
   const { smsCutoffDate } = useSmsCompliance()
   const textingClosedReason = SMS_CUTOFF_COPY.closedReason(
     smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
@@ -227,6 +298,12 @@ export const OutreachDetailsDrawer = ({
   // A robocall the send chain could not deliver — the spine reads `failed`.
   const isFailedRobocall =
     row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'failed'
+  // A robocall whose pay-time hold was declined: the spine sits at
+  // pending_payment and the satellite at hold_failed. The candidate updates
+  // their card and resends, reusing the recording, script and audience.
+  const isHoldFailedRobocall =
+    row?.outreachType === OUTREACH_TYPES.robocall &&
+    row?.robocall?.settleState === 'hold_failed'
   const detailQuery = useOutreachDetail(
     row?.id ?? null,
     row !== null && !isPoll,
@@ -269,8 +346,18 @@ export const OutreachDetailsDrawer = ({
   // history refetch is a courtesy — the row is gone once the 200 lands, so
   // its failure must not read as a failed delete.
   const deleteDraftMutation = useMutation({
-    mutationFn: ({ rowId }: { rowId: number; channel: GateChannel }) =>
-      clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) }),
+    mutationFn: ({
+      rowId,
+      channel,
+    }: {
+      rowId: number
+      channel: ResumeChannel
+    }) =>
+      isServe && channel === 'email'
+        ? clientRequest('DELETE /v1/outreach/serve/email/:id', {
+            id: String(rowId),
+          })
+        : clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) }),
     onSuccess: async (_data, { rowId, channel }) => {
       trackEvent(EVENTS.Outreach.Draft.Deleted, { channel })
       setOutreaches(outreaches.filter((o) => o.id !== rowId))
@@ -292,6 +379,21 @@ export const OutreachDetailsDrawer = ({
   const isCancelableRobocall =
     row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'pending'
   const isCancelable = isCancelableSms || isCancelableRobocall
+  // Exposure fires only where the treatment shows: a Win text still waiting
+  // to go out. Serve and every other row just read the flag.
+  const isEditableWinSms =
+    !isServe && isCancelableSms && row?.outreachType === OUTREACH_TYPES.p2p
+  const { enabled: editFlagOn } = useWinSmsPreviewEditFlag(isEditableWinSms)
+  const [editOpen, setEditOpen] = useState(false)
+  // The row is a snapshot the hub holds; a saved edit lands in the detail.
+  const messageScript = detailQuery.data?.script ?? row?.script ?? null
+  const isLockedForEdit = detailQuery.data?.isLockedForEdit === true
+  const canEditMessage =
+    isEditableWinSms &&
+    editFlagOn &&
+    detailQuery.data !== undefined &&
+    !isLockedForEdit
+  const showTestSend = isCancelableSms && !isServe && editFlagOn
   // Delete is reserved for canceled campaigns — cancel already unwound the
   // vendor job and the charge, so the row is pure history. The backend
   // rejects every other status.
@@ -416,11 +518,23 @@ export const OutreachDetailsDrawer = ({
   // report is per turf, so a door-knocking campaign gets the drawer-level
   // link only when it IS one turf; with several, the row's id names just
   // the anchor's, and each turf card below carries its own link instead.
+  // Issue capture's flag, read without exposure: the capture card is the
+  // treatment. It also decides the footer's shape, so with it off the footer
+  // is the one main shipped.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
   const reportOutreachId = isPhoneBanking
     ? (row?.id ?? null)
     : isDoorKnocking && campaignTurfs.length === 1
       ? (campaignTurfs[0]?.outreachId ?? null)
       : null
+  // What we heard waits for the first note: before one, the report has
+  // nothing to say. The report's own counts, without its polling.
+  const reportQuery = useQuery({
+    ...reportQueryOptions(reportOutreachId ?? 0),
+    enabled: issueCaptureOn && reportOutreachId !== null,
+    refetchInterval: false,
+  })
+  const hasNotes = (reportQuery.data?.denominators.memos ?? 0) > 0
   // Archive and complete for the WHOLE campaign, one server-side transaction
   // each. This is what replaced `canArchiveFromDrawer`: the write used to
   // take a turf id, so on a campaign it shelved the anchor and left every
@@ -470,11 +584,7 @@ export const OutreachDetailsDrawer = ({
     },
     onSuccess: ({ data }) => applyArchivedAt(data.archivedAt),
     onError: () =>
-      errorSnackbar(
-        isArchived
-          ? "Couldn't restore this campaign. Please try again."
-          : "Couldn't archive this campaign. Please try again.",
-      ),
+      errorSnackbar(isArchived ? copy.restoreError : copy.archiveError),
   })
 
   // One button, two writers. Door knocking archives the CAMPAIGN, which is
@@ -604,6 +714,33 @@ export const OutreachDetailsDrawer = ({
   // their own footer below instead of the mode machine.
   const selfServe = isPhoneBanking || isDoorKnocking
   const footerMode = listDetailsFooterMode(lifecycleOf(statusLabel), selfServe)
+  // What we heard rides the sticky footer beside the campaign's own action
+  // rather than heading the body: it is somewhere to go next. A live phone
+  // list puts it in the CTA row beside Continue calling; everywhere else it
+  // shares the second row with Mark campaign done or the archive shelf.
+  // Side by side on a desktop, one under the other on a phone.
+  const heardAction = (className?: string) =>
+    reportOutreachId === null || !issueCaptureOn || !hasNotes ? null : (
+      <WhatWeHeardAction
+        outreachId={reportOutreachId}
+        isServe={isServe}
+        className={className}
+        onNavigate={() => onOpenChange(false)}
+      />
+    )
+  const withHeard = (secondary: ReactNode) => {
+    const heard =
+      footerMode === 'continue' && !isDoorKnocking
+        ? null
+        : heardAction('w-full')
+    if (!heard) return secondary
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {secondary}
+        {heard}
+      </div>
+    )
+  }
   // Phone banking's alone. Door knocking used to build one here too, into
   // the campaign's next unfinished turf — and picking a turf for the
   // candidate is exactly what a campaign's drawer should not do now that
@@ -628,9 +765,12 @@ export const OutreachDetailsDrawer = ({
   // A saved draft (milestone 2) has one destructive act and one way forward,
   // and the way forward is named for what still stands between the row and
   // a send — the same word its status pill reads (design: the drawer's
-  // `verify` footer). Only the two drafting channels save one.
-  const draftChannel: GateChannel =
-    row?.outreachType === OUTREACH_TYPES.robocall ? 'robocall' : 'sms'
+  // `verify` footer). Text, robocall and email save one.
+  const draftChannel: ResumeChannel = isEmailRow(row)
+    ? 'email'
+    : row?.outreachType === OUTREACH_TYPES.robocall
+      ? 'robocall'
+      : 'sms'
   const draftLabel = row?.status === 'draft' ? statusLabel : null
   const draftAction =
     draftLabel === null
@@ -707,21 +847,67 @@ export const OutreachDetailsDrawer = ({
       </div>
     ) : null
 
-  const smsFooter = isCancelable ? (
+  const smsFooter = isHoldFailedRobocall ? (
+    // The payment-failed robocall's one way forward: back into the flow it
+    // was built in, to re-pick a date and pay with a new card (the resume
+    // reuses its recording, script and audience). The same resume path a
+    // saved draft's footer takes.
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
-      <div className="mx-auto flex w-full max-w-[608px] gap-3">
-        {/* Candidate editing is gone (the campaign success team fixes
-            messages), so Cancel takes the full width. */}
+      <div className="mx-auto flex w-full max-w-[608px]">
         <Button
-          variant="outline"
-          className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
-          disabled={cancelMutation.isPending}
-          onClick={() => setCancelConfirmOpen(true)}
+          size="large"
+          className="flex-1"
+          onClick={() => {
+            onOpenChange(false)
+            if (row) onResumeDraft?.(row)
+          }}
         >
-          <CircleSlashIcon className="size-4" />
-          Cancel campaign
+          <CreditCardIcon className="size-4" />
+          Update card and resend
         </Button>
       </div>
+    </div>
+  ) : isCancelable ? (
+    <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
+      <div className="mx-auto flex w-full max-w-[608px] flex-col gap-3">
+        {showTestSend && row && (
+          <div className="max-h-[50vh] overflow-y-auto">
+            <SmsTestSendForm
+              key={row.id}
+              outreachId={row.id}
+              surface="drawer"
+            />
+          </div>
+        )}
+        <div className="flex gap-3">
+          {/* A candidate can edit the text until staff approve it (flag
+            `win-sms-preview-edit-results`); after that the campaign success
+            team fixes messages and the footer says the text is queued. */}
+          {canEditMessage && (
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setEditOpen(true)}
+            >
+              Edit message
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
+            disabled={cancelMutation.isPending}
+            onClick={() => setCancelConfirmOpen(true)}
+          >
+            <CircleSlashIcon className="size-4" />
+            Cancel campaign
+          </Button>
+        </div>
+      </div>
+      {isEditableWinSms && editFlagOn && isLockedForEdit && (
+        <p className="mx-auto mt-3 w-full max-w-[608px] text-center text-sm text-muted-foreground">
+          Your text is queued for sending, so it can&apos;t be edited.
+        </p>
+      )}
     </div>
   ) : isCanceled ? (
     // Canceled rows keep their record (product decision: history is never
@@ -766,6 +952,7 @@ export const OutreachDetailsDrawer = ({
         // last render left in scope. The ref is the value now.
         onInteractOutside={(event) => {
           if (
+            editOpen ||
             cancelConfirmOpen ||
             deleteConfirmOpen ||
             draftDeleteConfirmOpen ||
@@ -781,7 +968,7 @@ export const OutreachDetailsDrawer = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="text-[22px] font-semibold text-foreground">
-                  {row.name || row.title || 'Untitled campaign'}
+                  {row.name || row.title || copy.untitled}
                 </h2>
                 <HistoryStatusText
                   label={displayStatusLabel}
@@ -799,6 +986,19 @@ export const OutreachDetailsDrawer = ({
                   </span>
                 )}
               </div>
+              {isServe && followUpDrewNobody(row) && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Nobody left to text, so this was canceled. We&apos;ll refund
+                  it.
+                </p>
+              )}
+              {isServe && followUpPickedAt(row) !== null && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Recipients picked{' '}
+                  {shortOutreachDate(followUpPickedAt(row) as string | Date)},
+                  from the groups you&apos;ve heard least from.
+                </p>
+              )}
             </div>
           )
         }
@@ -815,6 +1015,19 @@ export const OutreachDetailsDrawer = ({
               : (smsFooter ?? (
                   <ListDetailsFooter
                     mode={footerMode}
+                    // Medium beside What we heard, the size door knocking's
+                    // footer row has; main's large with the flag off.
+                    primarySize={issueCaptureOn ? 'medium' : 'large'}
+                    leading={
+                      // Beside Continue calling, the list's one live action:
+                      // what the calls so far have said.
+                      footerMode === 'continue' && !isDoorKnocking
+                        ? // Half the row each, as the CTA is `flex-1`, and after it:
+                          // to its right on a desktop, under it on a phone, where
+                          // the minimum width is what makes it wrap.
+                          heardAction('order-last min-w-48 flex-1')
+                        : undefined
+                    }
                     destructive={
                       // Delete stays phone-banking-only: it calls the phone list's
                       // own delete endpoint, and no other channel has one.
@@ -878,7 +1091,7 @@ export const OutreachDetailsDrawer = ({
                               }
                             : null
                     }
-                    secondary={
+                    secondary={withHeard(
                       // Archive now applies to every finished row the history's
                       // Archive toggle can hide, door knocking included. What used to
                       // block it was reach, not policy: this row is the projection of
@@ -895,15 +1108,17 @@ export const OutreachDetailsDrawer = ({
                       // offered when nothing is unfinished, because then the
                       // campaign is already done and the row reads `done` anyway.
                       footerMode === 'continue' &&
-                      isDoorKnocking &&
-                      unfinished.length > 0 ? (
+                        isDoorKnocking &&
+                        unfinished.length > 0 ? (
                         <Button
+                          // Ghost beside What we heard: two outlines side by side read
+                          // as two equal choices, and this is the quieter one.
                           variant="outline"
                           className="w-full"
                           disabled={campaignLifecycle.pendingAction !== null}
                           onClick={() => setMarkCampaignDoneOpen(true)}
                         >
-                          Mark campaign done
+                          {copy.markDone}
                         </Button>
                       ) : (
                         // `none` alongside `done`, which is the one state this slot
@@ -928,21 +1143,21 @@ export const OutreachDetailsDrawer = ({
                         // its underlying lifecycle here, which is what already keeps
                         // Restore reachable — so neither is affected.
                         (footerMode === 'done' || footerMode === 'none') &&
-                        (!isDoorKnocking || campaignTurfs.length > 0) && (
-                          <Button
-                            variant="outline"
-                            className="w-full"
-                            disabled={archivePending}
-                            onClick={toggleArchive}
-                          >
-                            <ArchiveIcon className="size-4" />
-                            {isArchived
-                              ? 'Restore from archive'
-                              : 'Move to archive'}
-                          </Button>
-                        )
-                      )
-                    }
+                          (!isDoorKnocking || campaignTurfs.length > 0) && (
+                            <Button
+                              variant="outline"
+                              className="w-full"
+                              disabled={archivePending}
+                              onClick={toggleArchive}
+                            >
+                              <ArchiveIcon className="size-4" />
+                              {isArchived
+                                ? 'Restore from archive'
+                                : 'Move to archive'}
+                            </Button>
+                          )
+                      ),
+                    )}
                     note={
                       // The turf is still the object, and the rail is still where a
                       // walk is managed — so the line stays, saying where this act
@@ -961,13 +1176,6 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
-            {reportOutreachId !== null && (
-              <WhatWeHeardAction
-                outreachId={reportOutreachId}
-                isServe={isServe}
-              />
-            )}
-
             {(audienceName || audienceLabels.length > 0) && (
               // "Applied filters" describes what BUILT the audience, which is
               // the right title for a send composed out of voter-file
@@ -976,7 +1184,9 @@ export const OutreachDetailsDrawer = ({
               // the act — and with the section saying it, the group's own
               // "Audience" label would say it twice.
               <DetailsSection
-                title={isDoorKnocking ? 'Voter list used' : 'Applied filters'}
+                title={
+                  isDoorKnocking ? copy.audienceSection : 'Applied filters'
+                }
               >
                 {audienceName && (
                   <FilterGroup
@@ -996,6 +1206,13 @@ export const OutreachDetailsDrawer = ({
               </div>
             )}
 
+            {isHoldFailedRobocall && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground">
+                Your payment didn&apos;t go through, so this call hasn&apos;t
+                gone out. Update your card to resend it.
+              </div>
+            )}
+
             {/* Door knocking has no Overview. Its three cells were Date,
                 Name and Channel — all three already in the header two inches
                 above — and the Doors/People pair beside them was the anchor
@@ -1012,7 +1229,7 @@ export const OutreachDetailsDrawer = ({
                   <Metric
                     icon={<FileTextIcon />}
                     label="Name"
-                    value={row.name || row.title || 'Untitled campaign'}
+                    value={row.name || row.title || copy.untitled}
                   />
                   <Metric
                     icon={<RadioIcon />}
@@ -1174,9 +1391,7 @@ export const OutreachDetailsDrawer = ({
             )}
 
             {/* Read-only for v1: no heart, no unread dot, no composer and no
-                filters — see ServeSmsRepliesSection's own note. Serve-only
-                because reply CONTENT only exists for sends that came back
-                through the shared ingest. */}
+                filters — see SmsRepliesSection's own note. */}
             {isServe && isSms && isCompleted && (
               <>
                 {/* The replies are grouped into themes the way a turf's
@@ -1189,9 +1404,15 @@ export const OutreachDetailsDrawer = ({
                   isServe
                   className="rounded-lg border border-border bg-card p-4"
                 />
-                <ServeSmsRepliesSection outreachId={row.id} />
+                <SmsRepliesSection outreachId={row.id} mode="serve" />
               </>
             )}
+
+            {!isServe &&
+              isCompleted &&
+              row.outreachType === OUTREACH_TYPES.p2p && (
+                <WinSmsReplies outreachId={row.id} />
+              )}
 
             {isPaidFlowSms && (
               <DetailsSection title="Payment details">
@@ -1244,17 +1465,24 @@ export const OutreachDetailsDrawer = ({
               </DetailsSection>
             )}
 
-            {isSms && row.script && (
-              <DetailsSection title="Message">
-                {/* The stored script is already the fully composed send
-                    (greeting + body + opt-out footer) — render it verbatim,
-                    line breaks included. */}
-                <Card className="rounded-lg p-3">
-                  <p className="text-sm whitespace-pre-wrap text-foreground">
-                    {row.script}
-                  </p>
-                </Card>
-              </DetailsSection>
+            {isSms && messageScript && (
+              <WinSmsMessage
+                script={messageScript}
+                imageUrl={detailQuery.data?.imageUrl ?? row.imageUrl ?? null}
+                isServe={isServe}
+                fallback={
+                  <DetailsSection title="Message">
+                    {/* The stored script is already the fully composed send
+                        (greeting + body + opt-out footer) — render it
+                        verbatim, line breaks included. */}
+                    <Card className="rounded-lg p-3">
+                      <p className="text-sm whitespace-pre-wrap text-foreground">
+                        {messageScript}
+                      </p>
+                    </Card>
+                  </DetailsSection>
+                }
+              />
             )}
 
             {isSocial && detailQuery.isLoading && (
@@ -1272,6 +1500,9 @@ export const OutreachDetailsDrawer = ({
                 We couldn&apos;t load this campaign&apos;s posts. Close and try
                 again.
               </p>
+            )}
+            {isEmailRow(row) && row.status !== 'draft' && (
+              <EmailDrawerSections id={row.id} isServe={isServe} />
             )}
             {social && (
               <section className="space-y-3">
@@ -1480,6 +1711,34 @@ export const OutreachDetailsDrawer = ({
         )}
       </ListDetailsSheetShell>
 
+      {editOpen && row && messageScript && (
+        <EditSmsMessageSheet
+          outreachId={row.id}
+          script={messageScript}
+          imageUrl={detailQuery.data?.imageUrl ?? row.imageUrl ?? null}
+          onClose={() => setEditOpen(false)}
+          onSaved={(detail) => {
+            queryClient.setQueryData(outreachDetailQueryKey(row.id), detail)
+            setOutreaches(
+              outreaches.map((o) =>
+                o.id === row.id ? { ...o, script: detail.script } : o,
+              ),
+            )
+            setEditOpen(false)
+            successSnackbar('Message updated.')
+          }}
+          onLocked={() => {
+            queryClient.invalidateQueries({
+              queryKey: outreachDetailQueryKey(row.id),
+            })
+            setEditOpen(false)
+            errorSnackbar(
+              "Your text is queued for sending, so it can't be edited.",
+            )
+          }}
+        />
+      )}
+
       <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1571,6 +1830,7 @@ export const OutreachDetailsDrawer = ({
         onOpenChange={setMarkCampaignDoneOpen}
         pending={campaignLifecycle.pendingAction === 'complete'}
         onConfirm={markCampaignDone}
+        isServe={isServe}
       />
     </>
   )

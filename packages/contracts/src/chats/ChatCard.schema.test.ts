@@ -61,23 +61,6 @@ describe('OutreachProposalSchema', () => {
         .success,
     ).toBe(false)
   })
-
-  it('carries one send to the panel and a fresh sample, with the join ask', () => {
-    expect(
-      OutreachProposalSchema.parse({
-        ...proposal,
-        savedFilterId: undefined,
-        audienceFilters: { hasCellPhone: true, notContactedRecently: true },
-        sampleSize: 240,
-        panelSampleSize: 120,
-        civicPanelAsk: true,
-      }),
-    ).toMatchObject({
-      sampleSize: 240,
-      panelSampleSize: 120,
-      civicPanelAsk: true,
-    })
-  })
 })
 
 describe('isReportBackMessage', () => {

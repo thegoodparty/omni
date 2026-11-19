@@ -128,3 +128,24 @@ export const RoutePlannerResponseSchema = z.object({
 })
 
 export type RoutePlannerResponse = z.infer<typeof RoutePlannerResponseSchema>
+
+// ── Reverse Geocoding API (format=json) ──────────────────────────────────────
+
+// Only the place fields a tract name is taken from, and the ones it must
+// not be: a result names the nearest address, so `street` and `city` are
+// almost always there while the neighborhood fields often are not.
+const ReverseGeocodeResultSchema = z.object({
+  neighbourhood: z.string().optional(),
+  suburb: z.string().optional(),
+  quarter: z.string().optional(),
+  district: z.string().optional(),
+  street: z.string().optional(),
+  city: z.string().optional(),
+  county: z.string().optional(),
+})
+
+export const ReverseGeocodeResponseSchema = z.object({
+  results: z.array(ReverseGeocodeResultSchema),
+})
+
+export type ReverseGeocodeResult = z.infer<typeof ReverseGeocodeResultSchema>

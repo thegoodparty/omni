@@ -16,8 +16,7 @@ import {
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
-import { addDays, fromUnixTime } from 'date-fns'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
+import { addHours, fromUnixTime, getUnixTime, subDays } from 'date-fns'
 import Stripe from 'stripe'
 
 import { requireEnv } from 'src/shared/util/env.util'
@@ -30,6 +29,33 @@ export class StripeHoldDeclinedError extends Error {
     super(message)
     this.name = 'StripeHoldDeclinedError'
   }
+}
+
+// An outreach payment hold the card refused. Carries Stripe's decline code so
+// the hold row can record why.
+export class StripeOutreachHoldDeclinedError extends StripeHoldDeclinedError {
+  constructor(
+    message: string,
+    readonly declineCode: string | null,
+  ) {
+    super(message)
+    this.name = 'StripeOutreachHoldDeclinedError'
+  }
+}
+
+// Stripe puts a manual-capture deadline on the charge's card details, not the
+// intent. Without it, assume the shortest card window (Visa off-session, 4
+// days 18 hours from placement) rather than overstate how long the hold lasts.
+const outreachHoldCaptureBefore = (
+  intent: Stripe.PaymentIntent,
+  placedAt: Date,
+): Date => {
+  const charge =
+    typeof intent.latest_charge === 'object' ? intent.latest_charge : null
+  const captureBeforeUnix = charge?.payment_method_details?.card?.capture_before
+  return captureBeforeUnix
+    ? fromUnixTime(captureBeforeUnix)
+    : addHours(placedAt, 4 * 24 + 18)
 }
 
 // A declined off-session robocall fresh charge. Carries the declined Payment
@@ -62,7 +88,6 @@ export class StripeService {
   private stripe = new Stripe(STRIPE_SECRET_KEY)
 
   constructor(
-    private readonly slack: SlackService,
     // Resolvable without StripeModule importing UsersModule because UsersModule
     // is @Global; forwardRef breaks the UsersService <-> StripeService cycle.
     @Inject(forwardRef(() => UsersService))
@@ -282,7 +307,14 @@ export class StripeService {
           off_session: true,
           metadata,
         },
-        { idempotencyKey: `robocall-hold-${robocallId}-${attempt}` },
+        // The key has to be unique across every database on one Stripe
+        // account. PR previews each have their own database on one test
+        // account, so outreach ids repeat between them: two previews both
+        // sent robocall-hold-6-1 and Stripe refused the second (2026-10-20).
+        // The customer separates them and is the same on every retry.
+        {
+          idempotencyKey: `robocall-hold-${customerId}-${robocallId}-${attempt}`,
+        },
       )
     } catch (err) {
       // An off-session confirm that the card refuses raises StripeCardError
@@ -318,8 +350,134 @@ export class StripeService {
       paymentIntentId: intent.id,
       captureBefore: captureBeforeUnix
         ? fromUnixTime(captureBeforeUnix)
-        : addDays(new Date(), 7),
+        : addHours(new Date(), 7 * 24),
     }
+  }
+
+  // The shared outreach hold (src/paymentHolds/). On-session when the user is
+  // there to see a decline, off-session from a sweep. Stripe refuses a replayed
+  // idempotency key whose parameters differ, so a retry of one attempt must
+  // pass the same offSession as the attempt it replays.
+  async createOutreachManualCaptureHold({
+    customerId,
+    paymentMethodId,
+    amountInCents,
+    outreachId,
+    holdAttempt,
+    offSession,
+    metadata,
+  }: {
+    customerId: string
+    paymentMethodId: string
+    amountInCents: number
+    outreachId: number
+    holdAttempt: number
+    offSession: boolean
+    metadata: Record<string, string>
+  }): Promise<{ paymentIntentId: string; captureBefore: Date }> {
+    let intent: Stripe.PaymentIntent
+    try {
+      intent = await this.stripe.paymentIntents.create(
+        {
+          amount: amountInCents,
+          currency: 'usd',
+          customer: customerId,
+          payment_method: paymentMethodId,
+          capture_method: 'manual',
+          confirm: true,
+          // Stripe refuses an on-session confirm with no return_url unless
+          // redirect-based methods are off. A card that needs 3-D Secure
+          // then comes back requires_action, which is recorded as a decline.
+          automatic_payment_methods: {
+            enabled: true,
+            allow_redirects: 'never',
+          },
+          ...(offSession ? { off_session: true } : {}),
+          metadata,
+          expand: ['latest_charge'],
+        },
+        {
+          idempotencyKey: `outreach-hold-${customerId}-${outreachId}-${holdAttempt}`,
+        },
+      )
+    } catch (err) {
+      if (err instanceof Stripe.errors.StripeCardError) {
+        throw new StripeOutreachHoldDeclinedError(
+          err.message,
+          err.decline_code ?? err.code ?? null,
+        )
+      }
+      this.logger.error({ err }, 'Failed to place outreach payment hold')
+      throw new BadGatewayException('Failed to place payment hold')
+    }
+
+    // A confirmed intent short of requires_capture (requires_action with no
+    // one to authenticate, requires_payment_method) holds no funds.
+    if (intent.status !== 'requires_capture') {
+      throw new StripeOutreachHoldDeclinedError(
+        `Hold did not authorize: status ${intent.status}`,
+        intent.last_payment_error?.decline_code ?? intent.status,
+      )
+    }
+
+    return {
+      paymentIntentId: intent.id,
+      captureBefore: outreachHoldCaptureBefore(intent, new Date()),
+    }
+  }
+
+  // Every intent placed for one attempt of an outreach hold, whatever its
+  // status, so recovery can see what a placement that never committed left at
+  // Stripe. A list, not a search: search is eventually consistent, and an
+  // empty answer here lets recovery place a fresh attempt, so a lagging index
+  // would stack a second hold on the card.
+  async findOutreachHolds({
+    customerId,
+    outreachId,
+    holdAttempt,
+  }: {
+    customerId: string
+    outreachId: number
+    holdAttempt: number
+  }): Promise<
+    {
+      paymentIntentId: string
+      status: Stripe.PaymentIntent.Status
+      captureBefore: Date
+      declineCode: string | null
+    }[]
+  > {
+    let intents: Stripe.PaymentIntent[]
+    try {
+      // No card holds an authorization longer than 7 days, so an older
+      // intent can't be live.
+      intents = await this.stripe.paymentIntents
+        .list({
+          customer: customerId,
+          created: { gte: getUnixTime(subDays(new Date(), 8)) },
+          limit: 100,
+          expand: ['data.latest_charge'],
+        })
+        .autoPagingToArray({ limit: 10000 })
+    } catch (err) {
+      this.logger.error({ err, outreachId }, 'Failed to list payment holds')
+      throw new BadGatewayException('Failed to list payment holds')
+    }
+    return intents
+      .filter(
+        (intent) =>
+          intent.metadata.outreachId === String(outreachId) &&
+          intent.metadata.holdAttempt === String(holdAttempt),
+      )
+      .map((intent) => ({
+        paymentIntentId: intent.id,
+        status: intent.status,
+        captureBefore: outreachHoldCaptureBefore(
+          intent,
+          fromUnixTime(intent.created),
+        ),
+        declineCode: intent.last_payment_error?.decline_code ?? null,
+      }))
   }
 
   // Charges the saved card off-session for a DELIVERED robocall run whose
@@ -362,7 +520,8 @@ export class StripeService {
           // carries the same outreachId, so kind is what distinguishes them.
           metadata: { ...metadata, kind: ROBOCALL_FRESH_CHARGE_KIND },
         },
-        { idempotencyKey: `robocall-fresh-charge-${robocallId}` },
+        // The customer is in the key for the same reason as the hold's.
+        { idempotencyKey: `robocall-fresh-charge-${customerId}-${robocallId}` },
       )
     } catch (err) {
       if (err instanceof Stripe.errors.StripeCardError) {
@@ -405,13 +564,19 @@ export class StripeService {
   // is eventually consistent (~1m index lag); recovery only
   // runs on rows already stranded past ROBOCALL_CHARGING_STALE_MINUTES, far
   // longer. Returns the succeeded PI's id + amount_received, or null.
-  async findSucceededChargeByOutreach(outreachId: number): Promise<{
+  // Scoped to the customer for the same reason the keys carry it: PR previews
+  // share one Stripe account and repeat outreach ids, so outreachId alone can
+  // match another preview's charge.
+  async findSucceededChargeByOutreach(
+    outreachId: number,
+    customerId: string,
+  ): Promise<{
     paymentIntentId: string
     amountReceived: number | null
   } | null> {
     const res = await this.stripe.paymentIntents.search({
       query:
-        `status:'succeeded' AND ` +
+        `status:'succeeded' AND customer:'${customerId}' AND ` +
         `metadata['kind']:'${ROBOCALL_FRESH_CHARGE_KIND}' AND ` +
         `metadata['outreachId']:'${outreachId}'`,
     })
@@ -464,6 +629,90 @@ export class StripeService {
     return found.data[0] ?? null
   }
 
+  // A single-use promotion code on an existing coupon. Stripe never counts a
+  // redemption we apply outside Checkout, so max_redemptions is a label here;
+  // deactivation on consume is what actually stops a second use.
+  async createPromotionCode({
+    couponId,
+    code,
+    metadata,
+    expiresAt,
+  }: {
+    couponId: string
+    code: string
+    metadata: Record<string, string>
+    expiresAt: Date
+  }): Promise<Stripe.PromotionCode> {
+    try {
+      return await this.stripe.promotionCodes.create({
+        promotion: { type: 'coupon', coupon: couponId },
+        code,
+        max_redemptions: 1,
+        expires_at: getUnixTime(expiresAt),
+        metadata,
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to create Stripe promotion code')
+      throw new BadGatewayException('Failed to create promotion code')
+    }
+  }
+
+  // Hands a spent promotion code back. Checkout counts a redemption against
+  // max_redemptions, and Stripe will not reactivate a code that reached it, so
+  // the only way to give the reward back is a fresh code on the same coupon.
+  // It reuses the human code (Stripe only requires it to be unique among ACTIVE
+  // codes, and the spent one is inactive) so the candidate re-enters what they
+  // were given. Returns null when there is nothing to hand back: the code is
+  // still active (reusable, or never exhausted) or has already expired.
+  async regeneratePromotionCode(
+    promotionCodeId: string,
+  ): Promise<Stripe.PromotionCode | null> {
+    try {
+      const spent = await this.stripe.promotionCodes.retrieve(promotionCodeId)
+      if (spent.active) return null
+      if (spent.expires_at != null && spent.expires_at * 1000 <= Date.now()) {
+        return null
+      }
+      const coupon = spent.promotion.coupon
+      // A replacement is for a customer who has already paid (the spent code
+      // was redeemed), so first-purchase-only must not be copied across.
+      const { minimum_amount, minimum_amount_currency } = spent.restrictions
+      return await this.stripe.promotionCodes.create({
+        promotion: {
+          type: 'coupon',
+          coupon: typeof coupon === 'string' ? coupon : (coupon?.id ?? ''),
+        },
+        code: spent.code,
+        max_redemptions: 1,
+        ...(spent.expires_at != null ? { expires_at: spent.expires_at } : {}),
+        ...(spent.customer
+          ? {
+              customer:
+                typeof spent.customer === 'string'
+                  ? spent.customer
+                  : spent.customer.id,
+            }
+          : {}),
+        restrictions: {
+          first_time_transaction: false,
+          ...(minimum_amount != null
+            ? {
+                minimum_amount,
+                minimum_amount_currency: minimum_amount_currency ?? undefined,
+              }
+            : {}),
+        },
+        metadata: { ...spent.metadata, restoredFrom: spent.id },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, promotionCodeId },
+        'Failed to regenerate Stripe promotion code',
+      )
+      throw new BadGatewayException('Failed to regenerate promotion code')
+    }
+  }
+
   // Marks a promotion code redeemed (or restores it) by flipping `active`.
   // Stripe never counts a redemption for a code we applied outside Checkout, so
   // deactivating on consume is what stops a second use, and reactivating on a
@@ -492,10 +741,17 @@ export class StripeService {
   // `succeeded`. Stripe search is eventually consistent (a just-placed PI can
   // lag ~1m before it is indexed); the recovery only runs on rows already
   // stranded past ROBOCALL_HOLD_PENDING_STALE_MINUTES, far longer than that lag.
-  async findLiveManualHoldsByOutreach(outreachId: number): Promise<string[]> {
+  // Scoped to the customer like findSucceededChargeByOutreach. A row with no
+  // customer recorded keeps the unscoped search: the cost of missing a live
+  // orphan is a second hold on the card, worse than matching a preview's.
+  async findLiveManualHoldsByOutreach(
+    outreachId: number,
+    customerId: string | null,
+  ): Promise<string[]> {
+    const customerClause = customerId ? `customer:'${customerId}' AND ` : ''
     const res = await this.stripe.paymentIntents.search({
       query:
-        `status:'requires_capture' AND ` +
+        `status:'requires_capture' AND ${customerClause}` +
         `metadata['outreachId']:'${outreachId}'`,
     })
     return res.data.map((intent) => intent.id)
@@ -552,7 +808,9 @@ export class StripeService {
     return refunds.data
   }
 
-  async retrieveCheckoutSession(sessionId: string) {
+  async retrieveCheckoutSession(
+    sessionId: string,
+  ): Promise<Stripe.Checkout.Session> {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
   }
 
@@ -977,10 +1235,6 @@ export class StripeService {
       }
       if (e instanceof Error) {
         this.logger.error(e, `Failed to cancel subscription ${subscriptionId}`)
-        await this.slack.errorMessage({
-          message: 'Error canceling subscription',
-          error: { subscriptionId, error: e },
-        })
         throw new BadGatewayException(
           `Failed to cancel subscription ${subscriptionId}`,
           { cause: e },

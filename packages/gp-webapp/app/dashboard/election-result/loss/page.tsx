@@ -1,32 +1,41 @@
 'use client'
 import { useRouter } from 'next/navigation'
 import { Button } from '@styleguide'
+import { useUser } from '@shared/hooks/useUser'
 import { ActiveProSubscriptionAlert } from '../components/ActiveProSubscriptionAlert'
+import { ElectionResultHeader } from '../components/ElectionResultHeader'
+import { SurveyCard } from '../components/SurveyCard'
+import { BACK_TO_DASHBOARD, LOST_COPY } from '../electionResultCopy'
 
 export default function LossPage(): React.JSX.Element {
   const router = useRouter()
-
-  const onComplete = () => {
-    router.replace('/dashboard')
-  }
+  const [user] = useUser()
 
   return (
     <div className="flex flex-col">
+      <ElectionResultHeader onClose={() => router.push('/dashboard')} />
       <main className="flex-1 pb-24 md:pb-0">
         <section className="max-w-screen-md mx-auto p-4 sm:p-8 lg:p-16 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12">
-          <ActiveProSubscriptionAlert className="mb-8" />
-          <div className="flex flex-col items-center md:justify-center">
-            <h1 className="text-center font-semibold text-2xl md:text-4xl w-full mt-4 md:mt-0">
-              Not every campaign wins, but every campaign matters.
-            </h1>
-            <p className="text-center mt-8 text-lg font-normal text-muted-foreground w-full">
-              We&apos;re proud of all you&apos;ve accomplished. If you decide to
-              run again, we&apos;ll be ready. Until then, you know where to find
-              us!
-            </p>
-
-            <Button onClick={onComplete} size="large" className="mt-8">
-              Back to Dashboard
+          <ActiveProSubscriptionAlert />
+          {/* pt-7 matches CongratulationsStep, whose empty confetti row plus its gap-7 sits above the heading. */}
+          <div className="flex flex-col gap-7 pt-7">
+            <div className="flex flex-col gap-3">
+              <h1 className="font-semibold text-2xl md:text-4xl">
+                {LOST_COPY.title(user?.firstName)}
+              </h1>
+              <p className="text-lg text-muted-foreground">
+                {LOST_COPY.description}
+              </p>
+            </div>
+            <SurveyCard {...LOST_COPY.survey} />
+            <Button
+              type="button"
+              variant="ghost"
+              size="large"
+              className="w-full"
+              onClick={() => router.replace('/dashboard')}
+            >
+              {BACK_TO_DASHBOARD}
             </Button>
           </div>
         </section>

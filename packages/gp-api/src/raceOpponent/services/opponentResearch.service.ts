@@ -23,8 +23,8 @@ import {
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
-import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
-import { RaceContextFromApi } from '@/campaignStrategy/types/electionApi.types'
+import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
+import { ElectionRaceContext } from '@/campaignStrategy/types/raceContext.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { RaceOpponentService } from './raceOpponent.service'
@@ -114,7 +114,7 @@ export class OpponentResearchService extends createPrismaBase(
     private readonly raceOpponent: RaceOpponentService,
     private readonly selfResearchGate: SelfResearchGateService,
     private readonly experimentRuns: ExperimentRunsService,
-    private readonly electionApi: ElectionApiService,
+    private readonly raceContextService: RaceContextService,
   ) {
     super()
   }
@@ -207,7 +207,8 @@ export class OpponentResearchService extends createPrismaBase(
   // attempt cap still bounds a row that keeps failing, and replace-on-persist
   // keyed by runId means the next run's findings supersede this row's without
   // duplicating. Returns false when nothing was dispatched (cap reached or
-  // dispatch unavailable) so the cron can count it.
+  // dispatch unavailable); a dispatch that failed throws, after handing the
+  // row back, so the scheduled job retries and dead-letters.
   async redispatchForRow(
     campaign: CampaignWith<'user'>,
     row: RaceOpponentResearchRow,
@@ -253,14 +254,14 @@ export class OpponentResearchService extends createPrismaBase(
     } catch (error) {
       this.logger.error(
         { err: error, campaignId: campaign.id, opponentRowId: row.id },
-        'scheduled opponent_research re-dispatch failed for row; continuing',
+        'scheduled opponent_research re-dispatch failed for row; claim rolled back',
       )
       // dispatchAndBind already attempts rollbackClaim, but that rollback is
       // swallowed on failure — leaving the row queued/runId:null, which the cron
       // never re-selects (it queries only completed/failed) and hasInFlightRun
       // can't recover (no ExperimentRun). Secondary rollback scoped to a
-      // still-queued row so it self-heals next tick; the user path is unaffected
-      // (it surfaces dispatch errors to the caller instead).
+      // still-queued row so the job's retry can claim it again; the user path
+      // is unaffected (it surfaces dispatch errors to the caller instead).
       await this.model
         .updateMany({
           where: { id: row.id, status: RaceOpponentResearchStatus.queued },
@@ -275,7 +276,10 @@ export class OpponentResearchService extends createPrismaBase(
             'secondary rollback also failed; row may remain stuck in queued',
           ),
         )
-      return false
+      // No agent queue on this deploy, or a test-user org: nothing will ever
+      // dispatch, so retrying would only page.
+      if (error instanceof BadRequestException) return false
+      throw error
     }
   }
 
@@ -498,7 +502,7 @@ export class OpponentResearchService extends createPrismaBase(
   }
 
   private matchRosterCandidate(
-    raceContext: RaceContextFromApi | null,
+    raceContext: ElectionRaceContext | null,
     opponentName: string,
   ) {
     if (!raceContext) return null
@@ -512,12 +516,12 @@ export class OpponentResearchService extends createPrismaBase(
 
   private async tryRaceContext(
     campaign: CampaignWith<'user'>,
-  ): Promise<RaceContextFromApi | null> {
+  ): Promise<ElectionRaceContext | null> {
     const details = CampaignDetailsSchema.safeParse(campaign.details)
     const raceId = details.success ? (details.data.raceId ?? '').trim() : ''
     if (raceId.length === 0) return null
     try {
-      return await this.electionApi.getRaceContext(raceId)
+      return await this.raceContextService.getRaceContext(raceId)
     } catch {
       this.logger.warn(
         { campaignId: campaign.id, raceId },

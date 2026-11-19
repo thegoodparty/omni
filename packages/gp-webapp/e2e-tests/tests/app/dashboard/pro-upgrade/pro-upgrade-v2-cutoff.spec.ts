@@ -1,14 +1,11 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { addDays, format } from 'date-fns'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import {
-  SEED_VALID_EIN,
-  seedFilingComplete,
-} from 'src/helpers/pro-upgrade.helper'
+import { seedFilingComplete, uniqueEin } from 'src/helpers/pro-upgrade.helper'
 
 // Pro upgrade wizard for a free candidate whose
 // general election is inside the SMS compliance cutoff (19 days). gp-api
@@ -35,7 +32,8 @@ test('keeps the filing steps and explains the cutoff before purchase', async ({
   })
   // Filing details saved past the cutoff, through the endpoint the form
   // posts to: gp-api accepts them and only skips the paid compliance work.
-  await seedFilingComplete(client, user.email)
+  const ein = uniqueEin()
+  await seedFilingComplete(client, user.email, ein)
 
   await page.goto(PRO_UPGRADE_PATH)
   await NavigationHelper.dismissOverlays(page)
@@ -70,7 +68,7 @@ test('keeps the filing steps and explains the cutoff before purchase', async ({
   await page.getByRole('button', { name: 'Continue' }).click()
 
   await page.waitForURL(`**${PRO_UPGRADE_PATH}/ein`)
-  await page.getByPlaceholder('12-3456789').fill(SEED_VALID_EIN)
+  await page.getByPlaceholder('12-3456789').fill(ein)
   await page.getByRole('button', { name: 'Continue' }).click()
 
   await page.waitForURL(`**${PRO_UPGRADE_PATH}/filing-details`)

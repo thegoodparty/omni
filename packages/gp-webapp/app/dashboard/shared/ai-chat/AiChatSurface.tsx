@@ -30,8 +30,7 @@ interface Props {
    * Begin dictation on open (e.g. when the surface was opened via the mic).
    * The consumer owns this flag: set it `true` when opening from
    * `AiChatBar`'s `onStartDictation`, and reset it to `false` on close so a
-   * later open via the pill doesn't auto-record. See AiChat stories for the
-   * reference wiring.
+   * later open via the pill doesn't auto-record.
    */
   autoDictate?: boolean
 }

@@ -65,7 +65,7 @@ describe('DistrictStatCard', () => {
           { label: 'Projected turnout', value: 42318 },
           // winNumber can be fractional (floor(turnout/2) + 1 vs BR data);
           // display must round to the prototype's whole-number formatting.
-          { label: 'Voters needed to win', value: 21159.5 },
+          { label: 'Votes needed to win', value: 21159.5 },
         ]}
       />,
     )
@@ -73,8 +73,48 @@ describe('DistrictStatCard', () => {
     expect(await screen.findByText('30,000')).toBeInTheDocument()
     expect(screen.getByText('Projected turnout')).toBeInTheDocument()
     expect(screen.getByText('42,318')).toBeInTheDocument()
-    expect(screen.getByText('Voters needed to win')).toBeInTheDocument()
+    expect(screen.getByText('Votes needed to win')).toBeInTheDocument()
     expect(screen.getByText('21,160')).toBeInTheDocument()
+  })
+
+  it('counts voters only and shows new contacts on their own row on Win', async () => {
+    api.mock('GET /v1/contacts/stats', {
+      status: 200,
+      data: { ...STATS_RESPONSE, newContactsCount: 214 },
+    })
+
+    render(<DistrictStatCard label="Voters in your district" showNewContacts />)
+
+    expect(await screen.findByText('29,786')).toBeInTheDocument()
+    expect(screen.getByText('New contacts added')).toBeInTheDocument()
+    expect(screen.getByText('214')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'About new contacts added' }),
+    ).toBeInTheDocument()
+  })
+
+  it('hides the new contacts row when there are none', async () => {
+    api.mock('GET /v1/contacts/stats', {
+      status: 200,
+      data: { ...STATS_RESPONSE, newContactsCount: 0 },
+    })
+
+    render(<DistrictStatCard label="Voters in your district" showNewContacts />)
+
+    expect(await screen.findByText('30,000')).toBeInTheDocument()
+    expect(screen.queryByText('New contacts added')).not.toBeInTheDocument()
+  })
+
+  it('keeps the total and no new contacts row without showNewContacts (Serve)', async () => {
+    api.mock('GET /v1/contacts/stats', {
+      status: 200,
+      data: { ...STATS_RESPONSE, newContactsCount: 214 },
+    })
+
+    render(<DistrictStatCard label="Records available" />)
+
+    expect(await screen.findByText('30,000')).toBeInTheDocument()
+    expect(screen.queryByText('New contacts added')).not.toBeInTheDocument()
   })
 
   it('renders no Win metric rows when additionalRows is omitted', async () => {
@@ -84,7 +124,7 @@ describe('DistrictStatCard', () => {
 
     expect(await screen.findByText('30,000')).toBeInTheDocument()
     expect(
-      screen.queryByText(/Projected turnout|Voters needed to win/),
+      screen.queryByText(/Projected turnout|Votes needed to win/),
     ).not.toBeInTheDocument()
   })
 

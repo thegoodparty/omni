@@ -83,6 +83,11 @@ export const builderFiltersFromRecommendation = (
     if (key) result[key] = true
   }
   if (filter.independentAffinity) result.independentAffinity = true
+  // The early-vote screen. Dropping it here would save the persuade
+  // audience under an early-vote card, the same silent widening the
+  // landline note below describes.
+  if (filter.earlyVoteVeryLikely) result.earlyVoteVeryLikely = true
+  if (filter.earlyVoteLikely) result.earlyVoteLikely = true
   if (filter.ideologyLiberal) result.ideologyLiberal = true
   if (filter.ideologyModerate) result.ideologyModerate = true
   if (filter.ideologyConservative) result.ideologyConservative = true

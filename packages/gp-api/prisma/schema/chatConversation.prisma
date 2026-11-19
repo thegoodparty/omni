@@ -13,7 +13,7 @@ model ChatConversation {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  messages        ChatMessage[]
+  agentMessages   AgentMessage[]
   messageFeedback ChatMessageFeedback[]
   attachments     ChatAttachment[]
 

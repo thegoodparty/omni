@@ -15,10 +15,9 @@ import { BriefingItemLinksService } from './briefingItemLinks.service'
 // chain (analytics -> users -> campaigns -> analytics) and must not be the
 // first app-graph module evaluated, or Nest sees an undefined DI token.
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { MeetingBriefingsService } from './meetingBriefings.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 // Most suites below exercise dispatch paths that (as of the activity-gated
 // dispatch feature) skip inactive users. Default the shared test user to
@@ -135,6 +134,14 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
     vi.unstubAllEnvs()
   })
 
+  // The create-time dispatch runs only for an office created onboarded; an
+  // unfinished one gets it at the pledge (electedOffice.controller.test.ts).
+  const FINISHED_OFFICE = {
+    termStartDate: '2025-01-01',
+    termEndDate: '2029-01-01',
+    onboardingCompletedAt: '2026-02-01T00:00:00.000Z',
+  }
+
   it('skips dispatch when MEETINGS_AUTOMATION_ENABLED is unset', async () => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', '')
     const orgSlug = `eo-gate-${Date.now()}`
@@ -146,7 +153,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
 
     const res = await service.client.post(
       '/v1/elected-office',
-      {},
+      FINISHED_OFFICE,
       { headers: { 'x-organization-slug': orgSlug } },
     )
 
@@ -169,7 +176,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
 
     const res = await service.client.post(
       '/v1/elected-office',
-      {},
+      FINISHED_OFFICE,
       { headers: { 'x-organization-slug': orgSlug } },
     )
 
@@ -201,7 +208,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
 
     const res = await service.client.post(
       '/v1/elected-office',
-      {},
+      FINISHED_OFFICE,
       { headers: { 'x-organization-slug': orgSlug } },
     )
 
@@ -319,7 +326,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     const orgSlug = `eo-chain-imminent-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-imminent' })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     mockResolveServeContext({
       state: 'MN',
@@ -358,6 +369,39 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     )
   })
 
+  it('does not chain a briefing for an office still in Serve onboarding', async () => {
+    const orgSlug = `eo-chain-unfinished-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-unfinished' })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const artifactKey = await seedScheduleForOrg(orgSlug)
+    const scheduleRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey,
+        params: { elected_office_id: eo.id },
+      },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onExperimentRunCompleted(scheduleRun)
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
   it('chains a briefing even when the office user has never visited (activity gate skipped)', async () => {
     // This hook exists to guarantee a newly onboarded office gets its first
     // briefing. A sales-provisioned office's user may have no lastVisited at
@@ -370,7 +414,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       positionId: 'br-pos-chain-never-visited',
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     await service.prisma.user.update({
       where: { id: service.user.id },
@@ -411,13 +459,19 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     // far outside the 3-day window. Without this, runs between roughly
     // Dec 27 and Jan 1 would see Jan 1 INSIDE the window and the test
     // would flake.
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    vi.setSystemTime(new Date('2026-06-15T12:00:00Z'))
+    vi.useFakeTimers({
+      toFake: ['Date'],
+      now: new Date('2026-06-15T12:00:00Z'),
+    })
     try {
       const orgSlug = `eo-chain-far-${Date.now()}`
       await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-far' })
       const eo = await service.prisma.electedOffice.create({
-        data: { organizationSlug: orgSlug, userId: service.user.id },
+        data: {
+          onboardingCompletedAt: new Date(),
+          organizationSlug: orgSlug,
+          userId: service.user.id,
+        },
       })
       mockResolveServeContext({
         state: 'MN',
@@ -455,7 +509,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     const orgSlug = `eo-chain-not-found-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-not-found' })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     mockResolveServeContext({
       state: 'MN',
@@ -492,7 +550,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -543,7 +605,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -585,7 +651,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -626,7 +696,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -683,7 +757,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     await service.prisma.experimentRun.create({
       data: {
@@ -744,7 +822,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
         data: { slug: orgSlug, ownerId: service.user.id },
       })
       const eo = await service.prisma.electedOffice.create({
-        data: { organizationSlug: orgSlug, userId: service.user.id },
+        data: {
+          onboardingCompletedAt: new Date(),
+          organizationSlug: orgSlug,
+          userId: service.user.id,
+        },
       })
       const briefingRun = await service.prisma.experimentRun.create({
         data: {
@@ -793,7 +875,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -835,7 +921,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     await service.prisma.experimentRun.create({
       data: {
@@ -891,7 +981,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     await service.prisma.experimentRun.create({
       data: {
@@ -966,17 +1060,17 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
   })
 })
 
-describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
+describe('MeetingBriefingsService Agenda Created event', () => {
   const createBriefingReadyRun = async (orgSlug: string) => {
     await service.prisma.organization.create({
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -990,7 +1084,7 @@ describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)
     })
     // No `items` field: readTopAgendaItems returns [], so
     // generateAgendaHook short-circuits on leadInFallback without an LLM
-    // call, keeping this a pure DB/single-send test.
+    // call, keeping this a pure DB/analytics test.
     mockS3({
       [`${orgSlug}.json`]: JSON.stringify({
         briefing_status: 'briefing_ready',
@@ -1005,68 +1099,12 @@ describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)
     return { eo, briefingRun }
   }
 
-  it('does not call HubSpot single-send when HUBSPOT_BRIEFING_READY_EMAIL_ID is unset', async () => {
-    const sendSpy = vi
-      .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
-      .mockResolvedValue(undefined)
-    const { briefingRun } = await createBriefingReadyRun(
-      `eo-briefing-nosend-${Date.now()}`,
-    )
-
-    await service.app
-      .get(MeetingBriefingsService)
-      .onExperimentRunCompleted(briefingRun)
-
-    expect(sendSpy).not.toHaveBeenCalled()
-  })
-
-  it('sends to the office account email with the flattened agenda content once configured', async () => {
-    vi.stubEnv('HUBSPOT_BRIEFING_READY_EMAIL_ID', '777222')
-    const sendSpy = vi
-      .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
-      .mockResolvedValue(undefined)
-    const trackSpy = vi
-      .spyOn(service.app.get(AnalyticsService), 'track')
-      .mockResolvedValue({ event: 'stub', userId: 'stub' })
-    const { briefingRun } = await createBriefingReadyRun(
-      `eo-briefing-send-${Date.now()}`,
-    )
-
-    await service.app
-      .get(MeetingBriefingsService)
-      .onExperimentRunCompleted(briefingRun)
-
-    expect(sendSpy).toHaveBeenCalledWith({
-      emailId: 777222,
-      to: service.user.email,
-      customProperties: {
-        meetingDate: '2026-06-08',
-        meetingTime: '19:00',
-        meetingTimezone: 'America/Chicago',
-        meetingPlace: 'Council Chambers',
-        meetingType: 'City Council',
-        execSummary: 'Big vote tonight.',
-      },
-    })
-    // The Segment event keeps firing unchanged alongside the single-send.
-    expect(trackSpy).toHaveBeenCalledWith(
-      service.user.id,
-      'Briefing Assistant - Agenda Created',
-      expect.objectContaining({ meetingPlace: 'Council Chambers' }),
-    )
-  })
-
-  it('does not fail row creation or the Segment event when the single-send fails', async () => {
-    vi.stubEnv('HUBSPOT_BRIEFING_READY_EMAIL_ID', '777222')
-    vi.spyOn(
-      service.app.get(HubspotSingleSendService),
-      'sendSingleSend',
-    ).mockRejectedValue(new Error('HubSpot down'))
+  it('fires the Agenda Created Segment event and creates the briefing row', async () => {
     const trackSpy = vi
       .spyOn(service.app.get(AnalyticsService), 'track')
       .mockResolvedValue({ event: 'stub', userId: 'stub' })
     const { eo, briefingRun } = await createBriefingReadyRun(
-      `eo-briefing-fail-${Date.now()}`,
+      `eo-briefing-agenda-created-${Date.now()}`,
     )
 
     await expect(
@@ -1087,18 +1125,15 @@ describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)
     expect(trackSpy).toHaveBeenCalledWith(
       service.user.id,
       'Briefing Assistant - Agenda Created',
-      expect.anything(),
+      expect.objectContaining({ meetingPlace: 'Council Chambers' }),
     )
   })
 })
 
-describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
-  beforeEach(async () => {
+describe('the meetingBriefingsDaily schedule', () => {
+  beforeEach(() => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
     mockResolveServeContext(null)
-    // The cron claims a once-per-day lease; clear it so each test's first
-    // invocation wins the claim (all tests run on the same UTC date).
-    await service.prisma.cronRun.deleteMany({})
   })
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -1109,7 +1144,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
@@ -1121,6 +1156,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     const eoA = await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlugA,
         userId: service.user.id,
         campaignId: campaignA?.id,
@@ -1154,6 +1190,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlugB,
         userId: otherUser.id,
         campaignId: campaignB.id,
@@ -1194,7 +1231,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledTimes(1)
     expect(dispatchSpy).toHaveBeenCalledWith(
@@ -1219,6 +1256,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1233,7 +1271,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
@@ -1242,8 +1280,10 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     // Pin clock to mid-year so Jan 1 (the next YEARLY occurrence) is far
     // outside any 3-day window. Without pinning, runs near new year would
     // see Jan 1 inside the window and flake.
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    vi.setSystemTime(new Date('2026-06-15T12:00:00Z'))
+    vi.useFakeTimers({
+      toFake: ['Date'],
+      now: new Date('2026-06-15T12:00:00Z'),
+    })
     try {
       const orgSlug = `eo-cron-far-meeting-${Date.now()}`
       await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-far' })
@@ -1252,6 +1292,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       })
       await service.prisma.electedOffice.create({
         data: {
+          onboardingCompletedAt: new Date(),
           organizationSlug: orgSlug,
           userId: service.user.id,
           campaignId: campaign?.id,
@@ -1269,46 +1310,12 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
         .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
         .mockResolvedValue(undefined)
 
-      await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+      await service.jobs.runSchedule('meetingBriefingsDaily')
 
       expect(dispatchSpy).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('runs the dispatch loop once when invoked twice the same day (multi-replica guard)', async () => {
-    const orgSlug = `eo-cron-guard-${Date.now()}`
-    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-guard' })
-    const campaign = await service.prisma.campaign.findFirst({
-      where: { organizationSlug: orgSlug },
-    })
-    await service.prisma.electedOffice.create({
-      data: {
-        organizationSlug: orgSlug,
-        userId: service.user.id,
-        campaignId: campaign?.id,
-      },
-    })
-
-    mockResolveServeContext({
-      state: 'MN',
-      positionName: 'City Council',
-      isServeIcp: true,
-    })
-    await seedScheduleForOrg(orgSlug)
-
-    const dispatchSpy = vi
-      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
-      .mockResolvedValue(undefined)
-
-    const svc = service.app.get(MeetingBriefingsService)
-    // Simulate both ECS replicas firing the cron on the same day. The second
-    // invocation must lose the lease and skip the loop entirely.
-    await svc.dispatchDailyBriefings()
-    await svc.dispatchDailyBriefings()
-
-    expect(dispatchSpy).toHaveBeenCalledTimes(1)
   })
 
   it('dispatches for EOs regardless of when they were created', async () => {
@@ -1319,6 +1326,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1337,7 +1345,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1345,6 +1353,28 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
         organizationSlug: orgSlug,
       }),
     )
+  })
+
+  it('skips an EO that has not finished Serve onboarding', async () => {
+    const orgSlug = `eo-cron-unfinished-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-unfinished' })
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.jobs.runSchedule('meetingBriefingsDaily')
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
   it('dispatches for an EO whose position is not serve-ICP', async () => {
@@ -1355,6 +1385,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1372,7 +1403,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1390,6 +1421,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1407,7 +1439,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1430,25 +1462,41 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     const orgA = `eo-mix-a-${suffix}`
     await seedOrgAndCampaign(orgA, { positionId: `br-pos-${orgA}` })
     const eoA = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgA, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgA,
+        userId: service.user.id,
+      },
     })
 
     const orgB = `eo-mix-b-${suffix}`
     await seedOrgAndCampaign(orgB, { positionId: `br-pos-${orgB}` })
     const eoB = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgB, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgB,
+        userId: service.user.id,
+      },
     })
 
     const orgC = `eo-mix-c-${suffix}`
     await seedOrgAndCampaign(orgC, { positionId: `br-pos-${orgC}` })
     const eoC = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgC, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgC,
+        userId: service.user.id,
+      },
     })
 
     const orgD = `eo-mix-d-${suffix}`
     await seedOrgAndCampaign(orgD, { positionId: `br-pos-${orgD}` })
     const eoD = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgD, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgD,
+        userId: service.user.id,
+      },
     })
 
     mockResolveServeContext({
@@ -1527,7 +1575,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     // which would also skip C and make the outcome assertion tautological.
     const findManySpy = vi.spyOn(service.prisma.electedOffice, 'findMany')
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     // The cron issues exactly one electedOffice.findMany, and its where clause
     // must carry BOTH pre-filter predicates. Deleting the coverage-dedupe
@@ -1583,10 +1631,9 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 })
 
 describe('MeetingBriefingsService — activity-gated dispatch', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
     mockResolveServeContext(null)
-    await service.prisma.cronRun.deleteMany({})
   })
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -1602,6 +1649,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
     })
     const eo = await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1629,7 +1677,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).toHaveBeenCalledTimes(1)
   })
@@ -1652,7 +1700,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
       .spyOn(service.app.get(AnalyticsService), 'track')
       .mockResolvedValue({ event: 'stub', userId: 'stub' })
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).not.toHaveBeenCalled()
     expect(trackSpy).toHaveBeenCalledWith(
@@ -1704,7 +1752,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+    await service.jobs.runSchedule('meetingBriefingsDaily')
 
     expect(dispatchSpy).not.toHaveBeenCalled()
   })

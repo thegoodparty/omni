@@ -67,6 +67,17 @@ const PERSON_SPINE_INCLUDE = {
   Candidacies: CANDIDACY_INCLUDE,
 } as const
 
+// Prisma's default loads each relation with its own query, so one profile read
+// checks a connection out of the 25-connection pool several times in a row.
+// gp-marketing renders /people/* in bursts of hundreds of reads a minute, and
+// that churn exhausted the pool (P2024 -> 500) on 2026-10-19. A join fetches
+// the whole spine in one statement on one connection.
+const PERSON_SPINE_READ = {
+  omit: PERSON_RESPONSE_OMIT,
+  include: PERSON_SPINE_INCLUDE,
+  relationLoadStrategy: 'join',
+} as const
+
 // How far to follow a chain of merges (A retired into B, B later retired into
 // C). The ETL contract is that PersonMerge.survivingId is already the TERMINAL
 // survivor, so a healthy row resolves in zero hops. This is a bounded defense
@@ -153,8 +164,7 @@ export class PersonsService extends createElectionDbBase(
   async getPersonById(personId: string) {
     const person = await this.model.findUnique({
       where: { id: personId },
-      omit: PERSON_RESPONSE_OMIT,
-      include: PERSON_SPINE_INCLUDE,
+      ...PERSON_SPINE_READ,
     })
     if (!person) {
       throw new NotFoundException(`Person not found for id=${personId}`)
@@ -423,8 +433,7 @@ export class PersonsService extends createElectionDbBase(
 
     const candidates = await this.model.findMany({
       where: { id: this.idPrefixRange(idPrefix) },
-      omit: PERSON_RESPONSE_OMIT,
-      include: PERSON_SPINE_INCLUDE,
+      ...PERSON_SPINE_READ,
     })
 
     // (1) The stored slug carries the id suffix, so it is compared whole.
@@ -538,8 +547,7 @@ export class PersonsService extends createElectionDbBase(
     const terminalId = await this.resolveTerminalSurvivor(survivingId)
     return this.model.findUnique({
       where: { id: terminalId },
-      omit: PERSON_RESPONSE_OMIT,
-      include: PERSON_SPINE_INCLUDE,
+      ...PERSON_SPINE_READ,
     })
   }
 

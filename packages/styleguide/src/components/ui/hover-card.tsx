@@ -5,6 +5,12 @@ import * as HoverCardPrimitive from '@radix-ui/react-hover-card'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * Touch screens can't hover, so nothing a user needs can live only here.
+ *
+ * @summary Use for a richer preview, like a source, when the pointer rests on a
+ * link or chip. For a short label, use Tooltip.
+ */
 function HoverCard({
   ...props
 }: React.ComponentProps<typeof HoverCardPrimitive.Root>) {

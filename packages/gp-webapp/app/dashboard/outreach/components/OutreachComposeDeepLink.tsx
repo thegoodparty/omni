@@ -78,6 +78,7 @@ const COMPOSE_SOURCES: ComposeSource[] = [
   'campaign_manager',
   'campaign_tracker',
   'voter_data',
+  'navigation',
 ]
 const parseComposeSource = (value: string | null | undefined): string =>
   COMPOSE_SOURCES.includes(value as ComposeSource)

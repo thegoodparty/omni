@@ -19,6 +19,7 @@ import {
 import { PersonsService } from '@/electionDb/persons/persons.service'
 import { PositionLevel } from '@/generated/election-prisma'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
 const positionLevelSchema = z.enum(PositionLevel)
@@ -142,7 +143,7 @@ export const personSpineResponseSchema = personScalarsSchema.extend({
 
 @Controller('elections/persons')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ZodResponseInterceptor)
+@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
 export class ElectionPersonsController {
   constructor(private readonly personsService: PersonsService) {}
 

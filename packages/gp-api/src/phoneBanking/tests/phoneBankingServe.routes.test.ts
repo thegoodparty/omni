@@ -49,11 +49,14 @@ const fakePerson = (overrides: Partial<Person> = {}): Person => ({
   },
   cellPhone: '3075550001',
   landline: null,
+  email: null,
+  isNewContact: false,
   gender: null,
   politicalParty: 'Independent',
   registeredVoter: 'Yes',
   estimatedIncomeAmount: null,
   voterStatus: null,
+  earlyVoteStatus: null,
   maritalStatus: null,
   hasChildrenUnder18: null,
   veteranStatus: null,
@@ -663,7 +666,6 @@ describe('serve phone banking routes', () => {
           organizationSlug: winSlug,
           details: {},
           data: {},
-          aiContent: {},
         },
       })
       const winRow = await service.prisma.outreach.create({
@@ -731,7 +733,6 @@ describe('serve phone banking routes', () => {
           isPro: true,
           details: {},
           data: {},
-          aiContent: {},
         },
       })
       const winRow = await service.prisma.outreach.create({

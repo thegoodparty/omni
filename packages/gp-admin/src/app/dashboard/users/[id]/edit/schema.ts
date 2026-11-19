@@ -5,7 +5,7 @@ import {
   BallotReadyPositionLevel,
   ElectionLevel,
   CampaignLaunchStatus,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 
 export const USER_ROLES = Object.values(UserRole)
 

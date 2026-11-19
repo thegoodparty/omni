@@ -15,6 +15,7 @@ enum OutreachType {
   // Serve self-serve poll: the question lives in `message`, the rest on
   // the OutreachPoll satellite.
   poll
+  email
 }
 
 enum OutreachStatus {
@@ -33,6 +34,16 @@ enum OutreachStatus {
   // Built by a candidate who cannot send yet (not Pro, or texting not
   // cleared). No date, no phone list, no payment. Visible in history.
   draft
+}
+
+// Who pays for a send other than its buyer. Null on the row means it was
+// paid for at checkout.
+enum OutreachFunding {
+  // A managed civic panel wave GoodParty sends for free in the pilot.
+  goodparty_pilot
+  // The one thank-you text GoodParty sends a managed panel's members, free,
+  // once the panel reaches its goal.
+  goodparty_panel_confirmation
 }
 
 model Outreach {
@@ -64,6 +75,12 @@ model Outreach {
   reportBackForOutreachId           Int?                               @map("report_back_for_outreach_id")
   reportBackFor                     Outreach?                          @relation("OutreachReportBack", fields: [reportBackForOutreachId], references: [id], onDelete: SetNull)
   reportBacks                       Outreach[]                         @relation("OutreachReportBack")
+  // Set on a priority text's follow-up: the second half of one purchase,
+  // held until its draw, pointing at the first half sent right away. One
+  // follow-up per first round, paid for in the same checkout.
+  roundOneOutreachId                Int?                               @unique @map("round_one_outreach_id")
+  roundOne                          Outreach?                          @relation("OutreachRounds", fields: [roundOneOutreachId], references: [id], onDelete: Cascade)
+  roundTwo                          Outreach?                          @relation("OutreachRounds")
   // The campaign plan task this outreach was launched from, when it was. The
   // task list marks that task done once the outreach is scheduled, then
   // clears this, so a later "Mark not done" on the task sticks.
@@ -79,10 +96,21 @@ model Outreach {
   projectId                         String?                            @map("project_id")
   name                              String?
   status                            OutreachStatus?                    @default(pending)
+  // When the text-send worker claimed this row (pending -> in_progress). A
+  // redelivery may re-claim a stale one a dead worker left behind; null on a
+  // row claimed before the column existed and on any row not in flight.
+  sendClaimedAt                     DateTime?                          @map("send_claimed_at")
   error                             String?
   audienceRequest                   String?                            @map("audience_request")
   script                            String?                            @db.Text
   message                           String?
+  // The last message the SMS flow's AI wrote into the compose field (a fresh
+  // draft or an Improve), as it stood before the candidate touched it, so it
+  // can be diffed against what was sent to learn how people edit the AI's
+  // drafts. Diff a Win p2p row against `script`: its `message` keeps the
+  // CRLF line endings multipart encoding adds, and `script` and this column
+  // drop them. Null when no AI draft was ever in the field.
+  aiDraft                           String?                            @map("ai_draft") @db.Text
   date                              DateTime?
   // The user's local calendar day for the send ("YYYY-MM-DD"), captured
   // from the offset-annotated create payload. `date` is a UTC instant, so
@@ -157,6 +185,23 @@ model Outreach {
   canceledAt                        DateTime?                          @map("canceled_at")
   canceledBy                        String?                            @map("canceled_by")
   canceledByAdmin                   Boolean                            @default(false) @map("canceled_by_admin")
+  // CAS's replacement of a send's Peerly job (a bad sending number, say):
+  // the row is pointed at a new job, made by the console or by hand in
+  // Peerly, so projectId changes and these record the swap. The old job id
+  // stays because Peerly is where CAS looks for it.
+  jobReplacedAt                     DateTime?                          @map("job_replaced_at")
+  jobReplacedBy                     String?                            @map("job_replaced_by")
+  previousJobId                     String?                            @map("previous_job_id")
+  jobReplaceReason                  String?                            @map("job_replace_reason")
+  // Set for the seconds a replacement is making the new job, so a double
+  // click or a retry cannot make a second one. Cleared when it lands.
+  jobReplaceClaimedAt               DateTime?                          @map("job_replace_claimed_at")
+  // A candidate's own edit of an unapproved text: set while the edit is
+  // writing Peerly, so staff cannot approve the old script mid-edit, and
+  // cleared when the new script lands. A claim older than 10 minutes
+  // belongs to a request that died.
+  candidateEditClaimedAt            DateTime?                          @map("candidate_edit_claimed_at")
+  candidateEditedAt                 DateTime?                          @map("candidate_edited_at")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill. Invariant (DB-enforced by a CHECK, see migration
   // add_outreach_org_scope): every row needs exactly one scoping path —
@@ -183,6 +228,9 @@ model Outreach {
   robocall                          OutreachRobocall?
   pollDetails                       OutreachPoll?
   p2pSms                            OutreachP2pSms?
+  email                             OutreachEmail?
+  paymentHold                       OutreachPaymentHold?
+  optOutReconcile                   OutreachOptOutReconcile?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]
   voterActivities                   VoterOutreachActivity[]
@@ -194,11 +242,58 @@ model Outreach {
   constituentFeedback               ConstituentFeedback[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
-  civicPanelBuildSteps              CivicPanelBuildStep[]
+  // Set only by ManagedWaveFundingService (claimFree for a wave,
+  // claimConfirmationFree for a panel's confirmation), never from a request.
+  // A CHECK (migration managed_panel_confirmation_funding) allows each value
+  // only on a row linked to its wave or panel, never beside a checkout
+  // session.
+  fundedBy                          OutreachFunding?                   @map("funded_by")
+  // The managed civic panel wave this send carries; unique, one send per
+  // wave. NoAction so a wave cannot be deleted out from under its send.
+  managedPanelWaveId                String?                            @unique @map("managed_panel_wave_id")
+  managedPanelWave                  ManagedPanelWave?                  @relation(fields: [managedPanelWaveId], references: [id], onDelete: NoAction)
+  // The managed civic panel this send thanks for joining; unique, one
+  // confirmation per panel. NoAction for the same reason as the wave link.
+  managedPanelConfirmationForId     String?                            @unique @map("managed_panel_confirmation_for_id")
+  managedPanelConfirmationFor       ManagedCivicPanel?                 @relation(fields: [managedPanelConfirmationForId], references: [id], onDelete: NoAction)
+  priorityAnswers                   PriorityAnswer[]
+  textHandoff                       OutreachTextHandoff?
 
   @@index([campaignId])
   @@index([organizationSlug])
   @@index([campaignOutreachId])
   @@index([reportBackForOutreachId])
   @@map("outreach")
+}
+
+enum OutreachHandoffHandler {
+  agent
+  manual
+}
+
+enum OutreachHandoffStatus {
+  queued
+  replies_submitted
+}
+
+// gp-api's own record of who handles one text send in Scale to Win and
+// whether its replies have arrived. needsHumanAt marks the overdue notice.
+model OutreachTextHandoff {
+  id                 String                 @id @default(uuid(7))
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+  outreachId         Int                    @unique @map("outreach_id")
+  outreach           Outreach               @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  handler            OutreachHandoffHandler
+  status             OutreachHandoffStatus  @default(queued)
+  // "shadow" | "auto", frozen from the flag at creation.
+  mode               String
+  sendAt             DateTime               @map("send_at")
+  timeZone           String                 @map("time_zone")
+  repliesSubmittedAt DateTime?              @map("replies_submitted_at")
+  needsHumanAt       DateTime?              @map("needs_human_at")
+  needsHumanReason   String?                @map("needs_human_reason")
+
+  @@index([status, sendAt])
+  @@map("outreach_text_handoff")
 }

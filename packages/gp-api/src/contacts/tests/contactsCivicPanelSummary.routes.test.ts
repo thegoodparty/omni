@@ -2,28 +2,17 @@ import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { subDays } from 'date-fns'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import type {
-  CivicPanelRepresentation,
-  CivicPanelSummary,
-} from '@goodparty_org/contracts'
+import type { CivicPanelSummary } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import {
   CivicPanelStatus,
   ContactStatusField,
   ContactStatusSource,
+  ManagedCivicPanelStatus,
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
-import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
-import {
-  ACS_COUNT_KEYS,
-  type AcsCounts,
-} from '@/peopleDb/databricks/districtCensusSql.util'
-import {
-  CENSUS_COMPOSITION_SOURCE,
-  type CensusCompositionSource,
-} from '@/priorities/services/censusComposition'
 
 const service = useTestService()
 
@@ -75,8 +64,23 @@ const get = <T>(path: string, slug: string) =>
 const summary = (slug: string) =>
   get<CivicPanelSummary>('/v1/contacts/civic-panel', slug)
 
-const representation = (slug: string) =>
-  get<CivicPanelRepresentation>('/v1/contacts/civic-panel/representation', slug)
+const seedManaged = (
+  organizationSlug: string,
+  goalMembers: number,
+  status: ManagedCivicPanelStatus,
+) =>
+  service.prisma.managedCivicPanel.create({
+    data: {
+      organizationSlug,
+      status,
+      inviteMessage:
+        'Reply JOIN to join my civic panel. Reply STOP to opt out.',
+      consentVersion: 'test',
+      approvedAt: new Date(),
+      approvedByUserId: service.user.id,
+      goalMembers,
+    },
+  })
 
 const flagOff = () => {
   const flag = vi
@@ -92,12 +96,16 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 0,
       reachedRecently: 0,
       askableNow: 0,
       lastOutreachAt: null,
+      progress: { members: 0, expectedAnswers: 0, groupsCovered: 0 },
+      balance: { status: 'tooFewMembers', inviteMore: null },
+      composition: null,
     })
+    expect(res.data.progress.goal).toBeGreaterThan(0)
   })
 
   it('counts a member reached 10 days ago as reached and 40 days ago as askable', async () => {
@@ -119,12 +127,53 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 3,
       reachedRecently: 1,
       askableNow: 2,
       lastOutreachAt: null,
     })
+  })
+
+  it('splits the members by how each last joined', async () => {
+    const slug = await seedOrg('eo')
+    const join = (personId: string, source: ContactStatusSource) =>
+      service.app.get(ContactStatusService).changeStatus({
+        organizationSlug: slug,
+        personId,
+        field: ContactStatusField.civic_panel,
+        toValue: CivicPanelStatus.member,
+        source,
+        actorUserId: null,
+        fallbackFromValue: CivicPanelStatus.left,
+      })
+    await join(randomUUID(), ContactStatusSource.sms)
+    await join(randomUUID(), ContactStatusSource.sms)
+    await join(randomUUID(), ContactStatusSource.phone_banking)
+    await join(randomUUID(), ContactStatusSource.manual)
+    // Texted in, left, and back at the door: the door counts.
+    const rejoined = randomUUID()
+    await join(rejoined, ContactStatusSource.sms)
+    await setPanel(slug, rejoined, CivicPanelStatus.left)
+    await join(rejoined, ContactStatusSource.door_knock)
+    // Joined by text and left: not a member.
+    const gone = randomUUID()
+    await join(gone, ContactStatusSource.sms)
+    await setPanel(slug, gone, CivicPanelStatus.left)
+
+    const res = await summary(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.members).toBe(5)
+    expect(res.data.joinedBy).toEqual({ text: 2, door: 1, phone: 1, hand: 1 })
+  })
+
+  it('reads no joins on an empty panel', async () => {
+    const slug = await seedOrg('eo')
+
+    const res = await summary(slug)
+
+    expect(res.data.joinedBy).toEqual({ text: 0, door: 0, phone: 0, hand: 0 })
   })
 
   it("does not count another office's outreach as reaching a member", async () => {
@@ -136,7 +185,7 @@ describe('GET /v1/contacts/civic-panel', () => {
 
     const res = await summary(slug)
 
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 1,
       reachedRecently: 0,
       askableNow: 1,
@@ -164,7 +213,7 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 2,
       reachedRecently: 1,
       askableNow: 1,
@@ -197,113 +246,33 @@ describe('GET /v1/contacts/civic-panel', () => {
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
-})
-
-describe('GET /v1/contacts/civic-panel/representation', () => {
-  const blockGroup = Object.fromEntries(
-    ACS_COUNT_KEYS.map((key) => [key, 100]),
-  ) as AcsCounts
-
-  // The warehouse stands behind the census source and the district behind
-  // ContactsService; both are stubbed so the route's own logic runs.
-  const stubCensus = (placed: (ids: string[]) => number | null) => {
-    const district = vi
-      .spyOn(service.app.get(ContactsService), 'resolveEligibleDistrict')
-      .mockResolvedValue({ districtId: 'd-1', dataset: 'voters' })
-    const compose = vi
-      .spyOn(
-        service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
-        'compose',
-      )
-      .mockImplementation(async ({ personIds }) => {
-        const n = placed(personIds)
-        return n === null
-          ? { available: false }
-          : {
-              available: true,
-              district: blockGroup,
-              respondentBlockGroups: Array.from(
-                { length: n },
-                () => blockGroup,
-              ),
-            }
-      })
-    onTestFinished(() => {
-      district.mockRestore()
-      compose.mockRestore()
-    })
-    return compose
-  }
-
-  it('compares the members with the district', async () => {
+  it("counts toward a managed civic panel's stored goal while it runs", async () => {
+    const districtGoal = (await summary(await seedOrg('eo'))).data.progress.goal
     const slug = await seedOrg('eo')
-    const compose = stubCensus((ids) => ids.length)
-    const members = Array.from({ length: 12 }, () => randomUUID())
-    for (const id of members) await setPanel(slug, id, CivicPanelStatus.member)
-    const left = randomUUID()
-    await setPanel(slug, left, CivicPanelStatus.member)
-    await setPanel(slug, left, CivicPanelStatus.left)
+    await seedManaged(slug, districtGoal - 3, ManagedCivicPanelStatus.building)
 
-    const res = await representation(slug)
+    const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    const asked = compose.mock.calls[0]?.[0]
-    expect(asked).toMatchObject({ districtId: 'd-1', dataset: 'voters' })
-    expect(asked?.personIds).toEqual(expect.arrayContaining(members))
-    expect(asked?.personIds).not.toContain(left)
-    expect(res.data.representation?.respondentCount).toBe(12)
-    expect(res.data.representation?.groups.length).toBeGreaterThan(0)
+    expect(res.data.progress.goal).toBe(districtGoal - 3)
   })
 
-  it('counts only the members placed in a block group', async () => {
+  it('keeps the managed goal once the managed civic panel is ready', async () => {
     const slug = await seedOrg('eo')
-    stubCensus(() => 11)
-    for (let i = 0; i < 15; i++) {
-      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
-    }
+    await seedManaged(slug, 2, ManagedCivicPanelStatus.ready)
 
-    const res = await representation(slug)
+    const res = await summary(slug)
 
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.representation?.respondentCount).toBe(11)
+    expect(res.data.progress.goal).toBe(2)
   })
 
-  it('shows unavailable census as a comparison with no rows, not an error', async () => {
+  it("goes back to the district's goal once the managed civic panel is stopped", async () => {
+    const districtGoal = (await summary(await seedOrg('eo'))).data.progress.goal
     const slug = await seedOrg('eo')
-    stubCensus(() => null)
-    for (let i = 0; i < 12; i++) {
-      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
-    }
+    await seedManaged(slug, districtGoal - 3, ManagedCivicPanelStatus.stopped)
 
-    const res = await representation(slug)
+    const res = await summary(slug)
 
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.representation).toEqual({
-      respondentCount: 12,
-      groups: [],
-    })
-  })
-
-  it('withholds the comparison below the minimum number of members', async () => {
-    const slug = await seedOrg('eo')
-    const compose = stubCensus((ids) => ids.length)
-    for (let i = 0; i < 3; i++) {
-      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
-    }
-
-    const res = await representation(slug)
-
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.representation).toBeNull()
-    expect(compose).not.toHaveBeenCalled()
-  })
-
-  it('404s with serve-citizen-panels off', async () => {
-    const slug = await seedOrg('eo')
-    flagOff()
-
-    const res = await representation(slug)
-
-    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(res.data.progress.goal).toBe(districtGoal)
   })
 })

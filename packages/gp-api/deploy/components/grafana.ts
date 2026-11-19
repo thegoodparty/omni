@@ -15,6 +15,7 @@ import {
   ROUTE_EVALUATION_SECONDS,
   routeErrorAlerts,
 } from './alerting/route-alerts'
+import { FRONTEND_ERROR_ALERTS } from './alerting/frontend-error-alerts'
 import {
   EXPECTED_PROD_RECEIVERS,
   misroutedAlerts,
@@ -27,11 +28,12 @@ import {
   recordingRuleExpression,
 } from './alerting/provisioned-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
+import { jobsDashboardConfigJson } from './jobsDashboard'
 import {
   CLOUDWATCH_DATASOURCE_UID,
-  electionApiDbDashboardConfigJson,
+  electionDbDashboardConfigJson,
   GRAFANA_CLOUDWATCH_ROLE_ARN,
-} from './electionApiDbDashboard'
+} from './electionDbDashboard'
 
 export interface GrafanaConfig {
   environment: 'dev' | 'prod'
@@ -46,6 +48,7 @@ const datasourceConfig = {
   log: { uid: LOKI_DATASOURCE_UID, queryType: 'instant' },
   metric: { uid: PROM_DATASOURCE_UID, queryType: 'instant' },
   usage: { uid: USAGE_DATASOURCE_UID, queryType: 'instant' },
+  cloudwatch: { uid: CLOUDWATCH_DATASOURCE_UID, queryType: '' },
 } as const
 
 /**
@@ -85,25 +88,43 @@ export const alertTimeRange = (alert: Alert) => {
  * is the only place the instant-versus-range decision is visible.
  */
 export const alertQueryModel = (alert: Alert, environment: string) =>
-  JSON.stringify({
-    expr: alert.expr.replace(/\$ENV/g, environment),
-    refId: 'A',
-    // INSTANT, AND THE KEY HAS TO BE IN THE MODEL. Loki's backend reads
-    // `queryType` from here, not from the rule's DataQuery-level field, and
-    // without it every log rule ran as a range query: a point per second
-    // across the whole fetch window, each re-reading its own range vector,
-    // so a `[10m]` count over a 600s fetch read twenty minutes of logs to
-    // produce the one value `reduce: last` kept. Measured on 2026-10-09
-    // against prod: a range query read 2.4x what the instant query over the
-    // same vector read, and 3x on a one-hour vector. Only the vector is read
-    // now, ending `timeRangeOffsetSeconds` before the evaluation.
-    //
-    // Not on metric or usage rules: Prometheus ignores the key, and those
-    // queries are not billed by bytes.
-    ...(alert.type === 'log'
-      ? { queryType: 'instant', instant: true, range: false }
-      : {}),
-  })
+  alert.type === 'cloudwatch'
+    ? JSON.stringify({
+        refId: 'A',
+        datasource: { type: 'cloudwatch', uid: CLOUDWATCH_DATASOURCE_UID },
+        queryMode: 'Metrics',
+        metricQueryType: 0,
+        metricEditorMode: 0,
+        region: 'us-west-2',
+        namespace: alert.cloudwatchNamespace,
+        metricName: alert.expr,
+        dimensions: alert.cloudwatchDimensions ?? {},
+        statistic: alert.cloudwatchStatistic ?? 'Average',
+        period: '300',
+        matchExact: true,
+        id: '',
+        expression: '',
+        label: '',
+      })
+    : JSON.stringify({
+        expr: alert.expr.replace(/\$ENV/g, environment),
+        refId: 'A',
+        // INSTANT, AND THE KEY HAS TO BE IN THE MODEL. Loki's backend reads
+        // `queryType` from here, not from the rule's DataQuery-level field, and
+        // without it every log rule ran as a range query: a point per second
+        // across the whole fetch window, each re-reading its own range vector,
+        // so a `[10m]` count over a 600s fetch read twenty minutes of logs to
+        // produce the one value `reduce: last` kept. Measured on 2026-10-09
+        // against prod: a range query read 2.4x what the instant query over the
+        // same vector read, and 3x on a one-hour vector. Only the vector is read
+        // now, ending `timeRangeOffsetSeconds` before the evaluation.
+        //
+        // Not on metric or usage rules: Prometheus ignores the key, and those
+        // queries are not billed by bytes.
+        ...(alert.type === 'log'
+          ? { queryType: 'instant', instant: true, range: false }
+          : {}),
+      })
 
 /**
  * The snapshot, read rather than imported.
@@ -493,6 +514,15 @@ export const createGrafanaResources = async ({
     }),
   })
 
+  new grafana.oss.Dashboard('background-jobs-dashboard', {
+    folder: folder.uid,
+    overwrite: true,
+    configJson: jobsDashboardConfigJson({
+      environment,
+      promDatasourceUid: PROM_DATASOURCE_UID,
+    }),
+  })
+
   const { probes } = await grafana.syntheticmonitoring.getProbes()
 
   new grafana.syntheticmonitoring.Check('health-check', {
@@ -539,6 +569,32 @@ export const createGrafanaResources = async ({
   // history and any silence on them; prod is untouched.
   if (environment !== 'prod') return
 
+  // The Delegate agent swarm (ops repo, agent-swarm/README.md) is not part of
+  // gp-api. It is probed from here because this deploy already owns the
+  // Grafana provider, the probe list and the alert routing; ops has none.
+  // Two probes every two minutes is 43,200 executions a month against the
+  // shared 100k allowance, a third of what gp-api's own check costs.
+  new grafana.syntheticmonitoring.Check('delegate-swarm-health-check', {
+    job: 'delegate-swarm-health',
+    target: 'https://delegate-swarm.infra.goodparty.org/health',
+    enabled: true,
+    frequency: 120000,
+    timeout: 10000,
+    probes: [probes['NorthCalifornia'], probes['NorthVirginia']],
+    labels: {
+      environment,
+      alert_slug: 'delegate-swarm-health',
+    },
+    settings: {
+      http: {
+        method: 'GET',
+        ipVersion: 'V4',
+        validStatusCodes: [200],
+        failIfNotSsl: true,
+      },
+    },
+  })
+
   // One data source for the stack, so only the prod deploy owns it. It reads
   // the production AWS account through a role Grafana Cloud assumes; no AWS
   // keys are stored in Grafana.
@@ -558,7 +614,7 @@ export const createGrafanaResources = async ({
     {
       folder: folder.uid,
       overwrite: true,
-      configJson: electionApiDbDashboardConfigJson({
+      configJson: electionDbDashboardConfigJson({
         lokiDatasourceUid: LOKI_DATASOURCE_UID,
       }),
     },
@@ -610,7 +666,7 @@ export const createGrafanaResources = async ({
       // than `NoData -> Alerting` on five rules, which would reproduce the
       // 2026-09-28 flood in miniature.
       noDataState: 'OK',
-      execErrState: 'Alerting',
+      execErrState: alert.execErrState ?? 'Alerting',
       annotations: {
         summary: buildAlertSummary(alert, environment),
         description: buildAlertDescription(alert, environment),
@@ -749,4 +805,16 @@ export const createGrafanaResources = async ({
     intervalSeconds: ROUTE_EVALUATION_SECONDS,
     rules: routeErrorAlerts().map(alertToRule),
   })
+
+  // gp-webapp's browser errors, from Grafana Frontend Observability. One group
+  // per rule, because each reads a different window at its own cadence; see
+  // alerting/frontend-error-alerts.ts.
+  for (const alert of FRONTEND_ERROR_ALERTS) {
+    new grafana.alerting.RuleGroup(`${alert.slug}-rules`, {
+      name: alert.name,
+      folderUid: alertFolder.uid,
+      intervalSeconds: alert.evaluationIntervalSeconds ?? 60,
+      rules: [alertToRule(alert)],
+    })
+  }
 }

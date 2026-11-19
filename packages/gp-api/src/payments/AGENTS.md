@@ -27,6 +27,9 @@ Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suff
 
 - **Stripe webhook events flow through `PaymentEventsService`**, not the controllers. To react to a new event type, add the handler there — that's where business effects fire.
 - **`PurchaseType` is the typed extension point.** Adding a new purchase kind: add to the enum, add a metadata type, register a `PurchaseHandler<Metadata>` (`validatePurchase` / `calculateAmount` / optional `getProductName` / `getProductDescription`) in `PurchaseService`. Don't add ad-hoc payment paths outside this module.
+  `validatePurchase` receives the checkout metadata plus the authenticated
+  buyer's `userId` (the server value, over any client one), so a handler can
+  refuse before payment what its fulfillment would refuse after the charge.
 - **External calls are wrapped in try/catch and throw `BadGatewayException`** (`.cursor/rules/rules.mdc` Rule 3). DB writes are not wrapped — let `PrismaExceptionFilter` handle them.
 - `forwardRef(() => CampaignsModule)` because purchase fulfillment touches campaign state.
 - **The owner line (ENG-10819): subscription billing is personally scoped,
@@ -81,6 +84,15 @@ workflows on those events send the emails. Whether Stripe cancels at all after
 the last failed retry is a Stripe dashboard setting (Billing > Revenue
 recovery), not code.
 
+**A scheduled cancellation is confirmed by the event that books it, not by the
+one that ends it.** `customer.subscription.updated` emails the candidate the
+access-end date whenever `cancel_at` goes from `null` to a date (the portal's
+ordinary first cancel) or moves earlier. Stripe sends the rest of the cancel
+form (comment, feedback) as separate `updated` events for the SAME
+cancellation, carrying `cancel_at` unchanged — so `previous_attributes` omits
+the key, and an absent key means "unchanged", never "was null". Reading it as
+a first cancel emails the candidate twice per cancellation.
+
 **Account deletion stops billing before it deletes anything.**
 `UsersService.deleteUser` cancels the subscription on EVERY campaign the user
 owns, from inside the deletion transaction and before it commits. `Campaign`
@@ -94,6 +106,14 @@ that no longer exists — the outcomes that prove cancellation moot
 `StripeService.cancelSubscription`, so only a genuine "may still be billable"
 reaches the abort. Deleting a user therefore has two possible outcomes,
 billing stopped or nothing happened, never data gone with billing live.
+
+`DELETE /v1/admin/campaigns/:id` (`AdminCampaignsService.delete`) follows the
+same ordering for one campaign. It deleted the row without touching Stripe
+until ENG-11454, which is how a Pro subscription bought on 2025-10-22 billed
+for a year with no campaign behind it. Its `customer.subscription.deleted`
+webhook then lands as an unmatched cancellation whose account is still live,
+so it logs the "cancellation was never applied" error once; that line is
+expected after an admin campaign delete.
 
 `POST /payments/purchase/checkout-session` is guarded (ENG-10771, PR #992 —
 each guard exists because a customer was double-billed without it):
@@ -252,7 +272,8 @@ class** from an orphaned subscription, and needs no Stripe key to find:
 alone. That matters because `GP_API_PROD` — which holds both the live Stripe
 key and the prod DB password — is NOT readable by the default `EngineerAccess`
 SSO role (`secretsmanager:GetSecretValue` is denied), so anything requiring it
-is an access request rather than a self-serve step. The sharpest signal is
+needs temporary admin from `/breakglass` in Slack, approved in
+`#sensitive-access-requests`, rather than being a self-serve step. The sharpest signal is
 `details.subscriptionCanceledAt` later than `details.isProUpdatedAt` while
 `is_pro` is still true: the row contradicts itself, because
 `customerSubscriptionDeletedHandler` both stamps `subscriptionCanceledAt` (via
@@ -298,8 +319,15 @@ user_id = <id>`. Known traps:
    the prior loss survived onto the new race. Fixed in ENG-10954: a
    user-driven update (`PUT /campaigns/mine`) that moves `electionDate` to a
    new upcoming date now clears `didWin`/`primaryResult` and strips the stale
-   `wonGeneral`/`primaryElectionDate` details keys. Rows stranded before the
-   fix (or written through other paths) still need the manual repair:
+   `wonGeneral`/`primaryElectionDate` details keys. The M2M `PUT
+   /campaigns/:id` (the gp-admin campaign form) does the same (ENG-11599).
+   When staff move the date to an upcoming one on a campaign with a result,
+   gp-admin asks them to clear or keep it and sends `resetElectionResults`,
+   which decides. Without that flag the reset runs unless the request changes
+   `didWin`/`primaryResult`/`wonGeneral` from the stored value. The admin slug-override
+   branch of `PUT /campaigns/mine` and the admin console `didWin` update still
+   never reset. Rows stranded before the fix (or written through other paths)
+   still need the manual repair:
    `UPDATE campaign SET did_win = NULL WHERE id = <id> AND did_win = false;`
    and strip the stale prior-race keys so the result modals can't re-trap:
    `UPDATE campaign SET details = details - 'primaryElectionDate' -
@@ -307,8 +335,11 @@ user_id = <id>`. Known traps:
 2. **PrimaryResultModal trap** — a campaign whose BallotReady-sourced
    `details.primaryElectionDate` has passed re-opens the primary-result modal
    each session; independents with no primary answer "did not win" →
-   `primary_result='lost'`. Repair needs BOTH writes or the modal re-traps on
-   next dashboard load:
+   `primary_result='lost'`. Onboarding no longer sets a primary date for a
+   partisan race outside AK, CA, LA and WA (`candidateRunsInPrimary` in
+   `elections/util/primaryBallot.util.ts`), so only campaigns written before
+   that can hit this. Repair needs BOTH writes or the modal re-traps on next
+   dashboard load:
    `UPDATE campaign SET primary_result = NULL WHERE id = <id> AND
 primary_result = 'lost';` and
    `UPDATE campaign SET details = details - 'primaryElectionDate' WHERE id = <id>;`
@@ -322,10 +353,15 @@ primary_result = 'lost';` and
 **"Cancelled Pro but Stripe kept billing" (ENG-10657 shape).** The
 portal-cancel → `customer.subscription.deleted` → de-Pro path works; suspect
 (a) two app users for one person with the sub on the other account, or
-(b) admin console `isPro: false` (adminCampaigns.service), which does NOT
-cancel the Stripe subscription (open gap, 86ajenb0v). Also: a passed election
-with `wonGeneral` null force-redirects every dashboard route to
-`/dashboard/election-result`, hiding Profile → Manage Subscription;
+(b) the paying campaign was deleted through `DELETE /v1/admin/campaigns/:id`
+before ENG-11454, which took `details.subscriptionId` with it. ENG-11454 was
+both: the sub was bought from another account in the household, whose campaign
+no longer exists, so no campaign anywhere carries the id and only Stripe can
+stop it. The admin `isPro: false` toggle cancels Stripe before it de-Pros
+(ENG-10660), so it is not a suspect. Also: a passed election
+with `wonGeneral` null force-redirects every dashboard route but the campaign
+manager home to `/dashboard/election-result`, hiding Profile → Manage
+Subscription;
 `ActiveProSubscriptionAlert` on the election-result pages (PR #677) is the
 escape hatch.
 
@@ -378,6 +414,9 @@ an automatic-capture one) still defers. Hold checkouts take promotion codes
 like every other checkout: Stripe takes the code off the hold, and
 `outreachP2pSmsHold.service.ts` records the discount (or, for a code that
 covered everything, a send with no hold) — see `outreach/AGENTS.md`.
+`createCheckoutSession` returns `isHold` so the webapp's review step knows the
+amount is the undiscounted hold and shows the free texts off it, as capture
+will.
 
 A promotion code that covers the whole order completes checkout with no
 PaymentIntent and `payment_status: paid` (what Stripe test mode returned
@@ -385,7 +424,8 @@ PaymentIntent and `payment_status: paid` (what Stripe test mode returned
 `no_payment_required`). Stripe's own fulfillment rule is "unless `unpaid`", so
 `completeCheckoutSession` runs the handler right away. The `postPurchaseCompletedAt` marker needs a
 PaymentIntent, so for these sessions the handlers' own claims (the
-TEXT/SERVE_TEXT `pending_payment → pending` CAS, the poll create's reconcile)
+TEXT/SERVE_TEXT `pending_payment → pending` CAS, the poll create's reconcile,
+the poll expansion's checkout id)
 are the only guard against the client-vs-webhook race. Before 2026-10-06 the
 gate required `paid`, so a fully discounted text was deferred forever: the
 candidate saw the success screen, the draft stayed `pending_payment`, and no
@@ -405,15 +445,54 @@ prices off `Outreach.textCount` (server-written at draft, never a client
 count), refuses a row that is not `pending_payment` so a paid send cannot be
 checked out twice, and its post-purchase step is the same
 `pending_payment → pending` CAS claim the TEXT path uses, followed by an
-`outreachTextSend` queue message rather than a Peerly submission. Full
+`outreachTextSend` pg-boss job rather than a Peerly submission. Full
 invariants: `outreach/AGENTS.md`, "Serve SMS purchase".
 
 A paid `outreachType: poll` row goes through the same handler but is held, not
 sent: the CAS claim moves it to `pending` and posts one "New poll awaiting
 review" Slack notice (only the claim winner, so a webhook redelivery posts
 nothing), and the claim's `outreachType` is read off the row. No
-`outreachTextSend` is enqueued; the admin approval does that. A lost claim on
+`outreachTextSend` job is sent; the admin approval sends it. A lost claim on
 a `pending` poll returns without re-enqueuing.
+
+**Free managed panel sends.** `Outreach.fundedBy` null means paid.
+`goodparty_pilot` marks a managed civic panel wave GoodParty pays for in
+the pilot, and `goodparty_panel_confirmation` the panel's one thank-you text
+to its members once it is full, each set only by `ManagedWaveFundingService`
+(`claimFree`, `claimConfirmationFree`), which has no route and no checkout.
+A CHECK allows each only on a row linked to its wave or its panel and never
+beside `stripeCheckoutSessionId`. The text delivery layer refuses any send
+that is neither paid nor a live pilot wave or confirmation, and a daily job
+reconciles the rest (`outreach/docs/text-delivery.md`, "The funding gate").
+The `serve-citizen-panels` flag, read for the approving official, is the
+only switch on any of it.
+
+## Poll purchases (POLL)
+
+The legacy poll type carries the poll through checkout metadata, as a `new`
+poll or an `expansion` of one (`polls/services/pollPurchase.service.ts`).
+Both fulfillments make the browser-vs-webhook race harmless without the
+marker:
+
+- **New poll.** The client-minted `pollId` is the primary key, so the second
+  fulfillment trips P2002 and `reconcileDuplicatePollCreate` no-ops it for the
+  same buyer.
+- **Expansion.** `validatePurchase` refuses, before payment, a poll that is
+  missing, not on one of the buyer's elected offices, or not `COMPLETED`.
+  `PollsService.expandPoll` writes the expansion and
+  `Poll.expansionCheckoutSessionId` in one optimistic update, sends the
+  `pollExpansion` job in the same transaction, and refuses a checkout id the
+  poll already carries. A refused caller re-reads the poll: its own checkout
+  id means the expansion is done, so it returns without a second
+  `pollExpansion` (which would text a second batch). Any other id
+  means the buyer paid for an expansion the poll cannot take, in practice two
+  tabs that both opened checkout while it was `COMPLETED`. The first fulfilled
+  wins; the other is refunded in full (keyed
+  `poll-expansion-refund-<sessionId>`) and rejected with a 400 the webhook
+  acknowledges. A failed refund is a 502, so Stripe redelivers into a retry.
+  A poll gone on the re-read is a 409 and no refund, since nothing can tell
+  any more whether this checkout expanded it first.
+  See `docs/adr/2026-10-20-poll-expansion-first-fulfilled-wins.md`.
 
 ## Gotchas
 

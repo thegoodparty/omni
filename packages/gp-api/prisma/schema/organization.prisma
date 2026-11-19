@@ -11,6 +11,7 @@ model Organization {
   electedOffice                     ElectedOffice?
   voterFileFilters                  VoterFileFilter[]
   experimentRuns                    ExperimentRun[]
+  agentRuns                         AgentRun[]
   artifactFeedbacks                 ArtifactFeedback[]
   communityIssues                   CommunityIssue[]
   ordinanceCodeRecord               OrdinanceCodeRecord?
@@ -31,7 +32,11 @@ model Organization {
   outreachAssignments               OutreachAssignment[]
   issueTags                         IssueTag[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
-  civicPanelBuildPlans              CivicPanelBuildPlan[]
+  managedCivicPanel                 ManagedCivicPanel?
+  priorityAnswers                   PriorityAnswer[]
+  outreachEmailSender               OutreachEmailSender?
+  outreachEmailSuppressions         OutreachEmailSuppression[]
+  contactUploads                    ContactUpload[]
   testModeCreatedAt                 DateTime?                        @map("test_mode_created_at")
 
   @@index([ownerId])

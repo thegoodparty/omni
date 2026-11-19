@@ -1,6 +1,7 @@
 import type { Person } from '@goodparty_org/contracts'
 import { BaseDbPerson } from '../voter.select'
 import { classifyPoliticalParty } from './politicalParty.rules'
+import { earlyVoteStatusFromMart } from '../earlyVoteStatus'
 
 // people-api is the producer of this shape; the canonical definition lives in
 // @goodparty_org/contracts as Person (consumed by gp-api and gp-webapp).
@@ -161,9 +162,17 @@ export function transformToPersonOutput(
     nameSuffix: person.NameSuffix ?? null,
     gender: mapGender(person.Gender),
     age: mapAge(person),
-    politicalParty: mapPoliticalParty(person.Parties_Description),
+    politicalParty: person.ContactIsNew
+      ? null
+      : mapPoliticalParty(person.Parties_Description),
     voterStatus: mapVoterStatus(person.Voter_Status),
-    registeredVoter: 'Yes',
+    earlyVoteStatus: earlyVoteStatusFromMart(person.Early_Vote_Status),
+    registeredVoter:
+      person.Registered_Voter === null
+        ? null
+        : person.Registered_Voter
+          ? 'Yes'
+          : 'No',
     state: person.State,
     address: {
       line1: person.Residence_Addresses_AddressLine,
@@ -177,6 +186,8 @@ export function transformToPersonOutput(
     },
     cellPhone: person.VoterTelephones_CellPhoneFormatted ?? null,
     landline: person.VoterTelephones_LandlineFormatted ?? null,
+    email: person.Email ?? null,
+    isNewContact: person.ContactIsNew,
     maritalStatus: mapMaritalStatus(person.Marital_Status),
     hasChildrenUnder18: mapPresenceOfChildren(person.Presence_Of_Children),
     veteranStatus: mapVeteranStatus(person.Veteran_Status),

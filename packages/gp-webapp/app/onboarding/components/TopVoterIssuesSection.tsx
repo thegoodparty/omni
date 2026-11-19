@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Card, CardContent } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 
 interface TopVoterIssuesSectionProps {
   ballotReadyPositionId?: string
@@ -20,7 +20,7 @@ const TOP_ISSUES_DESCRIPTION =
 
 const VOTER_ISSUES_QUERY_KEY = 'onboarding-voter-issues'
 const VOTER_ISSUES_ROUTE = 'GET /v1/onboarding/voter-issues'
-const SENTRY_CONTEXT_FETCH_ISSUES = 'onboarding.voterIssues.fetch'
+const ERROR_CONTEXT_FETCH_ISSUES = 'onboarding.voterIssues.fetch'
 const SKELETON_PLACEHOLDER_COUNT = 3
 const COLLAPSED_ISSUES_VISIBLE = 3
 
@@ -80,8 +80,8 @@ export const TopVoterIssuesSection = ({
 
   useEffect(() => {
     if (!query.error) return
-    reportErrorToSentry(query.error, {
-      context: SENTRY_CONTEXT_FETCH_ISSUES,
+    reportClientError(query.error, {
+      context: ERROR_CONTEXT_FETCH_ISSUES,
     })
   }, [query.error])
 

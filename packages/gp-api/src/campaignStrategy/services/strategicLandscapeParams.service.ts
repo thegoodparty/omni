@@ -10,7 +10,7 @@ import { WebsitesService } from '@/websites/services/websites.service'
 import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
-import { ElectionApiService } from './electionApi.service'
+import { RaceContextService } from './raceContext.service'
 
 // Both CAP experiments share one input contract.
 type StrategicLandscapeInput = AgentJobContracts['opposition_research']['Input']
@@ -200,7 +200,7 @@ const resolveParty = (
 @Injectable()
 export class StrategicLandscapeParamsService {
   constructor(
-    private readonly electionApi: ElectionApiService,
+    private readonly raceContextService: RaceContextService,
     private readonly races: RacesService,
     private readonly campaignStory: CampaignStoryService,
     private readonly websites: WebsitesService,
@@ -214,7 +214,7 @@ export class StrategicLandscapeParamsService {
     brHashId: string,
   ): Promise<StrategicLandscapeInput> {
     const [context, primary, campaignStory] = await Promise.all([
-      this.electionApi.getStrategyContext(brHashId),
+      this.raceContextService.getStrategyContext(brHashId),
       this.buildPrimaryContext(brHashId),
       this.loadStoryParam(campaign.id),
     ])
@@ -298,7 +298,7 @@ export class StrategicLandscapeParamsService {
   private async buildPrimaryContext(brHashId: string): Promise<PrimaryContext> {
     const primaryRaceId = await this.races.getPrimaryRaceId(brHashId)
     if (!primaryRaceId) return null
-    const ctx = await this.electionApi.getStrategyContext(primaryRaceId)
+    const ctx = await this.raceContextService.getStrategyContext(primaryRaceId)
     return { candidate_count: ctx.candidate_count, candidates: ctx.candidates }
   }
 }

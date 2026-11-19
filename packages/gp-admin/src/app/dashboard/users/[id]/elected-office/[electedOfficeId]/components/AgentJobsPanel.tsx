@@ -4,10 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { Badge, Button, Flex, Separator, Text } from '@radix-ui/themes'
 import { HiRefresh } from 'react-icons/hi'
-import type {
-  AgentRunListItem,
-  BriefingDispatchPreview,
-} from '@goodparty_org/sdk'
+import type { AgentRunListItem, BriefingDispatchPreview } from '@/shared/gpApi'
 import { InfoCard } from '@/app/dashboard/users/[id]/components/InfoCard'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { ConfirmDialog } from '@/components/ConfirmDialog'

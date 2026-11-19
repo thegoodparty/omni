@@ -21,9 +21,9 @@ vi.mock('./annotations-api', () => ({
   },
 }))
 
-const reportErrorToSentryMock = vi.fn()
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: (...args: unknown[]) => reportErrorToSentryMock(...args),
+const reportClientErrorMock = vi.fn()
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: (...args: unknown[]) => reportClientErrorMock(...args),
 }))
 
 import { useAnnotations, annotationsQueryKey } from './use-annotations'
@@ -71,12 +71,12 @@ beforeEach(() => {
   updateNoteMock.mockReset()
   updateReviewMock.mockReset()
   deleteMock.mockReset()
-  reportErrorToSentryMock.mockReset()
+  reportClientErrorMock.mockReset()
   listMock.mockResolvedValue([])
 })
 
 describe('useAnnotations — error reporting', () => {
-  it('reports create failures to Sentry with surface, op, and meetingDate context', async () => {
+  it('reports create failures with surface, op, and meetingDate context', async () => {
     const err = new Error('create boom')
     createMock.mockRejectedValue(err)
     const qc = newClient()
@@ -94,7 +94,7 @@ describe('useAnnotations — error reporting', () => {
     })
 
     await waitFor(() => {
-      expect(reportErrorToSentryMock).toHaveBeenCalledWith(err, {
+      expect(reportClientErrorMock).toHaveBeenCalledWith(err, {
         surface: 'briefing-annotations',
         op: 'create',
         meetingDate: MEETING_DATE,
@@ -102,7 +102,7 @@ describe('useAnnotations — error reporting', () => {
     })
   })
 
-  it('reports updateNote failures to Sentry with op: updateNote', async () => {
+  it('reports updateNote failures with op: updateNote', async () => {
     const err = new Error('update boom')
     updateNoteMock.mockRejectedValue(err)
     const qc = newClient()
@@ -116,7 +116,7 @@ describe('useAnnotations — error reporting', () => {
     })
 
     await waitFor(() => {
-      expect(reportErrorToSentryMock).toHaveBeenCalledWith(err, {
+      expect(reportClientErrorMock).toHaveBeenCalledWith(err, {
         surface: 'briefing-annotations',
         op: 'updateNote',
         meetingDate: MEETING_DATE,
@@ -124,7 +124,7 @@ describe('useAnnotations — error reporting', () => {
     })
   })
 
-  it('reports remove failures to Sentry with op: remove', async () => {
+  it('reports remove failures with op: remove', async () => {
     const err = new Error('remove boom')
     deleteMock.mockRejectedValue(err)
     const qc = newClient()
@@ -138,7 +138,7 @@ describe('useAnnotations — error reporting', () => {
     })
 
     await waitFor(() => {
-      expect(reportErrorToSentryMock).toHaveBeenCalledWith(err, {
+      expect(reportClientErrorMock).toHaveBeenCalledWith(err, {
         surface: 'briefing-annotations',
         op: 'remove',
         meetingDate: MEETING_DATE,

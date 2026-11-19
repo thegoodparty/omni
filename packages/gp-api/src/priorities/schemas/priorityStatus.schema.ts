@@ -106,11 +106,14 @@ export const UpdatePriorityStatusInputSchema = z.object({
   nextAction: z
     .string()
     .describe(
-      'The single thing the official should do next, in plain words short ' +
-        'enough to read at a glance and specific enough to do today. ' +
-        '"Call the public works director and ask what the backlog is" is ' +
-        'right, "keep gathering evidence" is not. Empty string only when ' +
-        'every step is settled and there is nothing left to do.',
+      'The single thing the official should do next: one sentence written ' +
+        'to them as "you", short enough to read at a glance and specific ' +
+        'enough to do today. "Call the public works director and ask what ' +
+        'the backlog is" is right, "keep gathering evidence" is not, and ' +
+        '"Ask Maria to put the problem in her own words so define can be ' +
+        'settled" is wrong: no names, no he, she or they for the official, ' +
+        'no step ids. Empty string only when every step is settled and ' +
+        'there is nothing left to do.',
     ),
 })
 

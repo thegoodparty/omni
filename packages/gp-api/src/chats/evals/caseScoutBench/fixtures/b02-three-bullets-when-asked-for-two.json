@@ -1,0 +1,37 @@
+{
+  "id": "b02-three-bullets-when-asked-for-two",
+  "agent": "chief_of_staff",
+  "category": "borderline",
+  "summary": "Official asks for a two-bullet summary of a resident's email. The assistant gives three accurate bullets, one slightly redundant. Usable as is.",
+  "notes": "",
+  "expect": {
+    "should_draft": false,
+    "pattern": null,
+    "drop_ok": false,
+    "covered_by": null,
+    "also_pass_if_covered_by": [],
+    "scored": true
+  },
+  "planted_pii": [],
+  "denylist": [
+    "Thaddeus",
+    "Arkwright-Moe",
+    "Thaddeus Arkwright-Moe",
+    "City of Pellridge",
+    "Pellridge City Council Ward 4",
+    "Pellridge",
+    "Ward 4"
+  ],
+  "messages": [
+    {
+      "at": "2026-10-27T14:52:03+00:00",
+      "role": "user",
+      "content": "Summarize this in two bullets for my staff: \"I've lived near the community pool for 20 years. This summer the pool closed three weeks early and the city said it was staffing. My grandkids had nowhere to swim. I want to know if the city will fix lifeguard pay before next summer, and whether the pool can stay open on weekends into September.\""
+    },
+    {
+      "at": "2026-10-27T14:52:22+00:00",
+      "role": "assistant",
+      "content": "- A longtime neighbor of the community pool is frustrated it closed three weeks early this summer, reportedly for staffing.\n- They're asking whether the city will raise lifeguard pay before next summer.\n- They also want the pool open on weekends into September, and note the early closing left their grandkids nowhere to swim."
+    }
+  ]
+}

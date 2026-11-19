@@ -487,6 +487,45 @@ describe('CampaignStrategyContextService', () => {
     )
   })
 
+  it.each([
+    ['AR', null],
+    ['CA', '2026-06-02'],
+  ])(
+    'in a partisan %s race, fills primary_election_date only where our candidates appear on the primary ballot',
+    async (state, expectedPrimaryDate) => {
+      raceFindFirst.mockResolvedValue(
+        baseRace({ state, partisanType: 'partisan' }),
+      )
+      raceFindMany.mockResolvedValue([
+        {
+          electionDate: new Date('2026-06-02T00:00:00Z'),
+          isPrimary: true,
+          isRunoff: false,
+        },
+      ])
+
+      const result = await service.getCampaignStrategyContext(baseRequest())
+
+      expect(result.primary_election_date).toBe(expectedPrimaryDate)
+      expect(result.general_election_date).toBe('2026-08-25')
+    },
+  )
+
+  it('keeps primary_election_date when the looked-up race is itself a partisan primary', async () => {
+    raceFindFirst.mockResolvedValue(
+      baseRace({
+        state: 'AR',
+        partisanType: 'partisan',
+        electionDate: new Date('2026-06-02T00:00:00Z'),
+        isPrimary: true,
+      }),
+    )
+
+    const result = await service.getCampaignStrategyContext(baseRequest())
+
+    expect(result.primary_election_date).toBe('2026-06-02')
+  })
+
   it('windows the sibling lookup ±6 months around the race electionDate so cross-year stage pairs are captured', async () => {
     // Louisiana-style cycle: jungle primary in Nov 2026 feeds a Jan 2027
     // general. A calendar-year window anchored on 2027 would miss the

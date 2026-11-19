@@ -1,11 +1,13 @@
 import { useTestService } from '@/test-service'
 import { BadGatewayException, HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { subDays } from 'date-fns'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
+  AgentRunStatus,
   CommunityIssueCategory,
   CommunityIssueList,
   CommunityIssuePriority,
@@ -40,6 +42,7 @@ const seedIssue = (
     rank: number | null
     archivedAt: Date | null
     organizationSlug: string
+    lastRefreshedRunId: string
   }> = {},
 ) =>
   service.prisma.communityIssue.create({
@@ -53,6 +56,7 @@ const seedIssue = (
       detail: { overview: { summary: 'ok' }, sources: [] },
       rank: overrides.rank ?? 1,
       archivedAt: overrides.archivedAt ?? null,
+      lastRefreshedRunId: overrides.lastRefreshedRunId ?? null,
     },
   })
 
@@ -188,6 +192,177 @@ describe('GET /v1/community-issues', () => {
 
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.refresh.status).toBe('failed')
+  })
+})
+
+describe('GET /v1/community-issues — trending refresh on the gp-api engine', () => {
+  beforeEach(() => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'trending_issues')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  const seedAgentRun = (status: AgentRunStatus) =>
+    service.prisma.agentRun.create({
+      data: {
+        agentName: 'trending_issues',
+        organizationSlug: eoOrgSlug,
+        status,
+        manifest: {},
+        shapeHash: 'a-shape',
+        input: { organizationSlug: eoOrgSlug },
+      },
+    })
+
+  const seedTrendingIssueRefreshedDaysAgo = async (daysAgo: number) => {
+    const issue = await seedIssue({
+      list: CommunityIssueList.trending,
+      lastRefreshedRunId: 'an-earlier-run',
+    })
+    // @updatedAt is Prisma-managed, so backdate the ingest via raw SQL.
+    await service.prisma.$executeRaw`
+      UPDATE community_issue
+      SET updated_at = ${subDays(new Date(), daysAgo)}
+      WHERE id = ${issue.id}
+    `
+    return service.prisma.communityIssue.findFirstOrThrow({
+      where: { id: issue.id },
+    })
+  }
+
+  it('reports completed at the newest trending row when the org has no AgentRun', async () => {
+    const refreshed = await seedTrendingIssueRefreshedDaysAgo(1)
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=trending`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('completed')
+    expect(res.data.refresh.lastCompletedAt).toBe(
+      refreshed.updatedAt.toISOString(),
+    )
+  })
+
+  it('reports running when the org has no trending rows and no AgentRun', async () => {
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=trending`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('running')
+    expect(res.data.refresh.lastCompletedAt).toBeNull()
+  })
+
+  it('lets a completed AgentRun decide lastCompletedAt once the org has one', async () => {
+    await seedTrendingIssueRefreshedDaysAgo(10)
+    const run = await seedAgentRun(AgentRunStatus.completed)
+    await service.prisma.$executeRaw`
+      UPDATE agent_run
+      SET updated_at = ${subDays(new Date(), 1)}
+      WHERE id = ${run.id}
+    `
+    const completedRun = await service.prisma.agentRun.findFirstOrThrow({
+      where: { id: run.id },
+    })
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=trending`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('completed')
+    expect(res.data.refresh.lastCompletedAt).toBe(
+      completedRun.updatedAt.toISOString(),
+    )
+  })
+
+  it('lets the AgentRun decide once the org has one, ignoring the rows', async () => {
+    await seedTrendingIssueRefreshedDaysAgo(1)
+    await seedAgentRun(AgentRunStatus.running)
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=trending`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('running')
+    expect(res.data.refresh.lastCompletedAt).toBeNull()
+  })
+})
+
+describe('GET /v1/community-issues — top_community refresh on the gp-api engine', () => {
+  beforeEach(() => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'top_community_issues')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('reports completed at the newest top_community row when the org has no AgentRun', async () => {
+    const issue = await seedIssue({
+      list: CommunityIssueList.top_community,
+      lastRefreshedRunId: 'an-earlier-run',
+    })
+    await seedIssue({
+      list: CommunityIssueList.trending,
+      lastRefreshedRunId: 'an-earlier-run',
+    })
+    await service.prisma.$executeRaw`
+      UPDATE community_issue
+      SET updated_at = ${subDays(new Date(), 1)}
+      WHERE id = ${issue.id}
+    `
+    const refreshed = await service.prisma.communityIssue.findFirstOrThrow({
+      where: { id: issue.id },
+    })
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh).toEqual({
+      status: 'completed',
+      lastCompletedAt: refreshed.updatedAt.toISOString(),
+    })
+  })
+
+  it('reports running when the only top_community rows are starter rows', async () => {
+    await seedIssue({ list: CommunityIssueList.top_community })
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.data.refresh).toEqual({
+      status: 'running',
+      lastCompletedAt: null,
+    })
+  })
+
+  it('lets the top_community_issues AgentRun decide once the org has one', async () => {
+    await seedIssue({ list: CommunityIssueList.top_community })
+    await service.prisma.agentRun.create({
+      data: {
+        agentName: 'top_community_issues',
+        organizationSlug: eoOrgSlug,
+        status: AgentRunStatus.running,
+        manifest: {},
+        shapeHash: 'a-shape',
+        input: { organizationSlug: eoOrgSlug },
+      },
+    })
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.data.refresh).toEqual({
+      status: 'running',
+      lastCompletedAt: null,
+    })
   })
 })
 

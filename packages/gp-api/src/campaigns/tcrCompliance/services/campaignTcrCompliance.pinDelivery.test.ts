@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PinoLogger } from 'nestjs-pino'
 import { PrismaService } from '@/prisma/prisma.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
@@ -19,11 +18,10 @@ import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyId
 import { WebsitesService } from '../../../websites/services/websites.service'
 import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
-import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
 import { CvPreSubmissionValidationService } from './cvPreSubmissionValidation.service'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 
 describe('CampaignTcrComplianceService - applyCvDetection', () => {
   const user = createMockUser({ id: 55 })
@@ -46,7 +44,6 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
   }
   let mockTrack: ReturnType<typeof vi.fn>
   let mockTrackCampaign: ReturnType<typeof vi.fn>
-  let mockSendSingleSend: ReturnType<typeof vi.fn>
   let mockLogger: ReturnType<typeof createMockLogger>
 
   const detect = (
@@ -67,7 +64,6 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
     }
     mockTrack = vi.fn().mockResolvedValue(undefined)
     mockTrackCampaign = vi.fn().mockResolvedValue(undefined)
-    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
     mockLogger = createMockLogger()
 
     const module: TestingModule = await Test.createTestingModule({
@@ -81,7 +77,7 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
           useValue: { trackCampaign: mockTrackCampaign },
         },
         { provide: ComplianceStateService, useValue: {} },
-        { provide: QueueProducerService, useValue: {} },
+        { provide: JobsService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
         { provide: AnalyticsService, useValue: { track: mockTrack } },
         {
@@ -89,18 +85,7 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         { provide: PinoLogger, useValue: mockLogger },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
         { provide: CvPreSubmissionValidationService, useValue: {} },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: mockSendSingleSend },
-        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -336,127 +321,5 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
     // regression that skipped it would leave the record claimed-but-never-fired
     // and permanently excluded from PIN detection.
     expect(mockModel.updateMany).toHaveBeenCalledTimes(2)
-  })
-
-  describe('HubSpot single-send (ENG-11034)', () => {
-    it('does not call single-send when HUBSPOT_PIN_SENT_EMAIL_ID is unset', async () => {
-      await detect(record, {
-        status: PeerlyCvVerificationStatus.APPROVED,
-        pinDelivery: { method: 'text', destination: '3126851162' },
-      })
-
-      expect(mockSendSingleSend).not.toHaveBeenCalled()
-      // The Segment-event workflow email path is unaffected.
-      expect(mockTrack).toHaveBeenCalledTimes(1)
-    })
-
-    it('sends to the triggering account email with the PIN details as call properties', async () => {
-      vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
-
-      await detect(record, {
-        status: PeerlyCvVerificationStatus.APPROVED,
-        pinDelivery: { method: 'text', destination: '3126851162' },
-      })
-
-      expect(mockSendSingleSend).toHaveBeenCalledWith({
-        emailId: 999888,
-        to: user.email,
-        customProperties: {
-          pin_delivery_method: 'text',
-          pin_delivery_destination: '3126851162',
-          pin_sent_at: expect.any(String),
-        },
-      })
-    })
-
-    it('logs loudly and does not roll back the claim when single-send fails', async () => {
-      vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
-      mockSendSingleSend.mockRejectedValue(new Error('HubSpot down'))
-
-      await expect(
-        detect(record, {
-          status: PeerlyCvVerificationStatus.APPROVED,
-          pinDelivery: { method: 'text', destination: '3126851162' },
-        }),
-      ).resolves.not.toThrow()
-
-      // The Segment event already fired successfully, so the claim must
-      // stand — only the initial claim call, no rollback.
-      expect(mockModel.updateMany).toHaveBeenCalledTimes(1)
-      expect(mockTrack).toHaveBeenCalledTimes(1)
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.objectContaining({
-          err: expect.any(Error),
-          campaignId: campaignWithUser.id,
-        }),
-        expect.stringContaining('HubSpot single-send failed for PIN Sent'),
-      )
-    })
-  })
-
-  describe('ComplianceRejected single-send (ENG-11035)', () => {
-    it('does not call single-send when HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID is unset', async () => {
-      await detect(record, {
-        status: PeerlyCvVerificationStatus.REJECTED,
-        pinDelivery: null,
-      })
-
-      expect(mockSendSingleSend).not.toHaveBeenCalled()
-      // The Segment-event workflow email path is unaffected.
-      expect(mockTrack).toHaveBeenCalledTimes(1)
-    })
-
-    it('sends to the triggering account email with the rejection details as call properties', async () => {
-      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
-
-      await detect(record, {
-        status: PeerlyCvVerificationStatus.REJECTED,
-        pinDelivery: null,
-      })
-
-      expect(mockSendSingleSend).toHaveBeenCalledWith({
-        emailId: 777666,
-        to: user.email,
-        customProperties: {
-          rejection_source: 'cv_status_check',
-          peerly_identity_id: '11540083',
-        },
-      })
-    })
-
-    it('does not send when another caller already claimed the rejection', async () => {
-      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
-      mockModel.updateMany.mockResolvedValue({ count: 0 })
-
-      await detect(record, {
-        status: PeerlyCvVerificationStatus.REJECTED,
-        pinDelivery: null,
-      })
-
-      expect(mockSendSingleSend).not.toHaveBeenCalled()
-    })
-
-    it('logs loudly and does not throw when single-send fails', async () => {
-      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
-      mockSendSingleSend.mockRejectedValue(new Error('HubSpot down'))
-
-      await expect(
-        detect(record, {
-          status: PeerlyCvVerificationStatus.REJECTED,
-          pinDelivery: null,
-        }),
-      ).resolves.not.toThrow()
-
-      expect(mockTrack).toHaveBeenCalledTimes(1)
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.objectContaining({
-          err: expect.any(Error),
-          campaignId: campaignWithUser.id,
-        }),
-        expect.stringContaining(
-          'HubSpot single-send failed for Compliance Rejected',
-        ),
-      )
-    })
   })
 })

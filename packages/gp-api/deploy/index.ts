@@ -2,7 +2,9 @@ import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import { createAnnotationAttachmentsBucket } from './components/annotation-attachments-bucket'
 import { createChatAttachmentsBucket } from './components/chat-attachments-bucket'
+import { createContactUploadsBucket } from './components/contact-uploads-bucket'
 import { createCampaignPlanSharesBucket } from './components/campaign-plan-shares-bucket'
+import { createDatabricksFederation } from './components/databricks-federation'
 import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
@@ -11,11 +13,21 @@ import {
   createPreviewSharedAlb,
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
+import { createPanelRepliesIngest } from './components/panel-replies-ingest'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
+import {
+  createEmailInbound,
+  emailInboundBucketName,
+  emailInboundTopicArn,
+} from './components/email-inbound'
+import { emailEventsBucketName } from './components/email-events'
+import { createEmailOutreach } from './components/email-outreach'
+import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
 import { createSitemapsBucket } from './components/sitemaps-bucket'
 import { createVpc } from './components/vpc'
+import { GP_API_SECRET_KEYS } from './gp-api-secret-keys'
 
 export = async () => {
   const config = new pulumi.Config()
@@ -39,6 +51,12 @@ export = async () => {
     'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786'
 
   const imageUri = config.require('imageUri')
+
+  // Prod-only value: the probe itself runs wherever VENDOR_MODE is live.
+  const driftProbePeerlyIdentityId =
+    environment === 'prod'
+      ? config.get('driftProbePeerlyIdentityId')
+      : undefined
 
   const prNumber =
     environment === 'preview' ? config.require('prNumber') : undefined
@@ -67,23 +85,9 @@ export = async () => {
     prod: 'GP_API_PROD',
   })
 
-  const secretVersion = await aws.secretsmanager.getSecretVersion({
-    secretId: secretName,
-  })
-
   const secretInfo = await aws.secretsmanager.getSecret({
     name: secretName,
   })
-
-  // JSON.parse returns any — AWS secret is always a string-keyed object, validated by key checks below
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-  const secret: Record<string, string> = JSON.parse(
-    secretVersion.secretString || '{}',
-  ) as Record<string, string>
-
-  if (!secret.DB_PASSWORD) {
-    throw new Error('DB_PASSWORD must be set in the secret.')
-  }
 
   // The task role and task definition below name these queues by string
   // rather than through the resources' outputs. An SQS create waits ~25s for
@@ -99,7 +103,7 @@ export = async () => {
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
   })
 
-  new aws.sqs.Queue('main-queue', {
+  const mainQueue = new aws.sqs.Queue('main-queue', {
     name: queueName,
     fifoQueue: true,
     visibilityTimeoutSeconds: 300, // 5 minutes
@@ -108,6 +112,10 @@ export = async () => {
     receiveWaitTimeSeconds: 0,
     deduplicationScope: 'messageGroup',
     fifoThroughputLimit: 'perMessageGroupId',
+    // EventBridge cannot set a MessageDeduplicationId, and a FIFO queue
+    // without one rejects the send. gp-api producers all set their own id,
+    // which takes precedence over the content hash.
+    contentBasedDeduplication: true,
     redrivePolicy: pulumi.jsonStringify({
       deadLetterTargetArn: dlq.arn,
       maxReceiveCount: 3,
@@ -126,6 +134,13 @@ export = async () => {
     ignorePublicAcls: true,
     restrictPublicBuckets: true,
   })
+
+  if (environment !== 'preview') {
+    createPanelRepliesIngest({
+      bucket: tevynPollCsvsBucket,
+      queue: mainQueue,
+    })
+  }
 
   const zipToAreaCodeBucket = new aws.s3.Bucket('zip-to-area-code-bucket', {
     bucket: `zip-to-area-code-mappings-${stage}`,
@@ -154,6 +169,14 @@ export = async () => {
     environment === 'preview'
       ? 'goodparty-chat-attachments-dev'
       : createChatAttachmentsBucket({ environment }).bucket.bucket
+
+  // Private bucket for Import contacts' original CSVs. The browser PUTs them
+  // via presigned URL; gp-api reads them back. Each environment's stack owns
+  // its own. Preview environments share the dev bucket.
+  const contactUploadsBucketName =
+    environment === 'preview'
+      ? 'gp-api-contact-uploads-dev'
+      : createContactUploadsBucket({ environment }).bucket.bucket
 
   // Private bucket for shared campaign-plan PDFs. Preview shares the dev
   // bucket — no per-PR buckets.
@@ -214,6 +237,24 @@ export = async () => {
 
   const skipPerPrRds = environment === 'preview'
 
+  // Databricks Lakehouse Federation's path into Aurora, see
+  // components/databricks-federation.ts. Previews get none.
+  const databricksFederationName = select({
+    preview: undefined,
+    dev: 'gp-api-db-dev-federation',
+    prod: 'gp-api-db-prod-federation',
+  })
+
+  // Created ahead of the RDS security group, whose inline ingress names it.
+  const databricksFederationProxySecurityGroup = databricksFederationName
+    ? new aws.ec2.SecurityGroup('databricksFederationProxySecurityGroup', {
+        name: `${databricksFederationName}-proxy`,
+        description:
+          'Databricks federation RDS Proxy in front of gp-api Aurora',
+        vpcId,
+      })
+    : undefined
+
   // With the shared preview DB the per-PR cluster is skipped, so its security
   // group and subnet group would be orphaned — skip them too.
   const rdsSecurityGroup = skipPerPrRds
@@ -256,6 +297,17 @@ export = async () => {
             description: 'databricks via vpc peering',
             cidrBlocks: ['172.16.0.0/16'],
           },
+          ...(databricksFederationProxySecurityGroup
+            ? [
+                {
+                  protocol: 'tcp',
+                  fromPort: 5432,
+                  toPort: 5432,
+                  description: 'databricks serverless via federation rds proxy',
+                  securityGroups: [databricksFederationProxySecurityGroup.id],
+                },
+              ]
+            : []),
           ...select({
             preview: [],
             // TODOSWAIN: investigate whether these are truly needed in dev
@@ -304,45 +356,80 @@ export = async () => {
         },
       })
 
+  // The master password is not managed here, so no preview reads it and no
+  // state holds it. The cluster keeps the one it has, and tasks read
+  // DB_PASSWORD from the secret.
   const rdsCluster = skipPerPrRds
     ? undefined
-    : new aws.rds.Cluster('rdsCluster', {
-        clusterIdentifier: select({
-          preview: `gp-api-${stage}`,
-          dev: 'gp-api-db',
-          prod: 'gp-api-db-prod',
-        }),
-        engine: aws.rds.EngineType.AuroraPostgresql,
-        engineMode: aws.rds.EngineMode.Provisioned,
-        engineVersion: '16.8',
-        databaseName: 'gpdb',
-        masterUsername: 'gpuser',
-        masterPassword: pulumi.secret(secret.DB_PASSWORD),
-        dbSubnetGroupName: subnetGroup!.name,
-        vpcSecurityGroupIds: [rdsSecurityGroup!.id],
-        storageEncrypted: true,
-        serverlessv2ScalingConfiguration: {
-          minCapacity: environment === 'prod' ? 1 : 0.5,
-          maxCapacity: 64,
+    : new aws.rds.Cluster(
+        'rdsCluster',
+        {
+          clusterIdentifier: select({
+            preview: `gp-api-${stage}`,
+            dev: 'gp-api-db',
+            prod: 'gp-api-db-prod',
+          }),
+          engine: aws.rds.EngineType.AuroraPostgresql,
+          engineMode: aws.rds.EngineMode.Provisioned,
+          engineVersion: '16.11',
+          databaseName: 'gpdb',
+          masterUsername: 'gpuser',
+          dbSubnetGroupName: subnetGroup!.name,
+          vpcSecurityGroupIds: [rdsSecurityGroup!.id],
+          storageEncrypted: true,
+          serverlessv2ScalingConfiguration: {
+            minCapacity: environment === 'prod' ? 1 : 0.5,
+            maxCapacity: 64,
+          },
+          backupRetentionPeriod: select({
+            preview: 1,
+            dev: 7,
+            prod: 14,
+          }),
+          deletionProtection: true,
+          skipFinalSnapshot: false,
+          finalSnapshotIdentifier: `gp-api-db-${stage}-final-snapshot`,
         },
-        backupRetentionPeriod: select({
-          preview: 1,
-          dev: 7,
-          prod: 14,
-        }),
-        deletionProtection: true,
-        skipFinalSnapshot: false,
-        finalSnapshotIdentifier: `gp-api-db-${stage}-final-snapshot`,
-      })
+        // AWS applies minor engine upgrades on its own; Pulumi must not try
+        // to roll them back. The provider sends the configured version on
+        // any update once it has read a newer one, and AWS refuses the
+        // downgrade.
+        { ignoreChanges: ['engineVersion'] },
+      )
 
   const rdsInstance = skipPerPrRds
     ? undefined
-    : new aws.rds.ClusterInstance('rdsInstance', {
-        clusterIdentifier: rdsCluster!.id,
-        instanceClass: 'db.serverless',
-        engine: aws.rds.EngineType.AuroraPostgresql,
-        engineVersion: rdsCluster!.engineVersion,
-      })
+    : new aws.rds.ClusterInstance(
+        'rdsInstance',
+        {
+          clusterIdentifier: rdsCluster!.id,
+          instanceClass: 'db.serverless',
+          engine: aws.rds.EngineType.AuroraPostgresql,
+          engineVersion: rdsCluster!.engineVersion,
+        },
+        { ignoreChanges: ['engineVersion'] },
+      )
+
+  const databricksFederation =
+    databricksFederationName &&
+    databricksFederationProxySecurityGroup &&
+    rdsSecurityGroup &&
+    rdsCluster
+      ? createDatabricksFederation({
+          name: databricksFederationName,
+          vpcId,
+          publicSubnetIds: vpcSubnetIds.public,
+          privateSubnetIds: vpcSubnetIds.private,
+          proxySecurityGroup: databricksFederationProxySecurityGroup,
+          rdsSecurityGroupId: rdsSecurityGroup.id,
+          clusterIdentifier: rdsCluster.clusterIdentifier,
+        })
+      : undefined
+
+  // Previews read the shared dev election cluster and must not own it.
+  if (environment !== 'preview') {
+    createElectionDb(environment)
+  }
 
   // The dev stack owns the always-on shared preview Aurora cluster. Every PR
   // preview clones its own gpdb_pr_<n> database onto this one cluster (see
@@ -358,7 +445,6 @@ export = async () => {
       vpcId,
       privateSubnetIds: vpcSubnetIds.private,
       appSecurityGroupIds: vpcSecurityGroupIds,
-      dbPassword: secret.DB_PASSWORD,
     })
   }
 
@@ -401,6 +487,17 @@ export = async () => {
   const region = 'us-west-2'
   const accountId = '333022194791'
 
+  // Previews send through the vendor mock and get no SES resources.
+  const emailOutreach =
+    environment !== 'preview'
+      ? createEmailOutreach({
+          environment,
+          hostedZoneId,
+          region,
+          accountId,
+        })
+      : undefined
+
   const serveAnalysisBucketName = `serve-analyze-data-${
     environment === 'preview' ? 'dev' : environment
   }`
@@ -409,24 +506,19 @@ export = async () => {
     dev: 'assets-dev.goodparty.org',
     prod: 'assets.goodparty.org',
   })
-  const campaignPlanResultsBucketName = select({
-    preview: '',
-    dev: 'campaign-plan-results-dev',
-    prod: '',
-  })
 
   const taskRoleBucketNames: pulumi.Input<string>[] = [
     tevynPollCsvsBucket.bucket,
     zipToAreaCodeBucket.bucket,
     annotationAttachmentsBucketName,
     chatAttachmentsBucketName,
+    contactUploadsBucketName,
     campaignPlanSharesBucketName,
     robocallAudioBucketName,
     agentRunInputsBucketName,
     meetingPipelineBucketName,
     serveAnalysisBucketName,
     assetsBucketName,
-    ...(campaignPlanResultsBucketName ? [campaignPlanResultsBucketName] : []),
   ]
 
   const taskRoleBucketArns = taskRoleBucketNames.map(
@@ -451,6 +543,12 @@ export = async () => {
   // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
+    ...(environment !== 'preview'
+      ? [
+          emailInboundBucketName(environment),
+          emailEventsBucketName(environment),
+        ]
+      : []),
   ]
   const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
@@ -458,6 +556,39 @@ export = async () => {
   const taskRoleReadOnlyBucketArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}`,
   )
+
+  // The case scout's bucket and publisher Lambda, both named case-scout-<env>
+  // and owned by gp-ai Terraform. Previews get neither. The bucket is SSE-S3
+  // with no bucket policy, so the grants below are all it needs.
+  const caseScoutName = select({
+    preview: '',
+    dev: 'case-scout-dev',
+    prod: 'case-scout-prod',
+  })
+  const caseScoutPermissions =
+    caseScoutName === ''
+      ? []
+      : [
+          {
+            Effect: 'Allow' as const,
+            Action: ['s3:GetObject', 's3:PutObject'],
+            Resource: [`arn:aws:s3:::${caseScoutName}/*`],
+          },
+          {
+            // Without ListBucket a missing key reads as 403, not 404, and the
+            // scout could not tell an unwritten object from a denial.
+            Effect: 'Allow' as const,
+            Action: ['s3:ListBucket'],
+            Resource: [`arn:aws:s3:::${caseScoutName}`],
+          },
+          {
+            Effect: 'Allow' as const,
+            Action: ['lambda:InvokeFunction'],
+            Resource: [
+              `arn:aws:lambda:${region}:${accountId}:function:${caseScoutName}`,
+            ],
+          },
+        ]
 
   // The Universal Judge's background runner also sends to this queue, but as a
   // GitHub Actions job under the CI OIDC role rather than as a task, so it is
@@ -489,14 +620,34 @@ export = async () => {
           `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
         ]
 
+  // The local election seed POST /v1/dev-env/election-seed presigns: the
+  // slice of the dev election database local setup loads into `electiondb`.
+  // Restricted data, so private and dev only; refresh.sh uploads it.
+  const localElectionSeedBucket =
+    environment === 'dev'
+      ? new aws.s3.BucketV2('local-election-seed-bucket', {
+          bucket: 'gp-local-election-seed-dev',
+        })
+      : undefined
+  if (localElectionSeedBucket) {
+    new aws.s3.BucketPublicAccessBlock('local-election-seed-pab', {
+      bucket: localElectionSeedBucket.id,
+      blockPublicAcls: true,
+      blockPublicPolicy: true,
+      ignorePublicAcls: true,
+      restrictPublicBuckets: true,
+    })
+  }
+
   const containerSecrets: Record<
     string,
     pulumi.Output<string>
   > = Object.fromEntries(
-    Object.keys(secret).map((key) => [
-      key,
-      pulumi.interpolate`${secretInfo.arn}:${key}::`,
-    ]),
+    select({
+      preview: GP_API_SECRET_KEYS.preview,
+      dev: GP_API_SECRET_KEYS.dev,
+      prod: GP_API_SECRET_KEYS.prod,
+    }).map((key) => [key, pulumi.interpolate`${secretInfo.arn}:${key}::`]),
   )
 
   const service = createService({
@@ -522,8 +673,86 @@ export = async () => {
       HOST: '0.0.0.0',
       LOG_LEVEL: 'debug',
       OTEL_SERVICE_ENVIRONMENT: environment,
+      // Explicit so the running value is visible in the task definition
+      // and rollback is a one-line diff (set dev to 'live').
+      VENDOR_MODE: select({
+        preview: 'mock',
+        dev: 'mock',
+        prod: 'live',
+      }),
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
+      PYROSCOPE_ENABLED: select({
+        preview: 'false',
+        dev: 'true',
+        prod: 'true',
+      }),
+      // Clerk instance public key, so tokens verify without fetching Clerk's
+      // JWKS on the request path. Public, so it lives here and not in the
+      // secret. Previews use the dev Clerk instance.
+      CLERK_JWT_KEY: select({
+        preview: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5vPRpG6stRNHuJkOX/K3
+ukS2x2Hp34QXVnTIsQhgJ/D4T8tw7Ui9KRny2oXWMr9hDBPtVawNwYeqJQzvxucZ
+4a3bOpd5cY/Pc2KY2ecO5HErB2+GVcg/JetzVHfXcFeIAppL03PRmztrwETUtBV4
+G025CUa+131r8QvYMRdrp5BDtEz/2ZY5vJIgkxptGSZuzgNpIP10Vx4bCAMu3yBa
+iaQ0t6Zq6Gixa+yKAtGUTLywT28YRJIo/cdt/98GJhIWENGhJsag4WFOvha5YXS5
+Teo/vpW87LUUDxFkF1VWCMZwxhUzOyI3ZTKZSBsO8sZK9HtC1CAKHv5CAck47AIn
+gQIDAQAB
+-----END PUBLIC KEY-----`,
+        dev: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5vPRpG6stRNHuJkOX/K3
+ukS2x2Hp34QXVnTIsQhgJ/D4T8tw7Ui9KRny2oXWMr9hDBPtVawNwYeqJQzvxucZ
+4a3bOpd5cY/Pc2KY2ecO5HErB2+GVcg/JetzVHfXcFeIAppL03PRmztrwETUtBV4
+G025CUa+131r8QvYMRdrp5BDtEz/2ZY5vJIgkxptGSZuzgNpIP10Vx4bCAMu3yBa
+iaQ0t6Zq6Gixa+yKAtGUTLywT28YRJIo/cdt/98GJhIWENGhJsag4WFOvha5YXS5
+Teo/vpW87LUUDxFkF1VWCMZwxhUzOyI3ZTKZSBsO8sZK9HtC1CAKHv5CAck47AIn
+gQIDAQAB
+-----END PUBLIC KEY-----`,
+        prod: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv7mX9LgkMjP5eeqaufE/
+gKslsuuKY8rRVlYfLiIGHFo6UbB8Nm3ZY4VDHNGCP8ewE0CrEuY5LaRbYaIuDeB5
+9dWfgTIbieUBHPr2lmA1crMyRKVQEkYNHFGyvoR6wF3m8FUbiT03gEsnTsmKdeFl
+rmbyjAacxbn75BLOwZZm1abvRxPXj6/MwbahCKVSvtrBdsjhQBxxOv5+9UFhQ14p
+WedQREHPKVj/GBX8+0NOxdKibVUlppnVyXbDLG31UNXi5iFQVJ52r6B/+7KuZQya
+4RFIVMAkgqfj2C8dnFR2sQS2NkR9DqQabf6aY4Yme2/RRT5489atX1kUFh1Tt167
+jwIDAQAB
+-----END PUBLIC KEY-----`,
+      }),
+      // Vercel deployments whose OIDC token makes them a service reader, as
+      // project_id:environment (gp-marketing, candidate-sites). Not secret:
+      // the signed token is the credential. Preview and develop deployments
+      // of both projects read dev gp-api; production reads prod. Dev and
+      // preview also take gp-marketing's development token, the one
+      // `vercel env pull` hands a local `next dev`.
+      VERCEL_OIDC_ALLOWED_PROJECTS: select({
+        preview:
+          'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:development,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+        dev: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:development,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+        prod: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:production,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:production',
+      }),
+      // Vercel deployments whose OIDC token makes them a full M2M caller, the
+      // same as an mt_ token, as project_id:environment (gp-admin). Kept apart
+      // from the reader list so a reader entry can never grant admin. The one
+      // gp-admin production deployment calls both dev and prod; prod accepts
+      // nothing else, so a preview or `vercel env pull` holds no prod admin.
+      VERCEL_OIDC_ADMIN_PROJECTS: select({
+        preview:
+          'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:preview,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development',
+        dev: 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:preview,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development',
+        prod: 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production',
+      }),
+      // GitHub Actions workflows whose OIDC token (audience gp-api) makes them a
+      // service reader, as <owner>/<repo>/<path>@<ref>; <ref> may be *. Not
+      // secret: the signed token is the credential. Prod takes only the
+      // scheduled run on gp-marketing's default branch; dev and preview take
+      // any branch so a PR's workflow can be tried against dev.
+      GITHUB_OIDC_ALLOWED_WORKFLOWS: select({
+        preview:
+          'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
+        dev: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
+        prod: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@refs/heads/develop',
+      }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',
@@ -541,7 +770,6 @@ export = async () => {
         prod: '',
       }),
       AI_MODELS: 'claude-sonnet-4-6',
-      LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
       SQS_QUEUE: queueName,
       // Where the per-send button in a fulfilment Slack message points. Not
       // select()-ed by environment on purpose: gp-admin is a single
@@ -550,13 +778,6 @@ export = async () => {
       // and prod all send staff to the same console.
       GP_ADMIN_BASE_URL: 'https://admin.goodparty.org',
       SQS_QUEUE_BASE_URL: 'https://sqs.us-west-2.amazonaws.com/333022194791',
-      CAMPAIGN_PLAN_RESULTS_BUCKET: select({
-        preview: '',
-        dev: 'campaign-plan-results-dev',
-        // prod disabled until we're ready to generate events in prod
-        // prod: 'campaign-plan-results-prod',
-        prod: '',
-      }),
       AGENT_DISPATCH_QUEUE_NAME: select({
         // Preview intentionally omitted — dispatch fails at runtime with a log
         preview: '',
@@ -575,6 +796,40 @@ export = async () => {
         preview: '',
         dev: '',
         prod: 'true',
+      }),
+      // The free election-eve robocall offer's $400 Stripe coupon, created
+      // with the same id in test and live mode. Empty hides the offer. The
+      // live coupon must be:
+      // id robocall-free-offer-2026-11, amount_off 40000 in usd, duration
+      // once, redeem_by after Nov 3 2026, and applies_to limited to a product
+      // never sold through Stripe Checkout, so a GPOFFER code cannot be
+      // redeemed on a text purchase or the Pro subscription. gp-api refuses
+      // the code unless the coupon is exactly $400 off in usd.
+      ROBOCALL_FREE_OFFER_COUPON_ID: select({
+        preview: 'robocall-free-offer-2026-11',
+        dev: 'robocall-free-offer-2026-11',
+        prod: 'robocall-free-offer-2026-11',
+      }),
+      // The nightly case scout (src/caseScout/AGENTS.md). On in dev, where
+      // the publisher never opens a PR; prod waits on a graded dev week. The
+      // bucket and the publisher Lambda belong to gp-ai's case-scout module;
+      // gp-api only reads, writes and invokes them.
+      CASE_SCOUT_ENABLED: select({
+        preview: 'false',
+        dev: 'true',
+        prod: 'false',
+      }),
+      CASE_SCOUT_BUCKET: caseScoutName,
+      CASE_SCOUT_LAMBDA_FUNCTION_NAME: caseScoutName,
+      CASE_SCOUT_SPEND_CAP_USD: '50',
+      CASE_SCOUT_SESSION_CAP: '75',
+      // Noisy-case proposals read the judge's sweep records. Dev only: dev's
+      // task already reads its own agent-artifacts bucket, and prod reading
+      // the dev bucket is not granted.
+      CASE_SCOUT_JUDGE_RECORDS_BUCKET: select({
+        preview: '',
+        dev: agentArtifactsBucketName,
+        prod: '',
       }),
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
@@ -598,17 +853,38 @@ export = async () => {
         dev: '',
         prod: '73',
       }),
+      // Dev and previews read the overlay views over the dev federated
+      // catalog; prod reads the prod one.
+      PEOPLE_DBX_CONTACT_OVERLAY_VIEW: select({
+        preview: 'gp_api_contact_overlay_dev',
+        dev: 'gp_api_contact_overlay_dev',
+        prod: 'gp_api_contact_overlay',
+      }),
+      SERVE_AGENT_CONTACT_OVERLAY_VIEW: select({
+        preview: 'serve_agent_contact_overlay_dev',
+        dev: 'serve_agent_contact_overlay_dev',
+        prod: 'serve_agent_contact_overlay',
+      }),
+      WIN_AGENT_CONTACT_OVERLAY_VIEW: select({
+        preview: 'win_agent_contact_overlay_dev',
+        dev: 'win_agent_contact_overlay_dev',
+        prod: 'win_agent_contact_overlay',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
       ZIP_TO_AREA_CODE_BUCKET: zipToAreaCodeBucket.bucket,
       ANNOTATION_ATTACHMENTS_BUCKET: annotationAttachmentsBucketName,
       CHAT_ATTACHMENTS_BUCKET: chatAttachmentsBucketName,
+      CONTACT_UPLOADS_BUCKET: contactUploadsBucketName,
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
       LOCAL_DEV_ENV_SECRET_ID: localDevEnvSecretId,
+      LOCAL_ELECTION_SEED_BUCKET: localElectionSeedBucket
+        ? localElectionSeedBucket.bucket
+        : '',
       DB_HOST: sharedPreviewCluster
         ? sharedPreviewCluster.endpoint
         : rdsCluster!.endpoint,
@@ -619,7 +895,33 @@ export = async () => {
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
       SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
+      // Names, not credentials. The webhook accepts only this topic, and the
+      // reply handler reads only this bucket.
+      ...(environment !== 'preview'
+        ? {
+            EMAIL_INBOUND_TOPIC_ARN: emailInboundTopicArn(
+              environment,
+              region,
+              accountId,
+            ),
+            EMAIL_INBOUND_BUCKET: emailInboundBucketName(environment),
+            SES_EVENTS_BUCKET: emailEventsBucketName(environment),
+          }
+        : {}),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
+      // One known approved Peerly identity for the nightly vendor drift probe.
+      // An id, not a credential, so a plain env var rather than the secret.
+      // Set per stack (`pulumi config set driftProbePeerlyIdentityId <id>`);
+      // unset leaves the var off and the probe skips that one call.
+      ...(driftProbePeerlyIdentityId
+        ? { DRIFT_PROBE_PEERLY_IDENTITY_ID: driftProbePeerlyIdentityId }
+        : {}),
+      // Background agents that dispatch to gp-api's own agents instead of
+      // the PMF Engine. Each one is added per environment only after the
+      // Universal Judge reads it as same or better (docs/cap-consolidation.md).
+      ...(environment !== 'preview'
+        ? { AGENTS_ON_GP_API: 'trending_issues' }
+        : {}),
     },
     permissions: [
       {
@@ -646,6 +948,23 @@ export = async () => {
         Effect: 'Allow',
         Action: ['s3:ListBucket', 's3:GetBucketLocation'],
         Resource: taskRoleBucketArns,
+      },
+      // The contact uploads bucket is versioned and nothing in it expires, so
+      // deleting an org or an abandoned upload has to list and delete every
+      // version of its files.
+      {
+        Effect: 'Allow',
+        Action: ['s3:ListBucketVersions'],
+        Resource: [
+          pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}`,
+        ],
+      },
+      {
+        Effect: 'Allow',
+        Action: ['s3:DeleteObjectVersion'],
+        Resource: [
+          pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}/*`,
+        ],
       },
       {
         Effect: 'Allow',
@@ -712,6 +1031,35 @@ export = async () => {
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
       },
+      {
+        // PutMetricData has no resource-level scoping; the namespace condition
+        // is the only way to narrow it.
+        Effect: 'Allow',
+        Action: ['cloudwatch:PutMetricData'],
+        Resource: ['*'],
+        Condition: {
+          StringEquals: { 'cloudwatch:namespace': 'GpApi/Jobs' },
+        },
+      },
+      {
+        // renderPage opens one AgentCore Browser session at a time and drives
+        // it over its automation stream. Only the AWS-managed browser: the
+        // same actions and resource GpApiPreviewRoleBoundary and the
+        // gp-engineer profile allow (ops #537).
+        Effect: 'Allow',
+        Action: [
+          'bedrock-agentcore:StartBrowserSession',
+          'bedrock-agentcore:GetBrowserSession',
+          'bedrock-agentcore:ListBrowserSessions',
+          'bedrock-agentcore:StopBrowserSession',
+          'bedrock-agentcore:ConnectBrowserAutomationStream',
+        ],
+        Resource: [
+          'arn:aws:bedrock-agentcore:us-west-2:aws:browser/aws.browser.v1',
+        ],
+      },
+      ...caseScoutPermissions,
+      ...(emailOutreach?.taskRolePermissions ?? []),
       ...(localDevEnvSecretArns.length > 0
         ? [
             {
@@ -721,14 +1069,40 @@ export = async () => {
             },
           ]
         : []),
+      ...(localElectionSeedBucket
+        ? [
+            {
+              Effect: 'Allow' as const,
+              Action: ['s3:GetObject'],
+              Resource: [pulumi.interpolate`${localElectionSeedBucket.arn}/*`],
+            },
+            {
+              // Without ListBucket, S3 answers a HeadObject for a key that
+              // does not exist with 403 rather than 404, and the endpoint
+              // could not tell "not uploaded yet" from a real denial.
+              Effect: 'Allow' as const,
+              Action: ['s3:ListBucket'],
+              Resource: [localElectionSeedBucket.arn],
+            },
+          ]
+        : []),
     ],
   })
 
   if (environment !== 'preview') {
+    createEmailInbound({
+      environment,
+      hostedZoneId,
+      region,
+      accountId,
+      webhookUrl: `https://${domain}/v1/email/webhooks/sns`,
+      service: service.ecsService,
+    })
     await createGrafanaResources({ environment, domain })
   }
 
   return {
     serviceUrl: service.url,
+    databricksFederationHost: databricksFederation?.nlb.dnsName,
   }
 }

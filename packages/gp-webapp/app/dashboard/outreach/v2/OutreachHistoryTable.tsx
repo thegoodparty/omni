@@ -30,7 +30,11 @@ import {
 import { shortOutreachDate } from './outreachDate.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { ChannelBadge, HistoryStatusText } from './channelMeta'
-import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import {
+  getHistoryStatusLabel,
+  isEmailRow,
+  type HistoryRow,
+} from './historyStatus.util'
 import {
   SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
@@ -43,6 +47,8 @@ import {
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
+import { getOutreachHistoryCopy } from './outreachHistoryCopy'
+import { useEmailSend } from './email/emailApi'
 
 const PAGE_SIZE = 10
 
@@ -67,9 +73,8 @@ interface OutreachHistoryTableProps {
   // Omitted callers (constituent-outreach: no draft rows exist there) get
   // the same null default getHistoryStatusLabel already carries.
   membership?: MembershipState | null
-  // "Campaign" is fine on both surfaces here — these ARE outreach campaigns,
-  // not a run for office. An election CYCLE is not: an elected official
-  // archives outreach across a term, so Serve names the shelf, not the cycle.
+  // Serve names this "outreach", never "campaign" or "supporters": the
+  // strings live in `outreachHistoryCopy.ts`, keyed by this flag.
   isServe?: boolean
 }
 
@@ -126,23 +131,23 @@ const PhoneBankingCalledMetric = ({
   return <>{count.toLocaleString()} people called</>
 }
 
-const PhoneBankingSupportersMetric = ({
+const PhoneBankingResultsMetric = ({
   id,
   detailFetcher,
+  isServe,
 }: {
   id: number
   detailFetcher: OutreachDetailFetcher
+  isServe: boolean
 }) => {
   const { data } = useOutreachDetail(id, true, detailFetcher)
-  const count = data?.phoneBanking?.supporters
+  const count = isServe
+    ? data?.phoneBanking?.byFollowUp.yes
+    : data?.phoneBanking?.supporters
   if (count === undefined) {
     return <span className="text-muted-foreground">—</span>
   }
-  return (
-    <>
-      {count.toLocaleString()} supporter{count === 1 ? '' : 's'}
-    </>
-  )
+  return <>{getOutreachHistoryCopy(isServe).callResults(count)}</>
 }
 
 // A door-knocking envelope carries no send counts either, and unlike a text
@@ -173,6 +178,23 @@ const DoorKnockingPeopleMetric = ({
       <span className="text-xs">people</span>
     </>
   )
+}
+
+// An email's counts live on its own send, so like door knocking they come
+// off a per-row fetch. Nothing has been delivered before the send starts.
+const EmailDeliveredMetric = ({
+  id,
+  isServe,
+}: {
+  id: number
+  isServe: boolean
+}) => {
+  const { data } = useEmailSend(isServe, id)
+  const delivered = data?.deliveryCounts?.delivered
+  if (delivered === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  return <>{delivered.toLocaleString()} delivered</>
 }
 
 // "Logged", not "responses": a knock is logged whether or not anyone answered,
@@ -361,7 +383,11 @@ const RowResults = ({
   }
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
     return (
-      <PhoneBankingSupportersMetric id={row.id} detailFetcher={detailFetcher} />
+      <PhoneBankingResultsMetric
+        id={row.id}
+        detailFetcher={detailFetcher}
+        isServe={Boolean(isServe)}
+      />
     )
   }
   if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
@@ -373,6 +399,9 @@ const RowResults = ({
     return (
       <DoorKnockingLoggedMetric id={row.id} detailFetcher={detailFetcher} />
     )
+  }
+  if (isEmailRow(row) && row.status !== 'draft') {
+    return <EmailDeliveredMetric id={row.id} isServe={Boolean(isServe)} />
   }
   return <span className="text-muted-foreground">—</span>
 }
@@ -396,6 +425,8 @@ const CHANNEL_FILTERS = [
     label: 'Door knocking',
     types: [OUTREACH_TYPES.doorKnocking, OUTREACH_TYPES.nativeDoorKnocking],
   },
+  // Email rows carry a type the hand-rolled OUTREACH_TYPES doesn't list.
+  { key: 'email', label: 'Email', types: ['email'] },
 ] as const
 
 type ChannelFilterKey = (typeof CHANNEL_FILTERS)[number]['key']
@@ -566,30 +597,27 @@ export const OutreachHistoryTable = ({
 
   const activeRowCount = rows.filter((row) => !row.archivedAt).length
 
+  const copy = getOutreachHistoryCopy(isServe)
   const emptyMessage =
     visible.length === 0 && activeFilterCount > 0
-      ? 'No campaigns match your filters.'
+      ? copy.emptyFiltered
       : showArchive
-        ? 'No archived campaigns.'
+        ? copy.emptyArchived
         : activeRowCount === 0 && rows.length > 0
-          ? 'All your campaigns are archived. Click “Archive” to view them.'
+          ? copy.emptyAllArchived
           : activeRowCount === 0
-            ? 'No campaigns yet. Pick a channel above to create your first.'
-            : 'No campaigns match your filters.'
+            ? copy.emptyNone
+            : copy.emptyFiltered
 
   return (
     <section className="space-y-3 mt-10 mb-32">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-foreground">
-            {showArchive ? 'Archived campaigns' : 'Active campaigns'}
+            {showArchive ? copy.archivedTitle : copy.activeTitle}
           </h2>
           <p className="text-sm text-muted-foreground">
-            {showArchive
-              ? isServe
-                ? 'Completed and cancelled campaigns you have archived.'
-                : 'Completed and cancelled campaigns from earlier cycles.'
-              : "Every campaign you've sent, most recent first."}
+            {showArchive ? copy.archivedCaption : copy.activeCaption}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -610,7 +638,11 @@ export const OutreachHistoryTable = ({
                 <p className="text-xs font-medium text-muted-foreground">
                   Channel
                 </p>
-                {CHANNEL_FILTERS.map((c) => (
+                {CHANNEL_FILTERS.filter(
+                  // Email is behind a flag, so it is offered only once an
+                  // email shows in the history.
+                  (c) => c.key !== 'email' || rows.some(isEmailRow),
+                ).map((c) => (
                   <CheckboxLabel
                     key={c.key}
                     id={`channel-${c.key}`}
@@ -667,7 +699,7 @@ export const OutreachHistoryTable = ({
             <TableRow>
               <TableHead className="whitespace-nowrap">Date</TableHead>
               <TableHead className="whitespace-nowrap">Channel</TableHead>
-              <TableHead className="w-full">Campaign</TableHead>
+              <TableHead className="w-full">{copy.nameColumn}</TableHead>
               <TableHead className="whitespace-nowrap">People</TableHead>
               <TableHead className="whitespace-nowrap">Results</TableHead>
               <TableHead className="text-right whitespace-nowrap">
@@ -718,7 +750,7 @@ export const OutreachHistoryTable = ({
                     <TableCell className="max-w-0 font-medium">
                       <span className="flex items-center gap-2">
                         <span className="min-w-0 truncate">
-                          {row.name || row.title || 'Untitled campaign'}
+                          {row.name || row.title || copy.untitled}
                         </span>
                         <TurfBadge row={row} />
                       </span>
@@ -786,7 +818,7 @@ export const OutreachHistoryTable = ({
                 </div>
                 <span className="flex items-center gap-2 text-base font-medium text-foreground">
                   <span className="min-w-0 truncate">
-                    {row.name || row.title || 'Untitled campaign'}
+                    {row.name || row.title || copy.untitled}
                   </span>
                   <TurfBadge row={row} />
                 </span>

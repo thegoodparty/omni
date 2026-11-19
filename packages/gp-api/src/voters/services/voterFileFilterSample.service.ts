@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { answeredPersonIds } from '@/priorities/util/priorityRespondents.util'
 import { Prisma } from '../../generated/prisma'
 
 // The people a sampled list drew, frozen when it was saved. Prisma-only for
@@ -38,28 +39,20 @@ export class VoterFileFilterSampleService extends createPrismaBase(
     return [...new Set(rows.map(({ personId }) => personId))]
   }
 
-  // Everyone a text send reached who has not opted out of the office's texts
-  // since: who a report back on that send goes to. Org-scoped, so another
-  // office's send id reaches nobody.
-  async personIdsReachedBy(
+  // Everyone who has answered the priority a text send belongs to, on any
+  // channel and each person once, minus anyone who opted out of the office's
+  // texts since: who a report back goes to. Org-scoped, so another office's
+  // send id reaches nobody.
+  async personIdsAnsweredFor(
     organizationSlug: string,
     outreachId: number,
   ): Promise<string[]> {
-    const rows = await this.client.$queryRaw<{ personId: string }[]>(
-      Prisma.sql`
-        SELECT r.person_id AS "personId"
-        FROM outreach_text_recipient r
-        WHERE r.outreach_id = ${outreachId}
-        AND r.organization_slug = ${organizationSlug}
-        AND NOT EXISTS (
-          SELECT 1 FROM contact_interaction_text t
-          WHERE t.organization_slug = r.organization_slug
-          AND t.person_id = r.person_id
-          AND t.opted_out_at IS NOT NULL
-        )
-      `,
-    )
-    return rows.map(({ personId }) => personId)
+    const send = await this.client.outreach.findFirst({
+      where: { id: outreachId, organizationSlug, campaignId: null },
+      select: { priorityId: true },
+    })
+    if (!send?.priorityId) return []
+    return answeredPersonIds(this.client, organizationSlug, send.priorityId)
   }
 
   // Inside the create's transaction, so a list never reads as sampled with

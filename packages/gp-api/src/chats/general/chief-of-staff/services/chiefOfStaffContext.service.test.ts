@@ -56,7 +56,7 @@ describe('ChiefOfStaffContextService first-run detection', () => {
     expect(where).toMatchObject({ id: { not: 'conv-b' } })
     // Requires a message, so an empty row from a retried POST /chats does
     // not make a first-time user look like a returning one.
-    expect(where).toMatchObject({ messages: { some: {} } })
+    expect(where).toMatchObject({ agentMessages: { some: {} } })
     expect(where).toMatchObject({
       ownerUserId: 7,
       scope: ChatScope.chief_of_staff,

@@ -9,9 +9,8 @@ import {
   RaceOpponentFindingKind,
   RaceOpponentResearchStatus,
 } from '@/generated/prisma'
-import { OpponentResearchScheduleService } from './opponentResearchSchedule.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const SLUG = 'campaign-sched'
 const OPPONENT = 'Jane Rival'
@@ -94,13 +93,14 @@ const stubReachability = () =>
     )
     .mockResolvedValue(new Date())
 
-describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
+describe('the opponentResearchRefreshDaily schedule', () => {
   beforeEach(() => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
   })
   afterEach(() => {
     vi.unstubAllEnvs()
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   it('re-dispatches opponent_research for a settled (completed) row', async () => {
@@ -114,9 +114,7 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue({ runId: 'r2' } as never)
 
-    await service.app
-      .get(OpponentResearchScheduleService)
-      .refreshOpponentResearch()
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
 
     expect(dispatchRun).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -147,9 +145,7 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue({ runId: 'fresh' } as never)
 
-    await service.app
-      .get(OpponentResearchScheduleService)
-      .refreshOpponentResearch()
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
 
     const slugs = dispatchRun.mock.calls
       .map((c) => c[0].organizationSlug)
@@ -177,9 +173,7 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue({ runId: 'fresh' } as never)
 
-    await service.app
-      .get(OpponentResearchScheduleService)
-      .refreshOpponentResearch()
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
 
     expect(dispatchRun).toHaveBeenCalledTimes(1)
   })
@@ -203,9 +197,7 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue({ runId: 'fresh' } as never)
 
-    await service.app
-      .get(OpponentResearchScheduleService)
-      .refreshOpponentResearch()
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
 
     // Only the genuinely-settled row is re-dispatched; the queued one is not.
     expect(dispatchRun).toHaveBeenCalledTimes(1)
@@ -267,9 +259,7 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       'dispatchRun',
     )
 
-    await service.app
-      .get(OpponentResearchScheduleService)
-      .refreshOpponentResearch()
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
 
     expect(dispatchRun).not.toHaveBeenCalled()
   })
@@ -286,14 +276,12 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       'dispatchRun',
     )
 
-    await service.app
-      .get(OpponentResearchScheduleService)
-      .refreshOpponentResearch()
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
 
     expect(dispatchRun).not.toHaveBeenCalled()
   })
 
-  it('leaves a failed-dispatch row as failed (not stuck queued) and continues the tick', async () => {
+  it('retries and dead-letters a failed dispatch, leaving its row failed, and still dispatches the rest', async () => {
     const campA = await seedCampaign({ slug: 'sched-fail-a' })
     const campB = await seedCampaign({ slug: 'sched-fail-b' })
     const rowA = await seedOpponentRow(
@@ -301,24 +289,34 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       RaceOpponentResearchStatus.completed,
       'a1',
     )
-    await seedOpponentRow(campB.id, RaceOpponentResearchStatus.completed, 'b1')
-    // First org's dispatch throws; the second must still be attempted, and the
-    // first row must self-heal to failed rather than sit queued forever.
-    let call = 0
-    vi.spyOn(
-      service.app.get(ExperimentRunsService),
-      'dispatchRun',
-    ).mockImplementation(() => {
-      call += 1
-      return call === 1
-        ? Promise.reject(new Error('SQS down'))
-        : (Promise.resolve({ runId: 'ok' }) as never)
-    })
+    const rowB = await seedOpponentRow(
+      campB.id,
+      RaceOpponentResearchStatus.completed,
+      'b1',
+    )
+    // First org's dispatch throws every time: its job must retry and page,
+    // its row must be handed back to failed rather than sit queued forever,
+    // and the second org must still be dispatched.
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockImplementation(({ organizationSlug }) =>
+        organizationSlug === 'sched-fail-a'
+          ? Promise.reject(new Error('SQS down'))
+          : (Promise.resolve({ runId: 'ok' }) as never),
+      )
 
-    await service.app
-      .get(OpponentResearchScheduleService)
-      .refreshOpponentResearch()
+    const { deadLetters } = await service.jobs.runSchedule(
+      'opponentResearchRefreshDaily',
+      { allowDeadLetters: true },
+    )
 
+    expect(deadLetters).toEqual([
+      {
+        name: 'opponentResearchRedispatch',
+        data: { researchId: rowA.id },
+        error: 'SQS down',
+      },
+    ])
     const failedRow =
       await service.prisma.raceOpponentResearch.findUniqueOrThrow({
         where: { id: rowA.id },
@@ -326,8 +324,86 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
     expect(failedRow.status).toBe(RaceOpponentResearchStatus.failed)
     expect(failedRow.runId).toBeNull()
     expect(failedRow.attempts).toBe(0)
-    // The tick continued to the second org despite the first's failure.
-    expect(call).toBe(2)
+    // Three attempts for the first org, one for the second.
+    expect(dispatchRun).toHaveBeenCalledTimes(4)
+    const rowBAfter =
+      await service.prisma.raceOpponentResearch.findUniqueOrThrow({
+        where: { id: rowB.id },
+      })
+    expect(rowBAfter.runId).toBe('ok')
+  })
+
+  it('gives back a claim whose dispatch and rollbacks all failed, then re-dispatches it on a retry', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date() })
+    const campaign = await seedCampaign()
+    const row = await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'r1',
+    )
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockRejectedValueOnce(new Error('SQS down'))
+      .mockResolvedValue({ runId: 'r2' } as never)
+    // Both rollbacks of the first attempt's claim fail, leaving the row
+    // queued with no run. The later attempts run a minute on, past the
+    // window a user start() binds its run in.
+    const research = service.prisma.raceOpponentResearch
+    const update = research.update.bind(research)
+    const updateMany = research.updateMany.bind(research)
+    vi.spyOn(research, 'update').mockImplementation(((args) => {
+      if (args.data.status === RaceOpponentResearchStatus.failed) {
+        return Promise.reject(new Error('database down'))
+      }
+      return update(args)
+    }) as typeof research.update)
+    let secondaryRollbacks = 0
+    vi.spyOn(research, 'updateMany').mockImplementation(((args) => {
+      if (
+        args.data.status === RaceOpponentResearchStatus.failed &&
+        args.where?.updatedAt === undefined &&
+        secondaryRollbacks++ === 0
+      ) {
+        vi.setSystemTime(new Date(Date.now() + 2 * 60_000))
+        return Promise.reject(new Error('database down'))
+      }
+      return updateMany(args)
+    }) as typeof research.updateMany)
+
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
+
+    expect(dispatchRun).toHaveBeenCalledTimes(2)
+    const after = await service.prisma.raceOpponentResearch.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(after).toMatchObject({
+      status: RaceOpponentResearchStatus.queued,
+      runId: 'r2',
+      attempts: 1,
+    })
+  })
+
+  it('completes quietly where nothing can dispatch, leaving the row failed', async () => {
+    const campaign = await seedCampaign()
+    const row = await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'r1',
+    )
+    // dispatchRun returns nothing on a deploy without the agent queue or for
+    // a test-user org.
+    vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    ).mockResolvedValue(undefined)
+
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
+
+    const after = await service.prisma.raceOpponentResearch.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(after.status).toBe(RaceOpponentResearchStatus.failed)
+    expect(after.attempts).toBe(0)
   })
 
   it('does not duplicate findings when the re-dispatched run persists an overlapping set', async () => {
@@ -355,9 +431,7 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       'dispatchRun',
     ).mockResolvedValue({ runId: 'r2' } as never)
 
-    await service.app
-      .get(OpponentResearchScheduleService)
-      .refreshOpponentResearch()
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
 
     // The re-dispatched run completes with the same finding plus a new one.
     const run = await seedRun('r2', ExperimentRunStatus.COMPLETED)
@@ -397,9 +471,7 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       'dispatchRun',
     )
 
-    await service.app
-      .get(OpponentResearchScheduleService)
-      .refreshOpponentResearch()
+    await service.jobs.runSchedule('opponentResearchRefreshDaily')
 
     expect(dispatchRun).not.toHaveBeenCalled()
   })

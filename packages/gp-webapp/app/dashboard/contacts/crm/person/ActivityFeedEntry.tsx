@@ -3,6 +3,7 @@ import { format } from 'date-fns'
 import { Badge } from '@styleguide'
 import {
   CIVIC_PANEL_STATUS_LABELS,
+  type ContactImportConstituentActivity,
   type ContactStatusSource,
   type DoorKnockOutcome,
   type FollowUpAnswer,
@@ -11,6 +12,11 @@ import {
   type WillVoteAnswer,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
+import { PriorityAnswerLine } from './PriorityAnswerLine'
+import {
+  getImportContactsCopy,
+  uploadDetailPath,
+} from '../import/importContactsCopy'
 import type {
   ContactStatusField,
   DoorKnockConstituentActivity,
@@ -58,6 +64,7 @@ const WILL_VOTE_ANSWER_LABELS: Record<WillVoteAnswer, string> = {
   yes: 'Yes',
   no: 'No',
   unsure: 'Unsure',
+  already_voted: 'Already voted',
 }
 
 // Serve's answer, in its place. Binary where the Win pair is three-way, and
@@ -135,6 +142,7 @@ export const DoorKnockActivityRow: React.FC<{
           activity.data.followUp}
       </p>
     ) : null}
+    <PriorityAnswerLine priorityAnswer={activity.data.priorityAnswer} />
     <ActivityNote note={activity.data.note} />
     <p className="text-sm font-normal text-muted-foreground">
       {formatDateTime(activity.date)}
@@ -163,6 +171,7 @@ export const TextActivityRow: React.FC<{
         <p>Opted out {formatDateTime(activity.data.optedOutAt)}</p>
       ) : null}
     </div>
+    <PriorityAnswerLine priorityAnswer={activity.data.priorityAnswer} />
     <ActivityNote note={activity.data.note} />
     <p className="text-sm font-normal text-muted-foreground">
       {formatDateTime(activity.date)}
@@ -254,6 +263,7 @@ export const PhoneBankingActivityRow: React.FC<{
             activity.data.followUp}
         </p>
       ) : null}
+      <PriorityAnswerLine priorityAnswer={activity.data.priorityAnswer} />
       <ActivityNote note={activity.data.note} />
       {actor ? (
         <p className="text-sm font-normal text-muted-foreground">
@@ -302,6 +312,52 @@ export const StatusChangeActivityRow: React.FC<{
         {fieldLabel} updated
       </p>
       <p className="text-sm font-normal text-muted-foreground">{sentence}</p>
+      <p className="text-sm font-normal text-muted-foreground">
+        {formatDateTime(activity.date)}
+      </p>
+    </div>
+  )
+}
+
+// An upload row pointing at this person, linked to that upload's page.
+export const ContactImportActivityRow: React.FC<{
+  activity: ContactImportConstituentActivity
+  isWin: boolean
+}> = ({ activity, isWin }) => {
+  const COPY = getImportContactsCopy(isWin)
+  const {
+    isNewPerson,
+    isFirstImport,
+    manual,
+    suppliedFields,
+    changedFields,
+    uploadId,
+    uploadName,
+  } = activity.data
+  const createdPerson = isNewPerson && isFirstImport
+  const kind = manual
+    ? createdPerson
+      ? 'resolvedNew'
+      : 'resolved'
+    : createdPerson
+      ? 'new'
+      : 'matched'
+  return (
+    <div className="flex flex-col gap-1 mb-3">
+      <p className="text-sm font-semibold text-foreground">
+        {COPY.activity.title(
+          kind,
+          isFirstImport,
+          suppliedFields,
+          changedFields,
+        )}
+      </p>
+      <Link
+        href={uploadDetailPath(uploadId)}
+        className="text-sm font-normal text-link underline underline-offset-4"
+      >
+        {COPY.activity.body(kind, uploadName)}
+      </Link>
       <p className="text-sm font-normal text-muted-foreground">
         {formatDateTime(activity.date)}
       </p>

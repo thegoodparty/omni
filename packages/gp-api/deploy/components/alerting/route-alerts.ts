@@ -4,7 +4,12 @@ import {
   ROUTE_MAP,
 } from '../../../src/generated/route-types'
 import { Alert } from './alerts.types'
-import { CONTROLLERS_WITHOUT_ROUTE_ALERTS, SERVER_ERRORS_ONLY } from '../alerts'
+import {
+  CONTROLLERS_WITHOUT_ROUTE_ALERTS,
+  ROUTES_WITHOUT_ROUTE_ALERTS,
+  SERVER_ERRORS_ONLY,
+  VOTER_QUERY_TIMEOUTS_NOT_PAGED,
+} from '../alerts'
 
 // 400 is excluded because a 400 is never evidence of a fault on its own. In
 // this codebase it is overwhelmingly designed vocabulary — Zod rejecting a
@@ -19,9 +24,12 @@ import { CONTROLLERS_WITHOUT_ROUTE_ALERTS, SERVER_ERRORS_ONLY } from '../alerts'
 // The cost is real and accepted: a 400 that IS a bug — a webapp sending a
 // payload the API stopped accepting, say — no longer pages, and shows up as a
 // support report or in the logs instead.
+//
+// 402 is a declined card (email confirm answers it): the user's bank saying
+// no, shown to them on the spot, never a fault of ours.
 // Exported so a handler that must NOT answer one of these can assert against
 // the real list rather than a copy of it — see payments.controller.test.ts.
-export const EXCLUDED_STATUS_CODES = [400, 401, 403, 404, 409, 498]
+export const EXCLUDED_STATUS_CODES = [400, 401, 402, 403, 404, 409, 498]
 
 // The notification has to state the same vocabulary the filter applies, so it
 // reads from the constant instead of restating it. The previous hardcoded
@@ -295,7 +303,9 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
   for (const controller of CONTROLLER_NAMES) {
     if (CONTROLLERS_WITHOUT_ROUTE_ALERTS.includes(controller)) continue
 
-    const routes = ROUTE_MAP[controller]
+    const routes = ROUTE_MAP[controller].filter(
+      ({ endpoint }) => !ROUTES_WITHOUT_ROUTE_ALERTS.includes(endpoint),
+    )
     if (routes.length === 0) continue
 
     const serverErrorsOnly = SERVER_ERRORS_ONLY.includes(controller)
@@ -452,6 +462,25 @@ const NO_ROUTE_MESSAGE = [
 const whenRouteIsNamed = (text: string) =>
   `{{ if $labels.request_endpoint }}${text}{{ else }}${NO_ROUTE_MESSAGE}{{ end }}`
 
+// A 504 from gp-api is a voter query that outran its ceiling, answered with
+// "narrow the audience" (see VOTER_QUERY_TIMEOUTS_NOT_PAGED). It is dropped for
+// those routes inside the existing server-errors rule rather than by a rule of
+// its own, because a third rule is a third Loki read.
+const serverErrorFilterFor = (group: RouteAlertGroup) => {
+  const silenced = group.endpoints.filter((endpoint) =>
+    VOTER_QUERY_TIMEOUTS_NOT_PAGED.some((controller) =>
+      ROUTE_MAP[controller].some((route) => route.endpoint === endpoint),
+    ),
+  )
+  if (silenced.length === 0) return serverErrorFilter
+  return orNoStatus(
+    [
+      '( response_statusCode >= 500 and response_statusCode != 504 )',
+      `( response_statusCode = 504 and ${ROUTE_LABEL} !~ \`${routeEndpointPattern(silenced)}\` )`,
+    ].join(' or '),
+  )
+}
+
 /**
  * The two rules that watch every route for errors.
  *
@@ -467,7 +496,7 @@ const whenRouteIsNamed = (text: string) =>
 export const routeErrorAlerts = (): Alert[] =>
   routeAlertGroups().map((group) => {
     const statusFilter = group.serverErrorsOnly
-      ? serverErrorFilter
+      ? serverErrorFilterFor(group)
       : anyErrorFilter
 
     const window = MINUTE_WINDOW
@@ -507,7 +536,7 @@ export const routeErrorAlerts = (): Alert[] =>
       message: whenRouteIsNamed(
         [
           group.serverErrorsOnly
-            ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, ${windowProse} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.`
+            ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, ${windowProse} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.${group.serverErrorsOnly && VOTER_QUERY_TIMEOUTS_NOT_PAGED.length > 0 ? ' A 504 on the contacts routes is also excluded: it is a voter query that outran its ceiling and told the user to narrow the audience (VOTER_QUERY_TIMEOUTS_NOT_PAGED in alerts.ts).' : ''}`
             : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, ${windowProse} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
           `The rule reads ${window.offsetProse} behind real time so that log lines reaching Loki a few seconds late are still counted, which means this page arrives up to ${window.offsetProse} later than the error would otherwise allow.`,
           `<${errorLinesLink}|Open this route's error lines> to read the exception each failing request logged (type, message, stack trace) before deciding what to fix. *View in Grafana* shows only the count that fired.`,

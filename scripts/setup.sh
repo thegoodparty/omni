@@ -50,11 +50,8 @@ source "$ROOT/scripts/setup-config.sh"
 # The packages this script provisions locally: gp-api and gp-webapp, spelled
 # out per-package below rather than looped over an associative array — macOS
 # ships bash 3.2 (no `declare -A`), and every engineer's Mac is exactly the
-# machine this script has to run on. election-api is deliberately excluded —
-# gp-webapp talks to the deployed dev election-api URL it already defaults to
-# (see packages/election-api/src/shared/env/env.schema.ts), and nothing here
-# runs it. gp-admin is out of scope for the same reason: it is not part of
-# the stack scripts/dev.sh boots.
+# machine this script has to run on. gp-admin is out of scope: it is not part
+# of the stack scripts/dev.sh boots.
 #
 # Next.js only reads .env.local (gitignored) locally, never .env — see
 # docs/development.md and gp-webapp/package.json's `dev` script.
@@ -172,12 +169,6 @@ if [ "$SECRETS_ONLY" != true ]; then
   fi
   indent "docker OK"
 
-  if [ -z "$(ls -A "$ROOT/ai-rules" 2>/dev/null)" ]; then
-    indent "ai-rules/ submodule empty; initializing"
-    git -C "$ROOT" submodule update --init --recursive
-  fi
-  indent "ai-rules/ OK"
-
   # `npm ci` runs here rather than with the rest of step 4's build commands: the
   # secrets step below shells out to `npx tsx` against a schema module that
   # imports zod, and on a genuinely fresh clone there is no node_modules yet for
@@ -204,7 +195,7 @@ plan_action() {
   if [ -f "$path" ] && npx tsx "$ROOT/scripts/setup/lib/cli.ts" check "$pkg" "$path" >/dev/null 2>&1; then
     PLAN_ACTION="skip"
     [ "$REFRESH" = true ] && PLAN_ACTION="write"
-    return
+    return 0
   fi
   if [ -f "$path" ] && [ "$FORCE" != true ]; then
     echo "ERROR: $path exists but fails schema validation:" >&2
@@ -284,8 +275,12 @@ elif [ "$need_from" = true ]; then
   # built above ("gp-api gp-webapp"), never external input — safe unquoted.
   # mcp rides along on every device flow rather than starting one of its
   # own, so a blob with no mcp entry never re-prompts on each run.
+  # The local election seed rides along on the same sign-in so setup never
+  # prompts twice; election-db.sh loads it in step 6. Best-effort: a missing
+  # seed only warns.
   # shellcheck disable=SC2086
-  if ! npx tsx "$ROOT/scripts/setup/lib/cli.ts" device-flow \
+  if ! ELECTION_SEED_OUT="$ROOT/packages/gp-api/prisma-election/seed/election-seed.sql.gz" \
+    npx tsx "$ROOT/scripts/setup/lib/cli.ts" device-flow \
     "$GITHUB_OAUTH_CLIENT_ID" "$API_URL" "$TMP_ENV_DIR" $missing mcp; then
     echo "ERROR: could not fetch dev env bundles via the GitHub device flow." >&2
     echo "Re-run with --from <path-to-a-working-checkout> instead, or see" >&2
@@ -415,6 +410,14 @@ if [ "$skip_reset" != true ]; then
   npm run migrate:reset -w gp-api
 fi
 
+# gp-api reads election data (races, positions, districts) from a second
+# database. Locally that is `electiondb` in the same container, loaded from
+# the seed the device flow fetched. Not fatal: gp-api boots without it.
+if ! bash "$ROOT/scripts/setup/election-db.sh" --api-url "$API_URL"; then
+  indent "WARNING: the local election database is not ready; election data will be"
+  indent "missing until you run: npm run seed:election"
+fi
+
 # --- 7/8: launch + wait healthy ----------------------------------------------
 log "[7/8] Launching dev stack"
 # Portable across BSD and GNU mktemp: -t <prefix> is macOS-only; GNU
@@ -530,7 +533,7 @@ fi
 cat <<SUMMARY
 
 ==================== omni bootstrap: ready ====================
-  preflight            ok  (node ${have_node}, docker, ai-rules)
+  preflight            ok  (node ${have_node}, docker)
   secrets              $secrets_summary
   env files            gp-api=${GP_API_ACTION}  gp-webapp=${GP_WEBAPP_ACTION}
   install/build        ok

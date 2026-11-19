@@ -17,6 +17,7 @@ import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { useSelectedOrgSlug } from '@shared/hooks/useSelectedOrgSlug'
+import { useFeatureFlags } from '@shared/experiments/FeatureFlagsProvider'
 import { outreachDetailQueryPrefix } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import {
   DropdownMenu,
@@ -113,6 +114,11 @@ export const OrganizationProvider = ({
 }: OrganizationProviderProps) => {
   const queryClient = useQueryClient()
   const router = useRouter()
+  // Some flags roll out by org (gp-api's ORGANIZATION_FLAGS, e.g.
+  // issue-capture), resolved for the org the cookie names. The flag
+  // provider sits above this one and never sees the cookie change, so
+  // every change of org here asks it to resolve again.
+  const { refresh: refreshFlags } = useFeatureFlags()
 
   const { data: organizations } = useQuery({
     queryKey: ORGANIZATIONS_QUERY_KEY,
@@ -168,12 +174,14 @@ export const OrganizationProvider = ({
     if (staleCookieRepaired.current) return
     staleCookieRepaired.current = true
     router.refresh()
-  }, [selectedOrganization?.slug, router])
+    void refreshFlags()
+  }, [selectedOrganization?.slug, router, refreshFlags])
 
   const setSelectedSlug = useCallback(
     (slug: string) => {
       setRawSelectedSlug(slug)
       setCookie(ORG_SLUG_COOKIE, slug)
+      void refreshFlags()
       // Exclude the organizations and eligibility queries from invalidation —
       // neither changes when switching between orgs (the org list doesn't
       // change, and eligibility is per-user). Invalidating the org list also
@@ -199,7 +207,7 @@ export const OrganizationProvider = ({
           query.queryKey[0] !== CONTACT_NOTES_QUERY_PREFIX,
       })
     },
-    [queryClient],
+    [queryClient, refreshFlags],
   )
 
   const contextValue = useMemo(

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { differenceInMilliseconds, parseISO } from 'date-fns'
 import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
@@ -14,6 +15,8 @@ import {
 import { CaseListError } from '../cases'
 import { MAX_CHAT_HISTORY_MESSAGES } from '@/chats/services/chatStream.service'
 import { seedChatOrg } from './seedChatOrg'
+import { AgentMessageRole } from '@/generated/prisma'
+import { agentMessagesToChatMessages } from '@/chats/services/chatAgentMessages.util'
 import {
   chatOrgSlug,
   seedOptionsFor,
@@ -50,6 +53,14 @@ import {
 // output, a version nobody pinned is not reported as pinned.
 
 const service = useTestService()
+
+// The campaign assistant's live race lookup posts its election-data misses
+// to Slack, which would otherwise wait on a real webhook.
+beforeEach(() => {
+  vi.spyOn(service.app.get(SlackService), 'message').mockResolvedValue(
+    undefined,
+  )
+})
 
 const TURN_TIMEOUT_MS = 60_000
 
@@ -127,14 +138,17 @@ const runFor = async (
 const transcriptRows = async (): Promise<
   { role: ChatMessageRole; content: string; segments: number }[]
 > => {
-  const rows = await service.prisma.chatMessage.findMany({
-    orderBy: { createdAt: Prisma.SortOrder.asc },
-    include: { segments: true },
+  const rows = await service.prisma.agentMessage.findMany({
+    orderBy: [
+      { conversationId: Prisma.SortOrder.asc },
+      { index: Prisma.SortOrder.asc },
+    ],
+    where: { role: { not: AgentMessageRole.tool } },
   })
-  return rows.map((row) => ({
-    role: row.role,
-    content: row.content,
-    segments: row.segments.length,
+  return agentMessagesToChatMessages(rows).map((message) => ({
+    role: message.role,
+    content: message.content,
+    segments: message.segments.length,
   }))
 }
 
@@ -260,9 +274,9 @@ describe('runChatCase', () => {
           message: expect.stringContaining('Priority not found'),
         },
       ])
-      // A tool failure is never a quality signal: both arms degrade the same
-      // way and a judge shown two degraded answers reports a regression.
-      expect(isComparable(record)).toBe(false)
+      // The failure shows up in the answer the user received, so the run is
+      // judged on that answer like any other.
+      expect(isComparable(record)).toBe(true)
     },
     TURN_TIMEOUT_MS,
   )
@@ -817,11 +831,10 @@ describe('runChatCase', () => {
       expect(
         forced.trace.find((step) => step.tool === 'crud_priorities')?.error,
       ).toContain('forced failure')
-      // AND THE CONSEQUENCE WORTH KNOWING: isComparable is false for any run
-      // that hit a tool error, so a forced-failure pair resolves CAN'T SAY
-      // rather than entering the delta. Telling an injected failure from an
-      // incidental one needs a field record.ts does not have.
-      expect(isComparable(forced)).toBe(false)
+      // The forced-failure pair is judged on its output: the failed tool
+      // shows up in the answer the user received, and the tool error is
+      // still counted beside the verdict.
+      expect(isComparable(forced)).toBe(true)
     },
     TURN_TIMEOUT_MS,
   )
@@ -1147,7 +1160,6 @@ describe('runChatCase on briefing chat', () => {
       // The seeded meeting's own timezone, which is also the one the real
       // `today` would be computed in.
       expect(prompt).toContain('Timezone: America/New_York')
-      expect(prompt).toContain('there is no specific selection')
       // The seeded note is what advertises get_my_notes.
       expect(prompt).toContain('YOUR NOTES (1 on this briefing)')
     },
@@ -1187,12 +1199,14 @@ describe('runChatCase on briefing chat', () => {
 
       const conversations = await service.prisma.chatConversation.findMany({
         include: {
-          messages: { orderBy: { createdAt: Prisma.SortOrder.asc } },
+          agentMessages: { orderBy: { index: Prisma.SortOrder.asc } },
         },
         orderBy: { createdAt: Prisma.SortOrder.asc },
       })
       expect(
-        conversations.map((c) => c.messages.map((m) => m.content)),
+        conversations.map((c) =>
+          agentMessagesToChatMessages(c.agentMessages).map((m) => m.content),
+        ),
       ).toEqual([
         ['first question', ANSWER],
         ['second question', ANSWER],

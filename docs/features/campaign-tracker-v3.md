@@ -161,24 +161,23 @@ candidate who finishes their story in the manager chat doesn't have to open the
 plan tab for it to take effect. The story spans three fields across two tables
 (`background` on `campaign_story`; the why and the issues on the website),
 written from the story page, `PUT /v1/websites/mine` and the chat agent — so
-each of those writes enqueues `QueueType.CAMPAIGN_STORY_COMPLETED` through
-`CampaignStoryCompletedProducer`, and the consumer calls
+each of those writes sends a `campaignStoryCompleted` pg-boss job
+(`CampaignStoryService.announceStoryWrite`, or inline in the websites
+controller), and its worker calls
 `CampaignStrategyService.regenerateOnStoryComplete`. The websites guard watches
 `about.bio` and `about.issues` specifically rather than `about`, which also
 carries `committee`: announcing on that would wipe and regenerate a
 complete-story campaign's plan for an edit that had nothing to do with the
-story. Enqueued rather than
-called directly because `campaignStrategy` already depends on both
+story. A job rather than
+a direct call because `campaignStrategy` already depends on both
 `campaignStory` and `websites`, so a direct call would need a module cycle at
 each edge, and because a story autosave should not wait on a regeneration.
-Messages are deliberately **not** deduped per campaign. The story page saves
-each field independently, and a per-campaign dedup id would collapse the burst
-inside SQS FIFO's 5-minute window and keep the _first_ message — the one
-written while the story was still incomplete, which the handler correctly
-no-ops on. The write that actually completes the story would be the one
-discarded, so the eager path would silently never fire. Every write gets its
-own message; the handler is cheap when the story is incomplete and one-shot
-when it is not.
+Jobs are deliberately **not** collapsed per campaign. The story page saves
+each field independently, and only the write that completes the story has
+anything to regenerate, so collapsing a burst to its first job would drop the
+one that matters. Every write gets its own job, grouped by campaign so one
+campaign's writes run in order; the worker is cheap when the story is
+incomplete and one-shot when it is not.
 
 `regenerateOnStoryComplete` only acts on a plan that **already exists**:
 generation is otherwise user-triggered, and dispatching for a campaign that
@@ -194,6 +193,27 @@ persist the completion handler finds an unclaimed tracker and dispatches a run
 against the finished plan. That also covers the case where a concurrent plan
 poll wins the `generatedWithStory` claim first: whoever wins releases the
 tracker claim, so the refresh happens either way.
+
+### Regeneration when the race roster grows
+
+Opposition research names the candidates the election data held when it ran,
+and many plans are researched before the race's roster fills in. Every run's
+params carry `campaign_strategy_context.candidate_count`, which the params
+byte cap never trims, so `alignPlanWithRoster` compares the opposition run's
+count with today's on each plan read and, when the run saw fewer candidates,
+wipes that section for `dispatchPending` to regenerate. The opportunities
+section is left alone: its experiment is told not to build on the roster. A
+shrinking roster is ignored, since it can't hide an opponent. If the election
+database is down, the check is skipped and the stored plan is served.
+
+A plan whose opponents were added by hand on the race-opponent page keeps its
+opposition section. That add inserts names into the rows the run persisted, so
+any stored name missing from the run's own artifact was typed in, and a reset
+would delete it. CAP artifacts never expire; an unreadable one skips the
+rebuild. The rebuild also returns the section's attempt slot, so a rebuild the
+candidate didn't cause never moves them toward the cap. Unlike the story and race resets it
+keeps `trackerBootstrapped`: the race and story are unchanged, and the weekly
+tracker run reads the rebuilt plan without a second paid run.
 
 ## Data model
 
@@ -211,7 +231,8 @@ completion / CTA / update-history machinery is reused against it.
 | `completed`     | per-task completion; `updateHistoryId` links voter-contact logging                                                |
 
 `CampaignStrategy.trackerBootstrapped` (boolean) is the one-shot bootstrap
-claim (see Bootstrap below). Both in-place plan resets release it —
+claim (see Bootstrap below). The story and race resets release it (the roster
+rebuild keeps it, see above) —
 `alignPlanWithStory` when the story lands and `alignPlanWithRace` when the
 office changes — because the tasks are built from the plan, so whatever
 stales the plan stales them. A reset that kept the claim would leave the
@@ -338,9 +359,9 @@ notification in the tracker is **Pro-only**.
 
 ### Weekly regeneration
 
-`CampaignTrackerDispatchService.dispatchWeeklyRegen` (`@Cron` Thursday 9am
-Central), gated by the `CAMPAIGN_TRACKER_AUTOMATION_ENABLED` env flag (ships
-disabled). It uses a `CronLock` lease for multi-pod dedup, selects active,
+`CampaignTrackerDispatchService.fanOutWeeklyRegen` (the `campaignTrackerWeekly`
+pg-boss schedule, Thursday 15:00 UTC), gated by the
+`CAMPAIGN_TRACKER_AUTOMATION_ENABLED` env flag (ships disabled). It selects active,
 non-demo campaigns that already have tracker rows, and skips any campaign with
 a non-failed run in the last 6 days (a failed run is ignored so a stuck week
 retries). For each campaign it first checks `primaryResult === 'lost'`: if lost

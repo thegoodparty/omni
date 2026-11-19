@@ -1,9 +1,10 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
-import { CronModule } from '@/cron/cron.module'
+import { AgentsModule } from '@/agents/agents.module'
 import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { CommunityIssuesController } from './controllers/communityIssues.controller'
 import { CommunityIssueService } from './services/communityIssue.service'
@@ -17,11 +18,12 @@ import { CommunityIssueUpsertService } from './services/communityIssueUpsert.ser
 @Module({
   imports: [
     AgentExperimentsModule,
+    AgentsModule,
     AwsModule,
-    CronModule,
     DashboardCardsModule,
     forwardRef(() => ElectedOfficeModule),
     OrganizationsModule,
+    PeopleQueryModule,
   ],
   controllers: [CommunityIssuesController],
   providers: [

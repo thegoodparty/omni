@@ -614,6 +614,55 @@
     color: var(--ink-3);
   }
 
+  /* --- relabel: before and after --- */
+
+  .relabel {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px 14px;
+    margin: 0 0 12px;
+    font-size: 13px;
+  }
+
+  .relabel dt {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-3);
+    padding-top: 2px;
+  }
+
+  .relabel dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .relabel .name {
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .relabel .changed {
+    color: var(--accent);
+  }
+
+  .relabel .meta {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .relabel .none {
+    color: var(--ink-2);
+  }
+
+  .relabel ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+  }
+
   /* --- judgments --- */
 
   .judgment {
@@ -725,6 +774,35 @@
   .reason.proof {
     font-family: var(--mono);
     font-size: 12px;
+  }
+
+  .proof-help {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .proof-help code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+
+  .proof[hidden] + .proof-help {
+    display: none;
+  }
+
+  .proof-help .proof-verdict {
+    display: none;
+    font-weight: 600;
+  }
+
+  .proof-help.is-bad,
+  .proof.required + .proof-help {
+    color: var(--crit);
+  }
+
+  .proof-help.is-bad .proof-verdict {
+    display: inline;
   }
 
   .fields > .reason[hidden] {
@@ -1000,8 +1078,8 @@
     },
     proposals: {
       title: 'Watchlist proposals',
-      note: 'new events in a watched family, not yet on the list',
-      empty: 'No proposals. Nothing new appeared in a watched family.',
+      note: 'metric events not yet watched, and watched events whose code is gone',
+      empty: 'No proposals. The watchlist matches the metrics and the code.',
     },
     alignment: {
       title: 'Registry vs semantic layer',
@@ -1284,10 +1362,6 @@
     'page_path_agreement',
     'page_path_users',
     'okr',
-    'proposed_surface',
-    'surface_options',
-    'proposed_display_name',
-    'proposed_fires_on',
     'elevated',
     'instrumented_pr',
     'removed_by_pr',
@@ -1304,6 +1378,7 @@
   const EVIDENCE_LABELS = {
     event_type: 'Event',
     instrumented_date: 'Instrumented',
+    retired_date: 'Retired',
     days_since_instrumented: 'Age',
     provenance: 'Provenance',
     status: 'Status',
@@ -1320,10 +1395,6 @@
     page_path_agreement: 'Page-path agreement',
     page_path_users: 'Distinct users',
     okr: 'OKR',
-    proposed_surface: 'Proposed surface tag',
-    surface_options: 'Surface options',
-    proposed_display_name: 'Proposed display name',
-    proposed_fires_on: 'Proposed where it fires',
     elevated: 'Elevated',
     location: 'File',
     surface_type: 'Surface',
@@ -1600,8 +1671,31 @@
   const isProof = (text) => PROOF_SHAPES.some((shape) => shape.test(String(text).trim()))
 
   const PROOF_PLACEHOLDER =
-    'Code-removal proof: the deleting commit, PR or URL. Or "no removal: <why this ' +
-    'Govern write is not a retirement>".'
+    'Proof the code is gone: #1234, a commit sha, or a PR/commit URL. ' +
+    'Not a retirement? Write "no removal: <why>".'
+
+  // A placeholder vanishes the moment you type, which is exactly when you need it, so
+  // the accepted shapes also sit under the box and say so when the text matches none.
+  const proofHelp = (proof) => {
+    const help = el('p', 'proof-help')
+    const verdict = el('span', 'proof-verdict', 'Not one of these yet. ')
+    help.appendChild(verdict)
+    help.appendChild(document.createTextNode('Accepted: '))
+    ;['#1234', '0218c06', 'github.com/…/pull/1234'].forEach((example, i) => {
+      if (i) help.appendChild(document.createTextNode(i === 2 ? ' or a link like ' : ', '))
+      help.appendChild(el('code', null, example))
+    })
+    help.appendChild(
+      document.createTextNode(' for the PR or commit that deleted the code. Not a retirement? '),
+    )
+    help.appendChild(el('code', null, 'no removal: <why>'))
+    const check = () => {
+      help.classList.toggle('is-bad', Boolean(proof.value.trim()) && !isProof(proof.value))
+    }
+    proof.addEventListener('input', check)
+    check()
+    return { node: help, check }
+  }
 
   let onJudgmentChange = () => {}
 
@@ -1630,6 +1724,70 @@
     Object.entries(judgments)
       .filter(([, j]) => j.copied_at && !j.applied_at)
       .map(([key]) => key)
+
+  // The prefix is what a relabel changes; the rest of the name stays.
+  const relabelName = (name) => {
+    const node = el('span', 'name')
+    const cut = String(name || '').indexOf(' - ')
+    if (cut < 0) return add(node, el('span', 'changed', name))
+    return add(
+      node,
+      el('span', 'changed', name.slice(0, cut)),
+      document.createTextNode(name.slice(cut)),
+    )
+  }
+
+  // The name's prefix already says the area, so the line under it carries only what
+  // the name cannot: the tag that gets written and the pages it fires on.
+  const relabelMeta = (option) => {
+    const routes = /\((.*)\)$/.exec(option.fires_on || '')
+    return el(
+      'span',
+      'meta',
+      'tag ' +
+        (option.surface_options && option.surface_options.length
+          ? option.surface_options.join(' or ')
+          : option.surface) +
+        (routes ? ' · ' + routes[1] : ''),
+    )
+  }
+
+  const renderRelabel = (relabel) => {
+    if (!relabel) return null
+    const now = relabel.now || {}
+    const box = el('dl', 'relabel')
+    add(
+      box,
+      el('dt', null, 'Now'),
+      add(
+        el('dd'),
+        el('span', 'name', now.display_name),
+        el('span', 'meta', (now.claimed_kind === 'tag' ? 'tag ' : 'area ') + now.claimed),
+      ),
+      el('dt', null, 'Proposed'),
+    )
+    const options = relabel.options || []
+    if (relabel.proposed) {
+      add(box, add(el('dd'), relabelName(relabel.proposed.display_name), relabelMeta(relabel.proposed)))
+    } else if (options.length) {
+      const list = el('ul')
+      options.forEach((option) =>
+        add(list, add(el('li'), relabelName(option.display_name), relabelMeta(option))),
+      )
+      add(
+        box,
+        add(
+          el('dd'),
+          el('span', 'none', 'No single proposal. It fires from ' + options.length +
+            ' areas, so pick the one it belongs under.'),
+          list,
+        ),
+      )
+    } else {
+      add(box, el('dd', 'none', 'No proposal. Read the evidence and relabel by hand.'))
+    }
+    return box
+  }
 
   const renderVerdicts = (item, row, summary) => {
     const key = keyOf(item)
@@ -1665,6 +1823,7 @@
     proof.value =
       (judgments[key] && judgments[key].proof) || item.proof_hint || ''
     proof.hidden = true
+    const help = proofHelp(proof)
 
     // A verdict chosen but not yet recorded, because a precondition is unmet. Held
     // rather than written: recording it and asking afterwards means a page reload keeps
@@ -1684,11 +1843,12 @@
     const paint = () => {
       const current = judgments[key]
       const held = current ? current.verdict : pending && pending.verdict
+      const heldArea = current ? current.area : pending && pending.area
       bar.querySelectorAll('button[data-verdict]').forEach((btn) => {
-        btn.setAttribute(
-          'aria-pressed',
-          held === btn.dataset.verdict ? 'true' : 'false',
-        )
+        const on =
+          held === btn.dataset.verdict &&
+          (!btn.dataset.area || btn.dataset.area === heldArea)
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false')
       })
       row.classList.toggle('is-judged', Boolean(current))
       row.classList.toggle('is-held', Boolean(pending))
@@ -1697,7 +1857,7 @@
       chip.classList.toggle('applied', Boolean(current && current.applied_at))
       if (current) {
         chip.textContent =
-          (verbs[current.verdict] || current.verdict) +
+          (current.verdict_label || verbs[current.verdict] || current.verdict) +
           (current.applied_at ? ' · applied' : '')
       }
 
@@ -1712,22 +1872,26 @@
       clear.hidden = !current && !pending
     }
 
-    const set = (verdict, { toggle = true } = {}) => {
+    const set = (verdict, { toggle = true, area } = {}) => {
       if (!verbs[verdict]) return 'skipped'
       const current = judgments[key]
+      if (area === undefined && pending && pending.verdict === verdict) area = pending.area
       // Clicking the verb a second time un-rules the row -- unless the row was already
       // applied, where the same click would silently erase the record of a change
       // Claude has already made. Changing an applied row to a DIFFERENT verb is still
       // allowed, because that is a correction; `clear` is still the way to drop one
       // outright. Both leave something on screen.
-      if (toggle && current && current.verdict === verdict && !current.applied_at) {
+      if (
+        toggle && current && current.verdict === verdict &&
+        current.area === area && !current.applied_at
+      ) {
         delete judgments[key]
         pending = null
       } else {
         const want = missing(verdict)
         if (want) {
           delete judgments[key]
-          pending = { verdict, want }
+          pending = { verdict, want, area }
           saveJudgments()
           paint()
           ;(want === 'proof' ? proof : reason).focus()
@@ -1740,7 +1904,8 @@
           id: item.id,
           label: item.label,
           verdict,
-          verdict_label: verbs[verdict],
+          verdict_label: area ? 'Relabel to ' + area : verbs[verdict],
+          area,
           reason: reason.value.trim(),
           proof: NEEDS_PROOF.has(verdict) ? proof.value.trim() : undefined,
           took_suggestion: verdict === item.recommended,
@@ -1753,10 +1918,19 @@
       return 'took'
     }
 
-    Object.entries(verbs).forEach(([verdict, label]) => {
+    // An event that fires from several areas has no single relabel, so "accept" is
+    // one button per area and the ruling records which one was picked.
+    const areaOptions = (item.relabel && !item.relabel.proposed && item.relabel.options) || []
+    const buttons = Object.entries(verbs).flatMap(([verdict, label]) =>
+      verdict === 'accept' && areaOptions.length
+        ? areaOptions.map((option) => ({ verdict, label: 'Relabel to ' + option.area, area: option.area }))
+        : [{ verdict, label }],
+    )
+    buttons.forEach(({ verdict, label, area }) => {
       const btn = el('button', null, label)
       btn.type = 'button'
       btn.dataset.verdict = verdict
+      if (area) btn.dataset.area = area
       btn.setAttribute('aria-pressed', 'false')
       const effect = effectOf(item.queue, verdict)
       if (verdict === item.recommended) {
@@ -1765,7 +1939,7 @@
       } else if (effect) {
         btn.title = effect
       }
-      btn.addEventListener('click', () => set(verdict))
+      btn.addEventListener('click', () => set(verdict, { area }))
       bar.appendChild(btn)
     })
 
@@ -1776,6 +1950,7 @@
       pending = null
       reason.value = ''
       proof.value = ''
+      help.check()
       saveJudgments()
       paint()
       onJudgmentChange()
@@ -1795,7 +1970,11 @@
         const current = judgments[key]
         if (!current) return
         if (missing(current.verdict)) {
-          pending = { verdict: current.verdict, want: missing(current.verdict) }
+          pending = {
+            verdict: current.verdict,
+            want: missing(current.verdict),
+            area: current.area,
+          }
           delete judgments[key]
           saveJudgments()
           paint()
@@ -1830,7 +2009,7 @@
     })
 
     paint()
-    add(fields, reason, proof)
+    add(fields, reason, proof, help.node)
     add(block, bar, fields)
     return block
   }
@@ -1859,6 +2038,7 @@
     proof.addEventListener('input', () => {
       proof.dataset.typed = proof.value ? '1' : ''
     })
+    const help = proofHelp(proof)
 
     const chip = el('span', 'chip verdict picked-chip')
     chip.hidden = true
@@ -1916,6 +2096,8 @@
       saveJudgments()
       reason.value = ''
       proof.value = ''
+      proof.dataset.typed = ''
+      help.check()
       paintSummary()
       onJudgmentChange()
     }
@@ -1946,7 +2128,7 @@
     bar.appendChild(clear)
 
     const wrap = el('div', 'picked-wrap')
-    add(wrap, tally, bar, reason, proof)
+    add(wrap, tally, bar, reason, proof, help.node)
     reason.hidden = true
 
     paintSummary()
@@ -1956,12 +2138,19 @@
       onSelect: (events) => {
         picked = events
         const n = events.length
-        tally.textContent = n
-          ? (n === 1 ? '1 event selected' : n + ' events selected') + ', rule on just these:'
-          : ''
-        bar.hidden = !n
-        reason.hidden = !n
-        if (!n) proof.hidden = true
+        // Every event picked is the whole cause, which the cause-level boxes below
+        // already rule on. A second set of boxes there only asks which one counts.
+        const total = new Set((item.evidence || []).map((r) => r.event_type)).size
+        const subset = n > 0 && n < total
+        tally.textContent = !n
+          ? ''
+          : subset
+            ? (n === 1 ? '1 event selected' : n + ' events selected') +
+              ', rule on just these:'
+            : 'All ' + n + ' events selected. That is the whole cause, so rule on it below.'
+        bar.hidden = !subset
+        reason.hidden = !subset
+        if (!subset) proof.hidden = true
         // The PRs that removed just these events, shown in the box as it opens. Only
         // while the box holds nothing typed by hand, so a reviewer's own proof stands.
         if (!proof.dataset.typed) {
@@ -1973,8 +2162,11 @@
             if (refs.indexOf(ref) < 0) refs.push(ref)
           })
           proof.value = refs.join(', ')
-          if (refs.length) proof.hidden = false
+          help.check()
         }
+        // Hiding the whole-cause case must not lose proof typed before it: coming back
+        // to a subset shows the box again with what is in it.
+        if (subset && proof.value) proof.hidden = false
       },
     }
   }
@@ -2033,8 +2225,26 @@
     const caveat = hoisted.has(item.queue) ? null : renderCaveat(item.caveat)
     if (caveat) add(body, caveat)
 
+    if (item.queue === 'surface') add(body, renderRelabel(item.relabel))
+
     const rows = item.evidence || []
-    const selectable = item.queue === 'flags' && rows.length > 1
+    const selectable =
+      item.queue === 'flags' && new Set(rows.map((r) => r.event_type)).size > 1
+    // Per-event rulings stored while this cause still held several events have no
+    // picker to show or retract them once it holds one, yet would still ride out in the
+    // handoff. Drop the unsent ones; applied ones stay as the record.
+    if (!selectable) {
+      const stale = Object.keys(judgments).filter(
+        (k) =>
+          judgments[k].scope === 'event' &&
+          judgments[k].id === item.id &&
+          !judgments[k].applied_at,
+      )
+      if (stale.length) {
+        stale.forEach((k) => delete judgments[k])
+        saveJudgments()
+      }
+    }
     const picker = selectable ? renderEventVerdicts(item, row, summary) : null
     const evidence = renderEvidence(rows, {
       selectable,
@@ -2177,6 +2387,7 @@
               (cause.took_suggestion ? '' : '  [overridden]'),
           )
           lines.push('  reason: ' + (cause.reason || '(none given)'))
+          if (cause.area) lines.push('  area: ' + cause.area)
           // The evidence travels with the verdict. A Govern write applied without it
           // is the exact mistake the gate exists to stop, and the handoff is where the
           // apply step reads it.
@@ -2245,6 +2456,7 @@
           label: row.label,
           verdict: row.verdict,
           verdict_label: row.verdict_label,
+          area: row.area,
           reason: row.reason,
           proof: row.proof,
           events: [],
@@ -2264,8 +2476,9 @@
     add(
       node,
       el('p', 'review-effect',
-        effectOf(block.queue, block.verdict, block.proof, n ? 'event' : undefined) ||
-          block.verdict_label || block.verdict),
+        (effectOf(block.queue, block.verdict, block.proof, n ? 'event' : undefined) ||
+          block.verdict_label || block.verdict) +
+          (block.area ? ' Files it under ' + block.area + '.' : '')),
     )
     add(
       node,

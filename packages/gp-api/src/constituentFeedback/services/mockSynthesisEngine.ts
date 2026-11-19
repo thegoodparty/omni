@@ -76,7 +76,8 @@ Group the notes by the issue they raise into between 2 and 6 themes. For each
 theme give:
 
 title: the issue as a short noun phrase anyone would recognise on a list,
-in the words the notes use. "Street flooding", "Speeding near the school".
+in the words the notes use, in sentence case: capitalize the first word and
+proper nouns only. "Street flooding", "Speeding near Lincoln School".
 summary: one sentence on what people said about it.
 analysis: two or three sentences on where people stand and what they want.
 memoIds: the id of every note that raises it. A note that raises two issues

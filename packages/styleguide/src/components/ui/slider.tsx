@@ -5,6 +5,12 @@ import * as SliderPrimitive from '@radix-ui/react-slider'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * value and defaultValue are arrays: one entry per thumb, two for a range.
+ *
+ * @summary Use for picking a value or range by dragging along a scale, when a
+ * rough value is fine. For an exact number, use Input.
+ */
 function Slider({
   className,
   defaultValue,

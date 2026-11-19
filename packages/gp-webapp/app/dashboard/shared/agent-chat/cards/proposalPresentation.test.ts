@@ -48,27 +48,6 @@ describe('proposalListSample', () => {
     ).toBeUndefined()
   })
 
-  it('draws the panel and the new residents as one frozen sample', () => {
-    expect(
-      proposalListSample({
-        proposalKey: KEY,
-        count: 18_400,
-        sampleSize: 84,
-        panelSampleSize: 42,
-      }),
-    ).toEqual({ size: 84, panelSize: 42, seedKey: KEY })
-    // Even when the send covers the whole audience, a live list would hold
-    // neither part at its size.
-    expect(
-      proposalListSample({
-        proposalKey: KEY,
-        count: 60,
-        sampleSize: 60,
-        panelSampleSize: 30,
-      }),
-    ).toEqual({ size: 60, panelSize: 30, seedKey: KEY })
-  })
-
   it('draws a widen even with no sample to size it, so the asked stay out', () => {
     expect(
       proposalListSample({
@@ -80,16 +59,27 @@ describe('proposalListSample', () => {
   })
 })
 
-// A widen can end up holding everyone not yet asked, so it is never called
-// random.
+// A widen can end up holding everyone not yet asked, so it says who it
+// reaches.
 describe('proposalSampleLine', () => {
-  it('calls a first sample random', () => {
+  it('gives a first sample as part of its audience', () => {
     expect(
       proposalSampleLine({ channel: 'text', count: 58_520, sampleSize: 4_000 }),
-    ).toBe('Text 4,000 of 58,520, picked at random')
+    ).toBe('Text 4,000 of 58,520')
   })
 
-  it('says a widen reaches people not asked yet, never at random', () => {
+  it('gives the total of a two-round text, then how it splits', () => {
+    expect(
+      proposalSampleLine({
+        channel: 'text',
+        count: 58_520,
+        sampleSize: 1_000,
+        roundTwoSize: 1_000,
+      }),
+    ).toBe('Text 2,000 of 58,520: 1,000 now, 1,000 two weeks later')
+  })
+
+  it('says a widen reaches people not asked yet', () => {
     expect(
       proposalSampleLine({
         channel: 'text',

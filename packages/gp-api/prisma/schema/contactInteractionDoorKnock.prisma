@@ -19,6 +19,9 @@ enum WillVoteAnswer {
   yes
   no
   unsure
+  // The voter has already cast a ballot this election. Additive, so rows
+  // written before it existed keep their meaning.
+  already_voted
 }
 
 // The Serve door's terminal answer, in place of support and will-vote. Binary

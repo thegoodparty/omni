@@ -200,12 +200,9 @@ describe('isComparable', () => {
     expect(CHAT_PAIR.every(isComparable)).toBe(true)
   })
 
-  // The whole point: a broken tool leaves a coherent answer behind, so
-  // without this a dead credential reads as a code regression.
-  it('rejects an arm that hit a tool error', () => {
-    const [base, candidate] = TOOL_ERROR_PAIR
-    expect(isComparable(base)).toBe(true)
-    expect(isComparable(candidate)).toBe(false)
+  // A failed tool shows up in what the user received, so it is judged there.
+  it('keeps a chat arm with tool errors comparable', () => {
+    expect(TOOL_ERROR_PAIR.every(isComparable)).toBe(true)
   })
 
   it('rejects an infraError arm', () => {

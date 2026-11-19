@@ -4,10 +4,9 @@ const HTML_FENCE_REGEX = /```html([\s\S]*?)```/
 const FUNCTION_TAG_REGEX = /<function=(\w+)>([\s\S]*?)<\/function>/
 
 /**
- * Post-processing applied to LLM content for HTML rendering paths
- * (`aiContent`, `aiChat`). Strips ```html fences and converts raw
- * newlines into `<br/><br/>` so the response renders cleanly in the
- * candidate UI without further formatting.
+ * Post-processing applied to LLM content for HTML rendering paths. Strips
+ * ```html fences and converts raw newlines into `<br/><br/>` so the
+ * response renders cleanly in the candidate UI without further formatting.
  */
 export const formatHtmlLlmResponse = (content: string): string => {
   const stripped = stripHtmlFences(content)

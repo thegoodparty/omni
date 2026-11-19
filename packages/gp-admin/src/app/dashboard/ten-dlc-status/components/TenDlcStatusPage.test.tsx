@@ -6,7 +6,7 @@ import type {
   TenDlcStatusBucketKey,
   TenDlcStatusEntry,
   TenDlcStatusSnapshot,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 import { TenDlcStatusPage } from './TenDlcStatusPage'
 
 class ResizeObserverMock {
@@ -38,11 +38,6 @@ vi.mock('@clerk/nextjs', () => ({
 const mockShowToast = vi.fn()
 vi.mock('@/components/Toast', () => ({
   useToast: () => ({ showToast: mockShowToast }),
-}))
-
-const mockCaptureException = vi.fn()
-vi.mock('@sentry/nextjs', () => ({
-  captureException: (...args: unknown[]) => mockCaptureException(...args),
 }))
 
 const mockGetTenDlcStatusSnapshot = vi.fn()

@@ -1,10 +1,7 @@
-import {
-  BadGatewayException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { PersonsService } from '@/electionDb/persons/persons.service'
+import { retryOnceIfUnreachable } from '@/electionDb/shared/util/retryUnreachable.util'
 import {
   VoterDensityResponse,
   VoterDensityResponseSchema,
@@ -33,9 +30,10 @@ const MAX_CACHE_ENTRIES = 1_000
  * to no L2 district returns null (the controller 404s, the page renders no
  * map), and a district with no density rows returns empty cells (the page also
  * hides the map on low `coverage`, so a sparsely-covered district shows no map
- * rather than a misleading one). A hard read failure is NOT swallowed — it
- * surfaces as a 502 — so a genuine outage stays visible instead of
- * masquerading as "no map".
+ * rather than a misleading one). The map is progressive enhancement, so an
+ * election-db failure is ridden out rather than surfaced as a 502: one retry
+ * when the database is unreachable, then the last answer even if expired, then
+ * no map. The failure is still logged at error level.
  */
 @Injectable()
 export class VoterDensityProxyService {
@@ -60,7 +58,9 @@ export class VoterDensityProxyService {
 
     let density: ElectionVoterDensity | undefined
     try {
-      density = await this.persons.getVoterDensity(personId)
+      density = await retryOnceIfUnreachable(() =>
+        this.persons.getVoterDensity(personId),
+      )
     } catch (error) {
       // An unknown person throws NotFoundException where the route 404'd, and
       // a 404 and a resolved person with no district are the same thing to the
@@ -70,10 +70,10 @@ export class VoterDensityProxyService {
         return null
       }
       this.logger.error(
-        { error, personId },
+        { error, personId, servedStale: Boolean(cached) },
         'Failed to read voter density from election-db',
       )
-      throw new BadGatewayException('Failed to resolve district')
+      return cached ? cached.value : null
     }
 
     // The read returns the district and person id alongside the cells. Parse
@@ -90,7 +90,7 @@ export class VoterDensityProxyService {
     return value
   }
 
-  // A failed read throws before reaching here, so only answers are cached.
+  // A failed read returns before reaching here, so only answers are cached.
   private remember(
     personId: string,
     value: VoterDensityResponse | null,

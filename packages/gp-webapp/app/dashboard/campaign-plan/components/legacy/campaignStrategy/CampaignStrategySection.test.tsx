@@ -36,6 +36,9 @@ vi.mock('appEnv', async (importOriginal) => ({
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 55, details: {}, electionDate: null }],
 }))
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => ({ offer: null }),
+}))
 const mockTrackEvent = vi.fn()
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),

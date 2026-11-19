@@ -152,9 +152,25 @@ export type Alert = {
    *   so that a rule watching our Loki spend, or watching whether alerting
    *   works at all, does not depend on the thing it is watching.
    *
+   * - `cloudwatch`: One metric read through the production CloudWatch data
+   *   source. `expr` is the metric name and `cloudwatchNamespace` its
+   *   namespace, read in five-minute periods. The statistic is Average and
+   *   the metric carries no dimensions unless `cloudwatchStatistic` and
+   *   `cloudwatchDimensions` say otherwise. Prod only, like every rule here.
+   *
    * All use `$ENV` as a placeholder for the environment name (e.g. "prod").
    */
-  type: 'log' | 'metric' | 'usage'
+  type: 'log' | 'metric' | 'usage' | 'cloudwatch'
+  /** The CloudWatch namespace, for a `cloudwatch` rule. */
+  cloudwatchNamespace?: string
+  /**
+   * The CloudWatch dimensions, for a `cloudwatch` rule, in the shape Grafana's
+   * CloudWatch query takes. Without them a per-resource namespace such as
+   * `AWS/Lambda` reads the account-wide aggregate.
+   */
+  cloudwatchDimensions?: Record<string, string[]>
+  /** The CloudWatch statistic, for a `cloudwatch` rule. Defaults to Average. */
+  cloudwatchStatistic?: 'Average' | 'Sum' | 'Maximum'
   /**
    * The query expression. Use `$ENV` for the environment name.
    *
@@ -287,6 +303,18 @@ export type Alert = {
    * decided to show them the alert.
    */
   knownCauses?: KnownCause[]
+
+  /**
+   * What the rule does when it cannot evaluate. Defaults to `Alerting`, the
+   * estate-wide choice in grafana.ts: a rule that goes quiet when its query
+   * path is down reports all-clear when it has stopped looking.
+   *
+   * `KeepLast` is for a rule whose page asserts a fact about something external
+   * (is the service reachable) that a failed query says nothing about. The rule
+   * holds its last real answer, and a broken query path stays visible through
+   * `alerting-rule-evaluations-failing` and the rule's own health in Grafana.
+   */
+  execErrState?: 'Alerting' | 'KeepLast'
 
   /** Whether the alert is disabled. */
   disabled?: boolean

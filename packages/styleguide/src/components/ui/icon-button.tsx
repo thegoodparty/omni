@@ -50,6 +50,13 @@ interface IconButtonProps
   loading?: boolean
 }
 
+/**
+ * Give it an aria-label and wrap it in a Tooltip that names the action. Only a
+ * close × skips the tooltip.
+ *
+ * @summary Use for a round, icon-only action in tight spots, like edit, more or
+ * close. For an action with a text label, use Button.
+ */
 const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
   (
     {

@@ -9,6 +9,7 @@
 // package against what was actually requested before writing anything.
 import {
   DevEnvBundleResponseSchema,
+  DevEnvElectionSeedResponseSchema,
   type DevEnvPackageBundle,
 } from '@goodparty_org/contracts'
 
@@ -78,4 +79,82 @@ export const fetchDevEnvBundles = async (
     )
   }
   return parsed.data.bundles
+}
+
+// The local election seed (POST /v1/dev-env/election-seed): a presigned URL
+// for the slice of the dev election database `electiondb` is loaded from.
+// Same gate and header as the bundle above. The URL is a bearer credential
+// for a restricted dataset until it expires — never print it.
+export const fetchElectionSeedUrl = async (
+  apiUrl: string,
+  token: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<string> => {
+  let response: Response
+  try {
+    response = await fetchImpl(new URL('/v1/dev-env/election-seed', apiUrl), {
+      method: 'POST',
+      headers: {
+        'X-GitHub-Token': token,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: '{}',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
+  } catch (err) {
+    throw new DevEnvBundleFetchError(
+      `Could not reach ${apiUrl} (${(err as Error).message}).`,
+    )
+  }
+
+  if (response.status === 503) {
+    throw new DevEnvBundleFetchError(
+      `${apiUrl} has no local election seed available (503).`,
+    )
+  }
+  if (!response.ok) {
+    throw new DevEnvBundleFetchError(
+      `${apiUrl} returned ${response.status} fetching the election seed URL.`,
+    )
+  }
+
+  const json = await response.json().catch(() => null)
+  const parsed = DevEnvElectionSeedResponseSchema.safeParse(json)
+  if (!parsed.success) {
+    throw new DevEnvBundleFetchError(
+      'Election seed response had an unexpected shape.',
+    )
+  }
+  return parsed.data.url
+}
+
+// Streams the seed to disk, writing to a sibling temp file and renaming so an
+// interrupted download never leaves a truncated seed that a later load would
+// half-apply.
+export const downloadElectionSeed = async (
+  url: string,
+  outPath: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<void> => {
+  const response = await fetchImpl(url, {
+    signal: AbortSignal.timeout(10 * 60_000),
+  })
+  if (!response.ok || !response.body) {
+    throw new DevEnvBundleFetchError(
+      `Downloading the election seed failed (${response.status}).`,
+    )
+  }
+  const { createWriteStream } = await import('fs')
+  const { rename, mkdir } = await import('fs/promises')
+  const { dirname } = await import('path')
+  const { Readable } = await import('stream')
+  const { pipeline } = await import('stream/promises')
+  await mkdir(dirname(outPath), { recursive: true })
+  const partial = `${outPath}.partial`
+  await pipeline(
+    Readable.fromWeb(response.body as import('stream/web').ReadableStream),
+    createWriteStream(partial),
+  )
+  await rename(partial, outPath)
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import React from 'react'
@@ -23,9 +23,17 @@ const wrapper = (qc: QueryClient) =>
     return React.createElement(QueryClientProvider, { client: qc }, children)
   }
 
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 // Mirrors the debounce window (600ms) with slack, same pattern as
 // ContactTypeahead.test.tsx's debounceSettle helper.
-const debounceSettle = () => new Promise((resolve) => setTimeout(resolve, 700))
+const debounceSettle = () => act(() => vi.advanceTimersByTimeAsync(700))
 
 describe('useListWizardCount — debounce', () => {
   it('coalesces a burst of rapid payload changes into a single request for the final value', async () => {
@@ -56,6 +64,7 @@ describe('useListWizardCount — debounce', () => {
     })
 
     await debounceSettle()
+    await vi.waitFor(() => expect(bodies).toHaveLength(2))
 
     expect(bodies).toEqual([
       { genderMale: true },
@@ -97,7 +106,8 @@ describe('useListWizardCount — isStale', () => {
 
     // Let the mount's own debounce settle so we start from a clean, non-stale
     // baseline (the seed payload fires immediately).
-    await waitFor(() => expect(result.current.isStale).toBe(false))
+    await debounceSettle()
+    expect(result.current.isStale).toBe(false)
 
     // A fresh selection re-opens the debounce window synchronously: the count
     // still reflects the previous payload, so it reads stale right away — this
@@ -106,7 +116,8 @@ describe('useListWizardCount — isStale', () => {
     expect(result.current.isStale).toBe(true)
 
     // ...and it clears once the 600ms debounce elapses and the new count lands.
-    await waitFor(() => expect(result.current.isStale).toBe(false))
+    await act(() => vi.advanceTimersByTimeAsync(600))
+    expect(result.current.isStale).toBe(false)
   })
 })
 

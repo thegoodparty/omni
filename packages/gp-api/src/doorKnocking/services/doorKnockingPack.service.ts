@@ -18,6 +18,7 @@ import {
 } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
+import { VoterPackTooLargeError } from '@/peopleDb/services/voterPack.service'
 import {
   deriveKnockStatus,
   firmestAnswerPerPerson,
@@ -65,17 +66,30 @@ export class DoorKnockingPackService extends createPrismaBase(
       // plan and succeeds immediately after it is reassigned. Without this
       // field that pattern is invisible and each firing reads as a fresh
       // unexplained failure.
+      //
+      // A district over the pack limit is refused the same way every time, so
+      // it is a known limit rather than an incident and must not page.
       onFailure: (err, elapsedMs) =>
-        this.logger.error(
-          {
-            event: PACK_BUILD_FAILED_EVENT,
-            organizationSlug: organization.slug,
-            districtId,
-            elapsedMs,
-            err,
-          },
-          'door-knocking pack build failed after the response had started',
-        ),
+        err instanceof VoterPackTooLargeError
+          ? this.logger.warn(
+              {
+                organizationSlug: organization.slug,
+                districtId,
+                rows: err.rows,
+                elapsedMs,
+              },
+              'door-knocking pack refused: district is over the pack limit',
+            )
+          : this.logger.error(
+              {
+                event: PACK_BUILD_FAILED_EVENT,
+                organizationSlug: organization.slug,
+                districtId,
+                elapsedMs,
+                err,
+              },
+              'door-knocking pack build failed after the response had started',
+            ),
     })
   }
 

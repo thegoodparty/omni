@@ -226,10 +226,11 @@ describe('estimateAgent for a chat agent', () => {
   })
   const turns = (count: number) => ({ countTurns: (): number => count })
 
-  // 2 arms x 9 turns x 3 attempts x $0.123 = $6.642, x1.5 = $9.96, up to $10.
+  // 2 arms x 11 turns x 3 attempts x $0.123 = $8.118, x1.5 = $12.18, up to
+  // $12.50.
   it('prices from the measured turn cost, on the whole sweep', () => {
     expect(estimateAgent(chat('chief_of_staff'))).toMatchObject({
-      cents: 1000,
+      cents: 1250,
       basis: 'measured',
     })
   })
@@ -252,6 +253,22 @@ describe('estimateAgent for a chat agent', () => {
     })
     expect(estimateAgent(chat('chief_of_staff')).why).toContain(
       '$0.1230 a turn',
+    )
+  })
+
+  it('pins campaign_assistant at its measured $0.0656 a turn', () => {
+    expect(MEASURED_CHAT_TURN_COST.campaign_assistant).toEqual({
+      runUrl: 'https://github.com/thegoodparty/omni/actions/runs/41973696104',
+      date: '2026-11-05',
+      baseUsd: 0.0656,
+      candidateUsd: 0.0559,
+      pairs: 24,
+    })
+    expect(estimateAgent(chat('campaign_assistant'))).toMatchObject({
+      basis: 'measured',
+    })
+    expect(estimateAgent(chat('campaign_assistant')).why).toContain(
+      '$0.0656 a turn',
     )
   })
 
@@ -402,7 +419,8 @@ describe('priceAgainstReferences', () => {
     ]
     expect(
       priceAgainstReferences(withList('unread'), DEFAULT_JUDGE_CONFIG)(chat),
-    ).toMatchObject({ cents: 4250, basis: 'base-unread' })
+      // 2 x 11 x 3 x $0.52 = $34.32, x1.5 = $51.48, up to $51.50.
+    ).toMatchObject({ cents: 5150, basis: 'base-unread' })
     expect(
       priceAgainstReferences(withList('absent'), DEFAULT_JUDGE_CONFIG)(chat)
         .basis,
@@ -431,7 +449,7 @@ describe('priceAgainstReferences', () => {
         [{ estimate: estimateAgent, chatAttempts: undefined }],
         DEFAULT_JUDGE_CONFIG,
       )(chat),
-    ).toMatchObject({ cents: 4250, basis: 'base-unread' })
+    ).toMatchObject({ cents: 5150, basis: 'base-unread' })
     expect(
       priceAgainstReferences(
         [{ estimate: estimateAgent, chatAttempts: undefined }],
@@ -460,9 +478,9 @@ it('prices an agent with no case list at nothing', () => {
 // THE NUMBER ON AN ACCIDENTAL `all`. Pinned, so a change to the table, the
 // margin, the budget or a case list that moves it is a visible diff here and
 // in the comments that quote it (judge.yml, judge-comment.yml, README).
-it('prices `all` at $829.00', () => {
+it('prices `all` at $1,164.50', () => {
   const total = selectAgents({ kind: 'all' })
     .selected.map((agent) => estimateAgent(agent).cents)
     .reduce((sum, cents) => sum + cents, 0)
-  expect(total).toBe(82_900)
+  expect(total).toBe(116_450)
 })

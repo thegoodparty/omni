@@ -1,27 +1,16 @@
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ChatMessageRole, ChatScope } from '@/generated/prisma'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { AgentMessageRole, ChatScope } from '@/generated/prisma'
 import { JUDGE_CHAT_EMAIL } from './judgeTelemetry.util'
 import { useTestService } from '@/test-service'
 import { JudgeTurnTelemetryService } from './services/judgeTurnTelemetry.service'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
+import { isNonProdDeploy } from '@/shared/util/appEnvironment.util'
 
 // The deploy gate is a module constant read by the guard on every request.
 // Driving the REAL derivation from a stubbed OTEL_SERVICE_ENVIRONMENT is the
 // point of these tests: what has to hold is that the fail-closed allowlist
 // refuses an absent or misspelled value, not only the literal 'prod'.
-const { otel } = vi.hoisted(() => ({
-  otel: { value: undefined as string | undefined },
-}))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return actual.isNonProdDeploy(otel.value)
-    },
-  }
-})
 
 const service = useTestService()
 
@@ -39,11 +28,12 @@ const seedConversation = async (id: string, ownerUserId: number) =>
   })
 
 const seedAssistantMessage = async (conversationId: string) =>
-  service.prisma.chatMessage.create({
+  service.prisma.agentMessage.create({
     data: {
       conversationId,
-      role: ChatMessageRole.assistant,
-      content: 'an answer',
+      index: 0,
+      role: AgentMessageRole.assistant,
+      parts: [{ type: 'text', text: 'an answer' }],
       model: 'claude-sonnet-4',
       inputTokens: 1200,
       outputTokens: 340,
@@ -80,7 +70,7 @@ const becomeJudge = async () =>
 
 describe('GET /v1/judge/conversations/:id/turns', () => {
   beforeEach(() => {
-    otel.value = 'dev'
+    appEnvOverrides.IS_NON_PROD_DEPLOY = isNonProdDeploy('dev')
   })
 
   describe('the deploy gate', () => {
@@ -97,7 +87,7 @@ describe('GET /v1/judge/conversations/:id/turns', () => {
       await becomeJudge()
       await seedConversation(CONVERSATION_ID, service.user.id)
       await seedTurn({ conversationId: CONVERSATION_ID, turnIndex: 1 })
-      otel.value = value
+      appEnvOverrides.IS_NON_PROD_DEPLOY = isNonProdDeploy(value)
 
       const res = await service.client.get(turnsUrl(CONVERSATION_ID))
 
@@ -108,7 +98,7 @@ describe('GET /v1/judge/conversations/:id/turns', () => {
       await becomeJudge()
       await seedConversation(CONVERSATION_ID, service.user.id)
       await seedTurn({ conversationId: CONVERSATION_ID, turnIndex: 1 })
-      otel.value = value
+      appEnvOverrides.IS_NON_PROD_DEPLOY = isNonProdDeploy(value)
 
       const res = await service.client.get(turnsUrl(CONVERSATION_ID))
 
@@ -187,7 +177,7 @@ describe('GET /v1/judge/conversations/:id/turns', () => {
       })
     })
 
-    // Spend lives on ChatMessage and is deliberately not duplicated here, so
+    // Spend lives on AgentMessage and is deliberately not duplicated here, so
     // a turn with no assistant row reports nulls rather than zeros.
     it('reports null spend for a turn that persisted no assistant row', async () => {
       await becomeJudge()

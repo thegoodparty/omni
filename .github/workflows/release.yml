@@ -27,6 +27,14 @@ name: release
 on:
   push:
     branches: [main]
+    # A push that only touches these deploys nothing, so it starts no train;
+    # the next code push releases everything since. Root-level *.md only:
+    # Markdown under packages/ is read at runtime (runbooks, prompts). The
+    # autopilot image bakes in a copy of the repo, but it fetches and resets
+    # to main before each run, so it doesn't need a release to see new docs.
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   workflow_dispatch:
     inputs:
       sha:
@@ -55,6 +63,10 @@ jobs:
   await-checks:
     name: Await checks
     runs-on: ubuntu-latest
+    # actions: write lets a superseded run cancel itself (see the wait step).
+    permissions:
+      contents: read
+      actions: write
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
       force: ${{ steps.force.outputs.force }}
@@ -103,17 +115,59 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ steps.resolve.outputs.sha }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           # Per-service check workflows whose green-ness gates a deploy. None is
           # path-filtered, so each has a run for THIS SHA. gp-ai builds its
-          # images here; gp-api/election-api build inside the train's dev stage.
-          # contracts/gp-sdk/styleguide/prototypes are omitted deliberately —
-          # contracts/gp-sdk are transitively covered (a service build fails if
-          # they do), and a broken styleguide/prototypes fails its own deploy
-          # job in the train's dev stage.
-          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
+          # images here; gp-api builds inside the train's dev stage.
+          # contracts/styleguide are omitted deliberately — both are
+          # transitively covered (a service build fails if either does).
+          REQUIRED="gp-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
           DEADLINE=$(( $(date +%s) + 60*60 ))
+
+          # "<total> <succeeded> <running> <conclusions>" for one workflow at
+          # one SHA, or empty on an API error.
+          runs_summary() {
+            gh api "repos/$REPO/actions/workflows/$2/runs?head_sha=$1&event=push&per_page=20" \
+              --jq '"\(.workflow_runs|length) \([.workflow_runs[]|select(.conclusion=="success")]|length) \([.workflow_runs[]|select(.status!="completed")]|length) \([.workflow_runs[]|.conclusion // .status]|join(","))"' 2>/dev/null || echo ""
+          }
+
+          # A red check on a commit that main has already moved past is not
+          # worth a red train when the newer commit fixed it. Such a run
+          # cancels itself, which reads as batching rather than a failure.
+          # The rule is per failed workflow: wait until the newer commit's run
+          # of it finishes, cancel only if every one passed there, and fail if
+          # any failed there too. Deciding
+          # earlier would rely on the newer commit getting its own train to
+          # report a failure, which a path-filtered or superseded push would
+          # not. Only push runs qualify: a dispatch names its SHA on purpose.
+          # Cancelling here is safe because no deploy has started yet.
+          #
+          # Prints "no", "wait", or "yes <tip sha>".
+          superseded_state() {
+            [ "$EVENT" = "push" ] || { echo no; return; }
+            local tip status wf summary
+            tip=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null) || { echo no; return; }
+            { [ -n "$tip" ] && [ "$tip" != "$SHA" ]; } || { echo no; return; }
+            status=$(gh api "repos/$REPO/compare/$SHA...$tip" --jq .status 2>/dev/null) || { echo no; return; }
+            [ "$status" = "ahead" ] || { echo no; return; }
+            for entry in $failed; do
+              wf="${entry%%(*}"
+              summary=$(runs_summary "$tip" "$wf")
+              [ -n "$summary" ] || { echo wait; return; }
+              # shellcheck disable=SC2086
+              set -- $summary
+              if [ "$1" -eq 0 ] || [ "$3" -gt 0 ]; then
+                echo wait; return
+              fi
+              if [ "$2" -eq 0 ]; then
+                echo no; return
+              fi
+            done
+            echo "yes $tip"
+          }
 
           while :; do
             pending=0
@@ -128,8 +182,7 @@ jobs:
               # fact passed. A workflow is green if ANY of its runs for this
               # SHA concluded success; it is pending while any is still going;
               # only an all-completed, none-succeeded set is a real failure.
-              summary=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&per_page=20" \
-                --jq '"\(.workflow_runs|length) \([.workflow_runs[]|select(.conclusion=="success")]|length) \([.workflow_runs[]|select(.status!="completed")]|length) \([.workflow_runs[]|.conclusion // .status]|join(","))"' 2>/dev/null || echo "")
+              summary=$(runs_summary "$SHA" "$wf")
               if [ -z "$summary" ]; then
                 pending=$((pending+1)); continue # API hiccup — re-read next pass
               fi
@@ -147,6 +200,26 @@ jobs:
             done
 
             if [ -n "$failed" ]; then
+              state=$(superseded_state)
+              case "$state" in
+                yes\ *)
+                  tip="${state#yes }"
+                  echo "::notice::Superseded: main is at ${tip:0:10}, past $SHA, and the failed checks passed there. Checks here:$failed. Cancelling this run instead of failing it."
+                  # Cancellation lands within seconds. If it never does, fail as before.
+                  if gh run cancel "$RUN_ID" -R "$REPO"; then
+                    sleep 120
+                  fi
+                  echo "::error::Could not cancel superseded run $RUN_ID."
+                  exit 1
+                  ;;
+                wait)
+                  if [ "$(date +%s)" -lt "$DEADLINE" ]; then
+                    echo "Checks failed for $SHA:$failed. main has moved past it, so waiting for the newer commit's checks before deciding..."
+                    sleep 30
+                    continue
+                  fi
+                  ;;
+              esac
               echo "::error::Dev checks failed for $SHA:$failed. Not deploying."
               exit 1
             fi
@@ -181,7 +254,7 @@ jobs:
     env:
       IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ needs.await-checks.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -194,17 +267,17 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
       # Base images come from ECR Public. Anonymous pulls there are limited
       # per IP and shared runners hit 429s; logged in, the limit is per
       # account.
       - name: Login to Amazon ECR Public
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
         with:
           registry-type: public
       - name: Check for existing image
@@ -219,9 +292,26 @@ jobs:
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
         run: npm run build -w packages/gp-api
+      # setup-buildx pulls its builder image once and fails the job if that
+      # pull fails, which is what held prod on 2026-10-20 (release
+      # 39451429293: the public.ecr.aws token fetch hit "context deadline
+      # exceeded"). When its own pull fails, buildx falls back to a copy
+      # already in the local image store, so pulling it here first, with
+      # retries, turns that one-shot pull into three. A pull is idempotent.
+      - name: Pull the buildx builder image
+        if: steps.ecr-image.outputs.exists != 'true'
+        run: |
+          for attempt in 1 2 3; do
+            docker pull public.ecr.aws/vend/moby/buildkit:buildx-stable-1 && exit 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::buildkit image pull attempt $attempt failed; retrying in $((attempt * 30))s"
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "::warning::Could not pre-pull the buildkit image; setup-buildx will try once more itself."
       - name: Set up Docker Buildx
         if: steps.ecr-image.outputs.exists != 'true'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           driver-opts: |
             image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
@@ -235,7 +325,7 @@ jobs:
         id: docker-cache
         if: steps.ecr-image.outputs.exists != 'true'
         run: |
-          TAG="buildcache-${{ hashFiles('package-lock.json', 'package.json', 'packages/gp-api/package.json', 'packages/contracts/package.json', 'packages/nest-common/package.json', 'packages/gp-api/deploy/Dockerfile') }}"
+          TAG="buildcache-${{ hashFiles('package-lock.json', 'package.json', 'packages/gp-api/package.json', 'packages/contracts/package.json', 'packages/nest-common/package.json', 'packages/gp-api/deploy/Dockerfile', 'patches/**') }}"
           echo "from=type=registry,ref=${{ env.ECR_REPO }}:$TAG" >> "$GITHUB_OUTPUT"
           if aws ecr describe-images --repository-name gp-api --image-ids imageTag="$TAG" >/dev/null 2>&1; then
             echo "to=" >> "$GITHUB_OUTPUT"
@@ -245,7 +335,7 @@ jobs:
 
       - name: Build and push Docker image
         if: steps.ecr-image.outputs.exists != 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           file: packages/gp-api/deploy/Dockerfile
@@ -263,67 +353,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-  dev-election-api:
-    name: Dev election-api
-    needs: await-checks
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: election-api-deploy-dev
-      cancel-in-progress: false
-    env:
-      IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/election-api:${{ needs.await-checks.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: election-api
-          workspace: packages/election-api
-          build-contracts: 'true'
-          build-nest-common: 'true'
-          prisma-generate-script: generate:prisma:election-api
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-      # Base images come from ECR Public. Anonymous pulls there are limited
-      # per IP and shared runners hit 429s; logged in, the limit is per
-      # account.
-      - name: Login to Amazon ECR Public
-        uses: aws-actions/amazon-ecr-login@v2
-        with:
-          registry-type: public
-      - name: Check for existing image
-        id: ecr-image
-        run: |
-          if aws ecr describe-images --repository-name election-api \
-            --image-ids imageTag=${{ needs.await-checks.outputs.sha }} >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build application
-        if: steps.ecr-image.outputs.exists != 'true'
-        run: npm run build -w packages/election-api
-      - name: Build and push Docker image
-        if: steps.ecr-image.outputs.exists != 'true'
-        run: |
-          docker build -t "${IMAGE_URI}" -f packages/election-api/deploy/Dockerfile .
-          docker push "${IMAGE_URI}"
-      - name: Deploy (Pulumi)
-        uses: ./.github/actions/pulumi-deploy
-        with:
-          working-directory: packages/election-api/deploy
-          command: ./deploy.sh dev
-
   dev-gp-webapp:
     name: Dev gp-webapp
     needs: await-checks
@@ -331,8 +360,17 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    # The production environment, on a dev deploy too, because VERCEL_TOKEN is
+    # one token for every Vercel target: whatever holds it can deploy prod.
+    # deployment: false keeps these jobs out of the production deployment
+    # history, which finalize writes and post_release_summary.py reads as the
+    # record of what is in prod. No job in the environment assumes an AWS role,
+    # so none of them changes the OIDC subject a role trust sees.
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -350,31 +388,6 @@ jobs:
           git-branch: main
           alias-domain: dev.goodparty.org
 
-  dev-styleguide:
-    name: Dev styleguide
-    needs: await-checks
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
-      && vars.VERCEL_PROJECT_ID_STYLEGUIDE != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
-          build-contracts: 'true'
-      - name: Deploy to Vercel
-        uses: ./.github/actions/vercel-deploy
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_STYLEGUIDE }}
-          target: production
-
   dev-candidate-sites:
     name: Dev candidate-sites
     needs: await-checks
@@ -382,8 +395,11 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -402,32 +418,6 @@ jobs:
           target: preview
           git-branch: main
 
-  dev-prototypes:
-    name: Dev prototypes
-    needs: await-checks
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
-      && vars.VERCEL_PROJECT_ID_PROTOTYPES != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: prototypes
-      # prototypes is a single-environment public surface — deploy straight to
-      # its production target on every main push.
-      - name: Deploy to Vercel
-        uses: ./.github/actions/vercel-deploy
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_PROTOTYPES }}
-          target: production
-
   dev-gp-ai:
     name: Dev gp-ai
     needs: await-checks
@@ -442,18 +432,18 @@ jobs:
       APPLY_DIR: /tmp/tfapply
       PLAN_DIR: /tmp/tfplans
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
@@ -463,10 +453,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       - name: apply dev/agent-experiment-metadata
         background: true
@@ -486,9 +473,6 @@ jobs:
       - name: apply dev/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-engine-control-plane
-      - name: apply dev/universal-judge-sweep-policy
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/universal-judge-sweep-policy
       - name: apply dev/broker
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/broker broker-${{ needs.await-checks.outputs.sha }}
@@ -501,9 +485,14 @@ jobs:
       - name: apply dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: apply dev/engineer-agent-fargate
+      # Placed after the other dev gp-ai members' steps (ENG-11588: "placed
+      # after the existing dev gp-ai steps so a failure in the scout's apply
+      # can't stop another member's dev deploy") — background: true already
+      # guarantees that isolation like it does for every step above, this
+      # ordering is just so a reviewer reads it as the newest member.
+      - name: apply dev/case-scout
         background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/case-scout
 
       - wait-all:
 
@@ -545,15 +534,12 @@ jobs:
       - name: reverify dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: reverify dev/engineer-agent-fargate
+      - name: reverify dev/case-scout
         background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/case-scout
       - name: reverify dev/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
-      - name: reverify dev/universal-judge-sweep-policy
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/universal-judge-sweep-policy
 
       - wait-all:
 
@@ -644,14 +630,11 @@ jobs:
     # Barrier for the whole prod-bound batch: every service that gets promoted
     # must have deployed to dev first (verify-dev covers gp-api + gp-webapp).
     # A failure here skips the shards -> E2E goes red -> the prod stage is
-    # blocked, so prod is all-or-nothing across these services. prototypes and
-    # styleguide are single-env and not promoted, so their dev failures are not
-    # in this barrier and cannot block prod.
+    # blocked, so prod is all-or-nothing across these services.
     needs:
       [
         await-checks,
         verify-dev,
-        dev-election-api,
         dev-candidate-sites,
         dev-gp-ai,
       ]
@@ -660,50 +643,84 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
       id-token: write
     env:
+      # The Clerk throttle splits its budget across every worker of the run
+      # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
+      E2E_SHARD_TOTAL: ${{ strategy.job-total }}
       BASE_URL: https://dev.goodparty.org
+      # Same runner-side /_next/static cache as gp-webapp.yml's E2E shards.
+      # Saved from main, so every PR's E2E can restore it too.
+      E2E_ASSET_CACHE: 'on'
+      E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.e2e-asset-cache
+      E2E_ASSET_CACHE_STATS_DIR: ${{ github.workspace }}/.e2e-asset-cache-stats
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
       # The @dev-only polls test drives the analyze pipeline and needs AWS; we
       # don't know which shard it lands in, so all shards configure OIDC creds.
-      - uses: aws-actions/configure-aws-credentials@v5
+      # The deploy role, as for every job on main.
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-webapp
       - name: Install Playwright browsers
-        working-directory: packages/gp-webapp/e2e-tests
-        # --with-deps runs apt, and a mirror that stops responding makes apt wait
-        # forever until the job is cancelled. Time out a stalled download rather
-        # than the whole install (the mirror can be slow and still finish), and
-        # wait for the dpkg lock so a retry does not fail on a leftover apt.
         timeout-minutes: 20
+        uses: ./.github/actions/setup-playwright
+        with:
+          working-directory: packages/gp-webapp/e2e-tests
+      # Main's durations, recorded by the E2E job of an earlier train. A miss
+      # only degrades the plan to a count split.
+      - name: Restore test durations
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: packages/gp-webapp/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}
+          restore-keys: e2e-durations-v1-
+      - name: Restore E2E asset cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            e2e-asset-cache-v1-shard${{ matrix.shard }}-
+            e2e-asset-cache-v1-
+      - name: Mark E2E asset cache start
         run: |
-          printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "300";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
-          for attempt in 1 2 3; do
-            npx playwright install --with-deps chromium && exit 0
-            echo "Playwright install attempt $attempt failed"
-          done
-          exit 1
+          mkdir -p "$E2E_ASSET_CACHE_DIR"
+          touch "$RUNNER_TEMP/e2e-asset-cache-start"
+      # Balanced by duration, not Playwright's --shard count split; see the
+      # same step in gp-webapp.yml.
       - name: Run Playwright tests
         working-directory: packages/gp-webapp/e2e-tests
-        run: >-
-          npx playwright test --config="$PWD/playwright.config.ts" tests/
-          --shard=${{ matrix.shard }}/4 --reporter=blob
+        run: |
+          set -euo pipefail
+          npx playwright test --config="$PWD/playwright.config.ts" tests/ --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
+          node scripts/plan-shards.mjs plan "$RUNNER_TEMP/e2e-list.json" e2e-durations.json ${{ matrix.shard }} ${{ strategy.job-total }} > "$RUNNER_TEMP/e2e-shard.txt"
+          if [ ! -s "$RUNNER_TEMP/e2e-shard.txt" ]; then
+            echo "::notice::no tests planned for shard ${{ matrix.shard }}"
+            exit 0
+          fi
+          mapfile -t locations < "$RUNNER_TEMP/e2e-shard.txt"
+          npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" --reporter=blob
         env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
           TEST_RUN_NAME: 'E2E Tests - dev'
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          # dev.goodparty.org is exempt from Vercel Authentication, so Vercel
+          # ignores this there; it is harmless
+          # (e2e-tests/src/helpers/vercelBypass.helper.ts).
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           # The @dev-only poll spec used to regex these out of the poll Slack
           # message's `aws s3 cp` line. That line is being retired, so the
           # values are named here instead. Plain config, not credentials — the
@@ -711,9 +728,41 @@ jobs:
           SERVE_ANALYZE_S3_BUCKET: serve-analyze-data-dev
           E2E_SQS_QUEUE_NAME: develop-Queue.fifo
           PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report
+      # Same summary, prune and save as the step in gp-webapp.yml.
+      - name: E2E asset cache summary
+        id: asset-cache
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          stats=("$E2E_ASSET_CACHE_STATS_DIR"/*.json)
+          if [ ${#stats[@]} -eq 0 ]; then
+            echo "network_requests=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          totals=$(jq -cs '{cacheRequests: (map(.cacheRequests) | add), cacheBytes: (map(.cacheBytes) | add), networkRequests: (map(.networkRequests) | add), networkBytes: (map(.networkBytes) | add)}' "${stats[@]}")
+          echo "e2e-asset-cache-totals shard=${{ matrix.shard }} $totals"
+          network_requests=$(jq .networkRequests <<<"$totals")
+          echo "network_requests=$network_requests" >> "$GITHUB_OUTPUT"
+          find "$E2E_ASSET_CACHE_DIR" -type f ! -newer "$RUNNER_TEMP/e2e-asset-cache-start" -delete
+          mb() { jq -r ".$1 / 1048576 * 10 | round / 10" <<<"$totals"; }
+          {
+            echo "### E2E asset cache, shard ${{ matrix.shard }}"
+            echo
+            echo "| Served from | Requests | MB |"
+            echo "| --- | --- | --- |"
+            echo "| Runner cache | $(jq .cacheRequests <<<"$totals") | $(mb cacheBytes) |"
+            echo "| Vercel | $network_requests | $(mb networkBytes) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save E2E asset cache
+        if: ${{ !cancelled() && steps.asset-cache.outputs.network_requests != '0' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.E2E_ASSET_CACHE_DIR }}
+          key: e2e-asset-cache-v1-shard${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload shard blob report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-blob-${{ matrix.shard }}
           path: packages/gp-webapp/e2e-tests/blob-report
@@ -733,24 +782,22 @@ jobs:
     env:
       BASE_URL: https://dev.goodparty.org
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
-      - uses: aws-actions/configure-aws-credentials@v5
+          sparse-checkout: packages/gp-webapp/e2e-tests
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
       - name: Download shard blob reports
         id: download-blobs
         continue-on-error: true
         if: >-
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: e2e-blob-*
           merge-multiple: true
@@ -766,27 +813,51 @@ jobs:
           || needs.e2e-shard.result == 'failure')
         run: rm -rf packages/gp-webapp/e2e-tests/blob-report
       - name: Retry shard blob report download
+        # Report-only: the gate verdict is the last step's e2e-shard.result, so
+        # a failed download must not block prod promotion.
+        continue-on-error: true
         if: >-
           steps.download-blobs.outcome == 'failure'
           && (needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure')
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: e2e-blob-*
           merge-multiple: true
           path: packages/gp-webapp/e2e-tests/blob-report
       - name: Merge shard reports
+        # Report-only (see above); an empty blob dir after a failed download
+        # makes merge-reports exit non-zero.
+        continue-on-error: true
         if: >-
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
         working-directory: packages/gp-webapp/e2e-tests
-        run: >-
-          npx playwright merge-reports
-          --config="${{ github.workspace }}/packages/gp-webapp/e2e-tests/playwright.merge.config.ts"
-          "${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report"
+        # npx at the lockfile's version, not a workspace install; see the same
+        # step in gp-webapp.yml.
+        run: |
+          version=$(jq -r '.packages["node_modules/@playwright/test"].version' "$GITHUB_WORKSPACE/package-lock.json")
+          npx --yes "@playwright/test@$version" merge-reports \
+            --config="${{ github.workspace }}/packages/gp-webapp/e2e-tests/playwright.merge.config.ts" \
+            "${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report"
+      # Feeds the next run's shard plan, on main and every PR that has no
+      # durations of its own yet.
+      - name: Record test durations
+        id: durations
+        continue-on-error: true
+        if: hashFiles('packages/gp-webapp/e2e-tests/test-results/results.json') != ''
+        working-directory: packages/gp-webapp/e2e-tests
+        run: node scripts/plan-shards.mjs durations test-results/results.json > e2e-durations.json
+      - name: Save test durations
+        continue-on-error: true
+        if: steps.durations.outcome == 'success'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: packages/gp-webapp/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gp-webapp-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -832,12 +903,6 @@ jobs:
             # file, describes, title and tags joined by SPACES, so no separator
             # this prints would match. The file path is the part a repro command
             # takes, and it takes it positionally.
-            #
-            # DELIBERATELY NOT CLASSIFIED HERE. Whether a spec is `@dev-only`
-            # decides whether the bot files a ticket for it, and that judgement
-            # is single-sourced in clickup_bot/dev_test_triage.py where tests
-            # pin it. A second grep in YAML is how the two start disagreeing
-            # about which failures are nobody's problem.
             {
               echo "failed_tests<<E2E_FAILED_TESTS"
               jq -r '
@@ -925,7 +990,7 @@ jobs:
     env:
       IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ needs.await-checks.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -938,7 +1003,7 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -950,45 +1015,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-  prod-election-api:
-    name: Promote election-api
-    needs: [await-checks, e2e]
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.frozen != 'true'
-      && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      group: election-api-deploy-prod
-      cancel-in-progress: false
-    env:
-      IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/election-api:${{ needs.await-checks.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: election-api
-          workspace: packages/election-api
-          build-contracts: 'true'
-          build-nest-common: 'true'
-          prisma-generate-script: generate:prisma:election-api
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Deploy (Pulumi)
-        uses: ./.github/actions/pulumi-deploy
-        with:
-          working-directory: packages/election-api/deploy
-          command: ./deploy.sh prod
-
   prod-gp-webapp:
     name: Promote gp-webapp
     needs: [await-checks, e2e]
@@ -997,8 +1023,11 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1022,8 +1051,11 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1031,8 +1063,6 @@ jobs:
         with:
           app: gp-admin
           build-contracts: 'true'
-      - name: Build SDK
-        run: npm run build -w packages/gp-sdk
       - name: Deploy to Vercel
         uses: ./.github/actions/vercel-deploy
         with:
@@ -1049,8 +1079,11 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1073,22 +1106,25 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    # About 1 min normally. Bounds a hung job (ENG-11537); a lost runner is
+    # retried by release-retry.yml.
+    timeout-minutes: 15
     permissions:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           version: latest
       - name: Install runtime deps
         working-directory: packages/runbooks/scripts/python
         run: uv sync --frozen
       - name: Configure AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
           aws-region: ${{ env.AWS_REGION }}
@@ -1111,7 +1147,7 @@ jobs:
       deploy: ${{ steps.check.outputs.deploy }}
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -1123,7 +1159,7 @@ jobs:
           set -euo pipefail
           found=0; missing=0; absent=""
           # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml.
-          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent autopilot-agent autopilot-agent-playwright; do
+          for s in broker pmf-engine serve-analyze ddhq-matcher autopilot-agent autopilot-agent-playwright; do
             if aws ecr describe-images --repository-name gp-ai-projects \
                  --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then
               found=$((found+1))
@@ -1133,10 +1169,10 @@ jobs:
           done
           if [ "$missing" -eq 0 ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
-            echo "All 7 gp-ai images present for $SHA; promoting gp-ai."
+            echo "All 6 gp-ai images present for $SHA; promoting gp-ai."
           elif [ "$found" -eq 0 ]; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all seven on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
+            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all six on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
           else
             echo "::error::Partial gp-ai image set for $SHA ($found present,$absent missing). A build failed; refusing to promote a mixed set."
             exit 1
@@ -1162,18 +1198,18 @@ jobs:
       APPLY_DIR: /tmp/tfapply
       PLAN_DIR: /tmp/tfplans
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
@@ -1183,10 +1219,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       - name: apply prod/agent-experiment-metadata
         background: true
@@ -1200,9 +1233,6 @@ jobs:
       - name: apply prod/autopilot-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-bot
-      - name: apply prod/clickup-bot
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/clickup-bot
       - name: apply prod/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/pmf-engine-control-plane
@@ -1218,9 +1248,6 @@ jobs:
       - name: apply prod/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: apply prod/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
       - name: apply prod/alert-filter
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
@@ -1229,7 +1256,7 @@ jobs:
 
       # shared-infra applies alone, after everything above, because it is the
       # only root that consumes other roots' outputs: it reads the lambda ARN
-      # and name out of alert-filter, clickup-bot and ddhq-matcher-fargate state
+      # and name out of alert-filter and ddhq-matcher-fargate state
       # to build a target group and permission for each. Nothing reads
       # shared-infra in turn, so it is free to go last.
       #
@@ -1256,9 +1283,6 @@ jobs:
       - name: reverify prod/autopilot-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-bot
-      - name: reverify prod/clickup-bot
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/clickup-bot
       - name: reverify prod/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/pmf-engine-control-plane
@@ -1274,9 +1298,6 @@ jobs:
       - name: reverify prod/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: reverify prod/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
       - name: reverify prod/alert-filter
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter
@@ -1331,7 +1352,6 @@ jobs:
       [
         await-checks,
         prod-gp-api,
-        prod-election-api,
         prod-gp-webapp,
         prod-gp-admin,
         prod-candidate-sites,
@@ -1349,7 +1369,6 @@ jobs:
       needs.await-checks.result == 'success' &&
       needs.await-checks.outputs.frozen != 'true' &&
       needs.prod-gp-api.result == 'success' &&
-      needs.prod-election-api.result == 'success' &&
       needs.prod-gp-webapp.result == 'success' &&
       needs.prod-gp-admin.result == 'success' &&
       needs.prod-candidate-sites.result == 'success' &&

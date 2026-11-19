@@ -38,7 +38,7 @@ lint / type-check / test / build steps.
 
 Address workspaces by **path**: `npm run <script> -w packages/<dir>`. npm's `-w`
 matches a name or a path, and some package names differ from their folder (the
-scoped libs `@goodparty_org/sdk`, `@goodparty_org/contracts`), so the path form
+scoped lib `@goodparty_org/contracts`), so the path form
 always resolves.
 
 ## Phase 1 — open the PR (fully auto)

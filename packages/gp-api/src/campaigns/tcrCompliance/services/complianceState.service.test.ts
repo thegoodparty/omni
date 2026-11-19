@@ -23,6 +23,15 @@ import {
   ComplianceStateService,
   deriveComplianceStage,
 } from './complianceState.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
+
+// VENDOR_MODE is a module constant, so a test can't flip it through
+// process.env. Default to live mode; the mock-mode tests set
+// `appEnvOverrides.VENDOR_MODE`.
+useAppEnvOverrides({ VENDOR_MODE: 'live' })
 
 const mockCampaign = (
   overrides?: Partial<Pick<Campaign, 'formattedAddress'>>,
@@ -507,15 +516,23 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     expect(result.pinDelivery).toBeNull()
   })
 
-  it('short-circuits to APPROVED with null PIN delivery in non-prod', async () => {
-    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
-    mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
+  it('reports the CV status from Peerly, not a hardcoded APPROVED, in non-prod mock mode', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+    appEnvOverrides.VENDOR_MODE = 'mock'
+    try {
+      mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
+      mockRetrieveCv.mockResolvedValue({
+        status: PeerlyCvVerificationStatus.IN_REVIEW,
+        pinDelivery: null,
+      })
 
-    const result = await service.findStateForCampaign(42)
+      const result = await service.findStateForCampaign(42)
 
-    expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
-    expect(result.pinDelivery).toBeNull()
-    expect(mockRetrieveCv).not.toHaveBeenCalled()
+      expect(mockRetrieveCv).toHaveBeenCalled()
+      expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.IN_REVIEW)
+    } finally {
+      appEnvOverrides.VENDOR_MODE = 'live'
+    }
   })
 
   it('surfaces the hold details at filing_review_hold', async () => {

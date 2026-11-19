@@ -6,7 +6,7 @@ import type {
   CommunityIssuesDispatchResult,
   DispatchMeetingAgentResult,
   MeetingAgentDispatchKind,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
 import { AGENT_JOB_TYPE_LIST, type AgentJobsStatus } from './agentJobs'

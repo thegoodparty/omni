@@ -27,6 +27,8 @@ type RangeCondition = {
 
 type FilterValue =
   | boolean
+  // `source`, the one PeopleFilters key that is a plain array.
+  | string[]
   | {
       in?: string[] | number[]
       // Only the activity-condition/support-status resolution engine's `id`
@@ -101,6 +103,16 @@ export const AUDIENCE_VOTER_STATUS_VALUES = [
   { field: 'audienceUnknown', value: 'Unknown' },
 ] as const
 
+// Early-vote boolean -> people-api earlyVoteStatus value, exported for the
+// catalog for the same reason as the audience list above.
+export const EARLY_VOTE_STATUS_VALUES = [
+  { field: 'earlyVoteVeryLikely', value: 'Very Likely' },
+  { field: 'earlyVoteLikely', value: 'Likely' },
+  { field: 'earlyVoteUnlikely', value: 'Unlikely' },
+  { field: 'earlyVoteVeryUnlikely', value: 'Very Unlikely' },
+  { field: 'earlyVoteUnknown', value: 'Unknown' },
+] as const
+
 // Contacts-made boolean -> bucket (ENG-10839). 5 means "5+" (>= 5 logged
 // interactions). Resolved by ContactsMadeResolutionService, never sent to
 // people-api as a raw filter key (see fieldsHandledSeparately below) — kept
@@ -162,6 +174,11 @@ export const convertVoterFileFilterToFilters = (
     // a meaningless FilterObject entry.
     'activityConditions',
     'supportStatus',
+    // Same reason: ContactsService.resolveBaseFilters turns it into
+    // votedInElection, since its campaign half is a person-id set.
+    'votedStatus',
+    // ContactsService resolves it to the uploads' person ids.
+    'contactUploadIds',
     // Provenance metadata (Task 7, recommended lists), not filter criteria.
     // recommendedModified is a plain boolean and would otherwise fall into
     // the generic boolean branch below and pollute the query payload for
@@ -180,6 +197,7 @@ export const convertVoterFileFilterToFilters = (
     'audienceUnreliableVoters',
     'audienceUnlikelyVoters',
     'audienceUnknown',
+    ...EARLY_VOTE_STATUS_VALUES.map(({ field }) => field),
     'partyIndependent',
     'partyDemocrat',
     'partyRepublican',
@@ -277,6 +295,10 @@ export const convertVoterFileFilterToFilters = (
         // PeopleFiltersSchema strips, silently widening the audience to the
         // whole district.
         filters['precinct'] = { in: value.map(String) }
+      } else if (key === 'source') {
+        // PeopleFilters takes source as a plain array, not an operator, so
+        // the generic `{ eq }`/`{ in }` branch below would be stripped.
+        filters['source'] = value.map(String)
       } else if (key === 'incomeRanges') {
         // Income ranges are handled separately after the loop
         // to allow combining with incomeUnknown using _includeNull
@@ -296,6 +318,16 @@ export const convertVoterFileFilterToFilters = (
           ? { eq: voterStatusValues[0] }
           : { in: voterStatusValues }
     }
+  }
+
+  const earlyVoteStatusValues: string[] = EARLY_VOTE_STATUS_VALUES.filter(
+    ({ field }) => segment[field],
+  ).map(({ value }) => value)
+  if (earlyVoteStatusValues.length > 0) {
+    filters['earlyVoteStatus'] =
+      earlyVoteStatusValues.length === 1
+        ? { eq: earlyVoteStatusValues[0] }
+        : { in: earlyVoteStatusValues }
   }
 
   const politicalPartyValues: string[] = []
@@ -484,9 +516,10 @@ export const WIN_ONLY_RECOMMENDED_FILTER_KEYS = [
 ] as const
 
 // A saved filter an elected-office org cannot resolve: the list/detail/count
-// paths 400 on these Win-only dimensions (party, ethnicity, recommended
-// affinity/ideology, contacts-made — see ContactsService.resolveBaseFilters),
-// so a Serve surface must not offer such a saved list back to the holder.
+// paths 400 on these Win-only dimensions (party, ethnicity, source,
+// recommended affinity/ideology, contacts-made — see
+// ContactsService.resolveBaseFilters), so a Serve surface must not offer
+// such a saved list back to the holder.
 export const savedFilterBlockedForElectedOffice = (
   filterInput: Partial<VoterFileFilter>,
 ): boolean => {
@@ -494,6 +527,7 @@ export const savedFilterBlockedForElectedOffice = (
   return (
     'politicalParty' in filters ||
     'ethnicity' in filters ||
+    'source' in filters ||
     WIN_ONLY_RECOMMENDED_FILTER_KEYS.some((key) => key in filters) ||
     CONTACTS_MADE_BUCKET_FIELDS.some(({ field }) => filterInput[field])
   )

@@ -61,6 +61,7 @@ export const WILL_VOTE_ANSWER_LABEL: Record<WillVoteAnswer, string> = {
   yes: 'Yes',
   no: 'No',
   unsure: 'Unsure',
+  already_voted: 'Already voted',
 }
 
 // Binary where support and will-vote are three-way, for the reason
@@ -197,10 +198,16 @@ export const draftWithSupportAnswer = (
   supportAnswer: SupportAnswer | undefined,
 ): PhoneBankingOutcomeDraft => ({ ...draft, supportAnswer })
 
+// Will-vote is asked first and support only once it is answered, so clearing
+// will-vote hides the support row and must take its answer with it, or Save
+// would ship a support answer the caller can no longer see.
 export const draftWithWillVote = (
   draft: PhoneBankingOutcomeDraft,
   willVote: WillVoteAnswer | undefined,
-): PhoneBankingOutcomeDraft => ({ ...draft, willVote })
+): PhoneBankingOutcomeDraft =>
+  willVote
+    ? { ...draft, willVote }
+    : { ...draft, willVote, supportAnswer: undefined }
 
 export const draftWithFollowUp = (
   draft: PhoneBankingOutcomeDraft,

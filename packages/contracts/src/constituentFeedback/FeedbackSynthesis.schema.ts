@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { zCoerceDate } from '../shared/Date.schema'
 import {
   ConstituentFeedbackChannelSchema,
+  ConstituentFeedbackExtractionStatusSchema,
   IssueTagSourceSchema,
   IssueTagStatusSchema,
   SynthesisRunStatusSchema,
@@ -76,10 +77,7 @@ export type SynthesisRun = z.infer<typeof SynthesisRunSchema>
 // Where an effort's conversations happened: a turf's envelope is door_knock,
 // a phone list's is phone_bank, and a Serve text send's is text, whose
 // members are the constituents' own replies rather than a canvasser's notes.
-export const FeedbackReportChannelSchema = z.enum([
-  ...ConstituentFeedbackChannelSchema.options,
-  'text',
-])
+export const FeedbackReportChannelSchema = ConstituentFeedbackChannelSchema
 export type FeedbackReportChannel = z.infer<typeof FeedbackReportChannelSchema>
 
 export const StanceCountsSchema = z.object({
@@ -133,8 +131,12 @@ export const FeedbackReportMemoSchema = z.object({
   transcript: z.string().nullable(),
   issues: z.array(ConstituentFeedbackIssueSchema),
   actorName: z.string().nullable(),
-  // Null means waiting for review: listed, never counted.
+  // Null means not confirmed: listed, never counted.
   confirmedAt: zCoerceDate().nullable(),
+  // With no transcript, `pending` is a recording still being transcribed
+  // and `failed` one that could not be read. Null on a text reply, which
+  // nothing extracts.
+  extractionStatus: ConstituentFeedbackExtractionStatusSchema.nullable(),
 })
 export type FeedbackReportMemo = z.infer<typeof FeedbackReportMemoSchema>
 

@@ -47,9 +47,8 @@ changes no behavior, and it defuses the one failure this plan cannot otherwise
 catch.
 
 `@dev-only` Playwright specs are **grepped out of pull request runs entirely**
-and run only post-merge on the release train. `gpbot-dev-test-triage.yml` says
-it outright: "These never run on PRs, so nothing saw them before the merge."
-There is a prior incident, ENG-11106.
+and run only post-merge on the release train, so nothing sees them before the
+merge. There is a prior incident, ENG-11106.
 
 The poll e2e is `@dev-only`. So when the `aws s3 cp` line is removed from the
 poll Slack message, the spec throws and **no PR anywhere will fail.** It

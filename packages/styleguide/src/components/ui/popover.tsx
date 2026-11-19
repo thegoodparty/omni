@@ -5,6 +5,13 @@ import * as PopoverPrimitive from '@radix-ui/react-popover'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * Inside a Drawer, pass container (an element inside the drawer) or the popover
+ * won't scroll.
+ *
+ * @summary Use for a small menu or hint tied to one element. Never a form; use
+ * Dialog. For a list of actions, use DropdownMenu.
+ */
 function Popover({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {

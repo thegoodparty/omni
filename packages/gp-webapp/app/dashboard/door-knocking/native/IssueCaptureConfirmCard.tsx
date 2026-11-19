@@ -17,6 +17,11 @@ import {
   ToggleGroupItem,
   cn,
 } from '@styleguide'
+import {
+  PanelDrawerBody,
+  PanelDrawerFooter,
+  PanelDrawerHeader,
+} from './PanelDrawer'
 import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 
 // Rendered for a candidate's canvasser and an elected official's, so the copy
@@ -163,32 +168,21 @@ const toConfirmed = (
     ]
   })
 
-interface IssueCaptureConfirmCardProps {
-  proposed: ProposedIssues
-  saving: boolean
-  isServe: boolean
-  onConfirm: (issues: ConfirmedConstituentFeedbackIssue[]) => void
-  // Absent where there is nothing to skip to: the review list leaves an
-  // unconfirmed note where it is.
-  onSkip?: () => void
-  // The confirm button's accessible name where several cards share a page,
-  // so each says which note it confirms.
-  confirmLabel?: string
-}
+type CaptureCopy = (typeof CAPTURE_COPY)['win']
 
-// The issues, handed back for the one person who can judge them: whoever just
-// had the conversation. Confirming here is what separates a first-hand record
-// from a guess, which is why it happens at the door and not in a queue later.
-// Each issue can be corrected or removed. None can be added here: the
-// canvasser records or types the note again instead.
-export default function IssueCaptureConfirmCard({
-  proposed,
-  saving,
-  isServe,
-  onConfirm,
-  onSkip,
-  confirmLabel,
-}: IssueCaptureConfirmCardProps) {
+const captionFor = (
+  copy: CaptureCopy,
+  proposed: ProposedIssues,
+  drafts: IssueDraft[],
+): string =>
+  proposed === null
+    ? copy.empty
+    : drafts.length === 0
+      ? copy.none
+      : copy.caption
+
+// The card's state, one place for the issues the step renders.
+const useCaptureDrafts = (proposed: ProposedIssues, isServe: boolean) => {
   const copy = isServe ? CAPTURE_COPY.serve : CAPTURE_COPY.win
   const stanceLabels = isServe ? STANCE_LABELS.serve : STANCE_LABELS.win
   const [drafts, setDrafts] = useState(() => initialDrafts(proposed))
@@ -201,138 +195,205 @@ export default function IssueCaptureConfirmCard({
     )
   const remove = (index: number) =>
     setDrafts((current) => current.filter((_, i) => i !== index))
+  return { copy, stanceLabels, drafts, update, remove }
+}
 
-  return (
-    // No border of its own: it takes the ladder's place in the door's sheet,
-    // which draws the ladder unboxed, and the review list already frames it.
-    <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="text-base font-semibold text-foreground">
-          {copy.heading}
-        </h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {proposed === null
-            ? copy.empty
-            : drafts.length === 0
-              ? copy.none
-              : copy.caption}
-        </p>
-      </div>
+interface IssueBlocksProps {
+  copy: CaptureCopy
+  stanceLabels: Record<ConstituentFeedbackStance, string>
+  drafts: IssueDraft[]
+  saving: boolean
+  update: (index: number, change: Partial<IssueDraft>) => void
+  remove: (index: number) => void
+}
 
-      {drafts.map((draft, index) => {
-        const name = copy.issueNumber(index + 1)
-        return (
-          <div
-            // The issue a block came from never changes while the card is up,
-            // so it keys the block through removals of the ones above it.
-            key={draft.fromIssueId ?? 'written'}
-            role="group"
-            aria-label={name}
-            className={cn(
-              'flex flex-col gap-4',
-              index > 0 && 'border-t border-components-input-border pt-4',
-            )}
-          >
-            <div>
-              <div className="flex items-center justify-between gap-2">
-                <span className={QUESTION_LABEL_CLASSNAME}>
-                  {drafts.length > 1 ? name : copy.issue}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="small"
-                  // Pulled into the label row's height and onto the input's
-                  // right edge, so the ghost padding does not push the row
-                  // taller than the other labels or inset the word.
-                  className="-my-2 -mr-4 text-muted-foreground"
-                  disabled={saving}
-                  aria-label={copy.removeFor(draft.issueLabel.trim() || name)}
-                  onClick={() => remove(index)}
-                >
-                  {copy.remove}
-                </Button>
-              </div>
-              <Input
-                className="mt-2"
-                value={draft.issueLabel}
-                maxLength={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
-                placeholder={copy.issuePlaceholder}
-                onChange={(e) => update(index, { issueLabel: e.target.value })}
-              />
-              <LengthCounter
-                className="mt-1"
-                length={draft.issueLabel.length}
-                max={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
-              />
-            </div>
-
-            <div>
-              <span className={QUESTION_LABEL_CLASSNAME}>{copy.stance}</span>
-              <ToggleGroup
-                type="single"
-                value={draft.stance ?? ''}
-                onValueChange={(next) =>
-                  update(index, {
-                    stance: STANCE_ORDER.find((id) => id === next),
-                  })
-                }
-                aria-label={copy.stance}
-                className="mt-2 flex flex-wrap justify-start gap-2"
-              >
-                {STANCE_ORDER.map((option) => (
-                  <ToggleGroupItem
-                    key={option}
-                    value={option}
-                    className={PILL_ITEM_CLASSNAME}
-                  >
-                    {stanceLabels[option]}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-
-            <div>
-              <span className={QUESTION_LABEL_CLASSNAME}>{copy.outcome}</span>
-              <Textarea
-                className="mt-2 min-h-16"
-                value={draft.desiredOutcome}
-                maxLength={CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH}
-                placeholder={copy.outcomePlaceholder}
-                rows={2}
-                onChange={(e) =>
-                  update(index, { desiredOutcome: e.target.value })
-                }
-              />
-            </div>
-          </div>
-        )
-      })}
-
-      <div className="flex flex-col gap-2">
-        <Button
-          className="w-full"
-          disabled={saving}
-          aria-label={confirmLabel}
-          onClick={() => onConfirm(toConfirmed(drafts))}
+const IssueBlocks = ({
+  copy,
+  stanceLabels,
+  drafts,
+  saving,
+  update,
+  remove,
+}: IssueBlocksProps) => (
+  <>
+    {drafts.map((draft, index) => {
+      const name = copy.issueNumber(index + 1)
+      return (
+        <div
+          // The issue a block came from never changes while the card is up,
+          // so it keys the block through removals of the ones above it.
+          key={draft.fromIssueId ?? 'written'}
+          role="group"
+          aria-label={name}
+          className={cn(
+            'flex flex-col gap-4',
+            index > 0 && 'border-t border-components-input-border pt-4',
+          )}
         >
-          {saving ? 'Saving…' : copy.confirm}
-        </Button>
-        {/* Skipping leaves the memo and its unconfirmed issues on the record
-            and moves the walk on. Nothing is lost, and reporting can tell an
-            unconfirmed row from a confirmed one, so the canvasser is never
-            held at a door by a question about a conversation they have
-            already finished. */}
-        {onSkip !== undefined && (
-          <Button
-            className="w-full"
-            variant="outline"
-            disabled={saving}
-            onClick={onSkip}
-          >
-            {copy.skip}
-          </Button>
-        )}
-      </div>
-    </div>
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <span className={QUESTION_LABEL_CLASSNAME}>
+                {drafts.length > 1 ? name : copy.issue}
+              </span>
+              <Button
+                variant="ghost"
+                size="small"
+                // Pulled into the label row's height and onto the input's
+                // right edge, so the ghost padding does not push the row
+                // taller than the other labels or inset the word.
+                className="-my-2 -mr-4 text-muted-foreground"
+                disabled={saving}
+                aria-label={copy.removeFor(draft.issueLabel.trim() || name)}
+                onClick={() => remove(index)}
+              >
+                {copy.remove}
+              </Button>
+            </div>
+            <Input
+              className="mt-2"
+              value={draft.issueLabel}
+              maxLength={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
+              placeholder={copy.issuePlaceholder}
+              onChange={(e) => update(index, { issueLabel: e.target.value })}
+            />
+            <LengthCounter
+              className="mt-1"
+              length={draft.issueLabel.length}
+              max={CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH}
+            />
+          </div>
+
+          <div>
+            <span className={QUESTION_LABEL_CLASSNAME}>{copy.stance}</span>
+            <ToggleGroup
+              type="single"
+              value={draft.stance ?? ''}
+              onValueChange={(next) =>
+                update(index, {
+                  stance: STANCE_ORDER.find((id) => id === next),
+                })
+              }
+              aria-label={copy.stance}
+              className="mt-2 flex flex-wrap justify-start gap-2"
+            >
+              {STANCE_ORDER.map((option) => (
+                <ToggleGroupItem
+                  key={option}
+                  value={option}
+                  className={PILL_ITEM_CLASSNAME}
+                >
+                  {stanceLabels[option]}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+
+          <div>
+            <span className={QUESTION_LABEL_CLASSNAME}>{copy.outcome}</span>
+            <Textarea
+              className="mt-2 min-h-16"
+              value={draft.desiredOutcome}
+              maxLength={CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH}
+              placeholder={copy.outcomePlaceholder}
+              rows={2}
+              onChange={(e) =>
+                update(index, { desiredOutcome: e.target.value })
+              }
+            />
+          </div>
+        </div>
+      )
+    })}
+  </>
+)
+
+interface ConfirmActionsProps {
+  copy: CaptureCopy
+  drafts: IssueDraft[]
+  saving: boolean
+  onConfirm: (issues: ConfirmedConstituentFeedbackIssue[]) => void
+  onSkip: () => void
+}
+
+const ConfirmActions = ({
+  copy,
+  drafts,
+  saving,
+  onConfirm,
+  onSkip,
+}: ConfirmActionsProps) => (
+  <div className="flex flex-col gap-2">
+    <Button
+      className="w-full"
+      disabled={saving}
+      onClick={() => onConfirm(toConfirmed(drafts))}
+    >
+      {saving ? 'Saving…' : copy.confirm}
+    </Button>
+    {/* Skipping saves the note with no issues and moves the walk on: its
+        words still go into the summary, so the canvasser is never held at a
+        door by a question about a conversation they have already
+        finished. */}
+    <Button
+      className="w-full"
+      variant="outline"
+      disabled={saving}
+      onClick={onSkip}
+    >
+      {copy.skip}
+    </Button>
+  </div>
+)
+
+interface IssueCaptureConfirmStepProps {
+  proposed: ProposedIssues
+  saving: boolean
+  isServe: boolean
+  onConfirm: (issues: ConfirmedConstituentFeedbackIssue[]) => void
+  onSkip: () => void
+}
+
+// The same card as a step of the knock's or the call's `PanelDrawer`, the
+// frame the questions were answered in, so the issues get the whole surface
+// on a phone and the two buttons stay pinned to the bottom of the viewport.
+// The frame's dismiss is the caller's Skip: the knock or call is already
+// saved, so closing can only mean moving on.
+export const IssueCaptureConfirmStep = ({
+  proposed,
+  saving,
+  isServe,
+  onConfirm,
+  onSkip,
+}: IssueCaptureConfirmStepProps) => {
+  const { copy, stanceLabels, drafts, update, remove } = useCaptureDrafts(
+    proposed,
+    isServe,
+  )
+  return (
+    <>
+      <PanelDrawerHeader
+        title={copy.heading}
+        description={captionFor(copy, proposed, drafts)}
+      />
+      <PanelDrawerBody>
+        <IssueBlocks
+          copy={copy}
+          stanceLabels={stanceLabels}
+          drafts={drafts}
+          saving={saving}
+          update={update}
+          remove={remove}
+        />
+      </PanelDrawerBody>
+      <PanelDrawerFooter>
+        <ConfirmActions
+          copy={copy}
+          drafts={drafts}
+          saving={saving}
+          onConfirm={onConfirm}
+          onSkip={onSkip}
+        />
+      </PanelDrawerFooter>
+    </>
   )
 }

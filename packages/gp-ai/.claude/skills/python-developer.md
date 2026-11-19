@@ -9,7 +9,7 @@ You are writing Python in `gp-ai`. Read this before you `uv add` anything or run
 
 - This is a **`uv` workspace**, not a collection of independent projects.
 - One root `pyproject.toml`, one `uv.lock`, one `.venv/` at the repo root.
-- Workspace members are listed under `[tool.uv.workspace] members` in the root `pyproject.toml`. Today: `shared`, `serve/v1_pipeline`, `hubspot_ddhq_match`, `clickup_bot`, `engineer_agent`, `pmf_engine`, `broker`.
+- Workspace members are listed under `[tool.uv.workspace] members` in the root `pyproject.toml`. Today: `shared`, `serve/v1_pipeline`, `hubspot_ddhq_match`, `pmf_engine`, `broker`, `autopilot`.
 - Other directories (e.g. `ai_generated_campaign_plan/`, `infrastructure/`, `api/`) are part of the repo but **not** workspace members. Their deps come from the root project's `dependencies`.
 - Runtime Python is **3.13** (`.python-version`). Code-floor is 3.11 (ruff `target-version`, mypy `python_version`). Don't use 3.12+-only syntax until the targets are bumped.
 
@@ -23,7 +23,7 @@ You are writing Python in `gp-ai`. Read this before you `uv add` anything or run
   2. Append `<member>` to `[tool.uv.workspace] members` in root `pyproject.toml`.
   3. `uv sync` at the root.
   4. Commit `pyproject.toml`, the new `<member>/pyproject.toml`, and the updated `uv.lock` together.
-  5. If it's a Lambda, copy the structure from an existing containerized member like `pmf_engine/` or `engineer_agent/` (Dockerfile, handler, `tests/`) and add a matching `infrastructure/modules/<name>/`.
+  5. If it's a Lambda, copy the structure from an existing containerized member like `pmf_engine/` (Dockerfile, handler, `tests/`) and add a matching `infrastructure/modules/<name>/`.
 - **Running tests** →
   - Everything CI runs: `make test` from `packages/gp-ai`. There is no repo-root `tests/` directory; the suite list lives in the `Makefile` as `TEST_PATHS` and CI invokes the same target.
   - Per-member: `cd <member> && uv run pytest tests/`.
@@ -74,7 +74,6 @@ When you write new code in a non-strict module:
 - **3.12+ syntax in code that ruff/mypy target as 3.11.** Both target `py311`. If you want to use newer syntax, bump both targets in lockstep.
 - **`# type: ignore` blanket suppression in strict modules.** Narrow it. Comment why.
 - **Adding a build workflow to `.github/workflows/` without testing it.** The existing build workflows are per-member. Copy from a similar one (e.g. `build-pmf-engine.yml`).
-- **Editing `ai-rules/` directly.** Submodule. Changes go upstream.
 
 ## What "good" looks like
 
@@ -83,4 +82,3 @@ When you write new code in a non-strict module:
 - New code in `serve/v1_pipeline/` or `shared/` is fully typed; new code elsewhere is at least linted clean.
 - New tests live with the member that owns the code, not at the repo root (unless they're cross-member by design).
 - `conftest.py` is unchanged unless you have a specific test-infra reason to change it.
-- You didn't reach inside `ai-rules/` or any other submodule.

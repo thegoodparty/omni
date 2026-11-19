@@ -61,6 +61,20 @@ args=(-input=false -no-color -lock-timeout=10m)
 
 terraform init -input=false -no-color >"$log" 2>&1 || fail "init failed"
 
+# shared-infra's ALB rules match x-api-key against SERVE_API_KEY (see that
+# root's variables.tf). The apply reads it here, under the deploy role, rather
+# than through a data source, which would write the whole AI_SECRETS_<ENV> blob
+# to state and make every plan need GetSecretValue on it. jq's stderr is
+# discarded because its errors can quote the input.
+if [[ "$root" == */shared-infra ]]; then
+  secret_id="AI_SECRETS_$(printf %s "${root%%/*}" | tr '[:lower:]' '[:upper:]')"
+  TF_VAR_serve_api_key=$(aws secretsmanager get-secret-value --secret-id "$secret_id" \
+      --query SecretString --output text 2>>"$log" | jq -er '.SERVE_API_KEY' 2>/dev/null) \
+    || fail "could not read SERVE_API_KEY from $secret_id"
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::add-mask::$TF_VAR_serve_api_key"
+  export TF_VAR_serve_api_key
+fi
+
 terraform plan "${args[@]}" -detailed-exitcode -out=tfplan >>"$log" 2>&1
 code=$?
 case "$code" in

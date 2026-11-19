@@ -29,21 +29,27 @@ import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types
 import { WebsitesService } from '../../../websites/services/websites.service'
 import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
-import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { PrismaService } from '@/prisma/prisma.service'
-import { MessageGroup, QueueType } from '../../../queue/queue.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
   createMockUser,
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
+
+// VENDOR_MODE is a module constant, so a test can't flip it through
+// process.env. Default to live mode; the mock-mode tests set
+// `appEnvOverrides.VENDOR_MODE`.
+useAppEnvOverrides({ VENDOR_MODE: 'live' })
 
 // Passes the dispatch gate's publishability check: genuine bio (over
 // MIN_BIO_LENGTH plain chars, not the template) + one genuine issue.
@@ -69,7 +75,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
   let mockComplianceState: {
     findStateForCampaign: ReturnType<typeof vi.fn>
   }
-  let mockQueue: { sendMessage: ReturnType<typeof vi.fn> }
+  let mockJobs: { send: ReturnType<typeof vi.fn> }
   let mockExperimentRuns: {
     findFirst: ReturnType<typeof vi.fn>
     dispatchRun: ReturnType<typeof vi.fn>
@@ -125,7 +131,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     }
     mockCrm = { trackCampaign: vi.fn().mockResolvedValue(undefined) }
     mockComplianceState = { findStateForCampaign: vi.fn() }
-    mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
+    mockJobs = { send: vi.fn().mockResolvedValue('job-1') }
     mockExperimentRuns = {
       findFirst: vi.fn().mockResolvedValue(null),
       dispatchRun: vi.fn().mockResolvedValue(undefined),
@@ -158,7 +164,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         { provide: CampaignsService, useValue: mockCampaigns },
         { provide: CrmCampaignsService, useValue: mockCrm },
         { provide: ComplianceStateService, useValue: mockComplianceState },
-        { provide: QueueProducerService, useValue: mockQueue },
+        { provide: JobsService, useValue: mockJobs },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         { provide: PinoLogger, useValue: createMockLogger() },
         {
@@ -177,17 +183,6 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
           useValue: {
             validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
           },
-        },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -279,43 +274,28 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
     const result = await service.createAgentic(user, campaign, basePayload)
 
-    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+    expect(mockJobs.send).toHaveBeenCalledTimes(1)
     expect(result).toEqual({
       record: expect.objectContaining({ id: 'tcr-new' }),
       created: true,
     })
   })
 
-  it('claims kickoffSentAt atomically before sending the kickoff', async () => {
-    await service.createAgentic(user, campaign, basePayload)
-
-    expect(mockModel.updateMany).toHaveBeenCalledWith({
-      where: { id: 'tcr-new', kickoffSentAt: null },
-      data: { kickoffSentAt: expect.any(Date) },
-    })
-  })
-
-  it('does not enqueue a second kickoff when the claim is already taken', async () => {
-    mockModel.updateMany.mockResolvedValueOnce({ count: 0 })
-
-    await service.createAgentic(user, campaign, basePayload)
-
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
-  })
-
-  it('marks the record error and re-throws if SQS sendMessage fails', async () => {
+  it('marks the record error and re-throws if the kickoff send fails', async () => {
     const sqsErr = new Error('SQS unavailable')
-    mockQueue.sendMessage.mockRejectedValueOnce(sqsErr)
+    mockJobs.send.mockRejectedValueOnce(sqsErr)
 
     await expect(
       service.createAgentic(user, campaign, basePayload),
     ).rejects.toBe(sqsErr)
 
-    // Claim is rolled back (kickoffSentAt back to null) so the sweep can retry
-    expect(mockModel.updateMany).toHaveBeenCalledWith({
-      where: { id: 'tcr-new', kickoffSentAt: expect.any(Date) },
-      data: { kickoffSentAt: null },
-    })
+    // The claim was written in the send's transaction, so the failed send
+    // rolls it back with it and the sweep can retry.
+    expect(mockJobs.send).toHaveBeenCalledWith(
+      'agenticComplianceKickoff',
+      expect.anything(),
+      expect.objectContaining({ tx: mockPrisma }),
+    )
     expect(mockModel.update).toHaveBeenCalledWith({
       where: { id: 'tcr-new' },
       data: { status: TcrComplianceStatus.error },
@@ -326,7 +306,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
   it('preserves the original SQS error if the fallback status update also fails', async () => {
     const sqsErr = new Error('SQS unavailable')
     const updateErr = new Error('DB unavailable')
-    mockQueue.sendMessage.mockRejectedValueOnce(sqsErr)
+    mockJobs.send.mockRejectedValueOnce(sqsErr)
     mockModel.update.mockRejectedValueOnce(updateErr)
 
     await expect(
@@ -336,7 +316,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
   it('sends the kickoff before tracking CRM (CRM failure cannot strand the record)', async () => {
     const callOrder: string[] = []
-    mockQueue.sendMessage.mockImplementation(() => {
+    mockJobs.send.mockImplementation(() => {
       callOrder.push('sendMessage')
       return Promise.resolve()
     })
@@ -373,25 +353,15 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
   it('enqueues the agentic kickoff with only non-sensitive routing data', async () => {
     await service.createAgentic(user, campaign, basePayload)
 
-    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-    const [message, group, options] = firstOrThrow(
-      mockQueue.sendMessage.mock.calls,
-    )
-    expect(message).toEqual({
-      type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
-      data: {
+    expect(mockJobs.send).toHaveBeenCalledExactlyOnceWith(
+      'agenticComplianceKickoff',
+      {
         campaignId: campaign.id,
         tcrComplianceId: 'tcr-new',
         clerkUserId: user.clerkId,
       },
-    })
-    expect(group).toBe(
-      `${MessageGroup.agenticComplianceKickoff}-${campaign.id}`,
+      { group: String(campaign.id), tx: mockPrisma },
     )
-    expect(options).toEqual({
-      deduplicationId: 'agentic-compliance-tcr-new',
-      throwOnError: true,
-    })
   })
 
   it('returns the existing record without re-kicking when one is in-flight', async () => {
@@ -407,7 +377,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     expect(result).toEqual({ record: existing, created: false })
     expect(mockModel.create).not.toHaveBeenCalled()
     expect(mockCampaigns.updateJsonFields).not.toHaveBeenCalled()
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockJobs.send).not.toHaveBeenCalled()
   })
 
   it('restarts atomically (deleteMany + create in a transaction) on transient error', async () => {
@@ -420,12 +390,13 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
     await service.createAgentic(user, campaign, basePayload)
 
-    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
+    // The restart's transaction, then the kickoff claim's.
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2)
     expect(mockModel.deleteMany).toHaveBeenCalledWith({
       where: { id: 'tcr-failed' },
     })
     expect(mockModel.create).toHaveBeenCalledTimes(1)
-    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+    expect(mockJobs.send).toHaveBeenCalledTimes(1)
   })
 
   it('restarts when the existing record was rejected (user is re-submitting corrected data)', async () => {
@@ -442,26 +413,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       where: { id: 'tcr-rejected' },
     })
     expect(mockModel.create).toHaveBeenCalledTimes(1)
-    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-  })
-
-  it('rolls back the delete when create fails inside the transaction', async () => {
-    const existing = {
-      id: 'tcr-failed',
-      campaignId: campaign.id,
-      status: TcrComplianceStatus.error,
-    }
-    mockModel.findUnique.mockResolvedValue(existing)
-    const dbErr = new PrismaClientKnownRequestError('Connection lost', {
-      code: 'P1001',
-      clientVersion: 'test',
-    })
-    mockModel.create.mockRejectedValueOnce(dbErr)
-
-    await expect(
-      service.createAgentic(user, campaign, basePayload),
-    ).rejects.toBe(dbErr)
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockJobs.send).toHaveBeenCalledTimes(1)
   })
 
   it('returns the parallel record when a concurrent submission wins the race', async () => {
@@ -483,7 +435,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     const result = await service.createAgentic(user, campaign, basePayload)
 
     expect(result).toEqual({ record: raced, created: false })
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockJobs.send).not.toHaveBeenCalled()
   })
 
   it('throws BadGatewayException when P2002 fires but no racing record is found', async () => {
@@ -498,7 +450,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     await expect(
       service.createAgentic(user, campaign, basePayload),
     ).rejects.toThrow(BadGatewayException)
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockJobs.send).not.toHaveBeenCalled()
   })
 
   it('rethrows non-P2002 Prisma errors from create', async () => {
@@ -537,7 +489,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     expect(result.created).toBe(true)
     expect(mockModel.create).toHaveBeenCalledTimes(1)
     expect(mockModel.updateMany).not.toHaveBeenCalled()
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockJobs.send).not.toHaveBeenCalled()
   })
 
   it('defers the kickoff when the profile cannot pass the publish gate', async () => {
@@ -552,7 +504,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     expect(result.created).toBe(true)
     expect(mockModel.create).toHaveBeenCalledTimes(1)
     expect(mockModel.updateMany).not.toHaveBeenCalled()
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockJobs.send).not.toHaveBeenCalled()
   })
 
   it('leaves the record submitted and unclaimed when the gate fetch fails', async () => {
@@ -565,7 +517,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     const result = await service.createAgentic(user, campaign, basePayload)
 
     expect(result.created).toBe(true)
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockJobs.send).not.toHaveBeenCalled()
     expect(mockModel.updateMany).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
@@ -588,7 +540,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
     await service.createAgentic(user, campaign, basePayload)
 
-    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+    expect(mockJobs.send).toHaveBeenCalledTimes(1)
   })
 
   describe('enqueueAgenticKickoffIfNeeded', () => {
@@ -609,23 +561,13 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         where: { id: 'tcr-paid', kickoffSentAt: null },
         data: { kickoffSentAt: expect.any(Date) },
       })
-      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-      const [message] = firstOrThrow(mockQueue.sendMessage.mock.calls)
-      expect(message.data).toEqual({
+      expect(mockJobs.send).toHaveBeenCalledTimes(1)
+      const [, data] = firstOrThrow(mockJobs.send.mock.calls)
+      expect(data).toEqual({
         campaignId: campaign.id,
         tcrComplianceId: 'tcr-paid',
         clerkUserId: 'clerk_paid',
       })
-    })
-
-    it('does not enqueue a second kickoff when the claim is already taken (replay)', async () => {
-      mockModel.findUnique.mockResolvedValueOnce(paidRecord)
-      mockCampaigns.findUnique.mockResolvedValueOnce(campaignWithClerk)
-      mockModel.updateMany.mockResolvedValueOnce({ count: 0 })
-
-      await service.enqueueAgenticKickoffIfNeeded(campaign.id)
-
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
     })
 
     it('does nothing when no TCR record exists yet (paid before filing)', async () => {
@@ -634,7 +576,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       await service.enqueueAgenticKickoffIfNeeded(campaign.id)
 
       expect(mockModel.updateMany).not.toHaveBeenCalled()
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+      expect(mockJobs.send).not.toHaveBeenCalled()
     })
 
     it('does nothing for a synthetic test-org record after payment', async () => {
@@ -647,7 +589,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       await service.enqueueAgenticKickoffIfNeeded(campaign.id)
 
       expect(mockModel.updateMany).not.toHaveBeenCalled()
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+      expect(mockJobs.send).not.toHaveBeenCalled()
     })
 
     it('does nothing when the campaign has no Clerk user', async () => {
@@ -660,7 +602,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       await service.enqueueAgenticKickoffIfNeeded(campaign.id)
 
       expect(mockModel.updateMany).not.toHaveBeenCalled()
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+      expect(mockJobs.send).not.toHaveBeenCalled()
     })
 
     it('defers the webhook-path kickoff when the profile cannot pass the publish gate', async () => {
@@ -671,15 +613,13 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       await service.enqueueAgenticKickoffIfNeeded(campaign.id)
 
       expect(mockModel.updateMany).not.toHaveBeenCalled()
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+      expect(mockJobs.send).not.toHaveBeenCalled()
     })
   })
 
   describe('sweepStrandedAgenticKickoffs', () => {
     const sweep = (svc: CampaignTcrComplianceService) =>
-      (
-        svc as unknown as { sweepStrandedAgenticKickoffs: () => Promise<void> }
-      ).sweepStrandedAgenticKickoffs()
+      svc.sweepStrandedAgenticKickoffs()
 
     it('re-enqueues kickoff and stamps kickoffSentAt for stranded records', async () => {
       const stranded = {
@@ -713,25 +653,17 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
           },
         }),
       )
-      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-      const [message, group, options] = firstOrThrow(
-        mockQueue.sendMessage.mock.calls,
-      )
-      expect(message).toEqual({
-        type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
-        data: {
+      expect(mockJobs.send).toHaveBeenCalledExactlyOnceWith(
+        'agenticComplianceKickoff',
+        {
           campaignId: 99,
           tcrComplianceId: 'tcr-stranded',
           clerkUserId: 'clerk_stranded',
         },
-      })
-      expect(group).toBe(`${MessageGroup.agenticComplianceKickoff}-99`)
-      expect(options.throwOnError).toBe(true)
-      expect(options.deduplicationId).toMatch(
-        /^agentic-compliance-tcr-stranded-recover-\d+$/,
+        { group: '99', tx: mockPrisma },
       )
-      expect(mockModel.update).toHaveBeenCalledWith({
-        where: { id: 'tcr-stranded' },
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: { id: 'tcr-stranded', kickoffSentAt: null },
         data: { kickoffSentAt: expect.any(Date) },
       })
     })
@@ -749,11 +681,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
       await sweep(service)
 
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
-      expect(mockModel.update).not.toHaveBeenCalled()
+      expect(mockJobs.send).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
     })
 
-    it('continues after one record fails to re-enqueue', async () => {
+    it('fails the run when a send fails, so its retry sends the rest', async () => {
       const a = {
         id: 'tcr-a',
         campaignId: 1,
@@ -785,18 +717,13 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         },
       }
       mockModel.findMany.mockResolvedValueOnce([a, b])
-      mockQueue.sendMessage
-        .mockRejectedValueOnce(new Error('SQS hiccup'))
-        .mockResolvedValueOnce(undefined)
+      mockJobs.send.mockRejectedValueOnce(new Error('db hiccup'))
 
-      await sweep(service)
+      await expect(sweep(service)).rejects.toThrow('db hiccup')
 
-      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(2)
-      expect(mockModel.update).toHaveBeenCalledTimes(1)
-      expect(mockModel.update).toHaveBeenCalledWith({
-        where: { id: 'tcr-b' },
-        data: { kickoffSentAt: expect.any(Date) },
-      })
+      // The first record's stamp rolled back with its send; the second was
+      // never reached.
+      expect(mockJobs.send).toHaveBeenCalledTimes(1)
     })
 
     it('is a no-op when no stranded records are found', async () => {
@@ -804,8 +731,8 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
       await sweep(service)
 
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
-      expect(mockModel.update).not.toHaveBeenCalled()
+      expect(mockJobs.send).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
     })
 
     it('skips deferred records (profile incomplete) and dispatches the rest', async () => {
@@ -852,12 +779,12 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
       await sweep(service)
 
-      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-      const [message] = firstOrThrow(mockQueue.sendMessage.mock.calls)
-      expect(message.data.tcrComplianceId).toBe('tcr-completed')
-      expect(mockModel.update).toHaveBeenCalledTimes(1)
-      expect(mockModel.update).toHaveBeenCalledWith({
-        where: { id: 'tcr-completed' },
+      expect(mockJobs.send).toHaveBeenCalledTimes(1)
+      const [, data] = firstOrThrow(mockJobs.send.mock.calls)
+      expect(data.tcrComplianceId).toBe('tcr-completed')
+      expect(mockModel.updateMany).toHaveBeenCalledTimes(1)
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: { id: 'tcr-completed', kickoffSentAt: null },
         data: { kickoffSentAt: expect.any(Date) },
       })
     })
@@ -903,9 +830,9 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
       await sweep(service)
 
-      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-      const [message] = firstOrThrow(mockQueue.sendMessage.mock.calls)
-      expect(message.data.tcrComplianceId).toBe('tcr-healthy')
+      expect(mockJobs.send).toHaveBeenCalledTimes(1)
+      const [, data] = firstOrThrow(mockJobs.send.mock.calls)
+      expect(data.tcrComplianceId).toBe('tcr-healthy')
     })
 
     it('only sweeps Pro campaigns so pre-payment submissions are not dispatched', async () => {
@@ -1140,7 +1067,7 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
         { provide: CampaignsService, useValue: mockCampaigns },
         { provide: CrmCampaignsService, useValue: {} },
         { provide: ComplianceStateService, useValue: {} },
-        { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
+        { provide: JobsService, useValue: { send: vi.fn() } },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         { provide: PinoLogger, useValue: createMockLogger() },
         {
@@ -1159,17 +1086,6 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
           useValue: {
             validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
           },
-        },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -1640,7 +1556,6 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   let mockAnalytics: { track: ReturnType<typeof vi.fn> }
   let mockSlack: { message: ReturnType<typeof vi.fn> }
   let mockCvValidation: { validate: ReturnType<typeof vi.fn> }
-  let mockSendSingleSend: ReturnType<typeof vi.fn>
 
   const user = createMockUser({ clerkId: 'user_clerk_xyz' })
   const campaign = createMockCampaign({
@@ -1744,7 +1659,6 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     mockCvValidation = {
       validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
     }
-    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
     mockWebsites = {
       // The submit path resolves the website host from the campaign's
       // registered domain (apex), not the request.
@@ -1772,8 +1686,8 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         },
         { provide: ComplianceStateService, useValue: mockComplianceState },
         {
-          provide: QueueProducerService,
-          useValue: { sendMessage: vi.fn() },
+          provide: JobsService,
+          useValue: { send: vi.fn() },
         },
         {
           provide: ExperimentRunsService,
@@ -1791,17 +1705,6 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         {
           provide: CvPreSubmissionValidationService,
           useValue: mockCvValidation,
-        },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: mockSendSingleSend },
         },
         CampaignTcrComplianceService,
       ],
@@ -2454,78 +2357,6 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     )
   })
 
-  describe('ComplianceRejected single-send on a cv_submit rejection (ENG-11035)', () => {
-    it('does not call single-send when HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID is unset', async () => {
-      const cvErr = new PeerlyCvRejectionException(
-        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
-      )
-      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
-
-      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
-        cvErr,
-      )
-
-      expect(mockSendSingleSend).not.toHaveBeenCalled()
-    })
-
-    it('sends to the triggering account email with the rejection details as call properties', async () => {
-      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
-      const cvErr = new PeerlyCvRejectionException(
-        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
-      )
-      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
-
-      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
-        cvErr,
-      )
-
-      expect(mockSendSingleSend).toHaveBeenCalledWith({
-        emailId: 777666,
-        to: user.email,
-        customProperties: {
-          rejection_source: 'cv_submit',
-          rejection_reason: cvErr.message,
-        },
-      })
-    })
-
-    it('still rethrows the original rejection when single-send fails', async () => {
-      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
-      mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
-      const cvErr = new PeerlyCvRejectionException(
-        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
-      )
-      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
-
-      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
-        cvErr,
-      )
-
-      expect(mockAnalytics.track).toHaveBeenCalledWith(
-        user.id,
-        EVENTS.Outreach.ComplianceRejected,
-        expect.objectContaining({ rejection_source: 'cv_submit' }),
-      )
-    })
-
-    it('does not call single-send when a TTL re-claimant owns the record', async () => {
-      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
-      const cvErr = new PeerlyCvRejectionException(
-        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
-      )
-      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
-      mockTcrModel.updateMany
-        .mockResolvedValueOnce({ count: 1 })
-        .mockResolvedValueOnce({ count: 0 })
-
-      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
-        cvErr,
-      )
-
-      expect(mockSendSingleSend).not.toHaveBeenCalled()
-    })
-  })
-
   it('does not fire the rejection event when the rejected stamp fails to commit', async () => {
     // If the rollback transaction fails, the record stays non-rejected and
     // the deterministic retry would fire the event again — so no stamp, no
@@ -3090,7 +2921,7 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
           provide: ComplianceStateService,
           useValue: { findStateForCampaign: vi.fn() },
         },
-        { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
+        { provide: JobsService, useValue: { send: vi.fn() } },
         { provide: ExperimentRunsService, useValue: { dispatchRun: vi.fn() } },
         { provide: PinoLogger, useValue: createMockLogger() },
         {
@@ -3107,17 +2938,6 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
         {
           provide: CvPreSubmissionValidationService,
           useValue: mockCvValidation,
-        },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -3177,7 +2997,7 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
   })
 })
 
-describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => {
+describe('CampaignTcrComplianceService - PIN submission', () => {
   let service: CampaignTcrComplianceService
   let mockPeerly: {
     verifyCampaignVerifyPin: ReturnType<typeof vi.fn>
@@ -3232,8 +3052,8 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
           useValue: { findStateForCampaign: vi.fn() },
         },
         {
-          provide: QueueProducerService,
-          useValue: { sendMessage: vi.fn() },
+          provide: JobsService,
+          useValue: { send: vi.fn() },
         },
         {
           provide: ExperimentRunsService,
@@ -3257,17 +3077,6 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
             validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
           },
         },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
-        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -3290,30 +3099,33 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     }
   }
 
-  it('retrieveCampaignVerifyToken short-circuits in non-prod without calling Peerly', async () => {
-    await withEnv('dev', async () => {
-      const token = await service.retrieveCampaignVerifyToken(
-        'any-pin',
-        tcrCompliance,
-      )
-
-      expect(token).toBe('non-prod-bypass-cv-token')
-      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
-      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockModel.findFirstOrThrow).not.toHaveBeenCalled()
-    })
+  it('retrieveCampaignVerifyToken does not accept any PIN in non-prod mock mode', async () => {
+    appEnvOverrides.VENDOR_MODE = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await expect(
+          service.retrieveCampaignVerifyToken('any-pin', tcrCompliance),
+        ).rejects.toThrow(BadRequestException)
+        // peerlyIdentityId is null on the stub, so the real guard ran.
+      })
+    } finally {
+      appEnvOverrides.VENDOR_MODE = 'live'
+    }
   })
 
-  it('submitCampaignVerifyToken short-circuits in non-prod without calling Peerly', async () => {
-    await withEnv('dev', async () => {
-      const result = await service.submitCampaignVerifyToken(
-        tcrCompliance,
-        'token',
-      )
-
-      expect(result).toBeUndefined()
-      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
+  it('submitCampaignVerifyToken calls Peerly in non-prod mock mode', async () => {
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({
+      brand: 'ok',
     })
+    appEnvOverrides.VENDOR_MODE = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await service.submitCampaignVerifyToken(tcrCompliance, 'token')
+        expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalled()
+      })
+    } finally {
+      appEnvOverrides.VENDOR_MODE = 'live'
+    }
   })
 
   it('retrieveCampaignVerifyToken calls Peerly when OTEL_SERVICE_ENVIRONMENT=prod', async () => {
@@ -3407,7 +3219,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         { id: 1, user: null },
       )
       // A verified PIN means the CV is VERIFIED — the persisted mirror must
-      // stamp so sweepUnsubmittedUsecases picks the record up without
+      // stamp so runUnsubmittedUsecaseSweep picks the record up without
       // waiting for the next CV status scan.
       expect(mockModel.updateMany).toHaveBeenCalledWith({
         where: {
@@ -3535,14 +3347,9 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
   }
   let mockModel: { findUnique: ReturnType<typeof vi.fn> }
   let mockAnalytics: { track: ReturnType<typeof vi.fn> }
-  let mockSendSingleSend: ReturnType<typeof vi.fn>
   let mockLogger: ReturnType<typeof createMockLogger>
 
-  const recipient = createMockUser({ id: 1, email: 'candidate@example.com' })
-  const campaign = {
-    ...createMockCampaign({ id: 7, userId: 1 }),
-    user: recipient,
-  }
+  const campaign = createMockCampaign({ id: 7, userId: 1 })
 
   const withEnv = async (
     value: string | undefined,
@@ -3570,7 +3377,6 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
     }
     mockModel = { findUnique: vi.fn() }
     mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
-    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
     mockLogger = createMockLogger()
 
     const module: TestingModule = await Test.createTestingModule({
@@ -3581,7 +3387,7 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         { provide: CampaignsService, useValue: {} },
         { provide: CrmCampaignsService, useValue: {} },
         { provide: ComplianceStateService, useValue: {} },
-        { provide: QueueProducerService, useValue: {} },
+        { provide: JobsService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
         { provide: PinoLogger, useValue: mockLogger },
         { provide: AnalyticsService, useValue: mockAnalytics },
@@ -3598,17 +3404,6 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
             validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
           },
         },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: mockSendSingleSend },
-        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -3623,26 +3418,6 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         NotFoundException,
       )
       expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
-    })
-  })
-
-  it('short-circuits in non-prod without touching Peerly', async () => {
-    mockModel.findUnique.mockResolvedValueOnce({
-      id: 'tcr-1',
-      peerlyIdentityId: null,
-    })
-
-    await withEnv('dev', async () => {
-      await expect(
-        service.resendCampaignVerifyPin(campaign),
-      ).resolves.toBeUndefined()
-      expect(mockPeerly.retrieveCampaignVerifyDetails).not.toHaveBeenCalled()
-      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
-      expect(mockAnalytics.track).toHaveBeenCalledWith(
-        campaign.userId,
-        EVENTS.Outreach.CompliancePinResent,
-        { triggered_by: 'admin' },
-      )
     })
   })
 
@@ -3739,62 +3514,7 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         EVENTS.Outreach.CompliancePinResent,
         { triggered_by: 'admin', peerly_identity_id: 'peerly-1' },
       )
-      // Unset HUBSPOT_PIN_SENT_EMAIL_ID (every environment today) — the
-      // Segment-event workflow email path is unaffected.
-      expect(mockSendSingleSend).not.toHaveBeenCalled()
     })
-  })
-
-  it('sends to the campaign account email once configured', async () => {
-    vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
-    mockModel.findUnique.mockResolvedValueOnce({
-      id: 'tcr-1',
-      peerlyIdentityId: 'peerly-1',
-    })
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
-      status: PeerlyCvVerificationStatus.APPROVED,
-      pinDelivery: { method: 'text', destination: '3126851162' },
-    })
-
-    await withEnv('prod', async () => {
-      await service.resendCampaignVerifyPin(campaign)
-
-      expect(mockSendSingleSend).toHaveBeenCalledWith({
-        emailId: 999888,
-        to: recipient.email,
-        customProperties: {
-          peerly_identity_id: 'peerly-1',
-          pin_delivery_method: 'text',
-          pin_delivery_destination: '3126851162',
-        },
-      })
-    })
-  })
-
-  it('logs loudly (not silently) when single-send fails, without failing the request', async () => {
-    vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
-    mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
-    mockModel.findUnique.mockResolvedValueOnce({
-      id: 'tcr-1',
-      peerlyIdentityId: 'peerly-1',
-    })
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
-      status: PeerlyCvVerificationStatus.APPROVED,
-      pinDelivery: null,
-    })
-
-    await withEnv('prod', async () => {
-      await expect(
-        service.resendCampaignVerifyPin(campaign),
-      ).resolves.toBeUndefined()
-    })
-    // The single-send is fire-and-forget off the void'd promise — flush the
-    // microtask queue so its rejection handler (the logger.error call) runs.
-    await new Promise((resolve) => setImmediate(resolve))
-    expect(mockLogger.error).toHaveBeenCalledWith(
-      expect.objectContaining({ err: expect.any(Error), campaignId: 7 }),
-      expect.stringContaining('HubSpot single-send failed for PIN Resent'),
-    )
   })
 
   it('does not fire the resent event when the Peerly resend call fails', async () => {
@@ -3839,7 +3559,7 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
   })
 })
 
-describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
+describe('CampaignTcrComplianceService - runUnsubmittedUsecaseSweep', () => {
   let service: CampaignTcrComplianceService
   let mockPeerly: {
     getIdentityProfile: ReturnType<typeof vi.fn>
@@ -3850,13 +3570,11 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
   let mockCampaigns: { findUnique: ReturnType<typeof vi.fn> }
   let mockModel: {
     findMany: ReturnType<typeof vi.fn>
+    findUnique: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
   }
   let mockPrisma: { tcrCompliance: typeof mockModel }
-  let mockCronLock: {
-    tryClaimHourlyRun: ReturnType<typeof vi.fn>
-    markHourlyCompleted: ReturnType<typeof vi.fn>
-  }
 
   const campaign = createMockCampaign({ id: 555 })
   const stuckRecord = {
@@ -3878,9 +3596,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     ).submitUsecaseIfVerified(rec)
 
   const sweep = (svc: CampaignTcrComplianceService) =>
-    (
-      svc as unknown as { sweepUnsubmittedUsecases: () => Promise<void> }
-    ).sweepUnsubmittedUsecases()
+    svc.runUnsubmittedUsecaseSweep()
 
   const withEnv = async (value: string, body: () => Promise<void>) => {
     const original = process.env.OTEL_SERVICE_ENVIRONMENT
@@ -3907,22 +3623,16 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaign) }
     mockModel = {
       findMany: vi.fn().mockResolvedValue([]),
+      // The re-read after the record's claim sees what the sweep selected.
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+        const selected = (await mockModel.findMany.mock.results.at(-1)
+          ?.value) as { id: string }[] | undefined
+        return selected?.find((record) => record.id === where.id) ?? null
+      }),
       update: vi.fn().mockResolvedValue(undefined),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     }
     mockPrisma = { tcrCompliance: mockModel }
-    // Stands in for the DB-backed lock: one winner per (jobName, hour slot),
-    // so two invocations inside the same hour behave the way two prod replicas
-    // do. The real Postgres-level race is covered in cronLock.service.test.ts.
-    const claimedSlots = new Set<string>()
-    mockCronLock = {
-      tryClaimHourlyRun: vi.fn(async (jobName: string, now: Date) => {
-        const slot = `${jobName}-${now.toISOString().slice(0, 13)}`
-        if (claimedSlots.has(slot)) return false
-        claimedSlots.add(slot)
-        return true
-      }),
-      markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -3932,7 +3642,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         { provide: CampaignsService, useValue: mockCampaigns },
         { provide: CrmCampaignsService, useValue: {} },
         { provide: ComplianceStateService, useValue: {} },
-        { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
+        { provide: JobsService, useValue: { send: vi.fn() } },
         {
           provide: ExperimentRunsService,
           useValue: { findFirst: vi.fn(), dispatchRun: vi.fn() },
@@ -3954,11 +3664,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
           useValue: {
             validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
           },
-        },
-        { provide: CronLockService, useValue: mockCronLock },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -4022,11 +3727,13 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('does not advance status in non-prod (no real usecase submission)', async () => {
-    // submitCampaignVerifyToken short-circuits to undefined off-prod; the record
-    // must not be promoted to pending for a usecase that was never submitted.
-    await withEnv('dev', async () => {
-      await submitUsecaseIfVerified(service, stuckRecord)
+  it('does not advance status for internal-testing rows (no real usecase submission)', async () => {
+    // submitCampaignVerifyToken short-circuits to undefined for internal-testing
+    // rows; the record must not be promoted to pending for a usecase that was
+    // never submitted.
+    await submitUsecaseIfVerified(service, {
+      ...stuckRecord,
+      internalTestingAt: new Date('2026-10-01T00:00:00Z'),
     })
 
     expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
@@ -4104,51 +3811,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       data: { status: TcrComplianceStatus.pending },
     })
   })
-
-  // The whole point of the cron lock: without it both prod replicas' timers
-  // fire a pass, and since submitUsecaseIfVerified has no per-record claim
-  // both would mint a CV token and approve the same brand — double-finalizing
-  // the 10DLC identity into Peerly's MNO queue.
-  it('runs exactly one pass when two replicas fire in the same hour', async () => {
-    mockModel.findMany.mockResolvedValue([stuckRecord])
-
-    await withEnv('prod', async () => {
-      await Promise.all([sweep(service), sweep(service)])
-    })
-
-    expect(mockCronLock.tryClaimHourlyRun).toHaveBeenCalledTimes(2)
-    expect(mockModel.findMany).toHaveBeenCalledTimes(1)
-    expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledTimes(1)
-    expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledTimes(1)
-  })
-
-  it('does no work at all when the claim is lost', async () => {
-    mockCronLock.tryClaimHourlyRun.mockResolvedValueOnce(false)
-
-    await sweep(service)
-
-    expect(mockModel.findMany).not.toHaveBeenCalled()
-    expect(mockCronLock.markHourlyCompleted).not.toHaveBeenCalled()
-  })
-
-  it('seals the claim even when the pass throws', async () => {
-    // A dangling claim would block the rest of the hour for nothing.
-    mockModel.findMany.mockRejectedValueOnce(new Error('db down'))
-
-    await expect(sweep(service)).rejects.toThrow('db down')
-
-    expect(mockCronLock.markHourlyCompleted).toHaveBeenCalledTimes(1)
-  })
-
-  it('claims and completes against the same pinned timestamp', async () => {
-    await sweep(service)
-
-    const claimAt = firstOrThrow(mockCronLock.tryClaimHourlyRun.mock.calls)[1]
-    const completeAt = firstOrThrow(
-      mockCronLock.markHourlyCompleted.mock.calls,
-    )[1]
-    expect(completeAt).toBe(claimAt)
-  })
 })
 
 describe('CampaignTcrComplianceService - internal testing approval', () => {
@@ -4181,7 +3843,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
         { provide: CampaignsService, useValue: {} },
         { provide: CrmCampaignsService, useValue: {} },
         { provide: ComplianceStateService, useValue: {} },
-        { provide: QueueProducerService, useValue: {} },
+        { provide: JobsService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         {
@@ -4200,17 +3862,6 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
           useValue: {
             validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
           },
-        },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -4409,7 +4060,7 @@ describe('CampaignTcrComplianceService - overrideCvValidation', () => {
         { provide: CampaignsService, useValue: {} },
         { provide: CrmCampaignsService, useValue: {} },
         { provide: ComplianceStateService, useValue: {} },
-        { provide: QueueProducerService, useValue: {} },
+        { provide: JobsService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: AnalyticsService, useValue: { track: vi.fn() } },
@@ -4423,17 +4074,6 @@ describe('CampaignTcrComplianceService - overrideCvValidation', () => {
         {
           provide: CvPreSubmissionValidationService,
           useValue: { validate: vi.fn() },
-        },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -4489,85 +4129,5 @@ describe('CampaignTcrComplianceService - overrideCvValidation', () => {
         cvValidationTransientCount: 0,
       },
     })
-  })
-})
-
-// Called by QueueConsumerService.handleTcrComplianceCheckMessage, which has
-// no acting user — this covers the env-var gating this public method owns;
-// the consumer-side recipient resolution is covered in
-// queueConsumer.service.test.ts.
-describe('CampaignTcrComplianceService - sendComplianceCompletedSingleSend (ENG-11035)', () => {
-  let service: CampaignTcrComplianceService
-  let mockSendSingleSend: ReturnType<typeof vi.fn>
-
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
-  beforeEach(async () => {
-    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        { provide: PrismaService, useValue: { tcrCompliance: {} } },
-        { provide: PeerlyIdentityService, useValue: {} },
-        { provide: WebsitesService, useValue: {} },
-        { provide: CampaignsService, useValue: {} },
-        { provide: CrmCampaignsService, useValue: {} },
-        { provide: ComplianceStateService, useValue: {} },
-        { provide: QueueProducerService, useValue: {} },
-        { provide: ExperimentRunsService, useValue: {} },
-        { provide: PinoLogger, useValue: createMockLogger() },
-        { provide: AnalyticsService, useValue: { track: vi.fn() } },
-        { provide: SlackService, useValue: {} },
-        { provide: CvPreSubmissionValidationService, useValue: {} },
-        {
-          provide: CronLockService,
-          useValue: {
-            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
-            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: mockSendSingleSend },
-        },
-        CampaignTcrComplianceService,
-      ],
-    }).compile()
-    service = module.get(CampaignTcrComplianceService)
-  })
-
-  it('does not call single-send when HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID is unset', async () => {
-    await service.sendComplianceCompletedSingleSend('candidate@example.com', {
-      peerly_identity_id: 'peerly-999',
-    })
-
-    expect(mockSendSingleSend).not.toHaveBeenCalled()
-  })
-
-  it('sends to the given recipient with the given properties once configured', async () => {
-    vi.stubEnv('HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID', '555444')
-
-    await service.sendComplianceCompletedSingleSend('candidate@example.com', {
-      peerly_identity_id: 'peerly-999',
-    })
-
-    expect(mockSendSingleSend).toHaveBeenCalledWith({
-      emailId: 555444,
-      to: 'candidate@example.com',
-      customProperties: { peerly_identity_id: 'peerly-999' },
-    })
-  })
-
-  it('propagates a single-send failure to the caller', async () => {
-    vi.stubEnv('HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID', '555444')
-    mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
-
-    await expect(
-      service.sendComplianceCompletedSingleSend('candidate@example.com', {
-        peerly_identity_id: 'peerly-999',
-      }),
-    ).rejects.toThrow('HubSpot down')
   })
 })

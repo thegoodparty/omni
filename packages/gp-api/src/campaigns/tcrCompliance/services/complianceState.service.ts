@@ -150,17 +150,6 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
       }
     }
 
-    // Non-prod short-circuits Peerly submission (see websites.service.ts
-    // verifyLive), so there is no real CV to query; report APPROVED so testers
-    // still reach the PIN screen (mirrors retrieveCampaignVerifyToken's bypass).
-    // There is no real delivery, so pinDelivery stays null.
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
-      return {
-        peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
-        pinDelivery: null,
-      }
-    }
-
     const peerlyIdentityId = tcrCompliance?.peerlyIdentityId
     if (!peerlyIdentityId) {
       return { peerlyCvStatus: null, pinDelivery: null }

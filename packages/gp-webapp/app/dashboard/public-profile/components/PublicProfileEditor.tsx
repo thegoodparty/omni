@@ -7,7 +7,7 @@ import { UploadCloud } from 'lucide-react'
 import type { Priority } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { reportErrorToSentry } from '@shared/sentry'
+import { reportClientError } from '@shared/observability/reportClientError'
 import type {
   PersonProfile,
   PersonProfileAccomplishment,
@@ -159,7 +159,7 @@ export default function PublicProfileEditor({
                     setProfile(data)
                     successSnackbar('Public profile created.')
                   } catch (err) {
-                    reportErrorToSentry(err, {
+                    reportClientError(err, {
                       context: 'PublicProfileEditor.create',
                     })
                     errorSnackbar("Couldn't create your profile. Try again.")
@@ -358,7 +358,7 @@ function LoadedEditor({
       })
       successSnackbar('Profile saved.')
     } catch (err) {
-      reportErrorToSentry(err, { context: 'PublicProfileEditor.save' })
+      reportClientError(err, { context: 'PublicProfileEditor.save' })
       // The rejection body names the field it refused; showing that beats
       // asking someone to retry a value the server will never accept.
       const fieldErrors = fieldErrorsFromApiError(err)
@@ -386,7 +386,7 @@ function LoadedEditor({
       onProfile(data)
       successSnackbar('Priorities updated.')
     } catch (err) {
-      reportErrorToSentry(err, { context: 'PublicProfileEditor.saveIssues' })
+      reportClientError(err, { context: 'PublicProfileEditor.saveIssues' })
       errorSnackbar("Couldn't update your priorities. Please try again.")
     } finally {
       setSavingIssues(false)
@@ -405,7 +405,7 @@ function LoadedEditor({
       onProfile(data)
       successSnackbar(next ? 'Profile published.' : 'Profile unpublished.')
     } catch (err) {
-      reportErrorToSentry(err, { context: 'PublicProfileEditor.publish' })
+      reportClientError(err, { context: 'PublicProfileEditor.publish' })
       errorSnackbar("Couldn't update publish status. Please try again.")
     } finally {
       setTogglingPublish(false)
@@ -429,7 +429,7 @@ function LoadedEditor({
       onProfile(data)
       successSnackbar('Image uploaded.')
     } catch (err) {
-      reportErrorToSentry(err, { context: 'PublicProfileEditor.upload' })
+      reportClientError(err, { context: 'PublicProfileEditor.upload' })
       errorSnackbar("Couldn't upload that image. Please try again.")
     } finally {
       setUploading(null)
@@ -483,9 +483,34 @@ function LoadedEditor({
           Save changes
         </Button>
       </DashboardNavHeaderAction>
-      <p className="text-sm text-gray-500">
-        Everything here is visible on your goodparty.org/people page.
-      </p>
+      {isPublished ? (
+        <p className="text-sm text-gray-500">
+          Everything here is visible on your goodparty.org/people page.
+        </p>
+      ) : profile.deletedAt ? null : (
+        // Saving never publishes, and a draft is invisible on the public page.
+        // Without this the editor reads as if saved answers and photos are live.
+        // A deleted profile is skipped: publish does not clear deletedAt, so
+        // the button could never make it live.
+        <div
+          role="status"
+          data-testid="draft-notice"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-info bg-info-background p-4 text-sm"
+        >
+          <p>
+            Saved changes won&apos;t show on your goodparty.org/people page
+            until you publish.
+          </p>
+          <Button
+            size="small"
+            onClick={() => handleTogglePublish(true)}
+            loading={togglingPublish}
+            loadingText="Publishing…"
+          >
+            Publish profile
+          </Button>
+        </div>
+      )}
 
       {/* Identity */}
       <Card className="flex flex-col gap-4 p-5 sm:p-6">

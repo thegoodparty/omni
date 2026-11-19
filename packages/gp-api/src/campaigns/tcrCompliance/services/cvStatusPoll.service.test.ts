@@ -1,14 +1,10 @@
 import { NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
-import { formatInTimeZone } from 'date-fns-tz'
 import { subDays } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TcrComplianceStatus } from '../../../generated/prisma'
 import { PrismaService } from '@/prisma/prisma.service'
-import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
-import { MessageGroup, QueueType } from '../../../queue/queue.types'
-import { EASTERN_TIMEZONE } from '../../../shared/util/date.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
 import {
@@ -19,12 +15,7 @@ import {
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { CvStatusPollService } from './cvStatusPoll.service'
-
-// The scan sleeps RETRIEVE_CV_SPACING_MS (1 minute in prod) between records;
-// real timers would hang every multi-record test.
-vi.mock('timers/promises', () => ({
-  setTimeout: () => Promise.resolve(),
-}))
+import * as sleepUtil from '@/shared/util/sleep.util'
 
 const scanRecord = (
   id: string,
@@ -56,7 +47,6 @@ const scanRecord = (
 
 describe('CvStatusPollService', () => {
   let service: CvStatusPollService
-  let mockQueue: { sendMessage: ReturnType<typeof vi.fn> }
   let mockModel: {
     findMany: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
@@ -68,7 +58,9 @@ describe('CvStatusPollService', () => {
   let mockTcr: { applyCvDetection: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
-    mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
+    // The scan sleeps RETRIEVE_CV_SPACING_MS (1 minute in prod) between records;
+    // real timers would hang every multi-record test.
+    vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
     mockModel = {
       findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue({}),
@@ -84,7 +76,6 @@ describe('CvStatusPollService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         { provide: PrismaService, useValue: { tcrCompliance: mockModel } },
-        { provide: QueueProducerService, useValue: mockQueue },
         { provide: PeerlyIdentityService, useValue: mockPeerly },
         { provide: CampaignTcrComplianceService, useValue: mockTcr },
         { provide: PinoLogger, useValue: createMockLogger() },
@@ -93,130 +84,6 @@ describe('CvStatusPollService', () => {
     }).compile()
 
     service = module.get(CvStatusPollService)
-  })
-
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
-  describe('triggerScan', () => {
-    it('does nothing outside prod so dev/qa never call Peerly', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
-
-      await service.triggerScan()
-
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
-    })
-
-    it('enqueues once with a slot-keyed FIFO deduplicationId in prod', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      const scanKey = formatInTimeZone(
-        new Date(),
-        EASTERN_TIMEZONE,
-        'yyyy-MM-dd-HH',
-      )
-
-      await service.triggerScan()
-
-      expect(mockQueue.sendMessage).toHaveBeenCalledExactlyOnceWith(
-        {
-          type: QueueType.CV_STATUS_POLL,
-          data: { scanKey },
-        },
-        MessageGroup.cvStatusPoll,
-        {
-          deduplicationId: `cvStatusPoll-${scanKey}`,
-          throwOnError: true,
-        },
-      )
-    })
-
-    it('logs but does not throw when the enqueue fails', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      mockQueue.sendMessage.mockRejectedValueOnce(new Error('sqs down'))
-
-      await expect(service.triggerScan()).resolves.toBeUndefined()
-    })
-  })
-
-  describe('triggerFreshScan', () => {
-    it('does nothing outside prod so dev/qa never call Peerly', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
-
-      await service.triggerFreshScan()
-
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
-    })
-
-    it('enqueues once with a minute-keyed FIFO deduplicationId in prod', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      vi.useFakeTimers({ toFake: ['Date'] })
-      vi.setSystemTime(new Date('2026-09-28T13:39:00Z'))
-      const scanKey = formatInTimeZone(
-        new Date(),
-        EASTERN_TIMEZONE,
-        'yyyy-MM-dd-HH-mm',
-      )
-
-      await service.triggerFreshScan()
-      vi.useRealTimers()
-
-      expect(mockQueue.sendMessage).toHaveBeenCalledExactlyOnceWith(
-        {
-          type: QueueType.CV_STATUS_POLL,
-          data: { scanKey, fresh: true },
-        },
-        MessageGroup.cvStatusPoll,
-        {
-          deduplicationId: `cvStatusPollFresh-${scanKey}`,
-          throwOnError: true,
-        },
-      )
-    })
-
-    it('logs but does not throw when the enqueue fails', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      mockQueue.sendMessage.mockRejectedValueOnce(new Error('sqs down'))
-
-      await expect(service.triggerFreshScan()).resolves.toBeUndefined()
-    })
-  })
-
-  describe('handleCvStatusPoll', () => {
-    it('acks immediately and runs the scan detached', () => {
-      const runScan = vi.spyOn(service, 'runScan').mockResolvedValue(undefined)
-
-      const result = service.handleCvStatusPoll({ scanKey: '2026-08-17-08' })
-
-      expect(result).toBe(true)
-      expect(runScan).toHaveBeenCalledWith('2026-08-17-08')
-    })
-
-    it('routes a fresh message to the fresh scan, not the full scan', () => {
-      const runScan = vi.spyOn(service, 'runScan').mockResolvedValue(undefined)
-      const runFreshScan = vi
-        .spyOn(service, 'runFreshScan')
-        .mockResolvedValue(undefined)
-
-      const result = service.handleCvStatusPoll({
-        scanKey: '2026-09-28-13-39',
-        fresh: true,
-      })
-
-      expect(result).toBe(true)
-      expect(runFreshScan).toHaveBeenCalledWith('2026-09-28-13-39')
-      expect(runScan).not.toHaveBeenCalled()
-    })
-
-    it('still acks when the detached scan rejects', async () => {
-      vi.spyOn(service, 'runScan').mockRejectedValue(new Error('scan died'))
-
-      const result = service.handleCvStatusPoll({ scanKey: '2026-08-17-08' })
-
-      expect(result).toBe(true)
-      // Flush the detached rejection so it cannot surface as unhandled.
-      await new Promise((resolve) => setImmediate(resolve))
-    })
   })
 
   describe('runScan — CV pass', () => {
@@ -438,6 +305,28 @@ describe('CvStatusPollService', () => {
       expect(mockModel.update).not.toHaveBeenCalled()
     })
 
+    it('throws between records once shutdown aborts the signal', async () => {
+      mockModel.findMany.mockResolvedValueOnce([
+        scanRecord('tcr-a', 1),
+        scanRecord('tcr-b', 2),
+      ])
+      const shutdown = new AbortController()
+      mockPeerly.retrieveCampaignVerifyDetails.mockImplementationOnce(
+        async () => {
+          shutdown.abort()
+          return { status: null, pinDelivery: null }
+        },
+      )
+
+      await expect(service.runScan('slot', shutdown.signal)).rejects.toThrow(
+        'Stopped for shutdown',
+      )
+
+      expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledTimes(1)
+      // The profile pass never starts either.
+      expect(mockModel.findMany).toHaveBeenCalledTimes(1)
+    })
+
     it('caps a runaway backlog at 300 polled records per scan', async () => {
       const records = Array.from({ length: 301 }, (_, i) =>
         scanRecord(`tcr-${i}`, i),
@@ -487,6 +376,15 @@ describe('CvStatusPollService', () => {
         },
       ])
       expect(freshCall.where.campaign.isPro).toBe(true)
+    })
+
+    it('scopes to one campaign when a campaignId filter is given', async () => {
+      await service.runFreshScan('slot', { campaignId: 77, spacingMs: 0 })
+
+      const [call] = mockModel.findMany.mock.calls[0] as [
+        { where: { campaign: unknown } },
+      ]
+      expect(call.where.campaign).toEqual({ id: 77 })
     })
 
     it('runs the same per-record pipeline as the full scan', async () => {

@@ -93,6 +93,7 @@ export const SMS_CUTOFF_COPY = {
   countdownBanner: (cutoff: string): string =>
     `Get verified to send SMS by ${cutoff}`,
   countdownChip: (cutoff: string): string => `Verify to send SMS by ${cutoff}`,
+  countdownTag: (cutoff: string): string => `Verify by ${cutoff}`,
   countdownDeadline: (cutoff: string): string =>
     `Get verified to send SMS by the ${cutoff} deadline`,
   guidanceClosing: (cutoff: string): string =>

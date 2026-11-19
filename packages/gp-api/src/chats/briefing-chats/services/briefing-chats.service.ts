@@ -1,6 +1,9 @@
 import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common'
-import { ChatMessage } from '../../../generated/prisma'
-import { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { ChatScope } from '../../../generated/prisma'
+import {
+  ChatMessageWithSegments,
+  ChatStoreService,
+} from '@/chats/services/chatStore.prisma'
 import {
   ChatStreamChunk,
   ChatStreamService,
@@ -28,12 +31,12 @@ export interface SendMessageArgs {
   userId: number
   userMessage: string
   signal?: AbortSignal
-  clientMessageId?: string
+  userMessageId?: string
 }
 
 export interface LoadConversationResult {
   conversationId: string
-  messages: ChatMessage[]
+  messages: ChatMessageWithSegments[]
 }
 
 @Injectable()
@@ -90,11 +93,12 @@ export class BriefingChatsService {
         userMessage: args.userMessage,
         models: self.handler.models,
         traceName: self.handler.traceName,
+        agentName: ChatScope.briefing_annotation,
         ...(args.signal && { signal: args.signal }),
-        ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(args.userMessageId && { userMessageId: args.userMessageId }),
         ...(finalizing && {
           finalizeText: (text, turn) =>
-            finalizing.finalizeAssistantText(text, turn),
+            finalizing.finalizeAssistantText(text, turn, ctx),
         }),
       })
 
@@ -102,6 +106,21 @@ export class BriefingChatsService {
     }
     return {
       [Symbol.asyncIterator]: () => run(this),
+    }
+  }
+
+  // The conversation an annotation's chat lives on, after the same ownership
+  // check every other route does.
+  async conversationIdFor(
+    annotationId: string,
+    userId: number,
+  ): Promise<{ conversationId: string }> {
+    const { annotation } = await this.briefingContext.loadContext(
+      annotationId,
+      userId,
+    )
+    return {
+      conversationId: requireConversationId(annotation.chatConversationId),
     }
   }
 

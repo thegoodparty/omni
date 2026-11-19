@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GLOBAL_ALERTS } from '../alerts'
+import { alertQueryModel } from '../grafana'
 import { Alert, RecordingRule } from './alerts.types'
 import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
 import { RECORDING_RULES } from './provisioned-alerts'
@@ -215,7 +216,9 @@ const totalRangeSeconds = (expr: string) =>
  * twenty minutes per evaluation.
  *
  * It is also, conveniently, the rule's daily read volume as a multiple of the
- * gp-api prod stream, which is the only stream any of them selects. A rule at
+ * gp-api prod stream, which every rule but the gp-marketing sitemap one
+ * selects. That one reads a stream that is empty unless a run failed, and is
+ * counted as if it were gp-api's to keep the budget conservative. A rule at
  * 12 reads twelve days of gp-api prod logs every day.
  *
  * This used to be fetch window ÷ interval, and it undercounted by more than
@@ -281,11 +284,12 @@ const MAX_REREAD_FACTOR = 24
  * quarter of an allowance of ~1,250 GB/day (12.5 GB/day of ingest averaged
  * over the month), leaving the rest for humans and agents.
  *
- * The set totals 89 today: 7 for the seven event rules at the floor of 1, 2
- * for the two route rules, 1 for the door-knocking recording rule, and 79
- * for the six that need a window wider than their interval (the two ratio
- * rules at 20 each, admin impersonation at 10, the two 6h rules at 12 each,
- * the email lookup at 5). Before the move to instant queries and the removal
+ * The set totals 100 today: 18 for the rules at the floor of 1 (the event
+ * rules, the two job rules among them, and the hourly HubSpot sync and poll
+ * review rules), 2 for the two route rules, 1 for the door-knocking recording
+ * rule, and 79 for the six that need a window wider than
+ * their interval (the two ratio rules at 20 each, admin impersonation at 10,
+ * the two 6h rules at 12 each, the email lookup at 5). Before the move to instant queries and the removal
  * of dev alerting the same rules cost about 340 per environment, twice over.
  *
  * A rule that fires on any occurrence of a line belongs at the floor: a [1m]
@@ -448,7 +452,9 @@ describe('evaluation intervals', () => {
   // reverse, would be counted in the wrong set above.
   it('keeps every log rule on a Loki stream selector', () => {
     for (const alert of GLOBAL_ALERTS.filter((a) => a.type === 'log')) {
-      expect(alert.expr, alert.slug).toContain('service_name="gp-api"')
+      expect(alert.expr, alert.slug).toMatch(
+        /service_name="(gp-api|gp-marketing)"/,
+      )
     }
   })
 
@@ -457,6 +463,19 @@ describe('evaluation intervals', () => {
       expect(alert.type, alert.slug).toBe('log')
       expect(alert.expr, alert.slug).toContain('service_name="gp-api"')
     }
+  })
+
+  // The stack's `unifiedAlerting.minInterval` is 1m0s, and Grafana rejects a
+  // rule group faster than that, which fails the whole prod deploy.
+  it('never asks for an interval below the stack minimum', () => {
+    const tooFast = [...GLOBAL_ALERTS, ...routeErrorAlerts()]
+      .filter(
+        (alert) =>
+          (alert.evaluationIntervalSeconds ?? DEFAULT_EVALUATION_SECONDS) < 60,
+      )
+      .map((alert) => alert.slug)
+
+    expect(tooFast).toEqual([])
   })
 
   // `for` is counted in whole evaluations, so an interval that does not divide
@@ -839,5 +858,288 @@ describe('alert-notification-delivery-failing', () => {
   // known cause would imply the filter gets to see it.
   it('declares no known causes, since the filter must never classify it', () => {
     expect(alert.knownCauses).toBeUndefined()
+  })
+})
+
+describe('gp-api-fleet-down', () => {
+  const alert = GLOBAL_ALERTS.find((a) => a.slug === 'gp-api-fleet-down')!
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('reads the same probes as the slower probe rule', () => {
+    expect(alert.expr).toContain('probe_success{job="gp-api-$ENV-health"}')
+  })
+
+  // `max` is 0 only when every reporting location failed, so one flaky
+  // location (ENG-11243) cannot page. The threshold sits between the two
+  // values the expression can take.
+  it('fires only when every location failed the same round', () => {
+    expect(alert.expr).toMatch(/^1 - max\(/)
+    expect(alert.threshold).toBeGreaterThan(0)
+    expect(alert.threshold).toBeLessThan(1)
+  })
+
+  it('fires on the first failed round', () => {
+    expect(alert.for).toBe('0m')
+  })
+})
+
+describe('evaluation error handling', () => {
+  // The estate pages on an evaluation error, so a rule that cannot look reads
+  // as a fault. On 2026-10-21 a Prometheus query timeout paged the health probe
+  // alert (ENG-11393) with the endpoint never measured. That rule holds its
+  // last answer instead, and the only thing that makes this safe is the rule
+  // that reports a broken query path still paging.
+  it('lets the health probe rule hold its last answer when it cannot evaluate', () => {
+    const probe = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'health-check-probe-failure',
+    )
+    const meta = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'alerting-rule-evaluations-failing',
+    )
+
+    expect(probe?.execErrState).toEqual('KeepLast')
+    expect(meta).toBeDefined()
+    expect(meta?.disabled).toBeFalsy()
+    expect(meta?.execErrState ?? 'Alerting').toEqual('Alerting')
+  })
+
+  it('keeps every other global rule paging on an evaluation error', () => {
+    const relaxed = GLOBAL_ALERTS.filter(
+      (a) => a.execErrState && a.execErrState !== 'Alerting',
+    ).map((a) => a.slug)
+
+    expect(relaxed).toEqual([
+      'health-check-probe-failure',
+      'gp-api-fleet-down',
+      'ses-bounce-rate',
+      'ses-complaint-rate',
+      'gp-ai-slack-notifier-failing',
+    ])
+  })
+})
+
+describe('gp-ai-slack-notifier-failing', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'gp-ai-slack-notifier-failing',
+  )
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('counts the notifier Lambda errors, not every Lambda in the account', () => {
+    const model = JSON.parse(alertQueryModel(alert!, 'prod'))
+    expect(model).toMatchObject({
+      namespace: 'AWS/Lambda',
+      metricName: 'Errors',
+      dimensions: { FunctionName: ['shared-slack-notifier'] },
+      statistic: 'Sum',
+    })
+  })
+
+  it('fires on the latest delivery attempt failing', () => {
+    expect(alert?.threshold).toBe(0)
+    expect(alert?.for).toBe('0m')
+  })
+
+  it('looks back past the longest quiet spell between deliveries', () => {
+    expect(alert?.timeRangeSeconds).toBe(7 * 24 * 60 * 60)
+  })
+})
+
+describe('vendor drift alerts', () => {
+  const mismatch = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'vendor-schema-mismatch',
+  )
+  const mockRows = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'vendor-mock-record-rows-in-prod',
+  )
+
+  it('registers both rules as metric alerts', () => {
+    expect(mismatch?.type).toBe('metric')
+    expect(mockRows?.type).toBe('metric')
+  })
+
+  // The exported Prometheus name is the OTel counter name plus `_total`; a
+  // rename of either side silently turns the rule into one that never fires.
+  it('reads the metric names gp-api exports', () => {
+    expect(mismatch!.expr).toContain('vendor_schema_mismatch_total{')
+    expect(mockRows!.expr).toContain('vendor_mock_record_rows{')
+  })
+
+  it('fires on any increase in the last hour, per vendor and endpoint', () => {
+    expect(mismatch!.threshold).toBe(0)
+    expect(mismatch!.expr).toContain(
+      'sum by (vendor, endpoint) (increase(vendor_schema_mismatch_total{',
+    )
+    expect(mismatch!.expr).toContain('[1h]))')
+    expect(widestRangeSeconds(mismatch!.expr)).toBe(mismatch!.timeRangeSeconds)
+    expect(promisedSeconds(mismatch!.message)).toBe(3600)
+    expect(mismatch!.summaryDetail).toContain('$labels.vendor')
+    expect(mismatch!.summaryDetail).toContain('$labels.endpoint')
+  })
+
+  // increase() reads 0 for a series whose first sample is its only value, which
+  // is exactly the first mismatch ever seen for a vendor and endpoint.
+  it('also catches a vendor and endpoint that did not exist an hour ago', () => {
+    expect(mismatch!.expr).toMatch(
+      /unless sum by \(vendor, endpoint\) \(.*offset 1h\)/,
+    )
+  })
+
+  it('fires when prod holds any mock row', () => {
+    expect(mockRows!.threshold).toBe(0)
+    expect(mockRows!.expr).toMatch(/^max\(vendor_mock_record_rows\{/)
+  })
+
+  it('selects its own environment, so non-prod rows never page prod', () => {
+    for (const alert of [mismatch!, mockRows!]) {
+      expect(alert.expr).toContain('deployment_environment_name="$ENV"')
+    }
+  })
+
+  // No-data handling is the global `noDataState: OK`; an execution error must
+  // still page, so neither rule relaxes it.
+  it('keeps the default evaluation error handling', () => {
+    expect(mismatch!.execErrState).toBeUndefined()
+    expect(mockRows!.execErrState).toBeUndefined()
+  })
+})
+
+describe('Clerk dev instance headroom alert', () => {
+  const headroom = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'clerk-dev-user-cap-headroom',
+  )
+
+  // Only the prod stack provisions alerting, so a `$ENV` selector would watch
+  // the prod Clerk instance, which has no such cap.
+  it('watches the dev instance from the prod-provisioned rule', () => {
+    expect(headroom?.type).toBe('metric')
+    expect(headroom!.expr).toContain('deployment_environment_name="dev"')
+    expect(headroom!.expr).not.toContain('$ENV')
+  })
+
+  // The gauge and its attribute come from src/users/util/clerkUsers.metrics.ts;
+  // a rename on either side turns this into a rule that never fires.
+  it('reads the total the test-user sweep records', () => {
+    expect(headroom!.expr).toMatch(/^max\(clerk_users\{/)
+    expect(headroom!.expr).toContain('population="all"')
+  })
+
+  it('fires at 80% of the 50,000-user cap', () => {
+    expect(headroom!.threshold).toBe(40_000)
+  })
+})
+
+// The domainEmailForwarding job completes on a permanent Forward Email 4xx
+// instead of dead-lettering, so this line is the only report of it.
+describe('win-domain-email-forwarding-rejected', () => {
+  it('pages on the permanent rejection line the job logs', () => {
+    const alert = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'win-domain-email-forwarding-rejected',
+    )
+    expect(alert?.threshold).toBe(0)
+    expect(alert?.expr).toContain(
+      '|= "Forward Email rejected email forwarding setup; not retrying"',
+    )
+  })
+})
+
+describe('operational error alerts that replaced #bot-dev posts', () => {
+  const find = (slug: string) => {
+    const alert = GLOBAL_ALERTS.find((a) => a.slug === slug)
+    expect(alert, slug).toBeDefined()
+    return alert!
+  }
+
+  it('pages on every discarded queue message, one instance per message type', () => {
+    const alert = find('queue-message-discarded')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain(
+      '|= "Message processing failed with non-retryable error, discarding message"',
+    )
+    expect(alert.expr).toContain('sum by (queueMessageType)')
+    expect(alert.expr).toContain('| keep queueMessageType')
+    expect(alert.summaryDetail).toContain('{{ $labels.queueMessageType }}')
+  })
+
+  it('pages on the swallowed race target lookup failure', () => {
+    const alert = find('race-target-details-failed')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain('|= "RaceTargetDetailsFailed"')
+  })
+
+  // The org list swallows a deleted election-db row instead of 404ing on it
+  // (ENG-11615), which is the right call for the request and leaves nothing
+  // else to say the repair is owed.
+  it('pages on an organization pointing at a deleted election-db row', () => {
+    const alert = find('organization-stale-election-row')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain(
+      '|= "Organization references an election database row"',
+    )
+  })
+
+  it('pages on a failed HubSpot form submission', () => {
+    const alert = find('hubspot-form-submission-failed')
+    expect(alert.threshold).toBe(0)
+    expect(alert.expr).toContain('|= "HubSpot form submission failed"')
+  })
+
+  // Measured in prod over the 30 days to 2026-11-06: since the batching fix
+  // on 10-20 the worst hour was 9 errors. The threshold has to sit above that
+  // or the rule is muted within a week.
+  it('fires on HubSpot sync errors only above the background rate', () => {
+    const alert = find('hubspot-sync-errors')
+    expect(alert.threshold).toBeGreaterThan(9)
+    expect(alert.expr).toContain('| detected_level = "error"')
+    expect(alert.expr).toContain(
+      '| context =~ "CrmCampaignsService|CrmOfficeHolderService"',
+    )
+    expect(promisedSeconds(alert.message)).toEqual(
+      widestRangeSeconds(alert.expr),
+    )
+  })
+
+  // The contract with gp-marketing's sitemap workflow: these stream labels and
+  // this message, pushed only when a run fails. The stream is empty the rest
+  // of the time, so the idle reading has to be zero and not no data.
+  it('reads the gp-marketing sitemap failure stream and is OK when it is empty', () => {
+    const alert = find('gp-marketing-people-sitemaps-failed')
+    expect(alert.expr).toContain(
+      '{service_name="gp-marketing", deployment_environment_name="$ENV", job="generate-people-sitemaps"}',
+    )
+    expect(alert.expr).toContain('|= "generate-people-sitemaps failed"')
+    expect(alert.expr).toMatch(/ or vector\(0\)$/)
+    expect(alert.threshold).toBe(0)
+  })
+})
+
+describe('grafana-spend-anomaly', () => {
+  const alert = GLOBAL_ALERTS.find((a) => a.slug === 'grafana-spend-anomaly')
+
+  it('reads the whole account overage from the usage datasource', () => {
+    expect(alert?.type).toBe('usage')
+    expect(alert!.expr).toContain('sum(grafanacloud_org_total_overage)')
+  })
+
+  // Grafana re-estimates the overage over the first days of each month, which
+  // read as up to 9x in the 2026-11 backtest.
+  it('stays silent before the 5th of the month', () => {
+    expect(alert!.expr).toMatch(/and on\(\) \(day_of_month\(\) > 4\)$/)
+  })
+
+  it('compares the last day against the median day of the week before', () => {
+    expect(alert!.expr).toContain('quantile_over_time(0.5,')
+    expect(alert!.expr).toContain('>= 0)[7d:1h] offset 1d)')
+    expect(alert!.threshold).toBe(2.5)
+  })
+
+  it('evaluates hourly and needs two readings to fire', () => {
+    expect(alert!.evaluationIntervalSeconds).toBe(3600)
+    expect(alert!.for).toBe('60m')
   })
 })

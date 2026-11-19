@@ -74,8 +74,11 @@ export class ForwardEmailService {
       { data: isAxiosResponse(error) ? format(error) : error },
       'Failed to communicate with Forward Email API',
     )
+    // The cause carries the response status, which the domainEmailForwarding
+    // job reads to tell a permanent rejection from a transient failure.
     throw new BadGatewayException(
       'Failed to communicate with Forward Email API',
+      { cause: error },
     )
   }
 

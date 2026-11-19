@@ -1,3 +1,4 @@
+import { ContactUploadMatchService } from '@/contactUploads/services/contactUploadMatch.service'
 import {
   ContactStatusField,
   ContactStatusSource,
@@ -20,6 +21,7 @@ import { ContactInteractionTextService } from '@/contactInteraction/services/con
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionPhoneBankingService } from '@/contactInteraction/services/contactInteractionPhoneBanking.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { ContactPriorityAnswersService } from '../services/contactPriorityAnswers.service'
 
 describe('ContactEngagementService', () => {
   describe('getIndividualActivities', () => {
@@ -40,14 +42,25 @@ describe('ContactEngagementService', () => {
       findMany: ReturnType<typeof vi.fn>
     }
     let mockVoterOutreachActivityService: {
-      getActivityForVoter: ReturnType<typeof vi.fn>
       findMany: ReturnType<typeof vi.fn>
     }
     let mockContactStatusService: {
       findEventsForFeed: ReturnType<typeof vi.fn>
     }
 
+    let mockPriorityAnswers: {
+      forFeed: ReturnType<typeof vi.fn>
+      list: ReturnType<typeof vi.fn>
+    }
+
     beforeEach(() => {
+      mockPriorityAnswers = {
+        forFeed: vi.fn().mockResolvedValue({
+          byTextOutreachId: new Map(),
+          byInteractionId: new Map(),
+        }),
+        list: vi.fn().mockResolvedValue([]),
+      }
       mockPollIndividualMessageService = {
         findMany: vi.fn().mockResolvedValue([]),
       }
@@ -64,7 +77,6 @@ describe('ContactEngagementService', () => {
         findMany: vi.fn().mockResolvedValue([]),
       }
       mockVoterOutreachActivityService = {
-        getActivityForVoter: vi.fn().mockResolvedValue([]),
         findMany: vi.fn().mockResolvedValue([]),
       }
       mockContactStatusService = {
@@ -83,6 +95,10 @@ describe('ContactEngagementService', () => {
         mockContactInteractionRobocallService as unknown as ContactInteractionRobocallService,
         mockContactInteractionPhoneBankingService as unknown as ContactInteractionPhoneBankingService,
         mockContactStatusService as unknown as ContactStatusService,
+        mockPriorityAnswers as unknown as ContactPriorityAnswersService,
+        {
+          findForActivityFeed: vi.fn().mockResolvedValue([]),
+        } as unknown as ContactUploadMatchService,
       )
     })
 

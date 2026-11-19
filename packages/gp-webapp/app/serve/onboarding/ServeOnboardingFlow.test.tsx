@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
@@ -20,6 +20,11 @@ const citizenPanelsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
 vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
   SERVE_CITIZEN_PANELS_FLAG_KEY: 'serve-citizen-panels',
   useServeCitizenPanelsFlag: () => citizenPanelsFlag,
+}))
+
+const impersonation = vi.hoisted(() => ({ active: false }))
+vi.mock('@shared/hooks/useIsImpersonating', () => ({
+  useIsImpersonating: () => impersonation.active,
 }))
 
 import { trackEvent } from 'helpers/analyticsHelper'
@@ -128,7 +133,7 @@ const mockLoad = (
   api.mock('GET /v1/elected-office/current', { status: 200, data: eo })
   api.mock('GET /v1/elected-office/mine', {
     status: 200,
-    data: [{ ...eo, hasWinIssues }],
+    data: [{ ...eo, hasWinIssues, campaignWasEverPro: false, prepared: false }],
   })
   api.mock('GET /v1/organizations/:slug', { status: 200, data: org })
 }
@@ -195,11 +200,14 @@ const mockDistrict = ({
   )
 }
 
+const PRIORITIES_VIEWED = 'Serve Onboarding - Priorities Viewed'
+const PRIORITIES_ERRORED = 'Serve Onboarding - Priorities Errored'
+
 const storyHeading = {
-  represent: /You represent 32,000 people/,
-  loudest: "Until now, you've heard from the loudest voices only",
-  sample: "With about 96 answers, you'll know where your community stands",
-  grow: "We'll help you build and grow the list of people you hear from",
+  represent: /You were elected to represent the 32,000 people living in/,
+  loudest: 'Most of what officials hear comes from the loudest voices',
+  sample: 'Hear from every part of your community',
+  grow: "We'll help you hear from more of your community over time",
 }
 
 const findStoryHeading = (name: string | RegExp) =>
@@ -241,12 +249,10 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     expect(
-      await screen.findByText(
-        'Hear from your whole community, not only the loudest voices',
-      ),
+      await screen.findByText('Meet your chief of staff'),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Ask residents before you vote'),
+      screen.getByText('More time with constituents, less busywork'),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('Let residents opt in to hear from you'),
@@ -273,7 +279,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
         data: buildEO({ party: 'independent', selfReported: true }),
       }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await findStoryHeading(storyHeading.represent)
@@ -288,7 +294,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     await findStoryHeading(storyHeading.sample)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await findStoryHeading(storyHeading.grow)
-    expect(screen.getByText('Communicate')).toBeInTheDocument()
+    expect(screen.getByText('Tell them what you did')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText(PRIORITIES_TITLE)
@@ -317,7 +323,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await findStoryHeading(storyHeading.represent)
@@ -340,30 +346,28 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
   })
 
-  it('says how it got the answers a district needs', async () => {
+  it('says what it aims for in every group', async () => {
     resumedAt('story-sample')
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await findStoryHeading(storyHeading.sample)
     await user.click(
-      screen.getByRole('button', { name: 'How we got this number' }),
+      screen.getByRole('button', { name: 'How we aim for this' }),
     )
     expect(
       await screen.findByText(
-        /We picked 96 so that when residents split close to evenly/,
+        'We aim to hear from every age group, neighborhood, race and gender in your district.',
       ),
     ).toBeInTheDocument()
   })
 
-  it('sizes the answers to a small district', async () => {
+  it('says the same in a small district', async () => {
     mockDistrict({ population: 500 })
     resumedAt('story-sample')
     renderFlow()
 
-    await findStoryHeading(
-      "With about 81 answers, you'll know where your community stands",
-    )
+    await findStoryHeading(storyHeading.sample)
   })
 
   it('resumes on a story step', async () => {
@@ -377,24 +381,70 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
     expect(
       screen.getByText(
-        'Listen to the people first. Then prioritize, act, and tell them what you did.',
+        'Ask residents, see what matters, act on it, and tell them what you did.',
       ),
     ).toBeInTheDocument()
     expect(
       screen.getAllByRole('listitem').map((item) => item.textContent),
     ).toEqual([
-      '1ListenText, call or knock',
-      '2PrioritizeSee what matters most',
-      '3ActBring it to your vote',
-      '4CommunicateTell them what you did',
+      '1Ask residents',
+      '2See what matters most',
+      '3Vote with what you learned',
+      '4Tell them what you did',
     ])
     // One column at every width, so the loop reads 1 to 4 top to bottom
     // rather than left to right and wrapping.
     expect(screen.getByRole('list').className).not.toMatch(/grid-cols/)
     expect(screen.getByRole('list')).toHaveClass('flex-col')
     expect(
-      screen.getByText('Then listen again. Each round, your panel grows.'),
+      screen.getByText('Each time you ask, you hear from more people.'),
     ).toBeInTheDocument()
+  })
+
+  it("starts a winner's district read before the story, so its real map is ready", async () => {
+    // A winner lands on the term step with the office already on the org.
+    // The story gives up on slow data and keeps the stand-in, so the read
+    // starts now rather than when the story mounts.
+    let pointsRequests = 0
+    api.mock('POST /v1/contacts/points', () => {
+      pointsRequests += 1
+      return {
+        status: 200,
+        data: { points: districtPoints(400), truncated: false },
+      }
+    })
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        onboardingStep: 'confirm',
+        campaignId: 7,
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'NC' },
+      }),
+    )
+    api.mock('PUT /v1/elected-office/:id', { status: 200, data: buildEO() })
+    const user = userEvent.setup({ skipHover: true })
+    renderFlow()
+
+    expect(
+      await screen.findByText('When does your term run?'),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(pointsRequests).toBe(1))
+
+    await fillTermDates(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Does this look right?')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await findStoryHeading(storyHeading.represent)
+    expect(screen.getByTestId('district-story-map')).toHaveAttribute(
+      'data-abstract',
+      'false',
+    )
+    // The story reuses the read already in hand.
+    expect(pointsRequests).toBe(1)
   })
 
   it("draws the official's district from its locations", async () => {
@@ -410,7 +460,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(screen.getByTestId('district-story-basemap')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Every dot is about 80 residents of your district. Each of them counts on you to speak for them.',
+        'Each dot is about 80 people in your district, and you speak for all of them.',
       ),
     ).toBeInTheDocument()
   })
@@ -419,11 +469,53 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     resumedAt('story-represent')
     renderFlow()
 
-    await findStoryHeading(storyHeading.represent)
+    await findStoryHeading(
+      'You were elected to represent the 32,000 people living in your district',
+    )
     expect(screen.getByTestId('district-story-map')).toHaveAttribute(
       'data-abstract',
       'true',
     )
+  })
+
+  it('names the city from the district when the office has no city', async () => {
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        selfReported: true,
+        onboardingStep: 'story-represent',
+      }),
+      buildOrg({
+        positionName: 'Asheville City Council',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'NC' },
+        district: { id: 'd1', l2Type: 'City', l2Name: 'ASHEVILLE CITY' },
+      }),
+    )
+    renderFlow()
+
+    await findStoryHeading(
+      'You were elected to represent the 32,000 people living in Asheville',
+    )
+  })
+
+  it('holds the number while it starts counting, never showing 0 people', async () => {
+    const frame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 0)
+    try {
+      resumedAt('story-represent')
+      renderFlow()
+
+      const heading = await findStoryHeading(storyHeading.represent)
+      expect(
+        within(heading).getByTestId('district-population-loading'),
+      ).toBeInTheDocument()
+      expect(heading.textContent).not.toMatch(/\b0 people/)
+    } finally {
+      frame.mockRestore()
+    }
   })
 
   it('drops the number when the district population is unknown', async () => {
@@ -431,7 +523,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     resumedAt('story-represent')
     renderFlow()
 
-    await findStoryHeading('You represent every resident of your district')
+    await findStoryHeading(
+      'You were elected to represent the people living in your district',
+    )
   })
 
   it('shows the end state of each step when motion is reduced', async () => {
@@ -472,7 +566,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     resumedAt('pledge')
     renderFlow()
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(
       screen.getByRole('button', { name: 'Meet your Chief of Staff' }),
     ).toBeInTheDocument()
@@ -492,7 +586,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText(PRIORITIES_TITLE)
@@ -511,7 +605,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(savedBody).toEqual({
       shownKeys: ['issue-1'],
       selectedKeys: ['issue-1'],
@@ -545,12 +639,10 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       communityStarts += 1
       return { status: 200, data: { starterIssueCount: 1 } }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText(
-      'Hear from your whole community, not only the loudest voices',
-    )
+    await screen.findByText('Meet your chief of staff')
     await waitFor(() => expect(communityStarts).toBe(1))
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -585,17 +677,15 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       user: ReturnType<typeof userEvent.setup>,
       answer: RegExp,
     ) => {
-      await screen.findByText(
-        'Hear from your whole community, not only the loudest voices',
-      )
+      await screen.findByText('Meet your chief of staff')
       await user.click(screen.getByRole('button', { name: 'Continue' }))
-      await user.click(await screen.findByRole('button', { name: answer }))
+      await user.click(await screen.findByRole('radio', { name: answer }))
       expect(communityStarts).toBe(0)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
     }
 
     it('waits past the welcome step and starts once they confirm they are in office', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
       await answerInOffice(user, /I'm an elected official/)
@@ -604,16 +694,16 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     })
 
     it('never starts for an official who is still campaigning', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
       await answerInOffice(user, /I'm still campaigning/)
-      await screen.findByText("Let's switch you to campaign mode")
+      await screen.findByText("Let's get you set up for your campaign")
       expect(communityStarts).toBe(0)
     })
 
     it('never starts for someone just testing the product', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
       await answerInOffice(user, /I'm just testing out the product/)
@@ -643,40 +733,45 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       return { status: 200, data: { starterIssueCount: 1 } }
     })
     const positionsKey = ['serve-onboarding-positions', '90001']
-    testQueryClient.setQueryData(positionsKey, [
-      {
-        brPositionId: 'br-pos-1',
-        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
-        city: 'Springfield',
-      },
-    ])
+    testQueryClient.setQueryData(positionsKey, {
+      upcoming: [
+        {
+          brPositionId: 'br-pos-1',
+          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+          city: 'Springfield',
+        },
+      ],
+      past: [],
+    })
 
     try {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
-      await screen.findByText(
-        'Hear from your whole community, not only the loudest voices',
+      await screen.findByText('Meet your chief of staff')
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(
+        await screen.findByRole('radio', { name: /I'm an elected official/ }),
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(
-        await screen.findByRole('button', { name: /I'm an elected official/ }),
-      )
-      await user.click(screen.getByRole('button', { name: 'Continue' }))
-      await user.click(
-        await screen.findByRole('button', {
+        await screen.findByRole('radio', {
           name: /Independent \/ Non-major party/,
         }),
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-      await screen.findByText('What office do you currently hold?')
+      await screen.findByText('What office were you elected to?')
       await user.type(
         screen.getByPlaceholderText('Enter 5 digit zip code'),
         '90001',
       )
       await user.click(screen.getByRole('button', { name: 'Search' }))
-      await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+      await user.click(
+        await within(
+          await screen.findByRole('radiogroup', { name: 'Available offices' }),
+        ).findByRole('radio', { name: /Mayor/ }),
+      )
       expect(calls).toEqual([])
 
       await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -687,7 +782,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       await screen.findByText('When does your term run?')
       await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
-      await findStoryHeading(storyHeading.represent)
+      await findStoryHeading(
+        /You were elected to represent the [\d,]+ people living in Springfield/,
+      )
       expect(calls.filter((call) => call === 'start issues')).toHaveLength(1)
     } finally {
       testQueryClient.removeQueries({ queryKey: positionsKey })
@@ -719,26 +816,34 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
         data: { options: loads < 3 ? [typed] : [typed, community] },
       }
     })
-    const user = userEvent.setup()
-    renderFlow()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({
+        skipHover: true,
+        advanceTimers: vi.advanceTimersByTime,
+      })
+      renderFlow()
 
-    const typed = await screen.findByLabelText(/Library hours/)
-    expect(typed).toBeChecked()
-    expect(screen.queryByLabelText(/Housing costs/)).not.toBeInTheDocument()
-    await user.click(typed)
-    expect(typed).not.toBeChecked()
+      const typed = await screen.findByLabelText(/Library hours/)
+      expect(typed).toBeChecked()
+      expect(screen.queryByLabelText(/Housing costs/)).not.toBeInTheDocument()
+      await user.click(typed)
+      expect(typed).not.toBeChecked()
 
-    expect(
-      await screen.findByLabelText(/Housing costs/, {}, { timeout: 12_000 }),
-    ).not.toBeChecked()
-    expect(screen.getByLabelText(/Library hours/)).not.toBeChecked()
-    expect(
-      screen.queryByText('Finding issues in your community'),
-    ).not.toBeInTheDocument()
-    const loadsWhenFound = loads
-    await new Promise((resolve) => setTimeout(resolve, 4_500))
-    expect(loads).toBe(loadsWhenFound)
-  }, 25_000)
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+      expect(await screen.findByLabelText(/Housing costs/)).not.toBeChecked()
+      expect(screen.getByLabelText(/Library hours/)).not.toBeChecked()
+      expect(
+        screen.queryByText('Finding issues in your community'),
+      ).not.toBeInTheDocument()
+      const loadsWhenFound = loads
+      await act(() => vi.advanceTimersByTimeAsync(4_500))
+      expect(loads).toBe(loadsWhenFound)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('offers a retry and never saves when the issues fail to load', async () => {
     resumedAt('priorities')
@@ -766,17 +871,31 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       saves += 1
       return { status: 200, data: undefined }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('We couldn’t load issues for your community.')
     expect(screen.queryByLabelText(/Other/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(saves).toBe(0)
+    // Both events fire from effects that run after the error renders, so a
+    // slow runner can reach these before the effects have.
+    await waitFor(() =>
+      expect(eventProps(PRIORITIES_ERRORED)).toEqual([
+        expect.objectContaining({ reason: 'search_failed', retried: false }),
+      ]),
+    )
+    await waitFor(() =>
+      expect(eventProps(PRIORITIES_VIEWED)).toEqual([
+        expect.objectContaining({ loadMs: expect.any(Number) }),
+      ]),
+    )
 
     failing = false
     await user.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
+    expect(eventProps(PRIORITIES_ERRORED)).toHaveLength(1)
+    expect(eventProps(PRIORITIES_VIEWED)).toHaveLength(1)
   })
 
   it('keeps the list on screen while saving and shows the saved picks on Back', async () => {
@@ -803,7 +922,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await user.click(await screen.findByLabelText(/Housing costs/))
@@ -812,7 +931,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       screen.queryByText('Finding issues in your community'),
     ).not.toBeInTheDocument()
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(loads).toBe(1)
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
@@ -838,14 +957,17 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText(/We couldn’t find issues for your area yet/)
     expect(screen.getByLabelText(/Other/)).not.toBeChecked()
+    expect(eventProps(PRIORITIES_ERRORED)).toEqual([
+      expect.objectContaining({ reason: 'none_found', retried: false }),
+    ])
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take our pledge to get started')
+    await screen.findByText('Take the People First Pledge to get started')
     expect(saves).toBe(0)
   })
 
@@ -855,7 +977,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     let loadFails = true
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 500, data: {} }
+      return communityStarts <= 2
+        ? { status: 500, data: {} }
+        : { status: 200, data: { starterIssueCount: 0 } }
     })
     api.mock('GET /v1/priorities/onboarding', () =>
       loadFails
@@ -867,11 +991,11 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('When does your term run?')
-    await waitFor(() => expect(communityStarts).toBe(1))
+    await waitFor(() => expect(communityStarts).toBe(2))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     for (const heading of [
       storyHeading.represent,
@@ -883,12 +1007,102 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       await user.click(screen.getByRole('button', { name: 'Continue' }))
     }
     await screen.findByText('We couldn’t load issues for your community.')
-    expect(communityStarts).toBe(1)
+    expect(communityStarts).toBe(2)
 
     loadFails = false
     await user.click(screen.getByRole('button', { name: 'Try again' }))
     await screen.findByText(/We couldn’t find issues for your area yet/)
+    expect(communityStarts).toBe(3)
+  })
+
+  it('retries a failed issue search once on its own', async () => {
+    resumedAt('priorities')
+    let communityStarts = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return communityStarts === 1
+        ? { status: 401, data: {} }
+        : { status: 200, data: { starterIssueCount: 1 } }
+    })
+    api.mock('GET /v1/priorities/onboarding', () =>
+      communityStarts < 2
+        ? { status: 200, data: { options: [] } }
+        : {
+            status: 200,
+            data: {
+              options: [
+                {
+                  key: 'issue-1',
+                  kind: 'community',
+                  title: 'Housing costs',
+                  description: 'Rents are rising fast.',
+                  selected: false,
+                },
+              ],
+            },
+          },
+    )
+    renderFlow()
+
+    expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
     expect(communityStarts).toBe(2)
+    expect(
+      screen.queryByText('We couldn’t load issues for your area.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('says the search failed, not that nothing was found, and lets the official skip or try again', async () => {
+    resumedAt('priorities')
+    let communityStarts = 0
+    let searchFails = true
+    let saves = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return searchFails
+        ? { status: 401, data: {} }
+        : { status: 200, data: { starterIssueCount: 1 } }
+    })
+    api.mock('GET /v1/priorities/onboarding', () =>
+      searchFails
+        ? { status: 200, data: { options: [] } }
+        : {
+            status: 200,
+            data: {
+              options: [
+                {
+                  key: 'issue-1',
+                  kind: 'community',
+                  title: 'Housing costs',
+                  description: 'Rents are rising fast.',
+                  selected: false,
+                },
+              ],
+            },
+          },
+    )
+    api.mock('PUT /v1/priorities/onboarding', () => {
+      saves += 1
+      return { status: 200, data: undefined }
+    })
+    const user = userEvent.setup({ skipHover: true })
+    renderFlow()
+
+    await screen.findByText('We couldn’t load issues for your area.')
+    expect(communityStarts).toBe(2)
+    expect(
+      screen.queryByText(/We couldn’t find issues for your area yet/),
+    ).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Other/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+
+    searchFails = false
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
+    expect(communityStarts).toBe(3)
+    expect(
+      screen.queryByText('We couldn’t load issues for your area.'),
+    ).not.toBeInTheDocument()
+    expect(saves).toBe(0)
   })
 })
 
@@ -914,9 +1128,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
       screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByText(
-        'Hear from your whole community, not only the loudest voices',
-      ),
+      screen.queryByText('Meet your chief of staff'),
     ).not.toBeInTheDocument()
   })
 
@@ -937,10 +1149,12 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     expect(
       screen.queryByText('What issues are you prioritizing solving right now?'),
     ).not.toBeInTheDocument()
@@ -969,6 +1183,21 @@ describe('ServeOnboardingFlow', () => {
     ).toBeInTheDocument()
   })
 
+  it('selects a choice card with one click on its text', async () => {
+    mockLoad(buildEO(), buildOrg())
+    const user = userEvent.setup({ skipHover: true })
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByText("I'm an elected official"))
+
+    expect(
+      screen.getByRole('radio', { name: /I'm an elected official/ }),
+    ).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
   it('resumes a returning lead with a saved party past the welcome/inOffice intro', async () => {
     // Genuine prefill (BR term dates present) + party answered, but the office
     // is still missing. Prompt-first gating routes the user to fill the office
@@ -985,7 +1214,7 @@ describe('ServeOnboardingFlow', () => {
     renderFlow()
 
     expect(
-      await screen.findByText('What office do you currently hold?'),
+      await screen.findByText('What office were you elected to?'),
     ).toBeInTheDocument()
     expect(screen.queryByText('Does this look right?')).not.toBeInTheDocument()
     expect(
@@ -1002,13 +1231,13 @@ describe('ServeOnboardingFlow', () => {
       }),
       buildOrg(),
     )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     // Prompt-first routing lands on the office step (office still missing).
     // Backing out of a prompt-first detour returns to the prior real step:
     // office → party → inOffice.
-    await screen.findByText('What office do you currently hold?')
+    await screen.findByText('What office were you elected to?')
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByText("What's your party designation?")
     await user.click(screen.getByRole('button', { name: 'Back' }))
@@ -1029,17 +1258,17 @@ describe('ServeOnboardingFlow', () => {
       return { status: 200, data: buildEO({ party: 'independent' }) }
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1057,7 +1286,7 @@ describe('ServeOnboardingFlow', () => {
     })
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
-      await screen.findByText('What office do you currently hold?'),
+      await screen.findByText('What office were you elected to?'),
     ).toBeInTheDocument()
   })
 
@@ -1084,17 +1313,21 @@ describe('ServeOnboardingFlow', () => {
       ),
     )
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     // Net-new resume with a saved party lands on the office step.
-    await screen.findByText('What office do you currently hold?')
+    await screen.findByText('What office were you elected to?')
     await user.type(
       screen.getByPlaceholderText('Enter 5 digit zip code'),
       '90001',
     )
     await user.click(screen.getByRole('button', { name: 'Search' }))
-    await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+    await user.click(
+      await within(
+        await screen.findByRole('radiogroup', { name: 'Available offices' }),
+      ).findByRole('radio', { name: /Mayor/ }),
+    )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('When does your term run?')
@@ -1125,8 +1358,35 @@ describe('ServeOnboardingFlow', () => {
     })
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
-      await screen.findByText('Take our pledge to get your chief of staff'),
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      ),
     ).toBeInTheDocument()
+  })
+
+  it('opens the pledge scrolled to the top', async () => {
+    mockLoad(buildEO({ party: 'independent' }), buildOrg())
+    api.mock('PATCH /v1/organizations/:slug', {
+      status: 200,
+      data: buildOrg(),
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
+    const scrollTo = vi
+      .spyOn(window, 'scrollTo')
+      .mockImplementation(() => undefined)
+
+    const user = await reachTermDatesStep()
+    scrollTo.mockClear()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
+    expect(scrollTo).toHaveBeenCalledWith(0, 0)
+    scrollTo.mockRestore()
   })
 
   it('still advances to the pledge when the term-dates save fails', async () => {
@@ -1146,7 +1406,9 @@ describe('ServeOnboardingFlow', () => {
     // saveThenAdvance swallows the failed PUT; the chained advance still runs,
     // so the user reaches the pledge.
     expect(
-      await screen.findByText('Take our pledge to get your chief of staff'),
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -1189,7 +1451,7 @@ describe('ServeOnboardingFlow', () => {
       status: 200,
       data: buildEO({ party: 'independent' }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     expect(
@@ -1225,13 +1487,139 @@ describe('ServeOnboardingFlow', () => {
     expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
     // Item 3: the confirm step's right-rail "Why this matters" box.
     expect(
-      screen.getByText(
-        'These details ensure we pull the right information and data to help you serve your community',
-      ),
+      screen.getByText('This keeps your briefings and meetings accurate.'),
     ).toBeInTheDocument()
     // The confirmed office renders as a plain value (the old red error state is
     // gone now that confirm is only shown when complete).
     expect(screen.getByText('Mayor')).toBeInTheDocument()
+  })
+
+  describe('for a Pro winner handed off from the election result', () => {
+    // What the "I won" handoff creates: the campaign's office and party, a
+    // `confirm` checkpoint, no term dates and no completion stamp.
+    const winnerEO = () =>
+      buildEO({
+        party: 'independent',
+        onboardingStep: 'confirm',
+        campaignId: 7,
+      })
+    const winnerOrg = () =>
+      buildOrg({
+        positionName: 'Maplewood City Council',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'NJ' },
+      })
+
+    afterEach(() => {
+      impersonation.active = false
+    })
+
+    it("preselects the campaign's party when the office has none", async () => {
+      mockLoad(buildEO({ ...winnerEO(), party: null }), winnerOrg())
+      let campaignHeader: string | undefined
+      api.mock('GET /v1/campaigns/mine', ({ headers }) => {
+        campaignHeader = headers['x-organization-slug']
+        return {
+          status: 200,
+          data: { details: { otherParty: 'Independent' } } as never,
+        }
+      })
+      renderFlow()
+
+      expect(
+        await screen.findByText("What's your party designation?"),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('radio', { name: /Independent \/ Non-major party/ }),
+      ).toBeChecked()
+      expect(campaignHeader).toBe('campaign-7')
+    })
+
+    it('shows a major party preselected and blocked, never skipping its step', async () => {
+      mockLoad(buildEO({ ...winnerEO(), party: 'democratic' }), winnerOrg())
+      renderFlow()
+
+      expect(
+        await screen.findByText("What's your party designation?"),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: /Democrat/ })).toBeChecked()
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    })
+
+    it('prefills the term when the office already has one', async () => {
+      mockLoad(
+        buildEO({
+          ...winnerEO(),
+          termStartDate: '2026-12-01',
+          termEndDate: '2030-12-01',
+        }),
+        winnerOrg(),
+      )
+      renderFlow()
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('When does your term run?')).toBeNull()
+    })
+
+    it('asks for the term first, then lands on the prefilled confirm step', async () => {
+      mockLoad(winnerEO(), winnerOrg())
+      api.mock('PUT /v1/elected-office/:id', {
+        status: 200,
+        data: winnerEO(),
+      })
+      const user = userEvent.setup({ skipHover: true })
+      renderFlow()
+
+      expect(
+        await screen.findByText('When does your term run?'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
+      ).not.toBeInTheDocument()
+
+      await fillTermDates(user)
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Maplewood City Council')).toBeInTheDocument()
+    })
+
+    it('lands straight on the confirm step when the term is already known', async () => {
+      mockLoad(
+        buildEO({
+          party: 'independent',
+          onboardingStep: 'confirm',
+          campaignId: 7,
+          termStartDate: '2027-01-01',
+          termEndDate: '2031-01-01',
+        }),
+        winnerOrg(),
+      )
+      renderFlow()
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+    })
+
+    it('lets an impersonating admin leave without finishing', async () => {
+      impersonation.active = true
+      mockLoad(winnerEO(), winnerOrg())
+      const user = userEvent.setup({ skipHover: true })
+      renderFlow()
+
+      await user.click(await screen.findByRole('button', { name: 'Dismiss' }))
+
+      expect(
+        window.sessionStorage.getItem(
+          'gp:electionResultDismissedDuringImpersonation',
+        ),
+      ).toBe('true')
+      window.sessionStorage.clear()
+    })
   })
 
   it('does not stamp selfReported when answering party in the prefill branch', async () => {
@@ -1254,17 +1642,17 @@ describe('ServeOnboardingFlow', () => {
       return { status: 200, data: buildEO({ party: 'independent' }) }
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1305,10 +1693,12 @@ describe('ServeOnboardingFlow', () => {
       data: buildEO({ party: 'independent' }),
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
     )
@@ -1317,7 +1707,9 @@ describe('ServeOnboardingFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText('Take our pledge to get your chief of staff'),
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      ),
     ).toBeInTheDocument()
     // Office was already on the org and never re-picked — no PATCH fires.
     expect(patchRequests).toHaveLength(0)
@@ -1351,16 +1743,19 @@ describe('ServeOnboardingFlow', () => {
     // react-query entry is pre-seeded; seed the result for the ZIP we type so
     // the picker shows the office synchronously.
     const positionsKey = ['serve-onboarding-positions', '90001']
-    testQueryClient.setQueryData(positionsKey, [
-      {
-        brPositionId: 'br-pos-1',
-        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
-        city: 'Springfield',
-      },
-    ])
+    testQueryClient.setQueryData(positionsKey, {
+      upcoming: [
+        {
+          brPositionId: 'br-pos-1',
+          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+          city: 'Springfield',
+        },
+      ],
+      past: [],
+    })
 
     try {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
       // Welcome Continue is navigation-only: no EO is created before the user
@@ -1371,31 +1766,37 @@ describe('ServeOnboardingFlow', () => {
       expect(postCount).toBe(0)
       // The inOffice Continue is the first real answer — it mints the EO.
       await user.click(
-        await screen.findByRole('button', { name: /I'm an elected official/ }),
+        await screen.findByRole('radio', { name: /I'm an elected official/ }),
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await waitFor(() => expect(postCount).toBe(1))
       await user.click(
-        await screen.findByRole('button', {
+        await screen.findByRole('radio', {
           name: /Independent \/ Non-major party/,
         }),
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-      await screen.findByText('What office do you currently hold?')
+      await screen.findByText('What office were you elected to?')
       await user.type(
         screen.getByPlaceholderText('Enter 5 digit zip code'),
         '90001',
       )
       await user.click(screen.getByRole('button', { name: 'Search' }))
-      await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+      await user.click(
+        await within(
+          await screen.findByRole('radiogroup', { name: 'Available offices' }),
+        ).findByRole('radio', { name: /Mayor/ }),
+      )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await screen.findByText('When does your term run?')
       await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-      await screen.findByText('Take our pledge to get your chief of staff')
+      await screen.findByText(
+        'Take the People First Pledge to get your chief of staff',
+      )
       await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
 
       // Exactly one create across the whole flow (no duplicate at completion).
@@ -1445,17 +1846,17 @@ describe('ServeOnboardingFlow', () => {
       data: { message: 'boom' },
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1463,7 +1864,7 @@ describe('ServeOnboardingFlow', () => {
 
     // A failed PUT must not strand the user on the party step.
     expect(
-      await screen.findByText('What office do you currently hold?'),
+      await screen.findByText('What office were you elected to?'),
     ).toBeInTheDocument()
   })
 })
@@ -1475,6 +1876,10 @@ const OFFICE_VIEWED = 'Serve Onboarding - Office Viewed'
 const OFFICE_COMPLETED = 'Serve Onboarding - Office Completed'
 const TERM_DATES_VIEWED = 'Serve Onboarding - Term Dates Viewed'
 const PLEDGE_COMPLETED = 'Serve Onboarding - Pledge Completed'
+const WELCOME_COMPLETED = 'Serve Onboarding - Welcome Completed'
+const OFFICE_STATUS_COMPLETED = 'Serve Onboarding - Office Status Completed'
+const PARTY_COMPLETED = 'Serve Onboarding - Party Designation Completed'
+const TERM_DATES_COMPLETED = 'Serve Onboarding - Term Dates Completed'
 const COMPLETED = 'Serve Onboarding - Net New Completed'
 // Events removed in the per-screen rework — asserted absent below.
 const STEP_VIEWED = 'Serve Onboarding - Step Viewed'
@@ -1502,9 +1907,9 @@ const reachOfficeStepNetNew = async () => {
       ]),
     ),
   )
-  const user = userEvent.setup()
+  const user = userEvent.setup({ skipHover: true })
   renderFlow()
-  await screen.findByText('What office do you currently hold?')
+  await screen.findByText('What office were you elected to?')
   return user
 }
 
@@ -1520,7 +1925,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       status: 200,
       data: buildEO(),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     // Welcome view fires on view (net-new branch resolved at load).
@@ -1551,13 +1956,13 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       status: 200,
       data: buildEO(),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     // No event yet — Office Status Viewed fires on Continue, not on selection.
     expect(eventProps(OFFICE_STATUS_VIEWED)).toHaveLength(0)
@@ -1576,19 +1981,19 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
 
   it('captures the "still campaigning" hand-off as the Office Status Viewed selection', async () => {
     mockLoad(buildEO(), buildOrg())
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm still campaigning/ }),
+      await screen.findByRole('radio', { name: /I'm still campaigning/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The hand-off screen renders, and the office-status selection records the
     // drop-off — the standalone "Switched to Campaign" event is gone.
-    await screen.findByText("Let's switch you to campaign mode")
+    await screen.findByText("Let's get you set up for your campaign")
     expect(eventProps(OFFICE_STATUS_VIEWED)).toEqual([
       expect.objectContaining({ selection: "I'm still campaigning" }),
     ])
@@ -1601,17 +2006,17 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       status: 200,
       data: buildEO({ party: 'independent' }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1642,15 +2047,97 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       '90001',
     )
     await user.click(screen.getByRole('button', { name: 'Search' }))
-    await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+    await user.click(
+      await within(
+        await screen.findByRole('radiogroup', { name: 'Available offices' }),
+      ).findByRole('radio', { name: /Mayor/ }),
+    )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('When does your term run?')
     expect(eventProps(OFFICE_COMPLETED)).toEqual([
-      expect.objectContaining({ branch: 'net-new', selection: 'Mayor' }),
+      expect.objectContaining({
+        branch: 'net-new',
+        selection: 'Mayor',
+        officesFound: 1,
+        officeLevel: 'city',
+        usedFilter: false,
+      }),
     ])
     // Term Dates Viewed then fires on view of the next screen.
     expect(eventProps(TERM_DATES_VIEWED)).toHaveLength(1)
+  })
+
+  it('completes welcome, office status and party with what was picked', async () => {
+    mockLoad(buildEO(), buildOrg())
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'nonpartisan' }),
+    })
+    const user = userEvent.setup({ skipHover: true })
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByRole('radio', { name: /^Nonpartisan/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(eventProps(PARTY_COMPLETED)).toHaveLength(1))
+    expect(eventProps(WELCOME_COMPLETED)).toEqual([
+      expect.objectContaining({ branch: 'net_new' }),
+    ])
+    expect(eventProps(OFFICE_STATUS_COMPLETED)).toEqual([
+      expect.objectContaining({ officeStatus: 'elected' }),
+    ])
+    expect(eventProps(PARTY_COMPLETED)).toEqual([
+      expect.objectContaining({ party: 'nonpartisan' }),
+    ])
+  })
+
+  it('completes office status for someone still campaigning', async () => {
+    mockLoad(buildEO(), buildOrg())
+    const user = userEvent.setup({ skipHover: true })
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('radio', { name: /I'm still campaigning/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText("Let's get you set up for your campaign")
+    expect(eventProps(OFFICE_STATUS_COMPLETED)).toEqual([
+      expect.objectContaining({ officeStatus: 'campaigning' }),
+    ])
+  })
+
+  it('completes the term with its length in years', async () => {
+    const user = await reachOfficeStepNetNew()
+    await user.type(
+      screen.getByPlaceholderText('Enter 5 digit zip code'),
+      '90001',
+    )
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.click(
+      await within(
+        await screen.findByRole('radiogroup', { name: 'Available offices' }),
+      ).findByRole('radio', { name: /Mayor/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('When does your term run?')
+    await fillTermDates(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() =>
+      expect(eventProps(TERM_DATES_COMPLETED)).toEqual([
+        expect.objectContaining({ termYears: 4 }),
+      ]),
+    )
   })
 
   it('fires Pledge Completed and the Net New Completed metric (without a branch prop) at completion', async () => {
@@ -1673,10 +2160,12 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       data: buildEO({ party: 'independent', selfReported: true }),
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
-    await screen.findByText('Take our pledge to get your chief of staff')
+    await screen.findByText(
+      'Take the People First Pledge to get your chief of staff',
+    )
     await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
 
     await waitFor(() => expect(eventProps(COMPLETED).length).toBeGreaterThan(0))

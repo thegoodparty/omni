@@ -5,10 +5,11 @@ import { vendorBaseUrl, VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 // pinned to a regional host (ours is https://api-na1.callhub.io). Keep the
 // region in config, not hardcoded, so a different account can point elsewhere.
 const {
-  CALLHUB_API_KEY,
   CALLHUB_API_BASE_URL = 'https://api-na1.callhub.io',
   CALLHUB_HTTP_TIMEOUT = '30000',
 } = process.env
+
+export const CALLHUB_MOCK_API_KEY = 'mock-key'
 
 export class CallhubBaseConfig {
   readonly baseUrl = vendorBaseUrl('callhub', CALLHUB_API_BASE_URL)
@@ -23,7 +24,8 @@ export class CallhubBaseConfig {
   // OutreachModule wired CallhubModule in. Missing config must break the
   // CallHub endpoints, never app startup.
   get apiKey(): string {
-    if (VENDOR_MODE === 'mock') return 'mock-key'
+    if (VENDOR_MODE === 'mock') return CALLHUB_MOCK_API_KEY
+    const { CALLHUB_API_KEY } = process.env
     if (!CALLHUB_API_KEY) {
       throw new Error('Missing CALLHUB_API_KEY config')
     }

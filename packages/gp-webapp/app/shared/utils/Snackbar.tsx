@@ -25,7 +25,9 @@ const FOOTER_CHAT_BAR_PATH_PREFIXES = [
 // The Campaign Manager's chat dock sits at the bottom of these, matched
 // exactly: a /dashboard prefix would take in every page.
 const FOOTER_CHAT_BAR_EXACT_PATHS = ['/dashboard', '/dashboard/campaign-plan']
-const CRM_ASSISTANT_BAR_CLEARANCE = '6rem'
+// Bottom only: a bare string offset applies to all four sides, and on mobile
+// the side offsets come straight off the toast's width.
+const CRM_ASSISTANT_BAR_CLEARANCE = { bottom: '6rem' }
 
 interface SnackbarContextValue {
   displaySnackbar: (

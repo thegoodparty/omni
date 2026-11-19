@@ -217,7 +217,33 @@ export const openPersonViaTypeahead = async (
 ): Promise<Locator> => {
   const input = typeaheadInput(page)
   await expect(input).toBeVisible({ timeout: 20_000 })
-  await input.fill(fullPersonName(person))
+  // gp-api's buildSearchSql splits on whitespace and ANDs each token against
+  // FirstName/LastName only — NameSuffix is not a column it reads. Filling
+  // the full display name adds a 'Jr'/'Sr'/'III' token that can match nobody
+  // and leaves the typeahead empty. The result row is still disambiguated by
+  // the person.id match on the CommandItem below.
+  const searchName = [person.firstName, person.lastName]
+    .filter(Boolean)
+    .map((part) => part!.trim())
+    .join(' ')
+  // The dashboard shell can re-mount the typeahead right after it first
+  // paints (the whole data wave -- elected-office, eligibility, users/me,
+  // contacts -- fires a second time ~300ms later), and the remount resets the
+  // controlled input to "" before its debounced search ever runs. A fill that
+  // lands in that window is lost, so retry the fill until the search request
+  // actually leaves the browser.
+  await expect(async () => {
+    const searched = page.waitForRequest(
+      (request) =>
+        request.method() === 'GET' &&
+        request.url().includes('/contacts?') &&
+        request.url().includes('search='),
+      { timeout: 5_000 },
+    )
+    await input.fill('')
+    await input.fill(searchName)
+    await searched
+  }).toPass({ timeout: 30_000 })
   const option = page.locator(
     `[data-slot="command-item"][data-value="${person.id}"]`,
   )

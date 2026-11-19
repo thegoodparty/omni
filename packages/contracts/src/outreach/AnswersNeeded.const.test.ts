@@ -1,27 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import {
-  ANSWERS_NEEDED_UNCORRECTED,
-  answersNeeded,
-} from './AnswersNeeded.const'
+import { answersNeeded } from './AnswersNeeded.const'
 
 describe('answersNeeded', () => {
-  it('starts from about 96 answers before correcting for size', () => {
-    expect(ANSWERS_NEEDED_UNCORRECTED).toBeCloseTo(96.04, 2)
+  it('gives the smallest major group three expected answers', () => {
+    expect(answersNeeded(0.03)).toBe(100)
+    expect(answersNeeded(0.05)).toBe(60)
+    expect(answersNeeded(0.2)).toBe(15)
+    expect(answersNeeded(0.07)).toBe(43)
   })
 
-  it('needs about 96 answers in most districts', () => {
-    expect(answersNeeded(32_000)).toBe(96)
-    expect(answersNeeded(1_000_000)).toBe(96)
+  it('never sizes for a group under the major share', () => {
+    expect(answersNeeded(0.01)).toBe(100)
   })
 
-  it('needs fewer answers in a small district', () => {
-    expect(answersNeeded(2_000)).toBe(92)
-    expect(answersNeeded(500)).toBe(81)
-  })
-
-  it('falls back to the uncorrected figure when the population is unknown', () => {
-    expect(answersNeeded(null)).toBe(96)
-    expect(answersNeeded(undefined)).toBe(96)
-    expect(answersNeeded(0)).toBe(96)
+  it('sizes for the smallest major group when the mix is unknown', () => {
+    expect(answersNeeded(null)).toBe(100)
+    expect(answersNeeded(undefined)).toBe(100)
+    expect(answersNeeded()).toBe(100)
   })
 })

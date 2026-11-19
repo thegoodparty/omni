@@ -22,7 +22,7 @@ export default async function Page({
   const { pollId } = await searchParams
 
   if (typeof pollId !== 'string') {
-    return redirect('/dashboard/polls')
+    return redirect('/dashboard/constituent-outreach')
   }
 
   return <SuccessPage pollId={pollId} />

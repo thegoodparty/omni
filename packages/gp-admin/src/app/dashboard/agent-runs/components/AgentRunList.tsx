@@ -1,9 +1,6 @@
 import Link from 'next/link'
 import { Table, Text, Badge } from '@radix-ui/themes'
-import type {
-  AgentRunListItem,
-  AgentRunCandidateSummary,
-} from '@goodparty_org/sdk'
+import type { AgentRunListItem, AgentRunCandidateSummary } from '@/shared/gpApi'
 import {
   STATUS_BADGE_COLORS,
   STATUS_BADGE_LABELS,

@@ -1,10 +1,7 @@
 'use client'
 
 import { Box, Card, Flex, Grid, Heading, Text } from '@radix-ui/themes'
-import type {
-  TenDlcStatusBucket,
-  TenDlcStatusBucketKey,
-} from '@goodparty_org/sdk'
+import type { TenDlcStatusBucket, TenDlcStatusBucketKey } from '@/shared/gpApi'
 import {
   BUCKET_META,
   STUCK_BUCKET_KEYS,

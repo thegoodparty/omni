@@ -16,9 +16,9 @@ import {
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { CrmUsersService } from './crmUsers.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { UserAvatarService } from './userAvatar.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { UserRole } from '../../generated/prisma'
 import { subDays, subHours } from 'date-fns'
 
@@ -1444,6 +1444,23 @@ describe('UsersService', () => {
       })
     })
 
+    // ENG-5508: the sign-up form handed Clerk a padded name, Clerk kept it, and
+    // provisioning copied it into the row on first sign-in.
+    it('trims a padded provider name on a new row', async () => {
+      const user = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_padded_name',
+        email: 'padded-name@goodparty.org',
+        firstName: ' Dee ',
+        lastName: 'Jetton  ',
+      })
+
+      expect(user).toMatchObject({
+        firstName: 'Dee',
+        lastName: 'Jetton',
+        name: 'Dee Jetton',
+      })
+    })
+
     it('creates the user without an avatar when ingestion fails', async () => {
       const avatars = service.app.get(UserAvatarService)
       vi.spyOn(avatars, 'ingestFromUrl').mockResolvedValue(null)
@@ -1977,7 +1994,7 @@ describe('UsersService', () => {
       expect(deleteUserSpy).not.toHaveBeenCalled()
     })
 
-    it('revalidates the public person page when the deleted user had a personId', async () => {
+    it('revalidates the public person page, naming no list, when the deleted user had a personId but no profile', async () => {
       const personId = randomUUID()
       const targetUser = await service.prisma.user.create({
         data: {
@@ -1995,8 +2012,41 @@ describe('UsersService', () => {
 
       await usersService.deleteUser(targetUser.id, targetUser.id)
 
-      expect(revalidateSpy).toHaveBeenCalledWith(personId)
+      expect(revalidateSpy).toHaveBeenCalledWith(personId, [])
     })
+
+    // The profile cascades away with the user, taking the person off the
+    // published list, or off the unlisted one if the owner had deleted it.
+    it.each([
+      ['a live profile', { publishedAt: new Date() }, ['published']],
+      [
+        'a deleted profile',
+        { publishedAt: new Date(), deletedAt: new Date() },
+        ['unlisted'],
+      ],
+      ['an unpublished draft', {}, []],
+    ])(
+      'names the lists %s leaves when the account is deleted',
+      async (_label, profile, listings) => {
+        const personId = randomUUID()
+        const targetUser = await service.prisma.user.create({
+          data: { email: `${personId}@example.com`, clerkId: null, personId },
+        })
+        await service.prisma.personProfile.create({
+          data: { personId, userId: targetUser.id, ...profile },
+        })
+        vi.spyOn(analyticsService, 'track').mockResolvedValue(
+          {} as Awaited<ReturnType<typeof analyticsService.track>>,
+        )
+        const revalidateSpy = vi
+          .spyOn(marketingRevalidation, 'revalidatePerson')
+          .mockResolvedValue(undefined)
+
+        await usersService.deleteUser(targetUser.id, targetUser.id)
+
+        expect(revalidateSpy).toHaveBeenCalledWith(personId, listings)
+      },
+    )
 
     it('does not revalidate when the deleted user had no personId', async () => {
       const targetUser = await service.prisma.user.create({
@@ -2573,91 +2623,88 @@ describe('UsersService', () => {
         orderBy: '+created_at',
       })
     })
-  })
 
-  describe('sweepTestUsers', () => {
-    let clerkClient: ClerkClient
+    describe('contact upload files', () => {
+      const seedStaleTestUserWithUpload = async () => {
+        const user = await service.prisma.user.create({
+          data: {
+            email: `uploads-${randomUUID()}@test.goodparty.org`,
+            createdAt: subDays(new Date(), 2),
+          },
+        })
+        const slug = `eo-${randomUUID()}`
+        await service.prisma.organization.create({
+          data: { slug, ownerId: user.id },
+        })
+        const fileKey = `${slug}/${randomUUID()}.csv`
+        await service.prisma.contactUpload.create({
+          data: {
+            organizationSlug: slug,
+            name: 'Newsletter',
+            fileName: 'people.csv',
+            fileKey,
+            firstNameColumn: 'First',
+            lastNameColumn: 'Last',
+            consentAffirmedAt: new Date(),
+          },
+        })
+        return { user, fileKey }
+      }
 
-    beforeEach(async () => {
-      clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
-      await service.prisma.cronRun.deleteMany({
-        where: { jobName: 'testUserSweep' },
+      beforeEach(() => {
+        vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+          data: [],
+          totalCount: 0,
+        } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
       })
-    })
 
-    afterEach(() => {
-      vi.unstubAllEnvs()
-      vi.restoreAllMocks()
-    })
+      it("deletes every version of a swept user's upload files", async () => {
+        const { user, fileKey } = await seedStaleTestUserWithUpload()
+        const purge = vi
+          .spyOn(service.app.get(S3Service), 'deleteAllObjectVersions')
+          .mockResolvedValue(1)
 
-    it('does not sweep on a PR-preview stack', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
-      const sweep = vi
-        .spyOn(usersService, 'deleteTestUsers')
-        .mockResolvedValue(undefined)
-      const getUserList = vi.spyOn(clerkClient.users, 'getUserList')
+        await usersService.deleteTestUsers()
 
-      await usersService.sweepTestUsers()
+        expect(purge).toHaveBeenCalledWith(process.env.CONTACT_UPLOADS_BUCKET, [
+          fileKey,
+        ])
+        expect(
+          await service.prisma.user.findUnique({ where: { id: user.id } }),
+        ).toBeNull()
+      })
 
-      expect(sweep).not.toHaveBeenCalled()
-      expect(getUserList).not.toHaveBeenCalled()
-    })
+      it('keeps a user whose files did not delete, for the next pass', async () => {
+        const failing = await seedStaleTestUserWithUpload()
+        const clean = await seedStaleTestUserWithUpload()
+        vi.spyOn(
+          service.app.get(S3Service),
+          'deleteAllObjectVersions',
+        ).mockImplementation(async (_bucket, keys) => {
+          if (keys.includes(failing.fileKey)) {
+            throw new BadGatewayException('Error communicating with AWS')
+          }
+          return keys.length
+        })
 
-    it('fails closed when the deploy environment is absent', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', undefined)
-      const sweep = vi
-        .spyOn(usersService, 'deleteTestUsers')
-        .mockResolvedValue(undefined)
+        await usersService.deleteTestUsers()
 
-      await usersService.sweepTestUsers()
-
-      expect(sweep).not.toHaveBeenCalled()
-    })
-
-    it.each(['dev', 'prod'])('sweeps on the %s deploy', async (environment) => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', environment)
-      const sweep = vi
-        .spyOn(usersService, 'deleteTestUsers')
-        .mockResolvedValue(undefined)
-
-      await usersService.sweepTestUsers()
-
-      expect(sweep).toHaveBeenCalledTimes(1)
-    })
-
-    it('runs once when both prod replicas fire the same slot', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      const sweep = vi
-        .spyOn(usersService, 'deleteTestUsers')
-        .mockResolvedValue(undefined)
-
-      await usersService.sweepTestUsers()
-      await usersService.sweepTestUsers()
-
-      expect(sweep).toHaveBeenCalledTimes(1)
-    })
-
-    it('seals the claim it took, even when the pass throws', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
-      vi.spyOn(usersService, 'deleteTestUsers').mockRejectedValue(
-        new Error('boom'),
-      )
-      const cronLock = service.app.get(CronLockService)
-      const tryClaimHourlyRun = vi.spyOn(cronLock, 'tryClaimHourlyRun')
-      const markHourlyCompleted = vi.spyOn(cronLock, 'markHourlyCompleted')
-
-      await expect(usersService.sweepTestUsers()).rejects.toThrow('boom')
-
-      // markHourlyCompleted derives its WHERE clause from getUtcHourStart(now),
-      // so sealing with a fresh `new Date()` would miss the claimed row
-      // whenever the pass crosses a UTC hour boundary. Assert the same pinned
-      // instant reaches both calls rather than merely that a Date did.
-      const claimedAt = tryClaimHourlyRun.mock.calls[0]?.[1]
-      expect(claimedAt).toBeInstanceOf(Date)
-      expect(markHourlyCompleted).toHaveBeenCalledWith(
-        'testUserSweep',
-        claimedAt,
-      )
+        expect(
+          await service.prisma.user.findUnique({
+            where: { id: failing.user.id },
+          }),
+        ).not.toBeNull()
+        expect(
+          await service.prisma.contactUpload.count({
+            where: { fileKey: failing.fileKey },
+          }),
+        ).toBe(1)
+        expect(
+          await service.prisma.user.findUnique({
+            where: { id: clean.user.id },
+          }),
+        ).toBeNull()
+      })
     })
   })
 

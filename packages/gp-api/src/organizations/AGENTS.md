@@ -158,8 +158,10 @@ Clerk-only check): a known email gets added directly + emailed
 invitation (`ClerkInvitationsService.createTeamInvitation`) carrying
 `TeamInviteMetadata` as `publicMetadata` — Clerk copies that onto the user
 at sign-up, which is the entire persistence mechanism for a pending invite
-(nothing is written to Postgres until accept). `GET team` merges Postgres
-membership rows with `listPendingTeamInvitations(slug)`, which pages through
+(nothing is written to Postgres until accept). Clerk emails that invitation
+itself, except to an `isTestUser` address (`notify: false`): those mailboxes
+don't exist, and the bounces get the dev Clerk instance's email paused
+(ENG-11573). `GET team` merges Postgres membership rows with `listPendingTeamInvitations(slug)`, which pages through
 Clerk's _entire instance-wide_ pending-invitation list (it has no
 server-side org filter) before filtering to this org — a single page would
 silently drop this org's invites once the instance-wide pending count
@@ -316,6 +318,23 @@ in `organizations.controller.ts`) previously 500'd the _whole list_ on a
 null external-sourced leaf under `@ResponseSchema` — keep new/changed leaves
 nullable, and remember `@ResponseSchema` silently no-ops without the
 per-controller `@UseInterceptors(ZodResponseInterceptor)`.
+
+The same rule applies to `OrganizationsService.makeFriendly`'s two election-db
+lookups (`getPositionById`, `getDistrict`): a `NotFoundException` there means
+the org points at a row that no longer exists, which is a data repair job, not
+a request to fail. Swallowing it into "no position/district resolved" — with a
+warn carrying the org slug and the stale id — is what keeps one dangling
+`overrideDistrictId` from 404ing the whole list, which the webapp reads as
+"brand-new user" and answers with onboarding, and which also hides the
+`gp-admin` screen that would clear the override. That warn is the
+`organization-stale-election-row` alert, not just a log line: a deleted row
+never comes back on its own, so the alert is what says the repair is owed.
+`BadGatewayException` is a different case: still tolerated on the list only
+(`tolerateElectionDbFailure`), still surfaced everywhere else.
+
+`applyPatch` writes `positionId` only when the patch sets
+`ballotReadyPositionId`, never from the resolved position, so an unrelated edit
+cannot null a link that is merely unresolvable right now.
 
 ## Who can set `overrideDistrictId`
 

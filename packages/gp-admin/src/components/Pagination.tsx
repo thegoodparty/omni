@@ -2,7 +2,7 @@
 
 import { Select, IconButton, Flex, Text } from '@radix-ui/themes'
 import { HiChevronLeft, HiChevronRight } from 'react-icons/hi'
-import type { PaginationMeta } from '@goodparty_org/sdk'
+import type { PaginationMeta } from '@/shared/gpApi'
 import {
   PER_PAGE_OPTIONS,
   PerPageOption,

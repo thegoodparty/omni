@@ -5,7 +5,11 @@ import {
   Injectable,
   forwardRef,
 } from '@nestjs/common'
-import { ElectedOffice, Prisma } from '../../generated/prisma'
+import {
+  ElectedOffice,
+  ElectedOfficeWinSource,
+  Prisma,
+} from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   DEFAULT_PAGINATION_LIMIT,
@@ -39,6 +43,7 @@ export type CreateElectedOfficeArgs = {
   onboardingStep?: string | null
   userId: number
   campaignId?: number
+  winSource?: ElectedOfficeWinSource
   orgData?: {
     positionId: string | null
     customPositionName: string | null
@@ -107,6 +112,7 @@ export class ElectedOfficeService extends createPrismaBase(
     const newEnd = args.termEndDate ?? null
 
     let freshlyCreated = false
+    let campaignLinked = false
     const office = await this.client.$transaction(async (tx) => {
       // Serialize office creation per user. Task 01 removed the
       // @@unique([userId]) constraint, so this advisory lock is what stops two
@@ -136,8 +142,23 @@ export class ElectedOfficeService extends createPrismaBase(
       // inserting a duplicate — a term-less placeholder never "overlaps" a
       // dated term, so without this guard a later dated create would slip past
       // the overlap check below.
+      // A win's retry finds the office the first try linked to its campaign.
+      if (args.campaignId != null && !hasNewTerm) {
+        const linked = existingForUser.find(
+          (eo) => eo.campaignId === args.campaignId,
+        )
+        if (linked) return linked
+      }
+
+      // A term-less office another campaign's win already claimed is that
+      // seat's, not a placeholder for this win.
       const placeholder = existingForUser.find(
-        (eo) => eo.termStartDate === null && eo.termEndDate === null,
+        (eo) =>
+          eo.termStartDate === null &&
+          eo.termEndDate === null &&
+          (args.campaignId == null ||
+            eo.campaignId == null ||
+            eo.campaignId === args.campaignId),
       )
       if (placeholder) {
         // When this call carries the data the placeholder was waiting for — a
@@ -145,9 +166,17 @@ export class ElectedOfficeService extends createPrismaBase(
         // bare magic-link placeholder — fill it in now instead of dropping it.
         // Otherwise the admin prefill response would advertise term/position
         // data that never reached the database.
-        if (!hasNewTerm && !hasOrgPrefill) {
+        //
+        // A campaign win can also land on a lead's term-less office (a
+        // magic-link or mid-onboarding one). That office becomes the win's:
+        // linked to the campaign, so the dashboard sends the winner through
+        // Serve onboarding, keeping any party or checkpoint it already has.
+        const linksCampaign =
+          args.campaignId != null && placeholder.campaignId == null
+        if (!hasNewTerm && !hasOrgPrefill && !linksCampaign) {
           return placeholder
         }
+        campaignLinked = linksCampaign
         if (hasNewTerm) {
           // The placeholder itself has no term, but the user may hold other
           // dated offices — keep the no-overlap invariant when filling it. Any
@@ -180,7 +209,15 @@ export class ElectedOfficeService extends createPrismaBase(
           })
         }
         if (!hasNewTerm) {
-          return placeholder
+          if (!linksCampaign) return placeholder
+          return tx.electedOffice.update({
+            where: { id: placeholder.id },
+            data: {
+              campaignId: args.campaignId,
+              party: placeholder.party ?? args.party,
+              onboardingStep: placeholder.onboardingStep ?? args.onboardingStep,
+            },
+          })
         }
         // Adopt the placeholder with the FULL payload this call carries, not
         // just the term dates. A single onboarding-completion POST sends term
@@ -202,6 +239,7 @@ export class ElectedOfficeService extends createPrismaBase(
             // prefill completion never clobbers it; a net-new completion sets it.
             selfReported: args.selfReported,
             onboardingStep: args.onboardingStep,
+            ...(linksCampaign ? { campaignId: args.campaignId } : {}),
           },
         })
       }
@@ -230,10 +268,12 @@ export class ElectedOfficeService extends createPrismaBase(
             'Elected office term overlaps an existing elected office for this user',
           )
         }
-      } else if (existingForUser.length > 0) {
-        // No term dates provided (e.g. the legacy win→serve path). Preserve the
-        // historical "one elected office per user" idempotency / crash-recovery
-        // behavior by returning the existing record.
+      } else if (args.campaignId == null && existingForUser.length > 0) {
+        // No term dates and no campaign: preserve the historical "one elected
+        // office per user" idempotency / crash-recovery behavior by returning
+        // the existing record. A win (campaignId set) falls through and gets
+        // its own office, so a winner who already serves elsewhere still goes
+        // through Serve onboarding for the new seat.
         const existing = existingForUser[0]
         if (existing) {
           return existing
@@ -269,6 +309,7 @@ export class ElectedOfficeService extends createPrismaBase(
           onboardingStep: args.onboardingStep ?? null,
           userId: args.userId,
           campaignId: args.campaignId,
+          winSource: args.winSource,
           organizationSlug: OrganizationsService.electedOfficeOrgSlug(id),
         },
       })
@@ -277,50 +318,65 @@ export class ElectedOfficeService extends createPrismaBase(
       return created
     })
 
+    // A win recorded on a prepared office makes it this win's. That write
+    // syncs the Office Holder record a prepared office never had, so the sync
+    // below is skipped for it.
+    const claimed = args.winSource
+      ? await this.claimPrepared(office, args.winSource)
+      : null
+
     // Bootstrap priorities from the winning campaign. Moved out of the txn
     // above because it does 3 more round trips (findUnique + findFirst +
     // findUnique, plus a createMany on the seed path) — inside the interactive
     // transaction that meant the per-user pg_advisory_xact_lock and a pooled
     // connection were held across those trips, and the total body regularly
     // tipped over Prisma's 5,000 ms budget → P2028 on POST /v1/elected-office
-    // (ENG-11116). Gated on freshlyCreated: the placeholder / idempotent-retry
-    // / bare-existing return paths never seeded and must not start doing so.
+    // (ENG-11116). Gated on freshlyCreated or a placeholder just linked to a
+    // campaign: the other idempotent-retry / bare-existing return paths never
+    // seeded and must not start doing so. A prepared office is seeded when the
+    // win claims it, since nothing seeded it at prepare time.
     // Failure is swallowed — a seed miss leaves the office intact; the seed
     // can be replayed and is idempotent — so it must never 5xx the create.
-    if (freshlyCreated) {
-      await this.priorities.seedFromWin(office.id).catch((err: Error) => {
-        this.logger.error(
-          { err, electedOfficeId: office.id },
-          'priorities seedFromWin failed after EO created',
-        )
-      })
+    if (freshlyCreated || campaignLinked || claimed) {
+      await this.priorities
+        .seedFromWin((claimed ?? office).id)
+        .catch((err: Error) => {
+          this.logger.error(
+            { err, electedOfficeId: office.id },
+            'priorities seedFromWin failed after EO created',
+          )
+        })
     }
 
     // Fires for both a fresh create and an idempotent return: a prior call may
     // have committed the row but crashed before dispatching the schedule, and
     // the dispatch is the only recovery path. onElectedOfficeCreated tolerates
     // re-dispatch. Kept outside the transaction so the lock isn't held across
-    // the queue round-trip.
-    await this.dispatchScheduleAfterCreate(office)
+    // the queue round-trip. An unfinished office is dormant and costs no agent
+    // runs: the pledge that finishes it dispatches instead (see update()).
+    if (office.onboardingCompletedAt) {
+      await this.dispatchScheduleAfterCreate(office)
+    }
 
-    await this.crmOfficeHolder.syncElectedOffice(office.id, {
-      sendSeatFields: freshlyCreated || args.onboardingCompletedAt != null,
-    })
+    if (!claimed) {
+      await this.crmOfficeHolder.syncElectedOffice(office.id, {
+        sendSeatFields: freshlyCreated || args.onboardingCompletedAt != null,
+      })
+    }
 
-    return office
+    return claimed ?? office
   }
 
-  private async dispatchScheduleAfterCreate(
+  /**
+   * The create-time agent dispatches: the meeting schedule, the community
+   * issue research and the ordinance sourcing. create() fires them for an
+   * office that is created onboarded, and update() for the write that
+   * completes onboarding. Each tolerates a re-dispatch.
+   */
+  async dispatchScheduleAfterCreate(
     electedOffice: ElectedOffice,
   ): Promise<void> {
-    await this.meetingBriefings
-      .onElectedOfficeCreated(electedOffice)
-      .catch((err: Error) => {
-        this.logger.error(
-          { err, electedOfficeId: electedOffice.id },
-          'meeting schedule dispatch failed after EO created',
-        )
-      })
+    await this.dispatchMeetingSchedule(electedOffice)
 
     await this.communityIssueDispatch
       .onElectedOfficeCreated(electedOffice)
@@ -335,7 +391,42 @@ export class ElectedOfficeService extends createPrismaBase(
     // it must add zero latency to the create request. The daily refresh cron
     // recovers any org missed if the process dies before this settles, and the
     // one-time exists-guard makes that re-entry safe.
-    void this.ordinanceDispatch
+    void this.dispatchOrdinance(electedOffice)
+  }
+
+  /**
+   * The dispatches an office prepared ahead of a result gets
+   * (WinOfficeService.prepare): the meeting schedule and the ordinance
+   * sourcing. Both are long-lead research Serve wants on its first sessions,
+   * and neither emails the holder — the schedule run completion only chains a
+   * briefing (which an unpledged office skips) and persists a location hint,
+   * and the ordinance completion drives no HubSpot notification. Community
+   * issues stay out on purpose: their run completion emits Segment events that
+   * send a HubSpot "your issues are ready" email, and a candidate with no
+   * result yet — who may have lost — must not be told that. Serve onboarding's
+   * own starter covers the rest until the pledge, which dispatches all three
+   * as usual.
+   */
+  async dispatchForPrepared(electedOffice: ElectedOffice): Promise<void> {
+    await this.dispatchMeetingSchedule(electedOffice)
+    await this.dispatchOrdinance(electedOffice)
+  }
+
+  private async dispatchMeetingSchedule(
+    electedOffice: ElectedOffice,
+  ): Promise<void> {
+    await this.meetingBriefings
+      .onElectedOfficeCreated(electedOffice)
+      .catch((err: Error) => {
+        this.logger.error(
+          { err, electedOfficeId: electedOffice.id },
+          'meeting schedule dispatch failed after EO created',
+        )
+      })
+  }
+
+  private async dispatchOrdinance(electedOffice: ElectedOffice): Promise<void> {
+    await this.ordinanceDispatch
       .onElectedOfficeCreated(electedOffice)
       .catch((err: Error) => {
         this.logger.error(
@@ -345,10 +436,40 @@ export class ElectedOfficeService extends createPrismaBase(
       })
   }
 
+  /**
+   * A win recorded on an office the prepared sweep built makes that office the
+   * win's: the source that recorded the result replaces `pending`, which shows
+   * the office, redirects its holder to Serve onboarding and writes the HubSpot
+   * Office Holder record a prepared office never had. Null for any other
+   * office, so a caller can tell nothing changed.
+   */
+  async claimPrepared(
+    office: ElectedOffice,
+    source: ElectedOfficeWinSource,
+  ): Promise<ElectedOffice | null> {
+    if (office.winSource !== ElectedOfficeWinSource.pending) return null
+    return this.update({
+      where: { id: office.id },
+      data: { winSource: source },
+    })
+  }
+
   async update(args: Prisma.ElectedOfficeUpdateArgs) {
+    const completes = args.data.onboardingCompletedAt instanceof Date
+    const before = completes
+      ? await this.model.findUnique({
+          where: args.where,
+          select: { onboardingCompletedAt: true },
+        })
+      : null
     const updated = await this.model.update(args)
+    // The pledge is where a dormant office goes live, so it gets the
+    // create-time dispatches an unfinished create skipped.
+    if (completes && before && !before.onboardingCompletedAt) {
+      await this.dispatchScheduleAfterCreate(updated)
+    }
     await this.crmOfficeHolder.syncElectedOffice(updated.id, {
-      sendSeatFields: args.data.onboardingCompletedAt instanceof Date,
+      sendSeatFields: completes,
     })
     return updated
   }

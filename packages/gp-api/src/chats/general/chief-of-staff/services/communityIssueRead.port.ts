@@ -15,7 +15,21 @@ export interface CommunityIssueDetail {
   priorityId: string | null
 }
 
+export interface CommunityIssueSummary {
+  id: string
+  list: 'top_community' | 'trending'
+  title: string
+  summary: string
+  category: string
+  rank: number | null
+  prioritized: boolean
+}
+
 export interface CommunityIssueReadPort {
+  list: (
+    organizationSlug: string,
+    electedOfficeId: string,
+  ) => Promise<CommunityIssueSummary[]>
   getDetail: (
     id: string,
     organizationSlug: string,

@@ -27,15 +27,10 @@ import {
   OutreachStatus,
   RobocallSettleState,
 } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
+import * as sleepUtil from '@/shared/util/sleep.util'
 
-// The sweep's multi-launch spacing sleep is vestigial under the serial gate (only
-// one run launches per pass), but stub it so a test never waits a real 3s if a
-// future change ever re-enables a second launch.
-vi.mock('@/shared/util/sleep.util', () => ({
-  sleep: vi.fn().mockResolvedValue(undefined),
-}))
-
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 let send: OutreachRobocallSendService
 let launchSpy: ReturnType<typeof vi.spyOn>
@@ -68,6 +63,11 @@ const vbWith = (status: number) =>
 
 beforeEach(async () => {
   send = service.app.get(OutreachRobocallSendService)
+
+  // The sweep's multi-launch spacing sleep is vestigial under the serial gate (only
+  // one run launches per pass), but stub it so a test never waits a real 3s if a
+  // future change ever re-enables a second launch.
+  vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
 
   launchSpy = vi
     .spyOn(service.app.get(CallhubCampaignService), 'launchVoiceBroadcast')
@@ -107,7 +107,6 @@ beforeEach(async () => {
       isPro: true,
       details: { state: 'TX', city: 'Georgetown', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   const filter = await service.prisma.voterFileFilter.create({
@@ -395,6 +394,22 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     expect(satellite.dialedAt).toBeNull()
   })
 
+  it('commits dialed when the launch 200 reads back STARTING (8), the status CallHub returns for every accepted START', async () => {
+    const outreachId = await createDraft()
+    launchSpy.mockResolvedValue({
+      pk_str: 'vb_1',
+      status: CALLHUB_VB_STATUS.STARTING,
+    })
+
+    await send.startCampaign(outreachId)
+
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+    expect(statusSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    expect(satellite.dialedAt).not.toBeNull()
+  })
+
   it('does NOT commit dialed when the launch 200 reads back a non-STARTED status', async () => {
     const outreachId = await createDraft()
     // A CallHub 200 that echoes PAUSE (or null/{}) parses through the nullish
@@ -664,11 +679,13 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
   const seam = () => send as unknown as Seam
   const dialedAt = new Date('2026-06-01T14:00:00Z')
 
-  // These tests encode the pre-2026-10-15 180-minute flat buffer in their ceiling
-  // math; pin it so they assert the haircut / R1 floor behavior rather than the
-  // default value (lowered to 30). The file-scope afterEach unstubs.
+  // These tests encode the pre-2026-10-15 180-minute flat buffer AND a divisor of
+  // 2 in their ceiling math; pin both so they assert the haircut / R1 floor
+  // behavior rather than the shipping defaults (buffer lowered to 30, divisor to
+  // 1.1). The file-scope afterEach unstubs.
   beforeEach(() => {
     vi.stubEnv('ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES', '180')
+    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '2')
   })
 
   it('reports done (source estimate) once the conservative ceiling has passed', async () => {
@@ -707,6 +724,23 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
     expect(seam().isDoneDialing(run, now).done).toBe(false)
   })
 
+  it('a FRACTIONAL divisor survives parsing (1.1 is not truncated to 1)', async () => {
+    // The point of envNumber: a divisor of 1.1 must stay 1.1, not truncate to 1.
+    // staged 11 @ ÷1.1 → safe floor(11/1.1)=10 → 1100/10=110 raw + 180 buffer →
+    // ceiling 18:50Z. If it had truncated to ÷1 (safe 11 → 100 raw) the ceiling
+    // would be 18:40Z. So at 18:45Z the run is NOT done at 1.1 but WOULD read done
+    // under the truncation bug — the exact regression this guards.
+    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '1.1')
+    const run = { dialedAt, billableCount: 1100, stagedCallsPerMinute: 11 }
+
+    expect(
+      seam().isDoneDialing(run, new Date('2026-06-01T18:45:00Z')).done,
+    ).toBe(false)
+    expect(
+      seam().isDoneDialing(run, new Date('2026-06-01T18:55:00Z')).done,
+    ).toBe(true)
+  })
+
   it('R1: uses the run STAGED rate, not a later-raised live rate (never frees a slow run early)', async () => {
     // A run staged at 10/min (safe 3/min): billable 600 → 200 raw min + 180
     // buffer → ceiling 20:20Z, so at 18:30Z it is NOT done. Ops then raises the
@@ -738,7 +772,7 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
   })
 })
 
-describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
+describe('the robocallSendSweep schedule (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   beforeEach(() => {
@@ -757,7 +791,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     const oldest = await createDraft({ sendInHours: -3 })
     const middle = await createDraft({ sendInHours: -2 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // Only the oldest-due run dials; the other two wait their turn.
     expect(launchSpy).toHaveBeenCalledTimes(1)
@@ -778,7 +812,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await createDraft({ settleState: RobocallSettleState.dialing })
     const queued = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     expect((await readSatellite(queued)).settleState).toBe(
@@ -795,7 +829,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     })
     const queued = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     // Not freed (still within estimate+buffer), so no abort either.
@@ -817,7 +851,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     })
     const queued = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // The finished run's pool was freed, money untouched.
     expect(abortSpy).toHaveBeenCalledWith('vb_1')
@@ -840,7 +874,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       dialedAt: new Date(),
     })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
     expect((await readSatellite(dialing)).poolFreedAt).toBeNull()
@@ -856,7 +890,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       poolFreedAt: addHours(new Date(), -1),
     })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(abortSpy).not.toHaveBeenCalled()
   })
@@ -872,7 +906,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     const queued = await createDraft({ sendInHours: -1 })
     abortSpy.mockRejectedValueOnce(new BadGatewayException('abort down'))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // Not freed, so still in flight → the queued run does not launch.
     expect((await readSatellite(done)).poolFreedAt).toBeNull()
@@ -906,7 +940,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     })
     const queued = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // Force-failed via the existing failSend path (hold voided there) → send_failed.
     expect(failSpy).toHaveBeenCalledWith(stuck, 'send')
@@ -928,7 +962,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       dialingStartedAt: addHours(new Date(), -1),
     })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(failSpy).not.toHaveBeenCalled()
     expect((await readSatellite(fresh)).settleState).toBe(
@@ -949,7 +983,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       dialingStartedAt: addHours(new Date(), -7),
     })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(failSpy).toHaveBeenCalledWith(stuck, 'send')
     expect(statusSpy).not.toHaveBeenCalled()
@@ -965,7 +999,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     // 0 is HONORED as the incident kill-switch — `take: 0` selects no rows, so
     // no due authorized run launches, with no deploy.
     vi.stubEnv('ROBOCALL_SEND_MAX_PER_SWEEP', '0')
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     expect(launchSpy).not.toHaveBeenCalled()
     expect(
       await service.prisma.outreachRobocall.count({
@@ -975,7 +1009,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
 
     // Unset: the serial model launches exactly ONE (the oldest); the newer waits.
     vi.unstubAllEnvs()
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     expect(launchSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(oldest)).settleState).toBe(
       RobocallSettleState.dialed,
@@ -999,12 +1033,12 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     )
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.authorized,
     )
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.dialed,
     )
@@ -1015,7 +1049,10 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     launchSpy.mockRejectedValueOnce(new BadGatewayException('boom'))
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await expect(send.sweepRobocallSend()).resolves.toBeUndefined()
+    // The pass completes without a retry or a dead letter.
+    await expect(
+      service.jobs.runSchedule('robocallSendSweep'),
+    ).resolves.toEqual({ deadLetters: [] })
 
     // The failed launch reverted via the PAUSED read; a later pass retries it.
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -1027,9 +1064,9 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     const arrived = await createDraft({ sendInHours: -1 })
     const notYet = await createDraft({ sendInHours: 2 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     // A second sweep must not re-dial: the arrived draft is now `dialed`.
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(arrived)).settleState).toBe(
@@ -1047,11 +1084,26 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await ageDialingRow(outreachId, 30)
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // Recovery reconciles via the status read — it never launches.
     expect(launchSpy).not.toHaveBeenCalled()
     expect(statusSpy).toHaveBeenCalledWith('vb_1')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    expect(satellite.dialedAt).not.toBeNull()
+  })
+
+  it('recovers a stale dialing row: CallHub STARTING (8) commits dialed', async () => {
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.dialing,
+    })
+    await ageDialingRow(outreachId, 30)
+    statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.STARTING))
+
+    await service.jobs.runSchedule('robocallSendSweep')
+
+    expect(launchSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.dialed)
     expect(satellite.dialedAt).not.toBeNull()
@@ -1066,7 +1118,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await ageDialingRow(outreachId, 30)
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.END))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
@@ -1084,7 +1136,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await ageDialingRow(outreachId, 30)
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.ABORT))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
@@ -1099,7 +1151,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     await ageDialingRow(outreachId, 30)
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
@@ -1125,7 +1177,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
       .mockResolvedValue()
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(failSpy).toHaveBeenCalledWith(outreachId, 'send')
     expect(launchSpy).not.toHaveBeenCalled()
@@ -1140,7 +1192,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     })
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.START))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     // updatedAt is recent, so the stale predicate misses — a healthy in-flight
     // launch is never reconciled underneath itself.
@@ -1155,13 +1207,13 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
     launchSpy.mockRejectedValueOnce(new BadGatewayException('response lost'))
     statusSpy.mockResolvedValue(vbWith(CALLHUB_VB_STATUS.PAUSE))
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     // First pass: launch threw, CallHub PAUSED → reverted to authorized.
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.authorized,
     )
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
     // Second pass: the retry launches successfully and dials exactly once.
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.dialed,
@@ -1169,7 +1221,7 @@ describe('OutreachRobocallSendService.sweepRobocallSend (prod)', () => {
   })
 })
 
-describe('OutreachRobocallSendService.sweepRobocallSend guards', () => {
+describe('the robocallSendSweep schedule guards', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
   afterEach(() => {
@@ -1177,11 +1229,11 @@ describe('OutreachRobocallSendService.sweepRobocallSend guards', () => {
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const outreachId = await createDraft({ sendInHours: -1 })
 
-    await send.sweepRobocallSend()
+    await service.jobs.runSchedule('robocallSendSweep')
 
     expect(launchSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(

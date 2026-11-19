@@ -13,16 +13,13 @@ vi.mock('braintrust', async (importOriginal) => {
 })
 
 describe('BraintrustService.tracedNested', () => {
-  const originalApiKey = process.env.BRAINTRUST_API_KEY
-
   afterEach(() => {
-    process.env.BRAINTRUST_API_KEY = originalApiKey
     vi.clearAllMocks()
   })
 
   describe('when Braintrust is disabled', () => {
     beforeEach(() => {
-      delete process.env.BRAINTRUST_API_KEY
+      vi.stubEnv('BRAINTRUST_API_KEY', undefined)
     })
 
     it('calls the function directly without tracing', async () => {
@@ -48,7 +45,7 @@ describe('BraintrustService.tracedNested', () => {
 
   describe('when Braintrust is enabled', () => {
     beforeEach(() => {
-      process.env.BRAINTRUST_API_KEY = 'test-key'
+      vi.stubEnv('BRAINTRUST_API_KEY', 'test-key')
       vi.mocked(braintrust.initLogger).mockReturnValue(
         // SDK constructor returns the Logger class; we only need a non-null sentinel.
         {} as ReturnType<typeof braintrust.initLogger>,

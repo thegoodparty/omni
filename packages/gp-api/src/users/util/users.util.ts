@@ -37,13 +37,18 @@ export const TEST_USER_DOMAIN = '@test.goodparty.org'
 // so Amplitude flags targeting internal traffic apply to them on dev; the
 // qa-<uuid> local part is what marks them as test users — no staff email
 // takes this shape, so real @goodparty.org accounts stay non-test.
+//
+// The +clerk_test subaddress puts them in Clerk test mode, which sends no
+// email: goodparty.org has real MX, so mail to a qa-<uuid> mailbox that does
+// not exist hard-bounces, and Clerk pauses a dev instance's email over it.
+// The pattern still accepts the bare form so older fixture users get swept.
 export const FIXTURE_USER_EMAIL_PREFIX = 'qa-'
 export const FIXTURE_USER_EMAIL_DOMAIN = '@goodparty.org'
 export const FIXTURE_USER_EMAIL_PATTERN =
-  /^qa-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}@goodparty\.org$/i
+  /^qa-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:\+clerk_test)?@goodparty\.org$/i
 
 export const newFixtureUserEmail = () =>
-  `${FIXTURE_USER_EMAIL_PREFIX}${randomUUID()}${FIXTURE_USER_EMAIL_DOMAIN}`
+  `${FIXTURE_USER_EMAIL_PREFIX}${randomUUID()}+clerk_test${FIXTURE_USER_EMAIL_DOMAIN}`
 
 export const isTestUser = (params: { email: string }) =>
   params.email.endsWith(TEST_USER_DOMAIN) ||

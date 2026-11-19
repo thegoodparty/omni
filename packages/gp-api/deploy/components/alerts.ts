@@ -1,6 +1,9 @@
 import { ControllerName } from '../../src/generated/route-types'
 import { Alert } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
+import { jobAlerts } from './alerting/job-alerts'
+import { sesReputationAlerts } from './alerting/ses-reputation-alerts'
+import { vendorDriftAlerts } from './alerting/vendor-drift-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
 
 /**
@@ -24,9 +27,8 @@ import { doorKnockingCredits } from './alerting/door-knocking-spend'
  * stalls one person's `npm run setup` — they are looking at the error already.
  * There is no product surface behind it to page for.
  *
- * `version` echoes the build version and `queue` is a method literally named
- * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
- * a product route. Nothing downstream depends on either answering.
+ * `version` echoes the build version — a development poke, not a product
+ * route. Nothing downstream depends on it answering.
  *
  * Every entry is now a claim of that kind, which was not true until 2026-09-17.
  * `mcp` sat here because it had no ROUTE_MAP entries at all — its only handler
@@ -44,10 +46,16 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'test-fixtures/vendor-mocks',
   'dev-env',
   'version',
-  'queue',
   // 404s outside mock mode (non-prod only); prod traffic is by definition
   // not ours, same posture as test-fixtures.
   'vendor-mocks/geoapify',
+  // Same posture: non-prod only, 404 in live mode.
+  'vendor-mocks/peerly',
+  'vendor-mocks/vercel',
+  'vendor-mocks/route53',
+  'vendor-mocks/ses',
+  'vendor-mocks/ses/cloudwatch',
+  'vendor-mocks/callhub',
   // Non-prod only and judge-only: every prod request is a 404 by design, so
   // a rule here could only ever page on the gate working.
   'judge',
@@ -150,6 +158,39 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
 ]
 
 /*
+ * Single routes that get no route alert although their controller does.
+ *
+ * `POST /v1/email/webhooks/sns` answers 503 on purpose: when
+ * EMAIL_INBOUND_TOPIC_ENV is unset, or the signing certificate or the
+ * subscription URL cannot be fetched, the 503 is what makes SNS redeliver. On
+ * dev and preview, where inbound mail is not wired, that is the steady state.
+ * A real inbound-mail outage shows up as replies not arriving, which is not an
+ * emergency, so no response from this route is worth a page. The controller's
+ * other routes (unsubscribe, forward-confirm) stay watched.
+ */
+export const ROUTES_WITHOUT_ROUTE_ALERTS: string[] = [
+  'POST /v1/email/webhooks/sns',
+]
+
+/*
+ * Controllers whose 504 does not page. gp-api itself answers 504 in exactly one
+ * place: a Databricks voter query that outran its ceiling, with the message
+ * "Narrow the audience and try again" and errorCode VOTER_QUERY_TIMEOUT. On
+ * `contacts` that is a user building an audience too broad to count or list
+ * (POST /v1/contacts/count, GET /v1/contacts), and the response tells them what
+ * to do. In the 7 days to 2026-10-18 prod answered 193 such 504s on
+ * GET /v1/contacts alone, so paging on each one trains people to ignore the
+ * rule that also catches the faults on these routes.
+ *
+ * Only the 504 status is dropped. A warehouse that is down answers 502
+ * (VOTER_DATA_UNREACHABLE), a handler bug answers 500, and a request the
+ * gateway severs has no status at all; all three still page. door-knocking is
+ * deliberately not listed: its pack-scan timeout is a fault there, not a
+ * question the caller can answer by narrowing anything.
+ */
+export const VOTER_QUERY_TIMEOUTS_NOT_PAGED: ControllerName[] = ['contacts']
+
+/*
  * EVENT RULES. A log rule with `threshold: 0` that pages on any occurrence of a
  * line reads a [1m] window, every minute, ending 30 seconds before the
  * evaluation, with `for: 0m` and a `keepFiringFor`.
@@ -207,8 +248,49 @@ export const GLOBAL_ALERTS: Alert[] = [
     expr: '1 - (sum(rate(probe_all_success_sum{job="gp-api-$ENV-health"}[5m])) / sum(rate(probe_all_success_count{job="gp-api-$ENV-health"}[5m])))',
     threshold: 0.3,
     for: '2m',
+    // A query to Grafana Cloud Prometheus timing out (2026-10-21 06:46Z,
+    // ENG-11393) paged as a probe failure with the endpoint never measured.
+    // Keep the last real answer instead; a broken query path is reported by
+    // `alerting-rule-evaluations-failing`.
+    execErrState: 'KeepLast',
     message:
       'Synthetic monitoring probes are failing against the health endpoint — the service may be unreachable externally.',
+  },
+  {
+    slug: 'gp-api-fleet-down',
+    name: 'gp-api is not answering from any probe location',
+    type: 'metric',
+    // Every location failing the same round is the signal, not a share of a
+    // window. On 2026-11-04 the fleet froze for 3m42s and the 5m-rate rule
+    // above fired 29 seconds after it had recovered. In the 90 days to
+    // 2026-11-06 all three locations failed together in only three rounds
+    // (2026-09-14 14:50, 2026-10-19 21:52, 2026-11-04 18:23) and the ALB saw a
+    // real fault each time, while a single location failed alone 90 times. So
+    // this fires on the first such round and leaves partial failures to the
+    // rule above. It evaluates every minute because this stack rejects rule
+    // groups faster than its 1m `min_interval`.
+    expr: '1 - max(probe_success{job="gp-api-$ENV-health"})',
+    threshold: 0.5,
+    for: '0m',
+    execErrState: 'KeepLast',
+    message: [
+      'Every synthetic probe location failed its latest check of `/v1/health`, so no gp-api task is answering within 10 seconds. Users are likely seeing errors or hung requests on every page.',
+      'Check the gp-api prod ECS service and the `master-gpapimasterLoadBa` load balancer (HealthyHostCount, 5xx) in CloudWatch, and look for a deploy or a request that is blocking the event loop.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'delegate-swarm-probe-failure',
+    name: '[Ops] Delegate agent swarm unreachable',
+    type: 'metric',
+    // Two probes every 2 minutes, so 10 minutes holds about 8 executions. One
+    // failed round (2/8) stays under 30%; two consecutive rounds page.
+    expr: '1 - (sum(rate(probe_all_success_sum{job="delegate-swarm-health"}[10m])) / sum(rate(probe_all_success_count{job="delegate-swarm-health"}[10m])))',
+    threshold: 0.3,
+    for: '2m',
+    message: [
+      'Synthetic probes to https://delegate-swarm.infra.goodparty.org/health are failing, so Delegate is probably not answering Slack mentions either.',
+      'The usual cause is the swarm host running out of memory: the single-threaded API stalls on disk and logs `[db-client] slow sync statement blocked the event loop` in the `agent-swarm-api-1` stream of CloudWatch Logs `/delegate-swarm/containers` (infrastructure account 394495727159). It normally recovers on its own once the build that caused it is killed. Diagnosis and restart steps are in the ops repo, `agent-swarm/README.md`.',
+    ].join('\n\n'),
   },
   {
     slug: 'shared-synthesis-prompt-fallback',
@@ -218,9 +300,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     // its cluster-naming prompt from Braintrust in strict mode: a hosted
     // placeholder the code does not supply raises, and the pipeline falls
     // back to its in-repo prompt and still completes the run — themes still
-    // land, so nothing on screen looks wrong. The consumer logs this one
-    // line, from both handlePollAnalysisComplete and the
-    // feedbackSynthesisComplete case, whichever product the run was for.
+    // land, so nothing on screen looks wrong. gp-api logs this one line
+    // from both the pollAnalysisComplete and feedbackSynthesisComplete jobs,
+    // whichever product the run was for.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -260,6 +342,30 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'serve-managed-panel-wave-failed',
+    name: '[Serve] Managed civic panel wave job failed a step',
+    type: 'log',
+    // A step that throws retries and dead-letters as a pg-boss job
+    // (jobs-dead-letter pages for it). A failed Slack notice does not throw,
+    // so these are the two lines ops relies on.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|~ "Managed panel (fulfilment notice failed|cap notice failed)"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '5m',
+    message: [
+      'The managed civic panel wave job could not post a notice to #bot-tevyn-api in the 60 seconds ending 30 seconds before this check. A failed stall notice is retried on the next hourly run; until a notice goes through, ops is not told that a wave is waiting on its replies or closed without them.',
+      'Click *View in Grafana* to find the line (search "Managed panel") and its header, then the error beside it.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'serve-poll-review-overdue',
     name: '[Serve] Paid poll waiting on staff review past 2 business days',
     type: 'log',
@@ -280,6 +386,53 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'At least one paid Serve poll has been waiting on staff review for more than 2 business days. Nothing sends until it is approved, and the official has already paid.',
       'Click *View in Grafana* and read `outreachId` and `organizationSlug` off the matched lines, then approve, edit or deny each poll from the gp-admin poll queue.',
+    ].join('\n\n'),
+  },
+  // The two managed civic panel free-send safety alarms. Both read
+  // managed_panel.funding_alarm.count, which gp-api seeds with a zero at boot
+  // so `increase()` sees the first event (see managedPanelFunding.metrics.ts).
+  // Each should never fire: a send skipping payment is a money event.
+  {
+    slug: 'serve-managed-panel-unfunded-send-refused',
+    name: '[Serve] Text send refused: neither paid nor a managed panel wave',
+    type: 'metric',
+    expr: 'sum(increase(managed_panel_funding_alarm_count_total{service_name="gp-api", deployment_environment_name="$ENV", kind="send_refused"}[10m])) or vector(0)',
+    threshold: 0,
+    for: '0m',
+    keepFiringFor: '1h',
+    message: [
+      'The text delivery layer refused a Serve send that had neither a paid Stripe checkout nor a live managed civic panel wave behind it. Nothing was handed off and no CSV was written, so no constituent was texted.',
+      'Click *View in Grafana*, then search the logs for "CRITICAL managed panel funding: unfunded text send refused" to read `outreachId`, `sendSeq` and `reason`. A Slack notice with the same ids went to #bot-tevyn-api. Find what moved the row to `pending` without payment: only the SERVE_TEXT purchase claim and ManagedWaveFundingService.claimFree may. `flag_off` or `enrollment_stopped` on a pilot wave means serve-citizen-panels was turned off for the approving official, or the panel was stopped, after the claim, which is expected; anything else is a bug to fix before more sends go out.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'serve-managed-panel-funding-mismatch',
+    name: '[Serve] Daily reconciliation found a send with no funding',
+    type: 'metric',
+    expr: 'sum(increase(managed_panel_funding_alarm_count_total{service_name="gp-api", deployment_environment_name="$ENV", kind="reconcile_mismatch"}[10m])) or vector(0)',
+    threshold: 0,
+    for: '0m',
+    keepFiringFor: '1h',
+    message: [
+      'The daily managed panel funding reconciliation found Serve text or poll sends created in the last week that moved past checkout with neither a paid Stripe session nor a valid managed civic panel wave. These may already have been texted. It repeats daily until each is resolved, for up to a week.',
+      'Click *View in Grafana*, then search the logs for "CRITICAL managed panel funding: send past pending with no funding" to read the `mismatches` list (outreachId, sendSeq, organizationSlug, status). The same list went to #bot-tevyn-api. Check each in the gp-admin outreach console and find how it skipped payment before anything else sends.',
+    ].join('\n\n'),
+  },
+  // Hand-off rows a person has to pick up. Reads
+  // managed_panel.handoff_alarm.count, which each 15-minute overdue sweep adds
+  // to for every stuck row it finds, so a row left alone keeps these firing
+  // (see managedPanelHandoff.metrics.ts).
+  {
+    slug: 'serve-managed-panel-handoff-needs-human',
+    name: '[Serve] Text wave hand-off needs a person',
+    type: 'metric',
+    expr: 'sum(increase(managed_panel_handoff_alarm_count_total{service_name="gp-api", deployment_environment_name="$ENV", kind="needs_human"}[20m])) or vector(0)',
+    threshold: 0,
+    for: '0m',
+    keepFiringFor: '1h',
+    message: [
+      'At least one managed panel text wave hand-off has no replies 54 hours after its send time (the 48-hour reply window plus 6 hours), so the swarm never uploaded its Scale to Win export.',
+      'A Slack notice with the official, outreach id, wave and send time went to #bot-tevyn-api. Check the send went out in Scale to Win, export its replies, and upload them in gp-admin. It keeps firing until the replies are in.',
     ].join('\n\n'),
   },
   // ------ Win Warnings ------ //
@@ -340,10 +493,37 @@ export const GLOBAL_ALERTS: Alert[] = [
     timeRangeOffsetSeconds: 30,
     keepFiringFor: '1h',
     message: [
-      'A paid P2P outreach draft failed to submit to Peerly in the 60 seconds ending 30 seconds before this check. The candidate has been charged and no texts are scheduled.',
+      'A paid P2P outreach draft failed to submit to Peerly in the 60 seconds ending 30 seconds before this check. The candidate has paid or has a hold on their card, and no texts are scheduled.',
       'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId, the campaignId, the checkout session that paid (`chargeRef`) and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
-      'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, the candidate has to edit the message and schedule again, and scheduling again CHARGES THEM A SECOND TIME. So the charge named on the log line is the one to refund in Stripe, and nothing refunds it for us. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
+      'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, and the candidate has to edit the message and schedule again, which takes a second payment. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
+      'For a content rejection, check how the first payment was taken. If the outreachId has an `outreach_p2p_sms` row in settle_state `authorized`, the card was only held, not charged: the stranded-authorized sweep voids the hold once the send date passes, and you can void its `authorization_intent_id` in Stripe sooner. With no such row, the checkout charged the card, so the charge named on the log line (`chargeRef`) is the one to refund in Stripe, and nothing refunds it for us. Then add the refused word or link to the pre-checkout check in contracts (`checkSmsStandards`), so the next candidate is stopped before paying.',
       'The draft reverts to pending_payment either way, and holds everything needed for a manual submission (script, image URL, phone list, identity).',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'win-domain-email-forwarding-rejected',
+    name: '[Win] Forward Email rejected a domain, so it gets no email forwarding',
+    type: 'log',
+    // DomainsService.setupEmailForwardingJob completes the
+    // domainEmailForwarding job on a permanent 4xx instead of retrying it to
+    // a dead letter, so this line is the only thing that reports it.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Forward Email rejected email forwarding setup; not retrying"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. Held for a day:
+    // every task boot sends the job again for a domain still without
+    // forwarding, so one rejected domain would otherwise page every deploy.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '24h',
+    message: [
+      'Forward Email refused to set up email forwarding for a candidate domain with a 4xx in the 60 seconds ending 30 seconds before this check. The domain gets no `info@<domain>` campaign email, and retrying will not change the answer.',
+      'Click *View in Grafana* and search "Forward Email rejected email forwarding setup; not retrying". The line names the `domainId`, `domainName` and `status`, and the error carries Forward Email\'s reason. Fix what it objects to (the domain record or its DNS), and the next deploy sends the job again for any domain still without forwarding.',
     ].join('\n\n'),
   },
   {
@@ -353,9 +533,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The robocall send + settlement chain (staging, dial, capture,
     // fresh-charge, completion poll, hold recovery) logs `CRITICAL robocall ...`
     // on every exceptional path a human must look at: a permanently-failed send
-    // (`send_failed`, hold voided), a delivered run we could NOT capture
-    // (`uncollectable` — money may be owed), a CallHub response-schema mismatch
-    // stranding a delivered run, a dial commit-miss (the campaign may be dialing
+    // (`send_failed`, hold voided), a delivered run we could NOT collect
+    // (a fresh-charge decline — money may be owed; a merely lapsed hold is
+    // recovered by the fresh-charge sweep and only warns), a CallHub
+    // response-schema mismatch stranding a delivered run, a dial commit-miss (the campaign may be dialing
     // with no `dialed` record), an audio ETag mismatch refused at staging, or an
     // orphaned-hold cancel. Every one shares the `CRITICAL robocall` prefix, so a
     // single line filter catches every path. They should almost never fire; each
@@ -374,7 +555,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     keepFiringFor: '1h',
     message: [
       'A robocall send/settlement CRITICAL was logged in the 60 seconds ending 30 seconds before this check — a money- or delivery-integrity event that needs a human.',
-      'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
+      'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / fresh-charge decline / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run whose fresh charge declined, or a campaign that may be dialing with no record.',
       'These are not self-healing beyond the automatic sweeps; check the settleState and the Stripe hold/charge for the named outreachId before assuming recovery.',
     ].join('\n\n'),
   },
@@ -482,6 +663,31 @@ export const GLOBAL_ALERTS: Alert[] = [
   // written out four times so the four share one expression — see the file for
   // why that matters to the read cost.
   ...geoapifyBudgetAlerts,
+  ...vendorDriftAlerts,
+  ...sesReputationAlerts,
+  ...jobAlerts,
+  {
+    slug: 'clerk-dev-user-cap-headroom',
+    name: '[Ops] Clerk dev instance is nearing its user cap',
+    type: 'metric',
+    // Pinned to dev rather than `$ENV`: only prod provisions alerting, and the
+    // instance at risk is the dev one that every E2E run, preview and person
+    // shares. Max across tasks, since one task records the count each hour and
+    // a count is not additive.
+    expr: 'max(clerk_users{service_name="gp-api", deployment_environment_name="dev", population="all"})',
+    // 80% of the dev instance's 50,000-user cap.
+    threshold: 40_000,
+    for: '0m',
+    // The gauge is written once an hour, and a dev deploy drops it until the
+    // next count. Held past that gap so a dev instance that stays near the cap
+    // is one page, not one per deploy.
+    keepFiringFor: '90m',
+    evaluationIntervalSeconds: 300,
+    message: [
+      'The Clerk dev instance holds more than 40,000 users, against a hard cap of 50,000. At the cap Clerk refuses new sign-ups, and every E2E run, preview and dev login that creates a user fails (2026-09-29 to 2026-10-01).',
+      'gp-api dev records the count hourly from the `testUserSweep` schedule (`UsersService.reportClerkUserCounts`), before the sweep deletes e2e users older than 3 hours and QA fixture users older than 24. Compare the two series: `clerk_users{deployment_environment_name="dev"}` by `population`. If `test_domain` makes up most of the total, the sweep is falling behind or failing: look for `Test user cleanup pass complete` and `Failed to delete` in the dev gp-api logs. If it does not, the growth is from people or other fixtures, and someone needs to prune users in the Clerk dashboard.',
+    ].join('\n\n'),
+  },
   {
     slug: 'door-knocking-pack-build-failed',
     name: '[Win] Door-knocking pack build failed mid-response',
@@ -546,16 +752,16 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'people-profile-revalidation-failing',
     name: '[People] Public profile cache revalidation failing',
     type: 'metric',
-    // person_profile.revalidation.count{result="failed"} — the outbound cache
-    // bust to gp-marketing. Sustained failures mean publish/unpublish/delete
-    // edits are live in gp-api but the public /people page stays stale until its
-    // ISR window (1h) expires.
-    expr: 'sum(rate(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[5m]))',
+    // Outbound cache bust to gp-marketing; failures leave /people pages stale
+    // for up to 1h. Windowed because the call is sparse (~1-2/day), which a
+    // rate-for-10m rule never caught (ENG-11536).
+    expr: '(sum(increase(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[6h])) or vector(0)) - (sum(increase(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="success"}[6h])) or vector(0))',
     threshold: 0,
-    for: '10m',
+    for: '0m',
+    keepFiringFor: '6h',
     message: [
-      'gp-api has been failing to revalidate public /people profile pages for 10 minutes.',
-      'Owner edits (publish/unpublish/delete) are persisted but the cached marketing page will not refresh until its ISR window expires. Click *View in Grafana* (People Profiles dashboard), then check that MARKETING_REVALIDATE_SECRET matches gp-marketing and that POST $WEBAPP/api/revalidate-person is reachable and returns 200.',
+      'More failed than successful /people page revalidations in the last 6 hours.',
+      'Edits are saved, but the public page stays stale for up to 1 hour. Check the log "Marketing revalidation request failed (non-fatal)". A 429 with `vercelMitigated` set means the gp-marketing Vercel firewall is blocking gp-api: add a Bypass rule for POST /api/revalidate-person. Otherwise check that MARKETING_REVALIDATE_SECRET matches gp-marketing.',
     ].join('\n\n'),
   },
   {
@@ -640,7 +846,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     // What that rule was reaching for, and could not see, is the lookup
     // ERRORING: resolveContactEmail returns null both for "no address on file"
     // (ordinary, and most of the spine) and for a 404, and logs this line only
-    // for a genuine fault — M2M auth, a 5xx, or election-api unreachable. That
+    // for a genuine fault — the election database read failing. That
     // is the actionable signal. Address coverage is a data question and belongs
     // on the dashboard, not in #dev-alerts.
     expr: [
@@ -656,9 +862,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     // window that is read (5x ingest).
     timeRangeSeconds: 300,
     message: [
-      "gp-api has been unable to read subjects' contact addresses from election-api for 15 minutes.",
+      "gp-api has been unable to read subjects' contact addresses from the election database for 15 minutes.",
       "Every profile-completion nudge in this window was skipped for want of an address, which is indistinguishable from ordinary thin coverage in the metric — this log line is the only thing that separates the two. Visitors' asks are unaffected and remain stored in `person_profile_claim_request`.",
-      'Click *View in Grafana*, then read the `status` and `reason` fields on the matched lines. A 401/403 is the gp-api → election-api M2M credential; a 5xx or a connection error is election-api itself. Note the response body is deliberately not logged, because on this route the body IS the address.',
+      'Click *View in Grafana*, then read the `reason` field on the matched lines: it carries the database error, such as P1001 (cannot reach the database) or P2024 (connection pool timeout). Note the row is deliberately not logged, because on this read the row IS the address.',
     ].join('\n\n'),
   },
   {
@@ -843,10 +1049,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     type: 'log',
     // Count of DISTINCT campaigns whose gold auto-match resolved a position but
     // found NO associated district in the last 6h. Keying off failureKind
-    // isolates the *silent* failure mode (election-api returns a position with
-    // no district, or a 404) from failureKind="error" (upstream 5xx), which
-    // already pages via the per-route 5xx controller alerts — so this does not
-    // double-alert on genuine election-api outages. The distinct-campaign count
+    // isolates the *silent* failure mode (the election database has the
+    // position but no district for it, or no position at all) from
+    // failureKind="error" (the read failing), which already pages via the
+    // per-route 5xx controller alerts — so this does not double-alert on
+    // genuine election database outages. The distinct-campaign count
     // dedupes a single campaign retrying (the place_id incident logged 30
     // retries from one position). Real no_match volume is ~0 in normal
     // operation, so a spike almost always means the position→district pipeline
@@ -880,8 +1087,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     evaluationIntervalSeconds: 1800,
     message: [
       'More than 5 distinct campaigns hit a "no matched district" outcome in the last 6h — well above the ~0 baseline.',
-      'This usually means the auto-district-matching pipeline broke *silently*: election-api is returning a position with no associated district (or a 404) rather than an error. Likely causes: a district-association / dbt mart regression, or an election-api data/deploy issue that stopped attaching districts. Note that upstream election-api errors (5xx) are excluded here — those page via the per-route error alerts instead.',
-      'Click *View in Grafana* to see the failure logs (event="DistrictMatch", failureKind="no_match"), then inspect the affected positionId / ballotreadyPositionId values and confirm whether election-api is still returning districts for them.',
+      'This usually means the auto-district-matching pipeline broke *silently*: the election database is returning a position with no associated district (or no position) rather than an error. Likely causes: a district-association / dbt mart regression, or an election data load that stopped attaching districts. Note that failed reads (failureKind="error") are excluded here — those page via the per-route error alerts instead.',
+      'Click *View in Grafana* to see the failure logs (event="DistrictMatch", failureKind="no_match"), then inspect the affected positionId / ballotreadyPositionId values and confirm whether the election database still has districts for them.',
     ].join('\n\n'),
     // BOTH ARE `annotate`, NOT `suppress`, and the distinction is the whole
     // reason this alert is worth listing at all. The two shapes below are
@@ -894,7 +1101,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       {
         id: 'position-resolved-without-district',
         summary:
-          'election-api returned a position but attached no district to it, so the match silently found nothing. Usually a district-association or dbt mart gap for that position rather than an outage.',
+          'The election database has the position but no district attached to it, so the match silently found nothing. Usually a district-association or dbt mart gap for that position rather than an outage.',
         evidence: [
           '{service_name="gp-api", deployment_environment_name="$ENV"}',
           '|= "DistrictMatch"',
@@ -909,7 +1116,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       {
         id: 'upstream-position-lookup-404',
         summary:
-          'election-api answered 404 for the position, so there was nothing to match against. Distinct from a 5xx, which pages through the per-route controller alerts instead.',
+          'The election database has no such position, so there was nothing to match against. Distinct from the read failing, which pages through the per-route controller alerts instead.',
         evidence: [
           '{service_name="gp-api", deployment_environment_name="$ENV"}',
           '|= "DistrictMatch"',
@@ -917,7 +1124,7 @@ export const GLOBAL_ALERTS: Alert[] = [
           '| event = "DistrictMatch"',
         ].join(' '),
         confirmedBy:
-          'The matched lines report a 404 status from the election-api lookup. Any 5xx in the same window means this is an upstream outage instead, which is a different alert and a different response.',
+          'The matched lines carry failureKind="no_match" with a reason naming no position. Any failureKind="error" in the same window means the read itself failed instead, which is a different alert and a different response.',
         action: 'annotate',
       },
     ],
@@ -1057,7 +1264,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
       'These routes back the public candidate profiles on the marketing site. 404s are excluded because most requests here are meant to miss: the caller asks about every candidate, and a person who maps to no L2 district has no heat map to return.',
-      'Click *View in Grafana* to find the failing requests. The voter-density route reads election-api over HTTP, so a failure there surfaces as a 502 rather than as a database error in this service.',
+      'Click *View in Grafana* to find the failing requests. The voter-density route answers 502 when its election database read fails, so look for a P1001 or P2024 next to those requests.',
       'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout rather than the handler, and points at how long the query takes rather than at what it returned.',
     ].join('\n\n'),
   },
@@ -1128,6 +1335,42 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'grafana-spend-anomaly',
+    name: 'Grafana Cloud spend growing much faster than usual',
+    type: 'usage',
+    // The whole account's month-to-date overage, so a runaway in any product
+    // trips it. The last 24h of growth is divided by the median 24h growth of
+    // the 7 days ending a day ago, sampled hourly. `>= 0` drops the samples
+    // that straddle the monthly reset, where the counter falls back to zero.
+    //
+    // The floor keeps a quiet week from turning a small day into a large
+    // ratio: the last 24h must grow by more than about half of a quiet day.
+    //
+    // Silent before the 5th (UTC). Grafana re-estimates the overage over the
+    // first 2-3 days of each month, and the step reads as a spike: up to 9x on
+    // 2026-11-02 to 11-04 without this gate.
+    //
+    // Backtested hourly over 2026-10-15 to 2026-11-14: quiet until the metrics
+    // cardinality incident, when it went above 2.5 at 2026-11-12 06:00 and
+    // stayed there. The highest reading before it was 2.06.
+    expr: [
+      '((sum(grafanacloud_org_total_overage) - sum(grafanacloud_org_total_overage offset 1d))',
+      '/ quantile_over_time(0.5, ((sum(grafanacloud_org_total_overage) - sum(grafanacloud_org_total_overage offset 1d)) >= 0)[7d:1h] offset 1d))',
+      'and on() ((sum(grafanacloud_org_total_overage) - sum(grafanacloud_org_total_overage offset 1d)) > 25)',
+      'and on() (day_of_month() > 4)',
+    ].join(' '),
+    threshold: 2.5,
+    // Two hourly readings in a row, so one odd hour of billing data does not
+    // file a ticket.
+    for: '60m',
+    evaluationIntervalSeconds: 3600,
+    message: [
+      'Grafana Cloud spend is growing much faster than usual: the account’s overage grew more than 2.5x its typical day in the last 24 hours. Check Billing/Usage and Cardinality management in Grafana Cloud to see which product grew.',
+      'To split it by product, compare the 24h growth of the `grafanacloud_org_*_overage` series on the `grafanacloud-usage` datasource, starting with `grafanacloud_org_metrics_overage` and `grafanacloud_org_logs_overage`. A metrics jump is usually a new high-cardinality label; a logs jump is ingest or query volume (see docs/observability.md § What a Loki query costs).',
+      'The rule does not evaluate before the 5th of the month (UTC), because Grafana re-estimates the overage in the first days of each month.',
+    ].join('\n\n'),
+  },
+  {
     slug: 'recorded-metric-not-writing',
     name: 'A recording rule has stopped writing its metric',
     type: 'metric',
@@ -1174,6 +1417,209 @@ export const GLOBAL_ALERTS: Alert[] = [
       'The `gp_api:door_knocking_credits:sum1m` recording rule has written nothing for 30 minutes. **Every Geoapify budget alert is blind.** The four daily budget tiers and the 6h fast-burn ceiling all read this metric, so door-knocking spend is currently unwatched — including the case where the account runs dry and list creation starts answering 502 for every organization at once.',
       'This does not mean spend is high. It means we cannot see spend. Read the raw log line directly while this is broken: `sum(sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))` in Explore on `grafanacloud-logs`, against the 50,000-credit pool in `GEOAPIFY_DAILY_CREDIT_POOL`.',
       'Read the rule\'s own health first, then its output. `GET /api/prometheus/grafana/api/v1/rules` carries `health` and `lastError` for the rule named `gp-api door-knocking Geoapify credits per minute`, and on 2026-09-29 that field named the cause outright: `remote write failed: failed to read dataframe / unsupported time series type "timeseries-multi"`. Two different faults produce that message. Either the query returns more than one series — check it in Explore, it has to be one unlabelled series — or it ran as a range query and returned a point per step, which is what happens when `queryType: "instant"` is missing from the model JSON in deploy/components/alerting/provisioned-alerts.ts. A `health: ok` with no output at all is a third state, and the original one: the writer failing silently, which is why this alert watches the metric and not the rule.',
+    ].join('\n\n'),
+  },
+  // ------ Operational errors that used to post to #bot-dev ------ //
+  //
+  // These replaced SlackService.errorMessage() posts. #bot-dev carried ~600
+  // posts a day, so on 2026-11-04 the first automated signal of an incident
+  // landed there and nobody saw it. An operational error belongs on the Bugs
+  // board, which is where a prod rule routes.
+  {
+    slug: 'queue-message-discarded',
+    name: '[Shared] Queue message discarded after a non-retryable error',
+    type: 'log',
+    // withLegacyErrorSwallowing in queueConsumer.service.ts deletes the SQS
+    // message after logging this, so the work is gone and nothing retries it.
+    // Zero lines in prod over the 30 days to 2026-11-06, so one pages.
+    // Grouped by the message's QueueType so each job type is its own instance.
+    expr: [
+      'sum by (queueMessageType) (count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Message processing failed with non-retryable error, discarding message"',
+      '| keep queueMessageType',
+      '[1m]))',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. No keepFiringFor,
+    // like the per-route rules, because the query is grouped. The notification
+    // policy groups by queueMessageType for the same reason it groups by
+    // request_endpoint: a second type would otherwise join the first type's
+    // already-notified group and go out only as resolved.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    summaryDetail: '`{{ $labels.queueMessageType }}`',
+    message: [
+      'The queue consumer discarded a `{{ $labels.queueMessageType }}` message after a non-retryable error, in the 60 seconds ending 30 seconds before this check. The message was deleted from SQS, so whatever job it carried did not run and will not be retried.',
+      'Click *View in Grafana* and search "Message processing failed with non-retryable error, discarding message". The line carries the `error` and the full SQS `message`, whose Body holds the job payload. A Prisma P2025 or P2002, or an error mentioning validation, is what the consumer treats as permanent (`legacyShouldRequeueError`). Re-enqueue the payload once the cause is fixed if the job still matters.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'race-target-details-failed',
+    name: '[Win] Race target lookup failed and was swallowed',
+    type: 'log',
+    // ElectionsService.buildRaceTargetDetails returns null on any error so
+    // callers fall back, which means no route ever answers 5xx for it. A
+    // missing projected turnout row is a no-match and is not logged; this
+    // line is only a genuine fault.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "RaceTargetDetailsFailed"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
+    message: [
+      'A projected turnout lookup failed with an error, not a no-match, in the 60 seconds ending 30 seconds before this check. The caller got no win number or voter contact goal and fell back silently, so the candidate sees missing or stale race targets.',
+      'Click *View in Grafana* and search "RaceTargetDetailsFailed". The line names the `districtId`, or the `state`, `L2DistrictType` and `L2DistrictName`, plus the `error`. A P1001 or P2024 means the election database was unreachable or out of connections; anything else is a bug in the lookup.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'organization-stale-election-row',
+    name: '[Shared] Organization points at a deleted election-db row',
+    type: 'log',
+    // OrganizationsService.makeFriendly returns the org without its
+    // position/district rather than 404 the whole list, so no route answers an
+    // error for this (ENG-11615: one dangling overrideDistrictId bounced a
+    // candidate into onboarding for four days). The row never comes back by
+    // itself, so this line is the only thing asking for the repair.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Organization references an election database row"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. Held for a day: the
+    // condition is permanent until a human clears the row, so a quiet stretch
+    // between requests must not turn one broken organization into a page per
+    // visit.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '24h',
+    message: [
+      'An organization points at a district or position id that no longer exists in the election database, in the 60 seconds ending 30 seconds before this check. The org is still served, without a position or district, so a page that needs one will look empty or default. One such organization sent a candidate through onboarding on every login for four days (ENG-11615).',
+      'Click *View in Grafana* and search "Organization references an election database row". The line names the `slug` and the stale `positionId` or `overrideDistrictId`. Clear the stale column for that organization (`PATCH /v1/organizations/admin/:slug` takes `overrideDistrictId: null` or `ballotReadyPositionId: null`) or repoint it at the current row, then confirm `GET /v1/organizations` for its owner returns a district.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'hubspot-sync-errors',
+    name: '[Shared] HubSpot sync errors',
+    type: 'log',
+    // Every error CrmCampaignsService and CrmOfficeHolderService log. Measured
+    // in prod over the 30 days to 2026-11-06: 5,079 such lines, nearly all in
+    // HubSpot 429 bursts from 10-08 to 10-19 (up to 625 an hour) that ended
+    // when the admin SMS queue's owner lookups were batched. Since 10-20 the
+    // worst hour is 9 and the worst day 14. A further 529 were
+    // "get-company-owner" 400s from a lookup with no owner id, which no longer
+    // happens. 25 an hour is well clear of today's noise and still well under
+    // what a broken integration produces.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '| detected_level = "error"',
+      '| context =~ "CrmCampaignsService|CrmOfficeHolderService"',
+      '[1h])) or vector(0)',
+    ].join(' '),
+    threshold: 25,
+    for: '0m',
+    // One read of the hour, once an hour: 1x ingest. A sync that is broken
+    // stays broken, so an hour of detection latency costs little.
+    timeRangeSeconds: 3600,
+    timeRangeOffsetSeconds: 30,
+    evaluationIntervalSeconds: 3600,
+    message: [
+      'gp-api logged more than 25 HubSpot sync errors in the last 60 minutes, from CrmCampaignsService (company sync) or CrmOfficeHolderService (Office Holder records). Normal is under 10 an hour. HubSpot companies and office holders are going stale while this lasts.',
+      'Click *View in Grafana* and group the lines by `msg` and `error_code`. A 401 or 403 on everything means the HubSpot token is revoked or lost a scope. A 429 means we are over the rate limit, usually a caller looping over companies one at a time. A 400 names the property HubSpot rejected.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'hubspot-form-submission-failed',
+    name: '[Shared] HubSpot form submission failed',
+    type: 'log',
+    // CrmUsersService.submitCrmForm logs this and throws. POST /v1/subscribe
+    // does not await it, so a failure there never reaches a route alert.
+    // Zero lines in prod over the 30 days to 2026-11-06.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "HubSpot form submission failed"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
+    message: [
+      'A HubSpot form submission failed after its retry, in the 60 seconds ending 30 seconds before this check. The visitor’s sign-up or subscribe did not reach HubSpot.',
+      'Click *View in Grafana* and search "HubSpot form submission failed". The line carries `formId`, `hubspotStatus`, `hubspotCorrelationId` and `hubspotErrorTypes`. An error type like INVALID_EMAIL is the visitor’s input; a 401, 403 or 404 means the token or the form id is wrong.',
+    ].join('\n\n'),
+  },
+  // ------ gp-marketing ------ //
+  {
+    slug: 'gp-marketing-people-sitemaps-failed',
+    name: '[People] gp-marketing people sitemap generation failed',
+    type: 'log',
+    // gp-marketing's sitemap workflow pushes this line to Loki only when a
+    // run fails, so the stream is empty in the steady state. `or vector(0)`
+    // keeps an empty stream reading zero rather than no data.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-marketing", deployment_environment_name="$ENV", job="generate-people-sitemaps"}',
+      '|= "generate-people-sitemaps failed"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. Held for 2h so an
+    // hourly run that keeps failing stays one alert.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '2h',
+    message: [
+      'A gp-marketing people sitemap run failed in the 60 seconds ending 30 seconds before this check. The /people sitemaps search engines read are not being regenerated.',
+      'Click *View in Grafana* and read `failing_step` and `run_url` off the matched line, then open the GitHub Actions run for the failing step’s log.',
+    ].join('\n\n'),
+  },
+  // ------ gp-ai ------ //
+  {
+    // Every gp-ai failure alarm reaches Slack through this one Lambda, so its
+    // own failure has to be watched from outside it: a guard routed through
+    // the notifier is silent exactly when it matters. Its incoming webhook
+    // was revoked when its owner's Slack account was deactivated, and every
+    // delivery failed from 2026-07-28 to at least 2026-11-10 unnoticed.
+    //
+    // CloudWatch writes an Errors datapoint only in a five-minute period with
+    // an invocation, so `last` over the window is the most recent delivery
+    // attempt, and a success writes a zero that resolves the alert. The
+    // notifier runs a few times a day with gaps of up to four days, hence a
+    // seven-day window: shorter, and an outage resolves itself between
+    // alarms.
+    slug: 'gp-ai-slack-notifier-failing',
+    name: '[Shared] gp-ai Slack notifier is failing',
+    type: 'cloudwatch',
+    cloudwatchNamespace: 'AWS/Lambda',
+    cloudwatchDimensions: { FunctionName: ['shared-slack-notifier'] },
+    cloudwatchStatistic: 'Sum',
+    expr: 'Errors',
+    threshold: 0,
+    for: '0m',
+    timeRangeSeconds: 604800,
+    evaluationIntervalSeconds: 300,
+    execErrState: 'KeepLast',
+    message: [
+      'The latest delivery by `shared-slack-notifier`, the Lambda that posts gp-ai failure alarms to #ai-service-failures, failed. **No gp-ai failure alarm is reaching Slack**: PMF Engine, autopilot, case scout, DDHQ matcher, serve-analyze, the alert filter and the gp-api preview alarms all go through it.',
+      'Read `/aws/lambda/shared-slack-notifier` in CloudWatch. `Slack API error: 400 - invalid_token` or `404 - no_service` means the incoming webhook was revoked: a Slack admin creates a new incoming webhook for #ai-service-failures, and an admin writes it as `SLACK_WEBHOOK_URL` in `AI_SECRETS_PROD` (docs/secrets.md). A warm container keeps the old URL until it is recycled.',
+      'This resolves on the first delivery that succeeds.',
     ].join('\n\n'),
   },
 ]

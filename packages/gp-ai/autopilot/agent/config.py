@@ -24,7 +24,7 @@ STAGES = ("epic-create", "story", "qa", "resume")
 # has stopped making progress and is re-reading the same files.
 STAGE_CEILINGS: dict[str, tuple[float, float]] = {
     "epic-create": (10.0, 30 * 60),
-    "story": (15.0, 45 * 60),
+    "story": (15.0, 90 * 60),
     "qa": (8.0, 45 * 60),
 }
 

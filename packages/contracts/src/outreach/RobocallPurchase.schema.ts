@@ -60,6 +60,9 @@ export const OutreachRobocallDetailSchema = z.object({
   audioKey: z.string(),
   callbackNumber: z.string(),
   billableCount: z.number().int().nullable(),
+  // Payment-settlement state (pending → held → captured, or null before
+  // hold). Read by the E2E spec to confirm the capture job ran.
+  settleState: z.string().optional(),
 })
 export type OutreachRobocallDetail = z.infer<
   typeof OutreachRobocallDetailSchema

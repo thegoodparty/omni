@@ -7,6 +7,14 @@ import type { VariantProps } from 'class-variance-authority'
 import { cn } from '@styleguide/lib/utils'
 import { buttonVariants } from '@styleguide/components/ui/button'
 
+/**
+ * Name the thing and what's lost. The confirm button names the action ("Delete
+ * list", not "Yes"). For a delete, set variant="destructive" on
+ * AlertDialogAction instead of overriding its colors.
+ *
+ * @summary Use to confirm an action that can't be undone, like a delete. For
+ * anything with input, use Dialog.
+ */
 function AlertDialog({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {

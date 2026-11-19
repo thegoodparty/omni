@@ -1,5 +1,6 @@
 import {
   DoorOpenIcon,
+  MailIcon,
   MessageSquareMoreIcon,
   PhoneIcon,
   Share2Icon,
@@ -21,6 +22,7 @@ export const OUTREACH_CHANNEL_LABELS: Record<OutreachChannel, string> = {
   robocall: 'Called',
   socialMedia: 'Digital',
   poll: 'Texted',
+  email: 'Emailed',
 }
 
 // Channel NAMES for surfaces that answer "which channel is this" (the list
@@ -38,6 +40,7 @@ export const OUTREACH_CHANNEL_NOUNS: Record<OutreachChannel, string> = {
   robocall: 'Robocall',
   socialMedia: 'Social post',
   poll: 'Poll',
+  email: 'Email',
 }
 
 export const OUTREACH_CHANNEL_ICONS: Record<OutreachChannel, React.ReactNode> =
@@ -63,4 +66,5 @@ export const OUTREACH_CHANNEL_ICONS: Record<OutreachChannel, React.ReactNode> =
     poll: (
       <MessageSquareMoreIcon size={16} className="shrink-0 text-foreground" />
     ),
+    email: <MailIcon size={16} className="shrink-0 text-foreground" />,
   }

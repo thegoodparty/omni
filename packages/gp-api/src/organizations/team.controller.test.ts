@@ -7,6 +7,7 @@ import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
 import { OutreachAssignmentService } from '@/outreach/services/outreachAssignment.service'
 import { ClerkClient, Invitation } from '@clerk/backend'
 import { TeamInviteMetadata } from '@goodparty_org/contracts'
+import { BadGatewayException } from '@nestjs/common'
 import jwt from 'jsonwebtoken'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationRole } from '../generated/prisma'
@@ -145,6 +146,26 @@ describe('GET /v1/organizations/team', () => {
         email: service.user.email,
       }),
     ])
+    expect(result.data.pendingInvites).toEqual([])
+  })
+
+  it('still lists members when Clerk cannot list pending invites', async () => {
+    await createOrg()
+    const member = await createMemberUser({ email: 'member@example.com' })
+    await addMembership(member.id, OrganizationRole.campaignAdmin)
+    vi.spyOn(
+      stubClerkInvitations(),
+      'listPendingTeamInvitations',
+    ).mockRejectedValue(
+      new BadGatewayException('Failed to list team invitations'),
+    )
+
+    const result = await service.client.get(TEAM_PATH, {
+      headers: { [ORG_SLUG_HEADER]: ORG_SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.members).toHaveLength(2)
     expect(result.data.pendingInvites).toEqual([])
   })
 
@@ -1899,6 +1920,22 @@ describe('GET /v1/organizations/team/invites/mine', () => {
 
     const result = await service.client.get(MINE_PATH, {
       headers: authHeaderFor('user_mine_3'),
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({ invite: null })
+  })
+
+  it('returns null instead of a 502 when Clerk is unavailable', async () => {
+    await service.prisma.user.create({
+      data: { email: 'mine-clerk-down@x.com', clerkId: 'user_mine_4' },
+    })
+    vi.spyOn(stubClerkInvitations(), 'getTeamInviteState').mockRejectedValue(
+      new BadGatewayException('Failed to fetch Clerk user'),
+    )
+
+    const result = await service.client.get(MINE_PATH, {
+      headers: authHeaderFor('user_mine_4'),
     })
 
     expect(result.status).toBe(200)

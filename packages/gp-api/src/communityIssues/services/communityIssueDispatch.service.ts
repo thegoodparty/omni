@@ -1,14 +1,20 @@
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { runsOnGpApi } from '@/agents/agents.registry'
+import { AgentsService } from '@/agents/agents.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
+import { peopleTable as peopleTableFor } from '@/peopleDb/databricks/databricksVoterSql.util'
 import { WrapperType } from '@/shared/types/utility.types'
+import { JobsService } from '@/jobs/jobs.service'
+import { isTestUser } from '@/users/util/users.util'
+import type { JobRun } from '@/jobs/jobs.registry'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { forwardRef, Inject, Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { differenceInCalendarDays } from 'date-fns'
-import pMap from 'p-map'
 import {
+  AgentRunStatus,
+  CommunityIssueList,
   ElectedOffice,
   ExperimentRunStatus,
   Prisma,
@@ -27,22 +33,20 @@ const EXPERIMENT_TYPES = ['top_community_issues', 'trending_issues'] as const
 
 type CommunityIssueExperimentType = (typeof EXPERIMENT_TYPES)[number]
 
+const LIST_FOR_EXPERIMENT_TYPE: Record<
+  CommunityIssueExperimentType,
+  CommunityIssueList
+> = {
+  top_community_issues: CommunityIssueList.top_community,
+  trending_issues: CommunityIssueList.trending,
+}
+
 // Per-cron-tick cap: limits how many dispatches can fire in a single run of
 // the daily cron (both trending and top share this constant).
 const DISPATCH_CAP_PER_TICK = 200
 
-// Max orgs dispatched in parallel within a cron slice. Bounds the fan-out to
-// the DB / election-api / dispatch queue while collapsing the previously
-// fully-serial per-org latency. The agent job system queues internally, so no
-// inter-tick sleep is needed — the daily bucketing + per-tick cap already
-// bound how much fires per run.
-const DISPATCH_CONCURRENCY = 10
-
 const isAutomationEnabled = () =>
   process.env.MEETINGS_AUTOMATION_ENABLED === 'true'
-
-const TRENDING_CRON_JOB = 'trending_issues'
-const TOP_CRON_JOB = 'top_community_issues'
 
 type DispatchSummary = { dispatched: number; skipped: number }
 
@@ -54,6 +58,9 @@ type ResolvedDispatchContext = {
   districtDescriptor: string
   l2DistrictType?: string
   l2DistrictName?: string
+  // The people mart the org reads, from PeopleDatasetService. Only
+  // top_community_issues takes it: it is the table its tool may query.
+  peopleTable?: string
   lastVisitedMs?: number
 }
 
@@ -87,8 +94,9 @@ export class CommunityIssueDispatchService extends createPrismaBase(
 ) {
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
+    private readonly agents: AgentsService,
     private readonly organizations: OrganizationsService,
-    private readonly cronLock: CronLockService,
+    private readonly jobs: JobsService,
     // analytics.service sits on a circular import chain (analytics -> users
     // -> campaigns -> analytics); a plain class-typed param here makes SWC's
     // reflected design:paramtypes eagerly capture AnalyticsService before
@@ -96,6 +104,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     // dependency at DI time. forwardRef + WrapperType defers resolution.
     @Inject(forwardRef(() => AnalyticsService))
     private readonly analytics: WrapperType<AnalyticsService>,
+    private readonly peopleDatasets: PeopleDatasetService,
   ) {
     super()
   }
@@ -106,8 +115,9 @@ export class CommunityIssueDispatchService extends createPrismaBase(
    * not blocking: the first attempt did not succeed and nothing else
    * re-dispatches it (crons are flagged off at launch; a dead run is only
    * marked FAILED by the gp-ai ECS task-reaper, which does not
-   * re-dispatch). Blocks on QUEUED, RUNNING, AWAITING_RESUME, and
-   * COMPLETED to avoid spawning a duplicate live run.
+   * re-dispatch). Blocks on a live or completed run: QUEUED, RUNNING,
+   * AWAITING_RESUME and COMPLETED on the PMF Engine, or queued, running and
+   * completed as an AgentRun.
    */
   async onElectedOfficeCreated(electedOffice: ElectedOffice): Promise<void> {
     if (!isAutomationEnabled()) {
@@ -122,21 +132,40 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     if (!ctx) return
 
     for (const experimentType of EXPERIMENT_TYPES) {
-      const existing = await this.client.experimentRun.findFirst({
-        where: {
-          organizationSlug: electedOffice.organizationSlug,
-          experimentType,
-          status: {
-            in: [
-              ExperimentRunStatus.QUEUED,
-              ExperimentRunStatus.RUNNING,
-              ExperimentRunStatus.AWAITING_RESUME,
-              ExperimentRunStatus.COMPLETED,
-            ],
-          },
-        },
-        select: { runId: true },
-      })
+      // The engine that will run it is the one whose runs answer "already
+      // ran": gp-api's own agents record AgentRun, the PMF Engine
+      // ExperimentRun. A superseded AgentRun is left out because its
+      // replacement is created with it, so the replacement is the row to find.
+      const existing = runsOnGpApi(experimentType)
+        ? await this.client.agentRun.findFirst({
+            where: {
+              organizationSlug: electedOffice.organizationSlug,
+              agentName: experimentType,
+              status: {
+                in: [
+                  AgentRunStatus.queued,
+                  AgentRunStatus.running,
+                  AgentRunStatus.completed,
+                ],
+              },
+            },
+            select: { id: true },
+          })
+        : await this.client.experimentRun.findFirst({
+            where: {
+              organizationSlug: electedOffice.organizationSlug,
+              experimentType,
+              status: {
+                in: [
+                  ExperimentRunStatus.QUEUED,
+                  ExperimentRunStatus.RUNNING,
+                  ExperimentRunStatus.AWAITING_RESUME,
+                  ExperimentRunStatus.COMPLETED,
+                ],
+              },
+            },
+            select: { runId: true },
+          })
       if (existing) {
         this.logger.info(
           {
@@ -148,17 +177,12 @@ export class CommunityIssueDispatchService extends createPrismaBase(
         continue
       }
 
-      await this.experimentRuns.dispatchRun({
-        type: experimentType,
-        organizationSlug: electedOffice.organizationSlug,
-        clerkUserId: ctx.clerkUserId,
-        priority: 'HIGH',
-        params: buildDispatchParams(
-          electedOffice.organizationSlug,
-          experimentType,
-          ctx,
-        ),
-      })
+      await this.startRun(
+        electedOffice.organizationSlug,
+        experimentType,
+        ctx,
+        'HIGH',
+      )
     }
   }
 
@@ -276,23 +300,39 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       freshnessWindowDays,
     }: { skipActivityGate?: boolean; freshnessWindowDays?: number } = {},
   ): Promise<boolean> {
-    const inFlight = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug: orgSlug,
-        experimentType,
-        status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-          ],
-        },
-      },
-      select: { runId: true },
-    })
-    if (inFlight) {
+    // Cutover: only an AgentRun counts as in flight. A run the PMF Engine
+    // started just before the switch is invisible here, so an org mid-flight at
+    // deploy can get one duplicate run. Accepted.
+    const inFlightRunId = runsOnGpApi(experimentType)
+      ? (
+          await this.client.agentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              agentName: experimentType,
+              status: { in: [AgentRunStatus.queued, AgentRunStatus.running] },
+            },
+            select: { id: true },
+          })
+        )?.id
+      : (
+          await this.client.experimentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              experimentType,
+              status: {
+                in: [
+                  ExperimentRunStatus.QUEUED,
+                  ExperimentRunStatus.RUNNING,
+                  ExperimentRunStatus.AWAITING_RESUME,
+                ],
+              },
+            },
+            select: { runId: true },
+          })
+        )?.runId
+    if (inFlightRunId) {
       this.logger.info(
-        { orgSlug, experimentType, runId: inFlight.runId },
+        { orgSlug, experimentType, runId: inFlightRunId },
         'dispatchTypeForOrg: skipping org with in-flight run',
       )
       return false
@@ -303,22 +343,62 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     // lastVisited, so "issues are still fresh" and "user is still active" stay
     // one concept. Cron/admin/staff paths omit the window and never skip here.
     if (freshnessWindowDays !== undefined) {
-      const lastCompleted = await this.client.experimentRun.findFirst({
-        where: {
-          organizationSlug: orgSlug,
-          experimentType,
-          status: ExperimentRunStatus.COMPLETED,
-        },
-        orderBy: { updatedAt: Prisma.SortOrder.desc },
-        select: { updatedAt: true },
-      })
+      let lastCompletedAt: Date | undefined
+      if (runsOnGpApi(experimentType)) {
+        const [anyRun, latestCompletedRun] = await Promise.all([
+          this.client.agentRun.findFirst({
+            where: { organizationSlug: orgSlug, agentName: experimentType },
+            select: { id: true },
+          }),
+          this.client.agentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              agentName: experimentType,
+              status: AgentRunStatus.completed,
+            },
+            orderBy: { updatedAt: Prisma.SortOrder.desc },
+            select: { updatedAt: true },
+          }),
+        ])
+        // Cutover: the type last ran on the PMF Engine, so an org with no
+        // AgentRun yet carries only that engine's rows, and the ingest that
+        // wrote them is when the user's list last refreshed. Removed at teardown.
+        const newestOrgRow =
+          anyRun === null
+            ? await this.client.communityIssue.findFirst({
+                where: {
+                  organizationSlug: orgSlug,
+                  list: LIST_FOR_EXPERIMENT_TYPE[experimentType],
+                  archivedAt: null,
+                  // A starter row (communityIssueStarter) is not a run.
+                  lastRefreshedRunId: { not: null },
+                },
+                orderBy: { updatedAt: Prisma.SortOrder.desc },
+                select: { updatedAt: true },
+              })
+            : null
+        lastCompletedAt =
+          newestOrgRow?.updatedAt ?? latestCompletedRun?.updatedAt
+      } else {
+        lastCompletedAt = (
+          await this.client.experimentRun.findFirst({
+            where: {
+              organizationSlug: orgSlug,
+              experimentType,
+              status: ExperimentRunStatus.COMPLETED,
+            },
+            orderBy: { updatedAt: Prisma.SortOrder.desc },
+            select: { updatedAt: true },
+          })
+        )?.updatedAt
+      }
       if (
-        lastCompleted &&
-        differenceInCalendarDays(new Date(), lastCompleted.updatedAt) <=
+        lastCompletedAt &&
+        differenceInCalendarDays(new Date(), lastCompletedAt) <=
           freshnessWindowDays
       ) {
         this.logger.info(
-          { orgSlug, experimentType, lastCompletedAt: lastCompleted.updatedAt },
+          { orgSlug, experimentType, lastCompletedAt },
           'dispatchTypeForOrg: skipping org with fresh completed run',
         )
         return false
@@ -335,13 +415,72 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       return false
     }
 
+    await this.startRun(orgSlug, experimentType, ctx)
+    return true
+  }
+
+  // The engine switch (runsOnGpApi): gp-api's own agent, or a PMF Engine
+  // dispatch. The run lands in the engine's own table, an AgentRun named by
+  // agentName or an ExperimentRun by experimentType, which is the table each
+  // gate above queries for this type.
+  private async startRun(
+    organizationSlug: string,
+    experimentType: CommunityIssueExperimentType,
+    ctx: ResolvedDispatchContext,
+    priority?: 'HIGH',
+  ): Promise<void> {
+    if (runsOnGpApi(experimentType)) {
+      // The PMF Engine's dispatchRun makes the same check.
+      const organization = await this.client.organization.findUnique({
+        where: { slug: organizationSlug },
+        select: {
+          owner: { select: { email: true } },
+          testModeCreatedAt: true,
+        },
+      })
+      if (
+        isTestUser({ email: organization?.owner.email ?? '' }) ||
+        organization?.testModeCreatedAt
+      ) {
+        this.logger.info(
+          { organizationSlug, experimentType },
+          'Skipping agent run for test-user org',
+        )
+        return
+      }
+      const input = {
+        organizationSlug,
+        state: ctx.state,
+        office: ctx.positionName,
+        districtDescriptor: ctx.districtDescriptor,
+        today: new Date().toISOString().slice(0, 10),
+      }
+      // As in buildDispatchParams: only top_community_issues takes the L2
+      // pair, and only as a pair. It is also the only type that reads the
+      // people mart, so only it carries the table.
+      await this.agents.run(
+        experimentType,
+        experimentType === 'top_community_issues'
+          ? {
+              ...input,
+              ...(ctx.l2DistrictType &&
+                ctx.l2DistrictName && {
+                  l2DistrictType: ctx.l2DistrictType,
+                  l2DistrictName: ctx.l2DistrictName,
+                }),
+              ...(ctx.peopleTable && { peopleTable: ctx.peopleTable }),
+            }
+          : input,
+      )
+      return
+    }
     await this.experimentRuns.dispatchRun({
       type: experimentType,
-      organizationSlug: orgSlug,
+      organizationSlug,
       clerkUserId: ctx.clerkUserId,
-      params: buildDispatchParams(orgSlug, experimentType, ctx),
+      ...(priority && { priority }),
+      params: buildDispatchParams(organizationSlug, experimentType, ctx),
     })
-    return true
   }
 
   private async trackDispatchSkippedInactive(
@@ -369,39 +508,32 @@ export class CommunityIssueDispatchService extends createPrismaBase(
   }
 
   /**
-   * Daily cron: dispatches trending_issues for orgs whose slug hashes to
-   * today's UTC day-of-week bucket. One org slice per day keeps SQS fan-out
-   * small (1/7th of the fleet per tick).
+   * The trendingIssuesDaily schedule's worker: dispatches trending_issues for
+   * orgs whose slug hashes to today's UTC day-of-week bucket. One org slice
+   * per day keeps the fan-out small (1/7th of the fleet per tick).
    */
-  @Cron('0 8 * * *')
-  async dispatchWeeklyTrendingIssues(): Promise<void> {
+  async fanOutTrendingIssues(): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info('automation disabled; skipping trending issues cron')
       return
     }
 
     const now = new Date()
-    const claimed = await this.cronLock.tryClaimDailyRun(TRENDING_CRON_JOB, now)
-    if (!claimed) return
-
     const todayBucket = now.getUTCDay()
-
-    await this.dispatchSlice(
+    await this.fanOutSlice(
       'trending_issues',
       (slug) => bucketForSlug(slug, 7) === todayBucket,
       now,
     )
-
-    await this.cronLock.markCompleted(TRENDING_CRON_JOB, now)
   }
 
   /**
-   * Daily cron: dispatches top_community_issues for orgs whose slug hashes to
-   * today's UTC day-of-month bucket (mod 28). Spreads dispatches across a
-   * rolling 28-day window.
+   * The topCommunityIssuesDaily schedule's worker: dispatches
+   * top_community_issues for orgs whose slug hashes to today's UTC
+   * day-of-month bucket (mod 28). Spreads dispatches across a rolling 28-day
+   * window.
    */
-  @Cron('0 9 * * *')
-  async dispatchMonthlyTopIssues(): Promise<void> {
+  async fanOutTopIssues(): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info(
         'automation disabled; skipping top community issues cron',
@@ -410,26 +542,23 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     }
 
     const now = new Date()
-    const claimed = await this.cronLock.tryClaimDailyRun(TOP_CRON_JOB, now)
-    if (!claimed) return
-
     const todayBucket = topIssuesBucketForDate(now)
-
-    await this.dispatchSlice(
+    await this.fanOutSlice(
       'top_community_issues',
       (slug) => bucketForSlug(slug, 28) === todayBucket,
       now,
     )
-
-    await this.cronLock.markCompleted(TOP_CRON_JOB, now)
   }
 
-  private async dispatchSlice(
+  // Sends one communityIssueDispatch job per org in today's slice; the key
+  // pins each to its org, type and UTC day.
+  private async fanOutSlice(
     experimentType: CommunityIssueExperimentType,
     inBucket: (slug: string) => boolean,
     now: Date,
   ): Promise<void> {
     const offices = await this.client.electedOffice.findMany({
+      where: { onboardingCompletedAt: { not: null } },
       select: { organizationSlug: true },
       orderBy: { organizationSlug: 'asc' },
     })
@@ -448,31 +577,30 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       )
     }
 
-    const capped = slice.slice(0, DISPATCH_CAP_PER_TICK)
-
-    // Bounded concurrency over the slice: each org's dispatch work is
-    // independent, so we fan out up to DISPATCH_CONCURRENCY at a time instead
-    // of awaiting them one by one. No inter-tick throttle — the agent job
-    // system queues internally.
-    await pMap(
-      capped,
-      async ({ organizationSlug }) => {
-        try {
-          const ctx = await this.resolveContext(organizationSlug)
-          if (!ctx) return
-
-          await this.dispatchTypeForOrg(organizationSlug, experimentType, ctx, {
-            skipActivityGate: false,
-          })
-        } catch (err: unknown) {
-          this.logger.error(
-            { err, organizationSlug, experimentType },
-            'community-issue cron dispatch failed for org; continuing',
-          )
-        }
-      },
-      { concurrency: DISPATCH_CONCURRENCY },
+    const day = now.toISOString().slice(0, 10)
+    await this.jobs.sendMany(
+      'communityIssueDispatch',
+      slice.slice(0, DISPATCH_CAP_PER_TICK).map(({ organizationSlug }) => ({
+        data: { organizationSlug, experimentType },
+        key: `${organizationSlug}:${experimentType}:${day}`,
+      })),
     )
+  }
+
+  // The communityIssueDispatch job's worker: the cron path for one org, so
+  // the activity gate applies.
+  async dispatchScheduled(
+    job: JobRun<{
+      organizationSlug: string
+      experimentType: CommunityIssueExperimentType
+    }>,
+  ): Promise<void> {
+    const { organizationSlug, experimentType } = job.data
+    const ctx = await this.resolveContext(organizationSlug)
+    if (!ctx) return
+    await this.dispatchTypeForOrg(organizationSlug, experimentType, ctx, {
+      skipActivityGate: false,
+    })
   }
 
   private async resolveContext(
@@ -512,6 +640,12 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       ? `${serveCtx.l2DistrictName}, ${serveCtx.state}`
       : `${serveCtx.positionName}, ${serveCtx.state}`
 
+    // The same choice every other people read makes for this org, so the agent
+    // reads exactly the mart its product surfaces read.
+    const peopleTable = organization
+      ? peopleTableFor(await this.peopleDatasets.resolve(organization))
+      : undefined
+
     return {
       userId: eo.user.id,
       clerkUserId: eo.user.clerkId,
@@ -520,6 +654,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       districtDescriptor,
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
+      peopleTable,
       lastVisitedMs: eo.user.metaData?.lastVisited,
     }
   }

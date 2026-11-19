@@ -1,7 +1,6 @@
 import { BriefingDispatchPreview } from '@goodparty_org/contracts'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { CronLockService } from '@/cron/services/cronLock.service'
 import {
   MeetingBriefingFull,
   MeetingSchedule,
@@ -20,7 +19,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import {
   ElectedOffice,
   ExperimentRun,
@@ -30,12 +28,12 @@ import {
 } from '../../generated/prisma'
 import { addDays, differenceInCalendarDays } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-import pMap from 'p-map'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
 import { BriefingItemLinksService } from './briefingItemLinks.service'
 
 const parseBriefingArtifact = (
@@ -73,19 +71,6 @@ const extractElectedOfficeId = (params: unknown): string | null => {
 // Maximum prose length we persist for a discovered location hint. Mirrors the
 // runbooks manifests so the DB row matches what the schema validator allows.
 const DISCOVERED_LOCATION_MAX = 2000
-
-// Unset in every environment today — Ops has not yet created the briefing
-// ready single-send email asset in HubSpot (ENG-11035), and the inventory
-// flags this email for an Ops portal check before it's confirmed a durable
-// MOVE (HUBSPOT_INTEGRATION.md § Meeting briefing ready). Read live rather
-// than cached at module load, mirroring HUBSPOT_PIN_SENT_EMAIL_ID. Until
-// it's set, the existing Segment-event -> HubSpot workflow email path is
-// unchanged.
-const getBriefingReadySingleSendEmailId = (): number | null => {
-  const raw = process.env.HUBSPOT_BRIEFING_READY_EMAIL_ID
-  const emailId = raw ? Number(raw) : NaN
-  return Number.isFinite(emailId) ? emailId : null
-}
 
 const readStringField = (obj: unknown, key: string): string | null => {
   if (
@@ -200,9 +185,6 @@ const placeholderRefusalReason = (
   return `no_briefing:${briefingStatus}`
 }
 
-// Identifies the daily-briefing cron in the cron_run lease table.
-const DAILY_BRIEFINGS_CRON_JOB = 'dispatchDailyBriefings'
-
 const isAutomationEnabled = () =>
   process.env.MEETINGS_AUTOMATION_ENABLED === 'true'
 
@@ -225,15 +207,6 @@ type DispatchContext = {
   l2DistrictName?: string
   isServeIcp?: boolean | null
   lastVisitedMs?: number
-}
-
-const CRON_CONFIG = {
-  // Max offices dispatched in parallel. Bounds the fan-out to the DB /
-  // election-api / S3 / dispatch queue and keeps the cron from bursting the
-  // whole population's per-office work through gp-api at once. The agent job
-  // system does its own internal queueing, so there is no inter-batch sleep —
-  // we enqueue as fast as this concurrency bound allows.
-  concurrency: 10,
 }
 
 // Briefings are dispatched only when the official's next scheduled meeting
@@ -274,10 +247,9 @@ export class MeetingBriefingsService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     private readonly llm: LlmService,
     private readonly braintrust: BraintrustService,
-    private readonly cronLock: CronLockService,
     private readonly dashboardCards: DashboardCardsService,
     private readonly briefingItemLinks: BriefingItemLinksService,
-    private readonly hubspotSingleSend: HubspotSingleSendService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
@@ -873,9 +845,16 @@ export class MeetingBriefingsService extends createPrismaBase(
 
     const eo = await this.client.electedOffice.findUnique({
       where: { id: electedOfficeId },
-      select: { id: true, organizationSlug: true, userId: true },
+      select: {
+        id: true,
+        organizationSlug: true,
+        userId: true,
+        onboardingCompletedAt: true,
+      },
     })
-    if (!eo) return
+    // An office still in Serve onboarding gets its first briefing from the
+    // dashboard landing catch-up or the daily cron once onboarding finishes.
+    if (!eo?.onboardingCompletedAt) return
 
     await this.dispatchBriefingIfNeeded(eo, new Date(), {
       skipActivityGate: true,
@@ -887,8 +866,11 @@ export class MeetingBriefingsService extends createPrismaBase(
     })
   }
 
-  @Cron('0 7 * * *')
-  async dispatchDailyBriefings(): Promise<void> {
+  // The meetingBriefingsDaily schedule's worker (src/jobs/jobs.registry.ts).
+  // Sends one meetingBriefingDispatch job per candidate office; the key pins
+  // each to its office and UTC day, so a second run that day sends nothing
+  // new while the first run's jobs are still queued.
+  async fanOutDailyBriefings(): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info(
         'meetings automation disabled; skipping daily briefing cron',
@@ -896,24 +878,14 @@ export class MeetingBriefingsService extends createPrismaBase(
       return
     }
 
-    // Pin a single timestamp for the whole run so the lease claim and its
-    // completion resolve to the same UTC run-date even if the long loop below
-    // crosses midnight.
     const now = new Date()
 
-    // Every ECS replica fires this @Cron, so without a guard each office would
-    // be enqueued once per replica (2x in prod). Claim a once-per-day lease so
-    // only the winning replica runs the long batched dispatch loop below.
-    const claimed = await this.cronLock.tryClaimDailyRun(
-      DAILY_BRIEFINGS_CRON_JOB,
-      now,
-    )
-    if (!claimed) return
-
     // DB-side pre-filter: skip offices that provably can never dispatch, so
-    // the loop below only touches candidates instead of every elected office.
-    // Both predicates are strictly necessary conditions for dispatch, so this
-    // never drops an office that dispatchBriefingIfNeeded would have briefed:
+    // only candidates get a job instead of every elected office.
+    // Offices that haven't finished Serve onboarding are skipped by policy:
+    // nobody has opened them, and a briefing is a paid agent run. The other
+    // two predicates are strictly necessary conditions for dispatch, so they
+    // never drop an office that dispatchBriefingIfNeeded would have briefed:
     //   1. The imminence gate calls resolveTargetMeeting -> loadLatestScheduleForOrg,
     //      which requires a COMPLETED meeting_schedule run with artifact
     //      pointers. No such run => resolveTargetMeeting returns null => skip.
@@ -921,9 +893,10 @@ export class MeetingBriefingsService extends createPrismaBase(
     //      briefing (meetingDate >= now).
     // The remaining gates (activity, imminence window, in-flight dedupe)
     // depend on the S3 schedule artifact / user metadata and can't be
-    // expressed here, so they stay in the per-office guard below.
+    // expressed here, so they stay in the per-office job.
     const offices = await this.client.electedOffice.findMany({
       where: {
+        onboardingCompletedAt: { not: null },
         organization: {
           experimentRuns: {
             some: {
@@ -936,29 +909,39 @@ export class MeetingBriefingsService extends createPrismaBase(
         },
         meetingBriefings: { none: { meetingDate: { gte: now } } },
       },
-      select: { id: true, organizationSlug: true, userId: true },
+      select: { id: true },
     })
 
-    // Bounded concurrency over the whole candidate set: each office's dispatch
-    // work is independent (distinct org), so we fan out up to `concurrency` at
-    // a time instead of awaiting them one by one. There is no inter-batch
-    // throttle — the agent job system queues internally, so we enqueue as fast
-    // as the concurrency bound allows.
-    await pMap(
-      offices,
-      (eo) =>
-        this.dispatchBriefingIfNeeded(eo, now).catch((err: unknown) =>
-          this.logger.error(
-            { err, electedOfficeId: eo.id },
-            'dispatchBriefingIfNeeded failed, continuing',
-          ),
-        ),
-      { concurrency: CRON_CONFIG.concurrency },
+    const day = now.toISOString().slice(0, 10)
+    await this.jobs.sendMany(
+      'meetingBriefingDispatch',
+      offices.map(({ id }) => ({
+        data: { electedOfficeId: id },
+        key: `${id}:${day}`,
+      })),
     )
+    this.logger.info(
+      { offices: offices.length },
+      'Daily meeting briefings fanned out',
+    )
+  }
 
-    // Mark the claim complete so a crashed-run takeover (see CronLockService)
-    // is only triggered when the loop did not finish.
-    await this.cronLock.markCompleted(DAILY_BRIEFINGS_CRON_JOB, now)
+  // The meetingBriefingDispatch job's worker: the daily cron's gates for one
+  // office, activity gate included.
+  async dispatchDailyBriefing(
+    job: JobRun<{ electedOfficeId: string }>,
+  ): Promise<void> {
+    const eo = await this.client.electedOffice.findUnique({
+      where: { id: job.data.electedOfficeId },
+      select: {
+        id: true,
+        organizationSlug: true,
+        userId: true,
+        onboardingCompletedAt: true,
+      },
+    })
+    if (!eo?.onboardingCompletedAt) return
+    await this.dispatchBriefingIfNeeded(eo, new Date())
   }
 
   /**
@@ -1587,66 +1570,6 @@ export class MeetingBriefingsService extends createPrismaBase(
       this.logger.error(
         { err, userId },
         '[SEGMENT] Failed to track Briefing Assistant - Agenda Created',
-      )
-    }
-
-    await this.sendAgendaCreatedSingleSend(userId, {
-      meetingDate: dateString,
-      meetingTime,
-      meetingTimezone,
-      meetingPlace: artifact.location ?? '',
-      meetingType,
-      execSummary,
-      ...flattenTopAgendaItems(topItems),
-    })
-  }
-
-  // The email leg of this notification moves to a direct HubSpot single-send
-  // call (ENG-11035) — recipient is the elected official the briefing is
-  // for, not whatever email a HubSpot workflow would resolve off the contact
-  // record. The Segment event above keeps firing unchanged for non-email
-  // consumers. Unlike the other move-list emails, this one carries real
-  // per-meeting content rather than a bare link — HUBSPOT_INTEGRATION.md
-  // classifies it MOVE only on the assumption Ops's workflow personalizes
-  // straight from this event rather than persisting it onto the contact
-  // record; if the portal check finds otherwise, Ops simply never sets
-  // HUBSPOT_BRIEFING_READY_EMAIL_ID and it stays on the workflow path with
-  // no code change. A single-send failure must never fail this call — it
-  // runs inline in the SQS-driven onExperimentRunCompleted path, and this
-  // method already reports its own errors rather than throwing.
-  private async sendAgendaCreatedSingleSend(
-    userId: number,
-    customProperties: Record<string, string>,
-  ): Promise<void> {
-    const emailId = getBriefingReadySingleSendEmailId()
-    if (!emailId) {
-      this.logger.debug(
-        'HUBSPOT_BRIEFING_READY_EMAIL_ID not set — skipping HubSpot ' +
-          'single-send; the workflow email path still covers this notification',
-      )
-      return
-    }
-    try {
-      const user = await this.client.user.findUnique({
-        where: { id: userId },
-      })
-      if (!user) {
-        this.logger.warn(
-          { userId },
-          'Briefing Ready single-send skipped: user not found',
-        )
-        return
-      }
-      await this.hubspotSingleSend.sendSingleSend({
-        emailId,
-        to: user.email,
-        customProperties,
-      })
-    } catch (err) {
-      this.logger.error(
-        { err, userId },
-        'HubSpot single-send failed for Briefing Ready; the workflow email ' +
-          'path still fires from the Segment event',
       )
     }
   }

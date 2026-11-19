@@ -1,8 +1,8 @@
 import { Module, forwardRef } from '@nestjs/common'
-import { CronModule } from '@/cron/cron.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { FeaturesModule } from '@/features/features.module'
 import { LlmModule } from '@/llm/llm.module'
+import { OutreachModule } from '@/outreach/outreach.module'
 import { SpeechModule } from '@/speech/speech.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { ConstituentFeedbackController } from './constituentFeedback.controller'
@@ -13,6 +13,7 @@ import { FeedbackReportService } from './services/feedbackReport.service'
 import { FeedbackSeedService } from './services/feedbackSeed.service'
 import { FeedbackSynthesisService } from './services/feedbackSynthesis.service'
 import { FeedbackSynthesisIngestService } from './services/feedbackSynthesisIngest.service'
+import { FeedbackThemeIssueMatchService } from './services/feedbackThemeIssueMatch.service'
 import { IssueTagService } from './services/issueTag.service'
 import { IssueTagSeedService } from './services/issueTagSeed.service'
 import { MockSynthesisEngine } from './services/mockSynthesisEngine'
@@ -27,10 +28,10 @@ import { SynthesisStaleRunSweepService } from './services/synthesisStaleRunSweep
 @Module({
   imports: [
     AwsModule,
-    CronModule,
     forwardRef(() => ElectedOfficeModule),
     FeaturesModule,
     LlmModule,
+    forwardRef(() => OutreachModule),
     SpeechModule,
   ],
   controllers: [ConstituentFeedbackController],
@@ -42,6 +43,7 @@ import { SynthesisStaleRunSweepService } from './services/synthesisStaleRunSweep
     FeedbackSeedService,
     FeedbackSynthesisService,
     FeedbackSynthesisIngestService,
+    FeedbackThemeIssueMatchService,
     IssueTagService,
     IssueTagSeedService,
     MockSynthesisEngine,

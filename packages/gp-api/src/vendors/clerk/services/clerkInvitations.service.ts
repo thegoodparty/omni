@@ -1,10 +1,16 @@
-import { BadGatewayException, Inject, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  Inject,
+  Injectable,
+} from '@nestjs/common'
 import { ClerkClient, Invitation } from '@clerk/backend'
 import { PinoLogger } from 'nestjs-pino'
 import {
   TeamInviteMetadata,
   TeamInviteMetadataSchema,
 } from '@goodparty_org/contracts'
+import { isTestUser } from '@/users/util/users.util'
 import { CLERK_LIST_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import {
@@ -18,6 +24,7 @@ import {
 const MAX_PAGE_ATTEMPTS = 3 // 1 initial try + 2 retries
 const RATE_LIMIT_STATUS = 429
 const RETRY_BACKOFF_MS = 300
+const CLERK_REJECTED_STATUSES = [400, 422]
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
@@ -31,6 +38,21 @@ const isClerkRateLimitError = (
   err: unknown,
 ): err is Error & { status: number; retryAfter?: number } =>
   err instanceof Error && 'status' in err && err.status === RATE_LIMIT_STATUS
+
+// ClerkAPIResponseError also lives in @clerk/shared, so it is narrowed
+// structurally for the same reason. @clerk/backend throws it for a failed
+// fetch too, with no `status` and the single code `unexpected_error`.
+const isClerkApiResponseError = (
+  err: unknown,
+): err is Error & {
+  status?: number
+  errors: { code: string }[]
+  clerkTraceId?: string
+} =>
+  err instanceof Error &&
+  'clerkError' in err &&
+  'errors' in err &&
+  Array.isArray(err.errors)
 
 // Retries one page fetch on a Clerk timeout or 429; any other error (or
 // exhausted retries) propagates so the caller's existing catch still maps it
@@ -90,10 +112,35 @@ export class ClerkInvitationsService {
             emailAddress,
             redirectUrl,
             publicMetadata,
+            // Test/fixture addresses have no mailbox, so Clerk's invitation
+            // email would bounce. The dev Clerk instance shares sending
+            // infrastructure and is paused when its bounce rate stays high
+            // (ENG-11573). The invitation itself is still created, so its
+            // hosted URL keeps working.
+            ...(isTestUser({ email: emailAddress }) && { notify: false }),
           }),
       )
     } catch (err) {
-      this.logger.error({ err }, 'Failed to create Clerk team invitation')
+      const clerkFields = isClerkApiResponseError(err)
+        ? {
+            clerkStatus: err.status,
+            clerkErrorCodes: err.errors.map((error) => error.code),
+            clerkTraceId: err.clerkTraceId,
+          }
+        : {}
+      this.logger.error(
+        { err, ...clerkFields },
+        'Failed to create Clerk team invitation',
+      )
+      if (
+        isClerkApiResponseError(err) &&
+        err.status !== undefined &&
+        CLERK_REJECTED_STATUSES.includes(err.status)
+      ) {
+        throw new BadRequestException(
+          'This invitation could not be created for that email address',
+        )
+      }
       throw new BadGatewayException('Failed to create team invitation')
     }
   }
@@ -108,9 +155,9 @@ export class ClerkInvitationsService {
     // exhausted, THEN filter to this org, so no team's invites can fall off
     // the end of someone else's backlog.
     const invitations: Invitation[] = []
+    let offset = 0
     try {
       const PAGE_SIZE = 500 // Clerk's documented page-size ceiling
-      let offset = 0
       let totalCount = Infinity
       while (offset < totalCount) {
         const page = await fetchPageWithRetry(() =>
@@ -134,7 +181,20 @@ export class ClerkInvitationsService {
         offset += PAGE_SIZE
       }
     } catch (err) {
-      this.logger.error({ err }, 'Failed to list Clerk team invitations')
+      // The OTel log bridge that feeds Loki keeps only an error's code,
+      // message and stack, so Clerk's status, codes and trace id have to be
+      // top-level fields. Codes only: an error's meta can carry emails.
+      const clerkFields = isClerkApiResponseError(err)
+        ? {
+            clerkStatus: err.status,
+            clerkErrorCodes: err.errors.map((error) => error.code),
+            clerkTraceId: err.clerkTraceId,
+          }
+        : {}
+      this.logger.error(
+        { err, offset, ...clerkFields },
+        'Failed to list Clerk team invitations',
+      )
       throw new BadGatewayException('Failed to list team invitations')
     }
 

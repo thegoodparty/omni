@@ -1,11 +1,16 @@
 import { Injectable } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { format, isAfter, subHours } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import {
+  OutreachType,
+  Prisma,
+  RobocallSettleState,
+} from '../../generated/prisma'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // A failed hold (a declined or dead card) leaves the draft `hold_failed`. This
 // slice runs the two time-based follow-ups on that terminal: a daily "fix your
@@ -14,115 +19,126 @@ import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 // update is a SEPARATE later slice — it needs a Stripe payment_method webhook
 // trigger and is deliberately not built here.
 
-// Once-daily reminder. 14:00 Eastern, a non-:00 minute-of-hour and a free slot
-// distinct from the other robocall crons (send :04.., staging :07.., cancel
-// below at :11..) so it never joins a herd. Explicit timeZone per
-// docs/scheduled-jobs.md.
-const ROBOCALL_REMINDER_SWEEP_CRON = '0 14 * * *'
-const ROBOCALL_REMINDER_SWEEP_JOB = 'robocallHoldFailureReminderSweep'
-
-// Cancel-at-deadline runs every 15 minutes so a just-passed send deadline is
-// caught promptly. Offsets (:11,:26,:41,:56) sit in free slots between the send
-// (:04..), staging (:07..), inbound (:30) and completion (:00) crons.
-const ROBOCALL_CANCEL_SWEEP_CRON = '11,26,41,56 * * * *'
-const ROBOCALL_CANCEL_SWEEP_JOB = 'robocallHoldFailureCancelSweep'
-
 // A draft is re-reminded only once its last reminder is older than this. Under
-// a full day so the 14:00-Eastern daily cron always re-fires (a reminder from
+// a full day so the daily reminder schedule always re-fires (a reminder from
 // 24h ago clears a 23h floor) while a same-day double sweep is denied. The DB
 // stamp is the primary once/day guard; the per-day Segment messageId is the
 // downstream dedup backstop.
 const ROBOCALL_REMINDER_MIN_INTERVAL_HOURS = 23
+
+// The sweeps find their drafts with these, and each draft's job reads the
+// draft back through the same filter, so a job that waited in the queue does
+// nothing for a draft that has since moved on.
+const reminderDue = (now: Date): Prisma.OutreachRobocallWhereInput => ({
+  settleState: RobocallSettleState.hold_failed,
+  outreach: {
+    outreachType: OutreachType.robocall,
+    // Send still ahead: a failed hold whose deadline has passed is the
+    // cancel sweep's job, not the reminder's.
+    date: { gt: now },
+  },
+  OR: [
+    { lastReminderSentAt: null },
+    {
+      lastReminderSentAt: {
+        lt: subHours(now, ROBOCALL_REMINDER_MIN_INTERVAL_HOURS),
+      },
+    },
+  ],
+})
+
+const cancelDue = (now: Date): Prisma.OutreachRobocallWhereInput => ({
+  settleState: RobocallSettleState.hold_failed,
+  outreach: {
+    outreachType: OutreachType.robocall,
+    // Deadline reached: the candidate never fixed the card in time.
+    date: { lte: now },
+  },
+})
 
 // Runs the daily reminder + cancel-at-deadline follow-ups on `hold_failed`
 // robocall drafts. Each unit of work is idempotent per record behind an atomic
 // claim — the once/day `lastReminderSentAt` stamp CAS for the reminder, the
 // single-owner `hold_failed → cancelled` CAS for the cancel — so two replicas
 // racing a sweep both SELECT the same candidates but only ONE wins each draft,
-// and the email fires once. No CronLockService (the per-record CAS is the
-// dedup): these neither dial nor charge — cancel places/voids nothing (a
-// declined hold reserved no money) — so the prod-only guard is all they need.
-// @Cron (not @Interval) so the schedule survives deploys.
+// and the email fires once. The per-record CAS is the dedup: these neither
+// dial nor charge — cancel places/voids nothing (a declined hold reserved no
+// money) — so the VENDOR_CRONS_ENABLED guard is all they need. Each runs on a pg-boss schedule (src/jobs/jobs.registry.ts) that
+// sends one job per draft.
 @Injectable()
 export class OutreachRobocallHoldFailureService extends createPrismaBase(
   MODELS.OutreachRobocall,
 ) {
-  constructor(private readonly analytics: AnalyticsService) {
+  constructor(
+    private readonly analytics: AnalyticsService,
+    private readonly jobs: JobsService,
+  ) {
     super()
   }
 
-  // Prod-only (docs/scheduled-jobs.md § Prod-only guard): reminder/cancel emails
+  // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): reminder/cancel emails
   // route through the real Segment → HubSpot path, and cancelling a live draft is
-  // a state change we don't want firing against dev/preview data.
-  @Cron(ROBOCALL_REMINDER_SWEEP_CRON, {
-    name: ROBOCALL_REMINDER_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepHoldFailureReminders(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+  // a state change we don't want firing against dev/preview data. Each job
+  // checks it too, since any gp-api pointed at a database works its queues.
+  async sweepHoldFailureReminders(sweep: JobRun<ScheduleData>): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
 
-    const now = new Date()
-    const reminderCutoff = subHours(now, ROBOCALL_REMINDER_MIN_INTERVAL_HOURS)
     const candidates = await this.model.findMany({
-      where: {
-        settleState: RobocallSettleState.hold_failed,
-        outreach: {
-          outreachType: OutreachType.robocall,
-          // Send still ahead: a failed hold whose deadline has passed is the
-          // cancel sweep's job, not the reminder's.
-          date: { gt: now },
-        },
-        OR: [
-          { lastReminderSentAt: null },
-          { lastReminderSentAt: { lt: reminderCutoff } },
-        ],
-      },
+      where: reminderDue(new Date()),
       select: { outreachId: true },
     })
-
-    for (const { outreachId } of candidates) {
-      try {
-        await this.remindHoldFailure(outreachId, now)
-      } catch (err) {
-        // Per-record isolation: one draft's failure must not abort the sweep.
-        this.logger.error(
-          { err, outreachId },
-          'robocall hold-failure reminder failed for a draft; continuing sweep',
-        )
-      }
-    }
+    await this.jobs.sendMany(
+      'robocallHoldFailureRemind',
+      candidates.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
   }
 
-  @Cron(ROBOCALL_CANCEL_SWEEP_CRON, {
-    name: ROBOCALL_CANCEL_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepHoldFailureCancellations(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+  // Only a database failure escapes (the email is best-effort), so it throws
+  // and the job retries behind the once-a-day stamp CAS.
+  async remindDueDraft(job: JobRun<{ outreachId: number }>): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
 
+    const { outreachId } = job.data
     const now = new Date()
-    const candidates = await this.model.findMany({
-      where: {
-        settleState: RobocallSettleState.hold_failed,
-        outreach: {
-          outreachType: OutreachType.robocall,
-          // Deadline reached: the candidate never fixed the card in time.
-          date: { lte: now },
-        },
-      },
+    const due = await this.model.findFirst({
+      where: { outreachId, ...reminderDue(now) },
       select: { outreachId: true },
     })
+    if (!due) return
+    await this.remindHoldFailure(outreachId, now)
+  }
 
-    for (const { outreachId } of candidates) {
-      try {
-        await this.cancelExpiredHoldFailure(outreachId)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId },
-          'robocall hold-failure cancel failed for a draft; continuing sweep',
-        )
-      }
-    }
+  async sweepHoldFailureCancellations(
+    sweep: JobRun<ScheduleData>,
+  ): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const candidates = await this.model.findMany({
+      where: cancelDue(new Date()),
+      select: { outreachId: true },
+    })
+    await this.jobs.sendMany(
+      'robocallHoldFailureCancel',
+      candidates.map(({ outreachId }) => ({
+        data: { outreachId },
+        key: `${outreachId}:${sweep.id}`,
+      })),
+    )
+  }
+
+  async cancelDueDraft(job: JobRun<{ outreachId: number }>): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const { outreachId } = job.data
+    const due = await this.model.findFirst({
+      where: { outreachId, ...cancelDue(new Date()) },
+      select: { outreachId: true },
+    })
+    if (!due) return
+    await this.cancelExpiredHoldFailure(outreachId)
   }
 
   async remindHoldFailure(outreachId: number, now: Date): Promise<void> {
@@ -186,8 +202,15 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
     // `hold_failed` draft carries no live Stripe hold — a decline placed none,
     // and the dial-time dead-hold path already cleared the intent — so there is
     // nothing to void; just mark cancelled + email. No Stripe is touched.
+    // updatedAt pins the CAS to the row read above: a resend stays
+    // hold_failed while it moves the date forward, so settle-state alone
+    // would let a stale past-date read cancel a just-resumed send.
     const claim = await this.model.updateMany({
-      where: { outreachId, settleState: RobocallSettleState.hold_failed },
+      where: {
+        outreachId,
+        settleState: RobocallSettleState.hold_failed,
+        updatedAt: draft.updatedAt,
+      },
       data: { settleState: RobocallSettleState.cancelled },
     })
     if (claim.count === 0) return

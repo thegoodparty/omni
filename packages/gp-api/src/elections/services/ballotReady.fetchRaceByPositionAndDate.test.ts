@@ -152,4 +152,43 @@ describe('BallotReadyService.fetchRaceByPositionAndDate', () => {
     expect(result?.election.primaryElectionDate).toBe('2024-06-04')
     expect(result?.election.primaryElectionId).toBe('election-primary')
   })
+
+  it.each([
+    ['AR', undefined],
+    ['CA', '2026-05-19'],
+  ])(
+    'in a partisan %s race, attaches the primary date only where our candidates appear on the primary ballot',
+    async (state, expectedPrimaryDate) => {
+      const position = {
+        id: 'br-pos-1',
+        hasPrimary: true,
+        partisanType: 'partisan',
+        state,
+      }
+      const generalNode = {
+        id: 'race-general',
+        isPrimary: false,
+        election: { id: 'election-general', electionDay: '2026-11-03', state },
+        position,
+      }
+      const primaryNode = {
+        id: 'race-primary',
+        isPrimary: true,
+        election: { id: 'election-primary', electionDay: '2026-05-19', state },
+        position,
+      }
+      mockRequest.mockResolvedValue({
+        node: {
+          races: { edges: [{ node: generalNode }, { node: primaryNode }] },
+        },
+      })
+
+      const result = await service.fetchRaceByPositionAndDate({
+        brPositionId: 'br-pos-1',
+        electionDate: '2026-11-03',
+      })
+
+      expect(result?.election.primaryElectionDate).toBe(expectedPrimaryDate)
+    },
+  )
 })

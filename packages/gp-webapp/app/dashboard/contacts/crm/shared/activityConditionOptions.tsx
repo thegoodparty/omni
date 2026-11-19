@@ -2,7 +2,9 @@ import type { ReactNode } from 'react'
 import type {
   ActivityConditionAction,
   OutreachType,
+  PeopleFilters,
   SupportStatusRollup,
+  VotedStatus,
 } from '@goodparty_org/contracts'
 import { DoorOpenIcon, MessageSquareMoreIcon, PhoneIcon } from '@styleguide'
 
@@ -146,4 +148,28 @@ export const SUPPORT_STATUS_OPTIONS: {
   { value: 'undecided', label: 'Undecided' },
   { value: 'refused', label: 'Refused' },
   { value: 'unknown', label: 'Support Unknown' },
+]
+
+// "Voted in election" (Win only). Yes is a voter L2 reports as voting early
+// or by mail, or whose latest will-vote answer this election is Already
+// voted; No/Unknown is everyone else, including people never asked. Same
+// single-source rule as above.
+export const VOTED_STATUS_OPTIONS: {
+  value: VotedStatus
+  label: string
+}[] = [
+  { value: 'already_voted', label: 'Yes' },
+  { value: 'unknown', label: 'No/Unknown' },
+]
+
+export type PeopleFilterSource = NonNullable<PeopleFilters['source']>[number]
+
+// "Source" (Win only): the voter file, or the new contacts an import added
+// that we couldn't match to a voter. Same single-source rule as above.
+export const SOURCE_OPTIONS: {
+  value: PeopleFilterSource
+  label: string
+}[] = [
+  { value: 'voterFile', label: 'Voter file' },
+  { value: 'imported', label: 'Imported' },
 ]

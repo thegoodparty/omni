@@ -6,7 +6,7 @@ import {
 } from '@/electionDb/electionDbBase.util'
 import { RaceFilterDto } from './races.schema'
 import { Prisma } from '@/generated/election-prisma'
-import { getDedupedRacesBySlug } from './races.util'
+import { findMergedRaceHeads } from './races.util'
 import {
   extractFilingFee,
   FilingFeeResult,
@@ -128,33 +128,95 @@ export class RacesService extends createElectionDbBase(ELECTION_MODELS.Race) {
       )
     }
 
-    const pagedWhere: Prisma.RaceWhereInput = {
-      ...where,
-      slug: { in: pageSlugs },
-    }
     // `id` is the deterministic tiebreaker; slug order keeps same-slug rows
-    // adjacent for the dedupe below.
+    // adjacent.
     const orderBy: Prisma.RaceOrderByWithRelationInput[] = [
       { slug: 'asc' },
       { id: 'asc' },
     ]
 
+    // Without slug and positionNames in the selection there is nothing to
+    // merge, and callers get every matching row as stored.
+    if (
+      raceSelectBase &&
+      !(raceSelectBase.slug && raceSelectBase.positionNames)
+    ) {
+      return this.model.findMany({
+        where: { ...where, slug: { in: pageSlugs } },
+        select: raceQueryObj,
+        orderBy,
+      })
+    }
+
+    // Merge same-slug rows in Postgres. Loading every row for a slug, across
+    // all election years and with full positionNames arrays, then merging in
+    // JS froze the event loop on large counties (see getDedupedRacesBySlug,
+    // which this replaces). The database returns one head row per slug with
+    // positionNames already merged; the head's other columns and relations are
+    // what the JS merge kept too (the first row by id).
+    const heads = await findMergedRaceHeads(
+      this.client,
+      this.buildRawWhere(filterDto, placeIdFilter, pageSlugs),
+      false,
+    )
+    const namesById = new Map(heads.map((h) => [h.id, h.positionNames]))
+    const headIds = heads.map((h) => h.id)
+
     const races = raceSelectBase
       ? await this.model.findMany({
-          where: pagedWhere,
-          select: raceQueryObj,
+          where: { id: { in: headIds } },
+          // `id` is how the merged names are matched back to their row; it is
+          // dropped again below when the caller did not ask for it.
+          select: { ...raceQueryObj, id: true, positionNames: false },
           orderBy,
         })
       : await this.model.findMany({
-          where: pagedWhere,
+          where: { id: { in: headIds } },
           include: raceQueryObj,
+          omit: { positionNames: true },
           orderBy,
         })
 
-    if (!races[0]?.positionNames || !races[0]?.slug) {
-      return races
+    return races.map(({ id, ...race }) => ({
+      ...(raceSelectBase && !raceSelectBase.id ? {} : { id }),
+      ...race,
+      positionNames: namesById.get(id) ?? [],
+    }))
+  }
+
+  // The `where` built in findRaces, as SQL for findMergedRaceHeads, with the
+  // page's slugs added. Keep the two in step.
+  private buildRawWhere(
+    filterDto: RaceFilterDto,
+    placeId: string | undefined,
+    slugs: string[],
+  ): Prisma.Sql {
+    const { state, positionLevel, raceSlug, isPrimary, isRunoff } = filterDto
+    const conditions = [Prisma.sql`slug = ANY(${slugs})`]
+    if (state) conditions.push(Prisma.sql`state = ${state}`)
+    if (placeId) conditions.push(Prisma.sql`place_id = ${placeId}::uuid`)
+    if (positionLevel) {
+      conditions.push(
+        Prisma.sql`position_level = ${positionLevel}::"PositionLevel"`,
+      )
     }
-    return getDedupedRacesBySlug(races)
+    if (raceSlug) conditions.push(Prisma.sql`slug = ${raceSlug}`)
+    if (isPrimary !== undefined) {
+      conditions.push(Prisma.sql`is_primary = ${isPrimary}`)
+    }
+    if (isRunoff !== undefined)
+      conditions.push(Prisma.sql`is_runoff = ${isRunoff}`)
+    if (filterDto.electionDateStart) {
+      conditions.push(
+        Prisma.sql`election_date >= ${new Date(filterDto.electionDateStart)}`,
+      )
+    }
+    if (filterDto.electionDateEnd) {
+      conditions.push(
+        Prisma.sql`election_date <= ${new Date(filterDto.electionDateEnd)}`,
+      )
+    }
+    return Prisma.join(conditions, ' AND ')
   }
 
   /**

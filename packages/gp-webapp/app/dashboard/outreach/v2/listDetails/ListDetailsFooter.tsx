@@ -38,6 +38,9 @@ interface ListDetailsFooterProps {
   // Compact, ghost, destructive — never the width-taker.
   destructive?: ReactNode
   primary?: ListDetailsFooterAction | null
+  // Large unless a surface pairs it with a medium control: the campaign
+  // drawer's What we heard sits beside it at the size door knocking's row has.
+  primarySize?: 'medium' | 'large'
   // A second full-width row under the primary one. Archive/restore lives here:
   // it is ours rather than the canvas's, and pairing it beside the canvas's own
   // CTA would put three controls in a row built for two.
@@ -47,10 +50,16 @@ interface ListDetailsFooterProps {
   note?: ReactNode
 }
 
-const PrimaryAction = ({ action }: { action: ListDetailsFooterAction }) => {
+const PrimaryAction = ({
+  action,
+  size,
+}: {
+  action: ListDetailsFooterAction
+  size: 'medium' | 'large'
+}) => {
   if (action.kind === 'link') {
     return (
-      <Button asChild size="large" className="flex-1">
+      <Button asChild size={size} className="flex-1">
         <Link href={action.href} onClick={action.onClick}>
           {action.icon}
           {action.label}
@@ -60,7 +69,7 @@ const PrimaryAction = ({ action }: { action: ListDetailsFooterAction }) => {
   }
   return (
     <Button
-      size="large"
+      size={size}
       className="flex-1"
       disabled={action.kind === 'disabled' || action.disabled}
       onClick={action.kind === 'button' ? action.onClick : undefined}
@@ -76,6 +85,7 @@ export const ListDetailsFooter = ({
   leading,
   destructive,
   primary,
+  primarySize = 'large',
   secondary,
   note,
 }: ListDetailsFooterProps) => {
@@ -109,10 +119,12 @@ export const ListDetailsFooter = ({
           </p>
         ) : (
           canvasActions && (
-            <div className="flex gap-3">
+            // Wraps rather than overflowing: a leading control too wide to sit
+            // beside the primary on a phone takes its own line above it.
+            <div className="flex flex-wrap gap-3">
               {leading}
               {destructive}
-              {primary && <PrimaryAction action={primary} />}
+              {primary && <PrimaryAction action={primary} size={primarySize} />}
             </div>
           )
         )}

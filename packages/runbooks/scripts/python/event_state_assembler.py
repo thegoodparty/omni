@@ -94,11 +94,10 @@ ANCHOR_STATE = Path(__file__).parent / "instrumentation_data" / "event_anchors.j
 
 
 def accepted_anchors(path: Path | None = None) -> dict[str, dict]:
-    """{event_type: anchor} for the rows a reviewer has accepted. Govern is still the
-    source of truth for `fires_on`/`url` — build_rows only reaches for an anchor where
-    Govern carries nothing — but nothing writes the accepted anchors back to Govern yet
-    (DATA-2434), so without this the two columns the sheet was reordered around stay
-    blank for every event."""
+    """{event_type: anchor} for the rows a reviewer accepted in the one-time 2026-09
+    backfill. Govern is the source of truth for `fires_on`/`url`; build_rows only reaches
+    for an anchor where Govern carries nothing. The file is frozen: nothing drafts new
+    rows (DATA-2718), so events added since have a location only if Govern does."""
     state_path = path or ANCHOR_STATE
     if not state_path.exists():
         return {}

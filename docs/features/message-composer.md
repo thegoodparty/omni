@@ -126,8 +126,10 @@ This is the atom spec. Nothing gets locked that is not on these lists.
 
 ### Peerly SMS (Win)
 
-Five rules in `checkSmsStandards`, run identically client-side every keystroke
-and server-side at scheduling.
+Seven rules in `checkSmsStandards`, run identically client-side every keystroke
+and server-side at scheduling. The last two forbid text rather than require it,
+so they lock nothing: Peerly refuses that text only at job creation, which runs
+after payment.
 
 | Rule id            | The actual test                                                                            | Satisfied today by                                |
 | ------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------- |
@@ -136,6 +138,8 @@ and server-side at scheduling.
 | `candidate_name`   | any whitespace-split token of 3+ chars from the candidate's name appears, case-insensitive | the identification sentence, in the editable body |
 | `paid_for_by`      | `/paid\s+for\s+by/i` **and** a 3+ char token of the committee name                         | system footer `Paid for by <committee>.`          |
 | `length`           | composed script under 2000 (`P2P_SCRIPT_MAX_LENGTH`)                                       | UI caps earlier at 1000                           |
+| `link_shortener`   | no host from `LINK_SHORTENER_HOSTS` (bit.ly, tinyurl.com, ...)                             | the candidate pasting the full address            |
+| `restricted_word`  | no whole word from `SMS_RESTRICTED_WORDS`, the words prod has seen Peerly refuse           | the candidate rewording                           |
 
 Not in the standards check but still required: Peerly rejects a P2P job with no
 image (`P2P_ERROR_MESSAGES.IMAGE_REQUIRED`).

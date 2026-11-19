@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, type ReactNode } from 'react'
-import type { AgentRunDetail } from '@goodparty_org/sdk'
+import type { AgentRunDetail } from '@/shared/gpApi'
 
 const AgentRunContext = createContext<AgentRunDetail | null>(null)
 

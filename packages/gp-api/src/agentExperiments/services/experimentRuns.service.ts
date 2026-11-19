@@ -7,14 +7,16 @@ import {
   ExperimentRunStatus,
   Prisma,
 } from '../../generated/prisma'
-import { Cron } from '@nestjs/schedule'
 import { randomUUID } from 'crypto'
+import { differenceInMinutes, isAfter } from 'date-fns'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { isTestUser } from '@/users/util/users.util'
+import { JobsService } from '@/jobs/jobs.service'
+import type { JobRun } from '@/jobs/jobs.registry'
 
 const sqs = new SQS({})
 
@@ -40,6 +42,12 @@ export const MAX_RESUME_ATTEMPTS = 5
 // Drain the resumable backlog incrementally across ticks so a post-pause
 // surge can't load an unbounded result set or overrun the 5-minute interval.
 const RESUME_SWEEP_BATCH_SIZE = 100
+// resumeRun's claim is followed by a successor or a release within a second
+// or two, so a claim older than this was left by an attempt that died. Well
+// past the 30 seconds ECS gives a stopping task.
+const RESUME_CLAIM_STALE_MINUTES = 2
+// The error a run's row takes when its SQS dispatch fails: it never ran.
+const SQS_DISPATCH_FAILED = 'SQS dispatch failed'
 
 type ResumeRunInput = {
   runId: string
@@ -55,7 +63,10 @@ type ResumeRunInput = {
 export class ExperimentRunsService extends createPrismaBase(
   MODELS.ExperimentRun,
 ) {
-  constructor(private readonly slack: SlackService) {
+  constructor(
+    private readonly slack: SlackService,
+    private readonly jobs: JobsService,
+  ) {
     super()
   }
 
@@ -181,7 +192,7 @@ export class ExperimentRunsService extends createPrismaBase(
           where: { runId },
           data: {
             status: ExperimentRunStatus.FAILED,
-            error: 'SQS dispatch failed',
+            error: SQS_DISPATCH_FAILED,
           },
         })
       } catch (updateError) {
@@ -337,55 +348,133 @@ export class ExperimentRunsService extends createPrismaBase(
     }
   }
 
-  @Cron('*/5 * * * *')
-  async sweepResumableRuns() {
-    const now = new Date()
-
+  // The experimentRunResumeSweep schedule's worker
+  // (src/jobs/jobs.registry.ts). The key pins each job to its run and attempt,
+  // so a sweep that finds a run whose job is still queued sends nothing new.
+  async sweepResumableRuns(): Promise<void> {
     const due = await this.model.findMany({
       where: {
         status: ExperimentRunStatus.AWAITING_RESUME,
-        resumeScheduledFor: { lte: now },
+        resumeScheduledFor: { lte: new Date() },
         // Defense-in-depth: even a pre-existing parked briefing/schedule row
         // (there are none today) must never be resumed.
         experimentType: { notIn: [...NON_RESUMABLE_EXPERIMENT_TYPES] },
       },
+      select: { runId: true, resumeAttempts: true },
       orderBy: { resumeScheduledFor: Prisma.SortOrder.asc },
       take: RESUME_SWEEP_BATCH_SIZE,
     })
 
-    for (const run of due) {
-      if (run.resumeAttempts >= MAX_RESUME_ATTEMPTS) {
-        const { count } = await this.model.updateMany({
+    await this.jobs.sendMany(
+      'experimentRunResume',
+      due.map((run) => ({
+        data: { runId: run.runId },
+        key: `${run.runId}:${run.resumeAttempts}`,
+      })),
+    )
+  }
+
+  // The experimentRunResume job's worker. Re-reads the row, so a run that was
+  // resumed, superseded or cancelled since the sweep found it is left alone.
+  async resumeDueRun(job: JobRun<{ runId: string }>): Promise<void> {
+    const run = await this.model.findFirst({
+      where: {
+        runId: job.data.runId,
+        status: ExperimentRunStatus.AWAITING_RESUME,
+        experimentType: { notIn: [...NON_RESUMABLE_EXPERIMENT_TYPES] },
+      },
+    })
+    if (!run) return
+    if (run.resumeScheduledFor && isAfter(run.resumeScheduledFor, new Date())) {
+      return
+    }
+    if (job.signal.aborted) {
+      throw new Error('Shutting down before claiming the resume')
+    }
+
+    // A cleared resumeScheduledFor is resumeRun's claim. Seen here it means
+    // an earlier attempt of this job died between the claim and its successor
+    // or release, since the sweep only sends due runs. Each resume is a paid
+    // run, so dispatch again only when that attempt created no successor.
+    if (!run.resumeScheduledFor) {
+      if (
+        differenceInMinutes(new Date(), run.updatedAt) <
+        RESUME_CLAIM_STALE_MINUTES
+      ) {
+        throw new Error(
+          'Resume claim is still fresh; an earlier attempt may be running',
+        )
+      }
+      // Nothing links a successor to its run but what resumeRun gives it:
+      // this run's params with the resume trigger, and the next attempt
+      // number. A successor whose SQS dispatch failed never ran, so it does
+      // not count.
+      const successor = await this.model.findFirst({
+        where: {
+          organizationSlug: run.organizationSlug,
+          experimentType: run.experimentType,
+          resumeAttempts: run.resumeAttempts + 1,
+          createdAt: { gt: run.createdAt },
+          params: {
+            equals: {
+              ...(isJsonObject(run.params) ? run.params : {}),
+              trigger: 'recovery_resume',
+            },
+          },
+          NOT: {
+            status: ExperimentRunStatus.FAILED,
+            error: SQS_DISPATCH_FAILED,
+          },
+        },
+      })
+      if (successor) {
+        await this.model.updateMany({
           where: {
             runId: run.runId,
             status: ExperimentRunStatus.AWAITING_RESUME,
+            resumeScheduledFor: null,
           },
           data: {
-            status: ExperimentRunStatus.FAILED,
-            error:
-              `Exceeded max resume attempts (${run.resumeAttempts}) ` +
-              `at stage: ${run.stage ?? 'unknown'}`,
+            status: ExperimentRunStatus.SUPERSEDED,
+            error: 'Superseded by resumed run',
           },
         })
-        // The cron fires on every replica; only the one whose update actually
-        // terminalized the row (count > 0) alerts, so the failure isn't
-        // re-announced each tick. Without this the run dies silently after
-        // exhausting its resume budget — no log, no Slack, no human in the loop.
-        if (count > 0) {
-          await this.alertMaxResumeExhausted(run)
-        }
-      } else {
-        // Isolate each run: a throw from one resume must not abort the rest of
-        // the batch (the remaining due runs would be skipped until next tick).
-        try {
-          await this.resumeRun(run)
-        } catch (error) {
-          this.logger.error(
-            { error, runId: run.runId },
-            'resumeRun threw during sweep — continuing with remaining runs',
-          )
-        }
+        return
       }
+      const released = await this.model.updateMany({
+        where: {
+          runId: run.runId,
+          status: ExperimentRunStatus.AWAITING_RESUME,
+          resumeScheduledFor: null,
+        },
+        data: { resumeScheduledFor: new Date() },
+      })
+      if (released.count === 0) return
+    }
+
+    if (run.resumeAttempts < MAX_RESUME_ATTEMPTS) {
+      await this.resumeRun(run)
+      return
+    }
+
+    const { count } = await this.model.updateMany({
+      where: {
+        runId: run.runId,
+        status: ExperimentRunStatus.AWAITING_RESUME,
+      },
+      data: {
+        status: ExperimentRunStatus.FAILED,
+        error:
+          `Exceeded max resume attempts (${run.resumeAttempts}) ` +
+          `at stage: ${run.stage ?? 'unknown'}`,
+      },
+    })
+    // Only the attempt whose update actually terminalized the row (count > 0)
+    // alerts, so a retry doesn't re-announce the failure. Without this the
+    // run dies silently after exhausting its resume budget — no log, no
+    // Slack, no human in the loop.
+    if (count > 0) {
+      await this.alertMaxResumeExhausted(run)
     }
   }
 

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+/*GP_FLOW_CSS*/
+/* scaffold:start: the review page around the design. Keep it as the template has it; check.py fails on any edit. */
+/* The page wears the styleguide: blocks below the frame are a Card (card.tsx), each collapsible is an
+   Accordion item (accordion.tsx), tables are a Table (table.tsx), question numbers a soft pill Badge (badge.tsx). */
+body { margin: 0; background: var(--brand-surface-secondary); font-family: 'Open Sans', system-ui, sans-serif; color: var(--color-foreground); line-height: 1.5; }
+.page { max-width: 1280px; margin: 0 auto; padding: 32px 24px 96px; }
+.option + .option { margin-top: 64px; }
+.option > h2 { font-size: var(--text-2xl); font-weight: 600; line-height: 1.33; margin: 0 0 8px; }
+.option > p { font-size: var(--text-base); color: var(--color-muted-foreground); margin: 0 0 8px; max-width: 70ch; }
+.option > p.sends { font-size: var(--text-sm); margin-bottom: 24px; }
+/* Restart, Desktop preview, Show how it's built and the Serve / Win switch: mount.tsx renders them with the real Button and ToggleGroup. */
+.frame-head { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 8px; margin-bottom: 12px; }
+/* The frame the flow renders in stands in for the window (scripts/flow/runtime/frame.tsx). On the page it is a
+   375 x 812 phone; ?view=desktop is the whole window, ?view=phone a 375px column the window's height. */
+.gp-frame { border: 1px solid var(--color-border); }
+.gp-frame--phone { width: 375px; max-width: 100%; height: 812px; border-radius: 28px; }
+.gp-frame--view-desktop { width: 100vw; height: 100dvh; border: 0; }
+.gp-frame--view-phone { width: 375px; max-width: 100%; height: 100dvh; margin: 0 auto; border-top: 0; border-bottom: 0; }
+/* !important: the artifact host adds a bar with inline styles, which a view never shows. */
+body[data-view] > :not(#gp-view) { display: none !important; }
+/* Cards: everything under the frame, and Decisions needed and How we read the task below the design, all one width. */
+.option > details, .brief > div, .brief > details { max-width: 960px; margin-top: 16px; padding: 0 24px; background: var(--color-card); color: var(--color-card-foreground); border: 1px solid var(--color-border); border-radius: var(--radius-xl); font-size: var(--text-sm); }
+.option > details:first-of-type { margin-top: 24px; }
+.brief { margin-top: 48px; }
+.brief > div { padding-top: 24px; padding-bottom: 8px; }
+.brief h2 { font-size: var(--text-xl); font-weight: 600; line-height: 1.4; margin: 0 0 8px; }
+.brief h3 { font-size: var(--text-sm); font-weight: 600; margin: 16px 0 8px; }
+/* Accordion trigger: text-sm medium, py-4, a chevron that turns when open. */
+details > summary { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 16px 0; list-style: none; cursor: pointer; font-size: var(--text-sm); font-weight: 500; color: var(--color-foreground); }
+details > summary::-webkit-details-marker { display: none; }
+details > summary:hover { text-decoration: underline; }
+details > summary::after { content: ''; flex-shrink: 0; width: 16px; height: 16px; margin-top: 2px; background: var(--color-muted-foreground); transition: transform 200ms;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat; }
+details[open] > summary::after { transform: rotate(180deg); }
+.option > details[open], .brief > details[open] { padding-bottom: 16px; }
+/* A collapsible inside a card is an Accordion item: a top border, no card of its own. */
+.brief > div details { margin-top: 8px; border-top: 1px solid var(--color-border); }
+.brief > div details[open] { padding-bottom: 8px; }
+/* Decisions needed: one row per question, numbered with a soft pill Badge. */
+#questions > ul { margin: 0; padding: 0; list-style: none; counter-reset: question; }
+#questions > ul > li { position: relative; padding: 12px 0 12px 36px; border-bottom: 1px solid var(--color-border); counter-increment: question; }
+#questions > ul > li:last-child { border-bottom: 0; }
+#questions > ul > li::before { content: counter(question); position: absolute; left: 0; top: 12px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; height: 20px; min-width: 20px; padding: 0 6px; border-radius: 9999px; background: var(--color-grayscale-200); color: var(--color-foreground); font-size: var(--text-xs); font-weight: 500; line-height: 1; }
+.brief ul, .option > details > ul { margin: 0; padding-left: 20px; list-style: disc; }
+.brief ul li + li, .option > details > ul li + li { margin-top: 8px; }
+#questions > ul > li + li { margin-top: 0; }
+.brief dl { display: grid; grid-template-columns: 160px 1fr; gap: 12px 16px; margin: 0; }
+.brief dt { color: var(--color-muted-foreground); font-weight: 500; }
+.brief dd { margin: 0; }
+.brief code, .option > details code { font-family: var(--font-mono); font-size: 0.92em; overflow-wrap: anywhere; }
+/* Table: rows split by a border, cells p-2 with the first and last flush to the card. */
+.option > details table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.option > details tr { border-bottom: 1px solid var(--color-border); }
+.option > details tr:last-child { border-bottom: 0; }
+.option > details td { padding: 12px 8px; vertical-align: top; overflow-wrap: anywhere; }
+.option > details td:first-child { padding-left: 0; width: 32%; font-weight: 500; }
+.option > details td:last-child { padding-right: 0; }
+/* Other states: one phone frame per state, its label above. */
+.appendix-grid { display: flex; flex-wrap: wrap; gap: 24px; }
+.appendix-grid figure { width: 375px; max-width: 100%; margin: 0; }
+.appendix-grid figcaption { font-size: var(--text-sm); color: var(--color-muted-foreground); margin-bottom: 8px; }
+@media (max-width: 600px) { .brief dl { grid-template-columns: 1fr; gap: 4px; } .brief dd { margin-bottom: 8px; } }
+/* On a phone the page drops its side padding so the phone frame fills the screen; text and cards keep 16px. */
+@media (max-width: 440px) {
+  .page { padding-left: 0; padding-right: 0; }
+  .brief, .option > h2, .option > p, .frame-head, .build-shape { padding-left: 16px; padding-right: 16px; }
+  .option > details { margin-left: 16px; margin-right: 16px; padding: 0 16px; }
+  .brief > div, .brief > details { padding-left: 16px; padding-right: 16px; }
+  .gp-frame--phone { width: 100%; border-radius: 0; border-left: 0; border-right: 0; }
+}
+/* scaffold:end */
+/* The page's own rules go here: layout of the page around the design only. The design itself is drawn
+   in <work>/flow/option-x.tsx with the real components (reference/wireframe-build.md). */
+</style>
+</head>
+<body>
+<!-- One design: data-design="one" tells check.py to check #option-a only. data-product is
+     "win", "serve" or "both": the products the task names (gp-design section 1). -->
+<main class="page" data-design="one" data-product="{{PRODUCT}}">
+
+<!-- The design comes first, at the top of the page: one flow in one phone frame, starting
+     on the entry screen, where the user starts. -->
+<section class="option" id="option-a">
+  <h2>{{NAME_A}}</h2>
+  <p>{{ONE_SENTENCE_A}}</p>
+  <p class="sends" id="a-sends">Sends: {{SENDS_A}}</p>
+  <!-- The design is <work>/flow/option-a.tsx, made from assets/flow-template.tsx. build.py renders it here
+       with the real styleguide components: the frame head gets Restart and Desktop preview (and the
+       Serve / Win switch when the flow names both products), then the 375 x 812 phone frame. Desktop
+       preview opens the same flow at the window's width in a new tab. -->
+  <div class="frame-head" data-gp-head="option-a"></div>
+  <div data-gp-flow="option-a"></div>
+  <!-- Other states: the flow file's states, each one screen with its label. One design has no cap. -->
+  <details class="appendix" id="a-appendix">
+    <summary>Other states</summary>
+    <div class="appendix-grid" data-gp-states="option-a"></div>
+  </details>
+  <!-- Each element and its source: a component from COMPONENTS.md or the file of the
+       screen it copies. A part with no source is a gap: say "Gap:" and the closest fit.
+       A control the change doesn't touch carries data-inert="<its name>", and that name
+       goes in a row "Not part of this change"; check.py fails otherwise. -->
+  <details class="sources" id="a-sources">
+    <summary>Built from</summary>
+    <table>
+      <tr><td>{{ELEMENT}}</td><td>{{SOURCE}}</td></tr>
+    </table>
+  </details>
+  <!-- What changes from today (docs/product-design.md section 7): dropped behavior,
+       removed controls, changed strings with old and new text. "None" when nothing does. -->
+  <details class="drops" id="a-drops">
+    <summary>What changes from today</summary>
+    <ul>
+      <li>{{DROPS_A}}</li>
+    </ul>
+  </details>
+  <!-- Mutations (reference/wireframe-build.md, "Mutations"): one row per mutation marker on the page,
+       with the element, the kind (product or no-component) and the marker's text after its kind.
+       One row "None" when the design has none. -->
+  <details class="mutations" id="a-mutations">
+    <summary>Mutations</summary>
+    <table>
+      <tr><td>{{MUTATION_ELEMENT}}</td><td>{{MUTATION_KIND}}</td><td>{{MUTATION_SOURCE_OR_PROPOSAL}}</td></tr>
+    </table>
+  </details>
+</section>
+
+<!-- Below the design. Decisions needed stays open; How we read the task and the trace are collapsed.
+     The summary answers the reviewer's questions before they ask. One or two sentences
+     each. Write "Unknown" rather than guess. See reference/review-lens.md. -->
+<section class="brief" id="brief">
+  <!-- Decisions needed: every Unknown, ticket claim the code doesn't match, ADR the
+       design would reverse or weaken (title and decided_by), and decision for a person.
+       Which list a rulebook vs code conflict goes in: reference/wireframe-build.md,
+       "Existing screens" item 2. The post-back repeats both. "None" when a list is empty. -->
+  <div id="questions">
+    <h2>Decisions needed</h2>
+    <ul>
+      <li>{{QUESTION_1}}</li>
+    </ul>
+    <details id="rulebook-vs-code">
+      <summary>Rulebook vs code (copied, no action)</summary>
+      <ul>
+        <li>{{RULEBOOK_VS_CODE_1}}</li>
+      </ul>
+    </details>
+  </div>
+  <details id="brief-summary">
+    <summary>How we read the task</summary>
+    <dl>
+      <dt>User</dt><dd id="brief-user">{{BRIEF_USER}}</dd>
+      <dt>Problem</dt><dd id="brief-problem">{{BRIEF_PROBLEM}}</dd>
+      <dt>Solution</dt><dd id="brief-solution">{{BRIEF_SOLUTION}}</dd>
+      <dt>Data</dt><dd id="brief-data">{{BRIEF_DATA}}</dd>
+      <dt>Measurement</dt><dd id="brief-measure">{{BRIEF_MEASURE}}</dd>
+      <dt>Where they come from</dt><dd id="brief-entry">{{BRIEF_ENTRY}}</dd>
+    </dl>
+    <h3>Feedback we want today</h3>
+    <ul id="feedback-ask">
+      <li>{{FEEDBACK_ASK_1}}</li>
+    </ul>
+  </details>
+  <!-- The trace from docs/product-design.md "Before you design": one line per surface
+       the feature touches, saying what changes or why nothing does. -->
+  <details id="brief-reach">
+    <summary>Where it reaches</summary>
+    <ul id="reach">
+      <li>{{REACH_1}}</li>
+    </ul>
+  </details>
+</section>
+
+</main>
+</body>
+</html>

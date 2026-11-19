@@ -1,16 +1,18 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { NotFoundException } from '@nestjs/common'
 import {
   Annotation,
   AnnotationKind,
   AnnotationResourceType,
   ChatConversation,
-  ChatMessage,
   ChatMessageRole,
   MeetingBriefing,
 } from '../../../generated/prisma'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import type {
+  ChatMessageWithSegments,
+  ChatStoreService,
+} from '@/chats/services/chatStore.prisma'
 import type {
   ChatStreamChunk,
   FinalizeTurn,
@@ -167,7 +169,7 @@ class FakeChatStore {
     (id: string, ownerUserId: number) => Promise<ChatConversation | null>
   >(() => Promise.resolve(buildConversation()))
   listMessagesByConversation = vi.fn<
-    (conversationId: string) => Promise<ChatMessage[]>
+    (conversationId: string) => Promise<ChatMessageWithSegments[]>
   >(() => Promise.resolve([]))
   softDeleteConversation = vi.fn<
     (id: string, ownerUserId: number) => Promise<void>
@@ -247,7 +249,7 @@ const consume = async <T>(iter: AsyncIterable<T>): Promise<T[]> => {
   return out
 }
 
-type StreamArgsWithClientId = StreamArgs & { clientMessageId?: string }
+type StreamArgsWithUserMessageId = StreamArgs & { userMessageId?: string }
 
 describe('BriefingChatsService', () => {
   let briefingContext: FakeBriefingContext
@@ -360,7 +362,11 @@ describe('BriefingChatsService', () => {
       expect(chatStream.lastArgs?.finalizeText?.('reply', turn)).toBe(
         '\n\nreply (+tools)',
       )
-      expect(hook).toHaveBeenCalledWith('reply', turn)
+      expect(hook).toHaveBeenCalledWith(
+        'reply',
+        turn,
+        expect.objectContaining({ conversationId: CONVERSATION_ID }),
+      )
     })
 
     it('passes the exact systemPrompt produced by buildSystemPrompt', async () => {
@@ -553,21 +559,23 @@ describe('BriefingChatsService', () => {
       )
     })
 
-    it('forwards clientMessageId to chatStream.stream when provided', async () => {
-      const clientMessageId = '11111111-1111-4111-8111-111111111111'
+    it('forwards userMessageId to chatStream.stream when provided', async () => {
+      const userMessageId = '11111111-1111-4111-8111-111111111111'
       const iter = svc.sendMessage({
         annotationId: ANNOTATION_ID,
         userId: USER_ID,
         userMessage: 'hi',
-        clientMessageId,
+        userMessageId,
       })
       await consume(iter)
 
-      const args = chatStream.lastArgs as StreamArgsWithClientId | undefined
-      expect(args?.clientMessageId).toBe(clientMessageId)
+      const args = chatStream.lastArgs as
+        | StreamArgsWithUserMessageId
+        | undefined
+      expect(args?.userMessageId).toBe(userMessageId)
     })
 
-    it('does not set clientMessageId when omitted', async () => {
+    it('does not set userMessageId when omitted', async () => {
       const iter = svc.sendMessage({
         annotationId: ANNOTATION_ID,
         userId: USER_ID,
@@ -575,38 +583,10 @@ describe('BriefingChatsService', () => {
       })
       await consume(iter)
 
-      const args = chatStream.lastArgs as StreamArgsWithClientId | undefined
-      expect(args?.clientMessageId).toBeUndefined()
-    })
-
-    it('propagates NotFoundException from briefingContext.loadContext', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new NotFoundException('Annotation not found'),
-      )
-      await expect(
-        consume(
-          svc.sendMessage({
-            annotationId: 'missing',
-            userId: USER_ID,
-            userMessage: 'hi',
-          }),
-        ),
-      ).rejects.toBeInstanceOf(NotFoundException)
-    })
-
-    it('propagates BadRequestException from briefingContext.loadContext', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new BadRequestException('bad'),
-      )
-      await expect(
-        consume(
-          svc.sendMessage({
-            annotationId: ANNOTATION_ID,
-            userId: USER_ID,
-            userMessage: 'hi',
-          }),
-        ),
-      ).rejects.toBeInstanceOf(BadRequestException)
+      const args = chatStream.lastArgs as
+        | StreamArgsWithUserMessageId
+        | undefined
+      expect(args?.userMessageId).toBeUndefined()
     })
 
     it('throws NotFoundException when annotation.chatConversationId is null', async () => {
@@ -809,21 +789,29 @@ describe('BriefingChatsService', () => {
 
   describe('loadConversation', () => {
     it('returns conversationId and messages from chatStore', async () => {
-      const messages: ChatMessage[] = [
+      const messages: ChatMessageWithSegments[] = [
         {
           id: 'm-1',
           conversationId: CONVERSATION_ID,
           role: ChatMessageRole.user,
           content: 'hello',
+          model: null,
+          inputTokens: null,
+          outputTokens: null,
           createdAt: new Date('2026-01-01T00:00:01Z'),
-        } as unknown as ChatMessage,
+          segments: [],
+        },
         {
           id: 'm-2',
           conversationId: CONVERSATION_ID,
           role: ChatMessageRole.assistant,
           content: 'hi back',
+          model: null,
+          inputTokens: null,
+          outputTokens: null,
           createdAt: new Date('2026-01-01T00:00:02Z'),
-        } as unknown as ChatMessage,
+          segments: [],
+        },
       ]
       chatStore.listMessagesByConversation.mockResolvedValueOnce(messages)
 
@@ -851,15 +839,6 @@ describe('BriefingChatsService', () => {
         svc.loadConversation(ANNOTATION_ID, USER_ID),
       ).rejects.toBeInstanceOf(NotFoundException)
       expect(chatStore.listMessagesByConversation).not.toHaveBeenCalled()
-    })
-
-    it('propagates NotFoundException from briefingContext.loadContext', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new NotFoundException('Annotation not found'),
-      )
-      await expect(
-        svc.loadConversation('missing', USER_ID),
-      ).rejects.toBeInstanceOf(NotFoundException)
     })
 
     it('throws NotFoundException when annotation.chatConversationId is null', async () => {
@@ -891,15 +870,6 @@ describe('BriefingChatsService', () => {
       )
     })
 
-    it('propagates NotFoundException from briefingContext.loadContext', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new NotFoundException('Annotation not found'),
-      )
-      await expect(
-        svc.deleteConversation('missing', USER_ID),
-      ).rejects.toBeInstanceOf(NotFoundException)
-    })
-
     it('throws NotFoundException when annotation.chatConversationId is null', async () => {
       briefingContext.loadContext.mockResolvedValueOnce({
         annotation: buildAnnotation({ chatConversationId: null }),
@@ -912,36 +882,6 @@ describe('BriefingChatsService', () => {
       await expect(
         svc.deleteConversation(ANNOTATION_ID, USER_ID),
       ).rejects.toBeInstanceOf(NotFoundException)
-    })
-  })
-
-  describe('assertBriefingChatAccessible', () => {
-    it('resolves when loadContext succeeds', async () => {
-      await expect(
-        svc.assertBriefingChatAccessible(ANNOTATION_ID, USER_ID),
-      ).resolves.toBeUndefined()
-      expect(briefingContext.loadContext).toHaveBeenCalledWith(
-        ANNOTATION_ID,
-        USER_ID,
-      )
-    })
-
-    it('throws NotFoundException when loadContext throws NotFoundException', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new NotFoundException('Annotation not found'),
-      )
-      await expect(
-        svc.assertBriefingChatAccessible('missing', USER_ID),
-      ).rejects.toBeInstanceOf(NotFoundException)
-    })
-
-    it('throws BadRequestException when loadContext throws BadRequestException', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new BadRequestException('bad'),
-      )
-      await expect(
-        svc.assertBriefingChatAccessible(ANNOTATION_ID, USER_ID),
-      ).rejects.toBeInstanceOf(BadRequestException)
     })
   })
 })

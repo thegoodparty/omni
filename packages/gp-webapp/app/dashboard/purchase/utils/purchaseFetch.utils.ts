@@ -16,6 +16,9 @@ export interface CheckoutSessionResponse {
   id?: string
   clientSecret: string
   amount?: number
+  // A Win SMS authorization hold prices the count before the free texts
+  // come off; capture takes them off later. Absent on the Pro session.
+  isHold?: boolean
 }
 
 export function createCheckoutSession(

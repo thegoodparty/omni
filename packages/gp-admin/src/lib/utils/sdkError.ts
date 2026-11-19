@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError } from '@/shared/gpApi'
 
 // gp-api's nestjs-zod 400 body: { statusCode, message, errors: ZodIssue[] }
 const apiErrorBodySchema = z.object({

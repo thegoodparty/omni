@@ -10,10 +10,9 @@ import { z } from 'zod'
 //
 // Tiers describe what SHOULD gate boot. `./env.ts`'s `resolveEnvVar` is the
 // resolution helper degradable vendor sites consume (ENG-11195) — see e.g.
-// vendors/vercel/services/vercel.service.ts or
-// voters/services/voters.service.ts for the pattern. A few `requireEnv()`
-// import-time throws on `optional`/`degradable` vars remain outside that
-// inventory (e.g. vendors/stripe/services/stripe.service.ts's own
+// vendors/vercel/services/vercel.service.ts for the pattern. A few
+// `requireEnv()` import-time throws on `optional`/`degradable` vars remain
+// outside that inventory (e.g. vendors/stripe/services/stripe.service.ts's own
 // STRIPE_SECRET_KEY / STRIPE_WEBSOCKET_SECRET / WEBAPP_ROOT_URL checks) —
 // migrating those is still a separate piece of work.
 //
@@ -58,6 +57,32 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     tier: 'degradable',
     feature: 'campaign-email-forwarding',
   },
+  // Signs the unsubscribe links in outreach email. Without it the send
+  // sweep sends nothing.
+  EMAIL_UNSUBSCRIBE_SIGNING_KEY: {
+    tier: 'degradable',
+    feature: 'email-outreach-sending',
+  },
+
+  // The SNS topic that delivers replies to outreach email. The webhook
+  // accepts messages from this topic only.
+  EMAIL_INBOUND_TOPIC_ARN: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
+  },
+
+  // The only bucket the reply handler reads inbound mail from.
+  EMAIL_INBOUND_BUCKET: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
+  },
+
+  // The bucket SES's Firehose destination writes per-email events to. Unset,
+  // the event sweep does nothing.
+  SES_EVENTS_BUCKET: {
+    tier: 'degradable',
+    feature: 'email-outreach-delivery-tracking',
+  },
 
   PEERLY_MD5_EMAIL: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_MD5_PASSWORD: { tier: 'degradable', feature: 'peerly-texting' },
@@ -84,14 +109,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'slack-notifications',
   },
   SLACK_BOT_DEV_CHANNEL_TOKEN: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
-  SLACK_BOT_AI_CHANNEL_ID: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
-  SLACK_BOT_AI_CHANNEL_TOKEN: {
     tier: 'degradable',
     feature: 'slack-notifications',
   },
@@ -127,14 +144,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     tier: 'degradable',
     feature: 'slack-notifications',
   },
-  SLACK_BOT_DELETIONS_CHANNEL_ID: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
-  SLACK_BOT_DELETIONS_CHANNEL_TOKEN: {
-    tier: 'degradable',
-    feature: 'slack-notifications',
-  },
   SLACK_BOT_TEVYN_API_CHANNEL_ID: {
     tier: 'degradable',
     feature: 'slack-notifications',
@@ -158,7 +167,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   STRIPE_WEBSOCKET_SECRET: { tier: 'degradable', feature: 'stripe-webhooks' },
 
-  AMPLITUDE_PROJECT_API_KEY: {
+  // The `server-` key of gp-api's own `gp-api` Experiment deployment, not the
+  // Project API Key: Amplitude's API cannot attach a flag to the Project API
+  // Key deployment, so a flag created through the API or MCP would never
+  // serve here.
+  AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY: {
     tier: 'degradable',
     feature: 'feature-flags',
     placeholder: 'some_key',
@@ -180,13 +193,18 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     placeholder: 'key',
   },
 
-  L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
-
   // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
   // bundle vends. Set on the dev deploy only; unset everywhere else, which
   // is what keeps vending dark rather than failing boot before the secret
   // exists.
   LOCAL_DEV_ENV_SECRET_ID: {
+    tier: 'degradable',
+    feature: 'dev-env-vending',
+  },
+
+  // Private bucket holding the local election seed POST /v1/dev-env/
+  // election-seed hands out. Dev deploy only, like the secret above.
+  LOCAL_ELECTION_SEED_BUCKET: {
     tier: 'degradable',
     feature: 'dev-env-vending',
   },
@@ -219,6 +237,8 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   ELECTION_DATABASE_URL: { tier: 'degradable', feature: 'election-data' },
 
   // --- Optional: everything else ---------------------------------------
+  CLERK_JWT_KEY: { tier: 'optional' },
+  PYROSCOPE_ENABLED: { tier: 'optional', default: 'false' },
   NODE_ENV: { tier: 'optional' },
   LOG_LEVEL: { tier: 'optional', default: 'debug' },
   ENABLE_QUERY_LOGGING: { tier: 'optional', default: 'false' },
@@ -239,6 +259,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   CLERK_AUTHORIZED_PARTIES: { tier: 'optional' },
   CLERK_API_TIMEOUT_MS: { tier: 'optional' },
+  VERCEL_OIDC_ALLOWED_PROJECTS: { tier: 'optional' },
+  VERCEL_OIDC_ADMIN_PROJECTS: { tier: 'optional' },
+  GITHUB_OIDC_ALLOWED_WORKFLOWS: { tier: 'optional' },
 
   AWS_REGION: { tier: 'optional', default: 'us-west-2' },
   // Not read via `process.env.X` in our own code — the AWS SDK's default
@@ -252,16 +275,8 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   CONTENTFUL_SPACE_ID: { tier: 'optional' },
   CONTENTFUL_ACCESS_TOKEN: { tier: 'optional' },
-  CONTENTFUL_CHAT_PROMPT_NAME: { tier: 'optional', default: 'General' },
 
   HUBSPOT_TOKEN: { tier: 'optional' },
-  HUBSPOT_PIN_SENT_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_FORM_SUBMITTED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_PIN_SUBMITTED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_POLL_RESULTS_EMAIL_ID: { tier: 'optional' },
-  HUBSPOT_BRIEFING_READY_EMAIL_ID: { tier: 'optional' },
   HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: { tier: 'optional' },
   HUBSPOT_OFFICE_HOLDER_OBJECT_TYPE_ID: { tier: 'optional' },
   HUBSPOT_OFFICE_HOLDER_CONTACT_ASSOCIATION_TYPE_ID: { tier: 'optional' },
@@ -279,7 +294,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // out of AI_MODELS. Stubbed out in llm.service tests to keep them
   // deterministic regardless of the host's ambient env.
   TOGETHER_AI_KEY: { tier: 'optional' },
-  LLAMA_AI_ASSISTANT: { tier: 'optional' },
   BRAINTRUST_API_KEY: { tier: 'optional' },
 
   GEOAPIFY_API_KEY: { tier: 'optional' },
@@ -298,14 +312,10 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 
-  CAMPAIGN_PLAN_RESULTS_BUCKET: { tier: 'optional' },
   CAMPAIGN_PLAN_SHARES_BUCKET: { tier: 'optional' },
 
   AGENT_DISPATCH_QUEUE_NAME: { tier: 'optional' },
   AGENT_RUN_INPUTS_BUCKET: { tier: 'optional' },
-  AGENTIC_KICKOFF_SWEEP_INTERVAL: { tier: 'optional' },
-
-  SCHEDULED_MESSAGING_INTERVAL_SECS: { tier: 'optional', default: '3600' },
 
   // Read only by seed/seed.ts, outside src/ — kept here so the contract
   // stays a complete match against .env.example.
@@ -322,6 +332,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   ROBOCALL_AUDIO_BUCKET: { tier: 'optional' },
   ROBOCALL_TEST_OVERRIDE_NUMBER: { tier: 'optional' },
+  // The free election-eve robocall offer's Stripe coupon. Unset hides the
+  // offer, which is how prod stays dark until the live coupon exists.
+  ROBOCALL_FREE_OFFER_COUPON_ID: { tier: 'optional' },
   SERVE_ANALYSIS_BUCKET_NAME: { tier: 'optional' },
   // Issue capture synthesis (constituentFeedback/). Unset means the
   // deployed pipeline; `mock` keeps everything in-process.
@@ -338,11 +351,41 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MEETING_PIPELINE_BUCKET: { tier: 'optional' },
   ANNOTATION_ATTACHMENTS_BUCKET: { tier: 'optional' },
   CHAT_ATTACHMENTS_BUCKET: { tier: 'optional' },
+  // Original CSVs from Import contacts (src/contactUploads/AGENTS.md).
+  CONTACT_UPLOADS_BUCKET: { tier: 'optional' },
+  // The dbt view the people reads join for orgs with serve-import-contacts
+  // on; dev reads the view over the dev federated catalog.
+  PEOPLE_DBX_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'gp_api_contact_overlay',
+  },
+  // The same overlay for the Serve agents' mart, keyed by voter_key.
+  SERVE_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'serve_agent_contact_overlay',
+  },
+  // The same overlay for the Win Campaign Manager's mart.
+  WIN_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'win_agent_contact_overlay',
+  },
 
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
+  // Experiment ids that run on gp-api's own agents (src/agents) instead of
+  // the PMF Engine, comma-separated. Unset sends every one to the PMF Engine.
+  AGENTS_ON_GP_API: { tier: 'optional' },
   ORDINANCES_AUTOMATION_ENABLED: { tier: 'optional' },
+  CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },
+  // The nightly case scout (src/caseScout/AGENTS.md). Plain settings, no
+  // secrets: the bucket and Lambda names, the two caps and the on switch.
+  CASE_SCOUT_ENABLED: { tier: 'optional', default: 'false' },
+  CASE_SCOUT_BUCKET: { tier: 'optional' },
+  CASE_SCOUT_LAMBDA_FUNCTION_NAME: { tier: 'optional' },
+  CASE_SCOUT_SPEND_CAP_USD: { tier: 'optional', default: '50' },
+  CASE_SCOUT_SESSION_CAP: { tier: 'optional', default: '75' },
+  CASE_SCOUT_JUDGE_RECORDS_BUCKET: { tier: 'optional' },
 
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },
   CV_SCAN_RETRIEVE_SPACING_MS: { tier: 'optional' },
@@ -357,9 +400,14 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   VENDOR_READ_TIMEOUT_MS: { tier: 'optional' },
   // Routes vendor HTTP clients at in-process mocks instead of live APIs.
   // Accepted values: 'live' | 'mock'. Default logic lives in
-  // appEnvironment.util.ts — absent (local/test) or 'preview' → mock,
-  // 'dev' → live, 'prod' → always live (never overridable).
+  // appEnvironment.util.ts — absent (local/test), 'preview', or 'dev' →
+  // mock; 'prod' → always live (never overridable). VENDOR_MODE=live on
+  // dev is the rollback lever (see docs/vendor-mock-dev.md).
   VENDOR_MODE: { tier: 'optional' },
+  // One known approved Peerly identity id for the nightly vendor drift probe's
+  // get_usecases call (vendors/vendorDriftProbe.service.ts). An id, not a
+  // credential. Unset skips that one probe with a note.
+  DRIFT_PROBE_PEERLY_IDENTITY_ID: { tier: 'optional' },
 
   // Set per-deploy by deploy/index.ts to 'preview' | 'dev' | 'prod'. Also
   // drives IS_PROD_DEPLOY / IS_NON_PROD_DEPLOY in appEnvironment.util.ts —

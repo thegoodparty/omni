@@ -2,7 +2,6 @@ import { Injectable, Optional } from '@nestjs/common'
 import {
   ChatAttachmentSource,
   ChatAttachmentStatus,
-  ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
   ChatScope,
@@ -26,6 +25,10 @@ import {
   ChatStoreService,
   PersistedSegment,
 } from './chatStore.prisma'
+import {
+  AgentMessageDraft,
+  turnToAgentMessages,
+} from './chatAgentMessages.util'
 import {
   ATTACHMENT_SCOPES,
   ChatAttachmentsService,
@@ -115,6 +118,9 @@ export type TurnToolEvent =
 
 export interface FinalizeTurn {
   toolEvents: TurnToolEvent[]
+  // For a hook that logs what it found; absent in tests that build a turn
+  // by hand.
+  conversationId?: string
 }
 
 export interface StreamArgs {
@@ -124,7 +130,9 @@ export interface StreamArgs {
   tools: Record<string, LlmTool>
   userMessage: string
   signal?: AbortSignal
-  clientMessageId?: string
+  // The user message's own id, when the client sent one. It becomes that
+  // row's id, so a retried send finds the turn already stored.
+  userMessageId?: string
   models?: string[]
   maxSteps?: number
   // Called once after a clean finish with the turn's resolved token usage and
@@ -135,6 +143,12 @@ export interface StreamArgs {
   // scopes, so the caller supplies a scope-specific name (e.g.
   // 'ordinance_flow-chat-stream'); falls back to a generic name if unset.
   traceName?: string
+  // The agent this turn is filed under in Grafana Agent Observability
+  // (gen_ai.agent.name). Falls back to the scope, then to 'chat'. Set it for a
+  // route that passes no scope but is still its own agent there: briefing chat
+  // cannot pass one, because scope also decides attachment injection and the
+  // citation analytics event.
+  agentName?: string
   // Optional post-generation hook. On a clean finish, given the full assembled
   // text and the turn's tool events, returns a line to append (a guardrail
   // backstop line) or null. Streamed as the final text chunk and included in
@@ -278,8 +292,8 @@ const CARD_NOTE_PREFIX = '[Card you showed:'
 // draws, so its note is what tells the model it asked.
 const QUESTION_TOOLS = ['ask_clarify_question', 'ask_panel_weekly_time']
 
-const isCardTool = (toolName: string | null): boolean =>
-  toolName !== null &&
+const isCardTool = (toolName: string | null | undefined): boolean =>
+  typeof toolName === 'string' &&
   (toolName.startsWith('present_') || QUESTION_TOOLS.includes(toolName))
 
 const replayAssistantContent = (m: ChatMessageWithSegments): string =>
@@ -629,17 +643,32 @@ export class ChatStreamService {
   private async *run(
     args: StreamArgs,
   ): AsyncGenerator<ChatStreamChunk, void, void> {
-    const userMessage = await this.store.appendUserMessageIfAlive({
+    const appended = await this.store.appendUserMessageIfAlive({
       conversationId: args.conversationId,
       ownerUserId: args.ownerUserId,
       content: args.userMessage,
-      ...(args.clientMessageId !== undefined && {
-        clientMessageId: args.clientMessageId,
-      }),
+      ...(args.userMessageId !== undefined && { id: args.userMessageId }),
     })
-    if (!userMessage) {
+    if (!appended) {
       yield buildErrorChunk('conversation_not_found')
       return
+    }
+    if (appended.replayed) {
+      // The same send arrived twice. Its turn already ran, so replay the reply
+      // it produced rather than paying for and storing a second one. A retry
+      // that arrived before the turn finished has no reply yet, and finishes
+      // the turn instead, and so does a retry of a turn that was interrupted
+      // before any output.
+      const reply = await this.store.replayedReplyTo({
+        userMessageId: appended.message.id,
+        conversationId: args.conversationId,
+        ownerUserId: args.ownerUserId,
+      })
+      if (reply && reply.content !== CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER) {
+        yield { type: 'text', delta: reply.content }
+        yield { type: 'done', assistantMessageId: reply.id }
+        return
+      }
     }
 
     const history = await this.store.listRecentMessagesByConversation(
@@ -799,12 +828,26 @@ export class ChatStreamService {
       if (persisted || persisting) return
       persisting = true
       try {
+        const text = textBuffer.join('')
+        const toPersist = assistantRowToPersist(text, segments, cleanFinish)
+        const agentMessages =
+          cleanFinish && toPersist
+            ? await this.turnAgentMessages(
+                args.conversationId,
+                result,
+                text,
+                segments,
+                toPersist.segments,
+              )
+            : undefined
         const row =
           (await this.persistAssistantText(
             args.conversationId,
-            textBuffer.join(''),
+            text,
             segments,
             cleanFinish,
+            agentMessages,
+            !cleanFinish,
           )) ??
           // Only an interrupted turn falls back to the sentinel. A clean finish
           // that produced no content was not interrupted — persist nothing
@@ -842,6 +885,10 @@ export class ChatStreamService {
         ...(args.models && { models: args.models }),
         ...(args.maxSteps && { maxSteps: args.maxSteps }),
         ...(args.signal && { abortSignal: args.signal }),
+        agentTrace: {
+          conversationId: args.conversationId,
+          agentName: args.agentName ?? args.scope ?? 'chat',
+        },
         onStreamError: (err) => {
           streamError = err
         },
@@ -958,7 +1005,10 @@ export class ChatStreamService {
         // throw here must not fail an otherwise-complete turn.
         if (!args.signal?.aborted && args.finalizeText) {
           try {
-            const extra = args.finalizeText(textBuffer.join(''), { toolEvents })
+            const extra = args.finalizeText(textBuffer.join(''), {
+              toolEvents,
+              conversationId: args.conversationId,
+            })
             if (extra) {
               textBuffer.push(extra)
               pushTextDelta(extra)
@@ -1058,6 +1108,8 @@ export class ChatStreamService {
             model: result.model,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
           })
         } catch (usageErr) {
           this.logger.error(
@@ -1095,9 +1147,9 @@ export class ChatStreamService {
             conversationId: args.conversationId,
             // Derived from the conversation rather than counted: `history` is
             // this turn's replay, already fetched, and it grows by the user
-            // row this turn appended. A retry that reuses clientMessageId
-            // dedups that row, so it lands on the same index and the upsert
-            // overwrites instead of filing a second opinion.
+            // row this turn appended. A retried send reuses the user message
+            // id, so that row is already there and the retry never runs the
+            // turn again to file a second opinion.
             turnIndex: history.length,
             ...(persistedId !== undefined && {
               assistantMessageId: persistedId,
@@ -1187,18 +1239,63 @@ export class ChatStreamService {
     }
   }
 
+  // The turn's model messages as AgentMessage rows, so its tool results are
+  // kept. Undefined when they are unavailable or would not read back as the
+  // reply the user saw; the store then writes the reply the way the backfill
+  // does.
+  private async turnAgentMessages(
+    conversationId: string,
+    result: LlmStreamResult,
+    content: string,
+    segments: PersistedSegment[],
+    persistedSegments?: PersistedSegment[],
+  ): Promise<AgentMessageDraft[] | undefined> {
+    if (!result.responseMessages || !result.stepUsages) return undefined
+    try {
+      const [responseMessages, stepUsages] = await Promise.all([
+        result.responseMessages,
+        result.stepUsages,
+      ])
+      const drafts = turnToAgentMessages({
+        content,
+        segments,
+        ...(persistedSegments && { persistedSegments }),
+        responseMessages,
+        stepUsages,
+        model: result.model,
+      })
+      if (!drafts) {
+        this.logger.warn(
+          { conversationId },
+          'turn model messages do not match the streamed reply; storing the reply without tool results',
+        )
+      }
+      return drafts ?? undefined
+    } catch (err) {
+      this.logger.warn(
+        { err, conversationId },
+        'turn model messages unavailable; storing the reply without tool results',
+      )
+      return undefined
+    }
+  }
+
   private async persistAssistantText(
     conversationId: string,
     text: string,
     segments?: PersistedSegment[],
     allowToolOnly = false,
-  ): Promise<ChatMessage | null> {
+    agentMessages?: AgentMessageDraft[],
+    interrupted = false,
+  ): Promise<ChatMessageWithSegments | null> {
     const row = assistantRowToPersist(text, segments, allowToolOnly)
     if (!row) return null
     return this.store.appendMessage({
       conversationId,
       role: ChatMessageRole.assistant,
       ...row,
+      ...(agentMessages && { agentMessages }),
+      ...(interrupted && { interrupted }),
     })
   }
 }

@@ -22,8 +22,12 @@ drive spend," and "does cost scale with district size."
 
 ## Prerequisites
 
-- AWS access via SSO profile `gp-admin`. Export creds for the boto3 SDK and clear
-  the profile so the SDK does not re-resolve it in-process:
+- AWS admin via SSO profile `gp-admin` (`AdministratorAccess`), needed because the
+  module reads the prod DB password from `GP_API_PROD`. Nobody holds it standing:
+  the human runs `/breakglass` in Slack and waits for approval in
+  `#sensitive-access-requests`, then runs `aws sso login --profile gp-admin`. Each
+  session lasts one hour. Export creds for the boto3 SDK and clear the profile so
+  the SDK does not re-resolve it in-process:
   ```bash
   eval "$(aws --profile gp-admin configure export-credentials --format env)"
   unset AWS_PROFILE

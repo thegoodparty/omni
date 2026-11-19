@@ -8,6 +8,7 @@ import {
   CampaignStrategyContextRequestDto,
   CampaignStrategyContextResponse,
 } from './campaign-strategy-context.schema'
+import { candidateRunsInPrimary } from '@/elections/util/primaryBallot.util'
 
 // Voter contact targets are typically sized at ~5x the win number to
 // account for response rate and persuasion attrition.
@@ -121,7 +122,11 @@ export class CampaignStrategyContextService extends createElectionDbBase(
       office_type: race.officeType,
       partisan_type: race.partisanType,
       official_office_name: race.officialOfficeName,
-      primary_election_date: this.toIsoDate(primaryDate),
+      // A campaign anchored on the primary race is on that ballot by definition.
+      primary_election_date:
+        race.isPrimary || candidateRunsInPrimary(race.state, race.partisanType)
+          ? this.toIsoDate(primaryDate)
+          : null,
       projected_turnout: projectedTurnout,
       projected_turnout_lower: projectedTurnoutLower,
       projected_turnout_upper: projectedTurnoutUpper,

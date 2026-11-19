@@ -82,7 +82,7 @@ describe('ZipToPositionService.search', () => {
         where: expect.objectContaining({
           electionDate: {
             gte: new Date('2026-05-12T00:00:00Z'),
-            lte: new Date('2028-05-12T00:00:00Z'),
+            lte: new Date('2029-05-12T00:00:00Z'),
           },
         }),
       }),
@@ -90,7 +90,7 @@ describe('ZipToPositionService.search', () => {
     vi.useRealTimers()
   })
 
-  // Feb 29 + 2 years is not a real date, so setUTCFullYear rolls it to Mar 1.
+  // Feb 29 + 3 years is not a real date, so setUTCFullYear rolls it to Mar 1.
   // A one-day-wider horizon is harmless; pinning it here keeps the rollover
   // from looking like a bug to the next reader.
   it('rolls a leap-day horizon forward to March 1', async () => {
@@ -104,7 +104,7 @@ describe('ZipToPositionService.search', () => {
         where: expect.objectContaining({
           electionDate: {
             gte: new Date('2028-02-29T00:00:00Z'),
-            lte: new Date('2030-03-01T00:00:00Z'),
+            lte: new Date('2031-03-01T00:00:00Z'),
           },
         }),
       }),

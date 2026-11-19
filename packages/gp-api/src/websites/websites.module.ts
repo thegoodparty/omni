@@ -4,6 +4,7 @@ import { DomainsController } from './controllers/domains.controller'
 import { DomainsService } from './services/domains.service'
 import { WebsitesService } from './services/websites.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
+import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { VercelModule } from 'src/vendors/vercel/vercel.module'
 import { WebsitesController } from './controllers/websites.controller'
 import { PaymentsModule } from 'src/payments/payments.module'
@@ -15,7 +16,6 @@ import { PurchaseType } from 'src/payments/purchase.types'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { CampaignsModule } from 'src/campaigns/campaigns.module'
 import { ForwardEmailModule } from '../vendors/forwardEmail/forwardEmail.module'
-import { QueueProducerModule } from '../queue/producer/queueProducer.module'
 import { AnalyticsModule } from 'src/analytics/analytics.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { WebsiteContactFormRateLimitGuard } from './guards/websiteContactFormRateLimit.guard'
@@ -26,13 +26,13 @@ import { WebsiteTrackViewRateLimitGuard } from './guards/websiteTrackViewRateLim
     HttpModule,
     AwsModule,
     VercelModule,
+    VendorMocksModule,
     ForwardEmailModule,
     PaymentsModule,
     UsersModule,
     StripeModule,
     ClerkModule,
     forwardRef(() => CampaignsModule),
-    QueueProducerModule,
     AnalyticsModule,
   ],
   controllers: [DomainsController, WebsitesController],

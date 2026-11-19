@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
@@ -24,6 +24,8 @@ import {
 } from '@styleguide'
 import Paper from '@shared/utils/Paper'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
+import { NAV_LABELS } from 'app/dashboard/shared/navLabels'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { GatherMoreFlow } from '../gather/GatherMoreFlow'
 import { PollCommentList } from './PollCommentList'
 import { PollThemeDetail } from './PollThemeDetail'
@@ -346,26 +348,58 @@ export const PollResultsPage = ({ outreachId }: { outreachId: number }) => {
   const ready =
     detail !== undefined && (!pollHasSent(status) || results !== undefined)
 
+  // Once per page load, when what the official sees has loaded. Results
+  // refetch while a poll is in progress, and a refetch is not another look.
+  const viewedRef = useRef(false)
+  useEffect(() => {
+    if (viewedRef.current || !ready || !detail) return
+    viewedRef.current = true
+    trackEvent(EVENTS.polls.resultsViewed, {
+      outreachId,
+      status: detail.status,
+      phase: pollPhase(detail.status),
+      ...(results
+        ? {
+            sent: results.sent,
+            responses: results.responses,
+            isHighConfidence: results.isHighConfidence,
+            notEnoughResponses: results.notEnoughResponses,
+            themeCount: results.themes.length,
+          }
+        : {}),
+    })
+  }, [ready, detail, results, outreachId])
+
+  const openView = (next: View) => {
+    if (next.kind === 'replies') {
+      trackEvent(EVENTS.polls.issueDetailsViewed, {
+        outreachId,
+        scope: next.scope.kind,
+      })
+    }
+    setView(next)
+  }
+
   return (
     <DashboardLayout
-      pathname="/dashboard/polls"
+      pathname="/dashboard/constituent-outreach"
       showAlert={false}
-      navHeader={{ icon: 'send', label: 'Polls' }}
+      navHeader={{ icon: 'megaphone', label: NAV_LABELS.constituentOutreach }}
     >
       <Paper className="min-h-full">
         {view.kind === 'replies' && ready ? (
           <PollThemeDetail
-            outreachId={outreachId}
-            scope={view.scope}
             title={view.title}
             summary={view.summary}
             count={view.count}
             onBack={() => setView({ kind: 'overview' })}
-          />
+          >
+            <PollCommentList outreachId={outreachId} scope={view.scope} />
+          </PollThemeDetail>
         ) : (
           <div className="flex flex-col gap-6">
             <Link
-              href="/dashboard/polls"
+              href="/dashboard/constituent-outreach"
               className="inline-flex w-fit items-center gap-2 text-sm text-foreground underline-offset-4 hover:underline"
             >
               <ArrowLeftIcon size={16} />
@@ -388,7 +422,7 @@ export const PollResultsPage = ({ outreachId }: { outreachId: number }) => {
                     outreachId={outreachId}
                     detail={detail}
                     results={results}
-                    onOpenView={setView}
+                    onOpenView={openView}
                   />
                 )}
                 {detail.message && <MessageCard message={detail.message} />}

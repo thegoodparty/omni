@@ -136,12 +136,15 @@ resource "aws_secretsmanager_secret" "broker" {
   }
 }
 
-resource "aws_secretsmanager_secret_version" "broker_initial" {
-  secret_id     = aws_secretsmanager_secret.broker.id
-  secret_string = jsonencode({})
+# Not managed by Terraform. A managed secret version is refreshed on every
+# plan, which needs GetSecretValue on the secret, so the container is created
+# here and an operator writes the first value with `put-secret-value`.
+# `destroy = false` leaves the existing version in place.
+removed {
+  from = aws_secretsmanager_secret_version.broker_initial
 
   lifecycle {
-    ignore_changes = [secret_string]
+    destroy = false
   }
 }
 
@@ -637,7 +640,7 @@ resource "aws_ecs_task_definition" "broker" {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.broker.name
-          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-region"        = data.aws_region.current.region
           "awslogs-stream-prefix" = "ecs"
         }
       }
@@ -771,12 +774,11 @@ resource "aws_ecs_service" "broker" {
     rollback = true
   }
 
-  # Terraform apply becomes the deploy once the task def pins a SHA-tagged image,
-  # so the apply must not report success until the new tasks are actually
-  # healthy. Without this, Terraform returns as soon as ECS accepts the
-  # deployment and a failed rollout looks like a successful deploy. Mirrors
-  # gp-api's Pulumi service (waitForSteadyState: true).
-  wait_for_steady_state = true
+  # Terraform does not wait for the rollout (wait_for_steady_state defaults to
+  # false). ci-verify-deployed.sh is what waits: it polls the PRIMARY deployment
+  # to COMPLETED with a diagnostic on timeout. Waiting here instead hid a stalled
+  # rollout inside a 20m opaque apply timeout (ENG-11448) and held up the rest of
+  # the prod roots behind it.
 
   # desired_count is managed by application-autoscaling after initial apply.
   # Without this, terraform plan will always want to reset it to 1.

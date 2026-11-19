@@ -2,7 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { gpAction } from '@/shared/util/gpClient.util'
 import { UserProvider } from './context/UserContext'
 import { notFound } from 'next/navigation'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError } from '@/shared/gpApi'
 import { status } from '@poppanator/http-constants'
 import { PERMISSIONS } from '@/lib/permissions'
 

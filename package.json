@@ -8,13 +8,16 @@
     "packages/*"
   ],
   "engines": {
-    "node": "22",
+    "node": "24",
     "npm": ">=10.9.0"
   },
   "overrides": {
     "js-yaml": "^5.1.0",
     "@pulumi/pulumi": {
       "js-yaml": "4.1.0"
+    },
+    "@vercel/cli-config": {
+      "zod": "^4.6.6"
     },
     "thrift": "^0.23.0",
     "tar": "^7.5.16",
@@ -27,14 +30,13 @@
     "sync": "bash scripts/sync-all.sh",
     "sync:repo": "bash scripts/sync-repo.sh",
     "migrate:pr": "bash scripts/migrate-pr.sh",
-    "generate:prisma": "npm run generate:prisma:gp-api && npm run generate:prisma:election-api",
+    "generate:prisma": "npm run generate:prisma:gp-api",
     "generate:prisma:gp-api": "npx prisma generate --schema=packages/gp-api/prisma/schema && npx prisma generate --schema=packages/gp-api/prisma-election/schema",
-    "generate:prisma:election-api": "npx prisma generate --schema=packages/election-api/prisma/schema",
     "dev": "bash scripts/dev.sh",
     "setup": "bash scripts/setup.sh",
     "seed:activity": "npx tsx scripts/setup/lib/cli.ts seed-activity",
-    "ai-rules:update": "git submodule update --remote ai-rules",
-    "postinstall": "git submodule update --init --recursive ai-rules || echo 'WARN: ai-rules submodule init failed - run: git submodule update --init --recursive ai-rules'",
+    "seed:election": "bash scripts/setup/election-db.sh --fetch --reload",
+    "postinstall": "test -d patches || { echo 'ERROR: patches/ is missing, so patch-package would silently apply nothing. Copy patches/ in before npm install (see docs/development.md).' >&2; exit 1; }; patch-package --error-on-fail --error-on-warn",
     "prepare": "husky || true",
     "product-map:check": "tsx scripts/product-map-coverage.ts"
   },
@@ -47,6 +49,8 @@
     "lint-staged": "^16.4.0",
     "prettier": "^3.0.0",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "typescript": "npm:@typescript/typescript6@^6.0.2"
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "oxlint": "1.90.0",
+    "oxlint-tsgolint": "7.0.2005"
   }
 }

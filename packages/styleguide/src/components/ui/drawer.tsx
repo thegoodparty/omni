@@ -40,6 +40,15 @@ const MAX_WIDTH_REM: Record<DrawerMaxWidth, string> = {
 // centering wrapper is a no-op at full width, so there is no visual cost.
 const columnClass = 'mx-auto w-full max-w-[var(--drawer-content-width,none)]'
 
+/**
+ * Above 1024px show a Dialog instead; switch with useIsMobile. Go to 92dvh
+ * when the content scrolls or holds several fields (temporary rule, see
+ * docs/product-design.md §3). Keep the close button
+ * (DrawerHeader renders it). At most one more drawer on top, for the same job.
+ *
+ * @summary Use on mobile for a quick input, a few actions or short info that
+ * slides up from the bottom. Never put a flow in one; make it a page.
+ */
 function Drawer({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) {

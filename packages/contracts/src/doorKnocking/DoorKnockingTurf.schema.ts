@@ -307,6 +307,10 @@ export const DoorKnockingTurfSchema = z.object({
   // reads it off its anchor. Carried so the completion event can count the
   // walk toward that priority, as text and phone banking already do.
   priorityId: z.string().nullable(),
+  // What the candidate picked at "What do you want to do?". Carried so the
+  // completion event reports it, as every other channel's does. NULL on a turf
+  // made before the column existed.
+  purpose: DoorKnockingPurposeSchema.nullable(),
   createdAt: zDate(),
   updatedAt: zDate(),
 })

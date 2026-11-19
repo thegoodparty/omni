@@ -24,11 +24,11 @@ form — so gp-webapp loads that script in production only (`app/layout.tsx`,
 
 | Path                                | Owns                                                             |
 | ------------------------------------ | ----------------------------------------------------------------- |
-| `hubspot.service.ts`                 | The configured `@hubspot/api-client` `Client` instance            |
+| `hubspot.service.ts`                 | The configured `@hubspot/api-client` `Client` instance. Keep-alive is off: the SDK's node-fetch 2.7 fails every chunked response on a reused socket under Node 22.23 with a false `ERR_STREAM_PREMATURE_CLOSE` (ENG-11319) |
 | `crmTeamMembers.service.ts`          | Team-member contact upsert + company association (ENG-10826)      |
 | `util/hubspotErrors.util.ts`         | `extractExistingContactId` — shared 409-conflict parsing (ENG-11029), used by this module and `crmUsers.service.ts` |
 | `crm.types.ts`                       | `CRMContactProperties` / `CRMTeamMemberContactProperties` shapes   |
-| `../users/services/crmUsers.service.ts` | User signup/profile → contact sync (`trackUserLogin`/`trackUserUpdate`) |
+| `../users/services/crmUsers.service.ts` | User signup/profile → contact sync (`trackUserLogin`/`trackUserUpdate`), and `submitCrmForm`, which posts to the Forms API through Nest's `HttpService` (axios on Node's global agent), not the SDK client, so the keep-alive setting above does not reach it |
 | `../campaigns/services/crmCampaigns.service.ts` | Campaign → company sync                                |
 | `../electedOffice/services/crmOfficeHolder.service.ts` | Elected office → Office Holder custom object (DATA-2623) |
 
@@ -40,7 +40,13 @@ district change) upserts one Office Holder record by
 (`metaData.hubspotId`) and, when the office came from a won campaign, the
 campaign's Company (`data.hubspotId`). Magic-link users get their Contact id
 from the HubSpot card's `hs_object_id`. Like the campaign sync, it also skips
-staff test-mode organizations (`Organization.testModeCreatedAt`).
+staff test-mode organizations (`Organization.testModeCreatedAt`) and offices
+that are only prepared ahead of a result (`isPreparedOffice`): a prepared
+office has no win, and the write that records the win syncs it.
+
+The `winOfficeSync` job (one campaign's create, removal or prepare) runs at
+most three at a time across the fleet (`maxConcurrent`), because each one is a
+handful of HubSpot calls and the API rate-limits a private app.
 
 - **Field ownership is static.** The app owns `elected_date`,
   `sworn_in_date`, `pledged_at`, `onboarding_completed_at`, `self_reported`.
@@ -85,7 +91,10 @@ path must handle:
 **Never write `hs_additional_emails`.** Overwriting it is the one way to
 silently undo a merge from this side — it would blow away the secondary
 email HubSpot just folded in. No code path in this repo writes it; keep it
-that way.
+that way. To add one secondary address, append it with the legacy
+`PUT /contacts/v1/secondary-email/{contactId}/email/{email}` through
+`client.apiRequest`, as the staff email change does
+(`CrmUsersService.syncContactEmail`).
 
 **Cached ids survive merges.** `User.metaData.hubspotId` and
 `Campaign.data.hubspotId` are never cleared on a lookup mismatch — HubSpot

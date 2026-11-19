@@ -982,24 +982,19 @@ describe('armDeps', () => {
   })
 
   // ONE loader for the arm, so the slots are spent across agents. At the
-  // default three runs each against twelve slots, four agents fit and the
-  // fifth does not — which only holds if every call shares one set.
+  // default five runs each against twelve slots, two agents fit and the
+  // third does not — which only holds if every call shares one set.
   it('spends one set of slots across every agent the arm walks', () => {
     const { loadCases } = armDeps(
       env({ fixtureValues: SWEEP_VALUES }),
       DEFAULT_JUDGE_CONFIG,
       ARM_BUDGET_MS,
     )
-    for (const id of [
-      'opportunities_and_challenges',
-      'opposition_research',
-      'race_opponent_actions',
-      'race_opponent_summary',
-    ]) {
+    for (const id of ['opportunities_and_challenges', 'opposition_research']) {
       expect(() => loadCases(real(id))).not.toThrow()
     }
-    expect(() => loadCases(real('district_issue_pulse'))).toThrow(
-      /needs 3 runs in flight at once, and 0 of the arm's 12 slots/,
+    expect(() => loadCases(real('race_opponent_actions'))).toThrow(
+      /needs 5 runs in flight at once, and 2 of the arm's 12 slots/,
     )
   })
 
@@ -1199,21 +1194,27 @@ describe('refusedBeforeSpend', () => {
       expect(refusedBeforeSpend(background, noRace, () => slugOnly)).toBe(false)
     })
 
-    // Only the cases the arm walks count: a race needed by the fifth case,
-    // past the cap of three, refuses nothing.
+    // Only the cases the arm walks count: a race needed by the sixth case,
+    // past the cap of five, refuses nothing.
     it('ignores a value only an unwalked case needs', () => {
-      const five: BackgroundCase[] = [
-        ...Array.from({ length: 4 }, (_, i) => ({
+      const six: BackgroundCase[] = [
+        ...Array.from({ length: 5 }, (_, i) => ({
           caseId: `c${i}`,
           params: { organization_slug: '{judgeOrgSlug}' },
         })),
-        { caseId: 'c4', params: { race_id: '{judgeRaceId}' } },
+        { caseId: 'c5', params: { race_id: '{judgeRaceId}' } },
       ]
-      const walked = walkedBackgroundCases(background, noRace, () => five)
-      expect(walked.map((one) => one.caseId)).toEqual(['c0', 'c1', 'c2'])
+      const walked = walkedBackgroundCases(background, noRace, () => six)
+      expect(walked.map((one) => one.caseId)).toEqual([
+        'c0',
+        'c1',
+        'c2',
+        'c3',
+        'c4',
+      ])
       expect(
         refusedBeforeSpend(background, noRace, (agent) =>
-          walkedBackgroundCases(agent, noRace, () => five),
+          walkedBackgroundCases(agent, noRace, () => six),
         ),
       ).toBe(false)
     })
@@ -1392,15 +1393,15 @@ describe('the chat budget', () => {
     return found
   }
 
-  // 65 minutes for chat. chief_of_staff 8 minutes, priority_flow 48, and
-  // ordinance_flow's 48 more does not fit; campaign_assistant's 6 still
+  // 65 minutes for chat. chief_of_staff 8 minutes, campaign_assistant 48,
+  // and ordinance_flow's 48 more does not fit; priority_flow's 2 still
   // does, which only holds if the refused agent left its share behind.
   it('refuses by name what does not fit, and leaves its share to the next', () => {
     const count: Record<string, number> = {
       chief_of_staff: 24,
-      priority_flow: 24,
+      campaign_assistant: 24,
       ordinance_flow: 24,
-      campaign_assistant: 3,
+      priority_flow: 3,
     }
     const refused = refuseChat(
       Object.keys(count).map(chatAgent),
@@ -1515,10 +1516,10 @@ describe('the chat budget', () => {
     const arm = parseArmEnv(armEnvFor({ JUDGE_AGENTS: ids.join(',') }))
     expect(arm.backgroundRefused).toBeUndefined()
     const { loadCases } = armDeps(arm, DEFAULT_JUDGE_CONFIG)
-    expect(loadCases(registered('chief_of_staff')).cases).toHaveLength(9)
+    expect(loadCases(registered('chief_of_staff')).cases).toHaveLength(11)
     expect(loadCases(registered('campaign_assistant')).cases).toHaveLength(9)
     expect(() => loadCases(registered('priority_flow'))).toThrow(
-      /^priority_flow was not admitted to this sweep: would take about 54 minutes for 27 chat turns at 120s each/,
+      /^priority_flow was not admitted to this sweep: would take about 47 minutes for 93 chat turns at 30s each/,
     )
     expect(capturableAgents(ids, arm, findAgent, DEFAULT_JUDGE_CONFIG)).toEqual(
       ['chief_of_staff', 'campaign_assistant'],
@@ -1638,6 +1639,24 @@ describe('withRuntimeRefusals', () => {
     spendingArm()
     const given = armEnvOf({ agentIds: ids })
     expect(withRuntimeRefusals(given, inProcess())).toBe(given)
+  })
+
+  // The one in-process refusal: no district resolves there, so a spending
+  // arm cannot measure priority_flow. A dry arm replaces the model and can.
+  it('refuses priority_flow in process on a spending arm only', () => {
+    const spending = withRuntimeRefusals(
+      armEnvOf({ agentIds: ['priority_flow', 'chief_of_staff'] }),
+      inProcess(),
+    )
+    expect([...(spending.chatRuntimeRefused?.keys() ?? [])]).toEqual([
+      'priority_flow',
+    ])
+    expect(spending.chatRuntimeRefused?.get('priority_flow')).toMatch(
+      /needs a district that resolves/,
+    )
+
+    const dry = armEnvOf({ agentIds: ['priority_flow'], spends: false })
+    expect(withRuntimeRefusals(dry, inProcess())).toBe(dry)
   })
 
   // briefing_annotation is the agent the HTTP runtime cannot drive at all:

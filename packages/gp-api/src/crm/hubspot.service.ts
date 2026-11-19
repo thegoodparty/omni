@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Client } from '@hubspot/api-client'
+import { Agent } from 'https'
 import {
   MockApi,
   MockBaseDiscovery,
@@ -14,7 +15,14 @@ export class HubspotService {
   private readonly _client: Client
 
   constructor() {
-    this._client = new Client({ accessToken: HUBSPOT_TOKEN })
+    this._client = new Client({
+      accessToken: HUBSPOT_TOKEN,
+      // The SDK's bundled node-fetch 2.7 misreads a reused keep-alive socket
+      // on Node 22.23 as a "Premature close" and fails every chunked
+      // response (batch reads, owner pages). A fresh socket per call avoids
+      // it until the SDK moves off node-fetch.
+      httpAgent: new Agent({ keepAlive: false }),
+    })
   }
 
   private isTokenAvailable(): boolean {

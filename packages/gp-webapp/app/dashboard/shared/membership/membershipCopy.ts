@@ -16,6 +16,10 @@ export const MEMBERSHIP_COPY = {
       body: 'You will be sent a PIN within 7 business days to either your email, phone or address.',
       cta: 'Enter your PIN',
     },
+    cleared: {
+      body: 'Your campaign is verified. Schedule your text to voters.',
+      cta: 'Schedule your text',
+    },
   },
   chip: {
     // The free chip reads as three inline parts so the Pro badge sits between
@@ -25,6 +29,7 @@ export const MEMBERSHIP_COPY = {
     needsVerification: 'Verification needed',
     inReview: 'Verification in review',
     awaitingPin: 'Enter your PIN',
+    cleared: 'Schedule your text',
   },
   pitch: {
     title: 'Join Pro to unlock voter data and outreach',

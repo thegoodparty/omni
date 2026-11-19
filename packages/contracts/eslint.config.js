@@ -16,7 +16,7 @@ const compat = new FlatCompat({
 // Lint-only gate for the contracts package. Formatting is intentionally not
 // enforced here: this source predates the repo's `semi: false` Prettier style,
 // and reformatting it is out of scope for the CI-gates change. The rules below
-// mirror the sibling library configs (gp-sdk) so the gate is consistent.
+// mirror the other TypeScript packages so the gate is consistent.
 module.exports = defineConfig([
   {
     languageOptions: {

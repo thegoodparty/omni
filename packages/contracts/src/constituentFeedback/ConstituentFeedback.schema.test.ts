@@ -210,6 +210,29 @@ describe('ConfirmConstituentFeedbackSchema', () => {
     })
   })
 
+  it('accepts a skip with no issues', () => {
+    expect(
+      ConfirmConstituentFeedbackSchema.parse({ issues: [], skipped: true }),
+    ).toEqual({ issues: [], skipped: true })
+  })
+
+  // A skip says nothing about any issue, so one that names some is a
+  // client confused about which button was pressed.
+  it('refuses a skip that names issues', () => {
+    expect(
+      ConfirmConstituentFeedbackSchema.safeParse({
+        issues: [
+          {
+            issueLabel: 'Flock cameras',
+            stance: 'opposes',
+            desiredOutcome: null,
+          },
+        ],
+        skipped: true,
+      }).success,
+    ).toBe(false)
+  })
+
   it('refuses more than five issues', () => {
     const issue = {
       issueLabel: 'Flock cameras',

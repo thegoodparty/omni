@@ -74,6 +74,7 @@ export const buildDescribeFilterDimensionsTool = (deps: {
     dimensions: deps.contacts.getFilterDimensions(deps.organization, {
       citizenPanels: deps.citizenPanels,
       state: deps.state,
+      contactOverlay: deps.peopleDataset.overlayOrgSlug !== undefined,
     }),
   }),
 })

@@ -1,0 +1,652 @@
+import { simulateReadableStream } from 'ai'
+import { MockLanguageModelV3 } from 'ai/test'
+import { SpanStatusCode, trace } from '@opentelemetry/api'
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
+import { type AgentMessageRow, toModelMessages } from './agentMessages'
+import {
+  type AgentLoopArgs,
+  runAgentLoop,
+  RunBudgetError,
+  RunStoppedError,
+  SUBMIT_TOOL,
+} from './aiSdkLoop'
+
+const OutputSchema = z.union([
+  z.object({ status: z.literal('found'), minutes: z.number() }),
+  z.object({ status: z.literal('missing'), reason: z.string() }),
+])
+
+const callTool = (toolName: string, input: unknown) => ({
+  stream: simulateReadableStream({
+    chunks: [
+      { type: 'stream-start' as const, warnings: [] },
+      {
+        type: 'tool-call' as const,
+        toolCallId: `call-${Math.random().toString(36).slice(2)}`,
+        toolName,
+        input: JSON.stringify(input),
+      },
+      {
+        type: 'finish' as const,
+        finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' },
+        usage: {
+          inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 10, text: 10, reasoning: undefined },
+        },
+      },
+    ],
+  }),
+})
+
+const loopArgs = (
+  model: MockLanguageModelV3,
+  saved: AgentMessageRow[],
+  overrides: Partial<AgentLoopArgs> = {},
+): AgentLoopArgs => ({
+  agentName: 'testAgent',
+  model,
+  modelId: 'claude-sonnet-4-6',
+  system: 'Do the work.',
+  messages: [{ role: 'user', content: '{}' }],
+  tools: {
+    lookUp: {
+      description: 'Look it up.',
+      input: z.object({}),
+      execute: async () => 'nothing yet',
+    },
+  },
+  output: OutputSchema,
+  toolContext: {
+    runId: 'run-1',
+    organizationSlug: 'org',
+    signal: new AbortController().signal,
+    get: () => {
+      throw new Error('unused')
+    },
+  },
+  savedSteps: 0,
+  maxSteps: 5,
+  maxNudges: 1,
+  stopRequested: () => false,
+  abortSignal: new AbortController().signal,
+  saveRows: async (rows) => {
+    saved.push(...rows)
+  },
+  ...overrides,
+})
+
+describe('runAgentLoop', () => {
+  it('tells the model where a union output failed, then takes the fix', async () => {
+    const prompts: string[] = []
+    const model = new MockLanguageModelV3({
+      doStream: async ({ prompt }) => {
+        prompts.push(JSON.stringify(prompt))
+        return callTool(SUBMIT_TOOL, {
+          output:
+            prompts.length === 1
+              ? { status: 'found', minutes: 'eight' }
+              : { status: 'found', minutes: 8 },
+        })
+      },
+    })
+    const saved: AgentMessageRow[] = []
+
+    const output = await runAgentLoop(loopArgs(model, saved))
+
+    expect(output).toEqual({ status: 'found', minutes: 8 })
+    expect(saved).toHaveLength(4)
+    // Each step is the assistant message and the tool result it produced. Only
+    // the assistant message is a model call, so only it carries a model and
+    // tokens.
+    expect(saved[0]).toMatchObject({
+      role: 'assistant',
+      model: 'claude-sonnet-4-6',
+      inputTokens: 10,
+      outputTokens: 10,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    })
+    expect(saved[1]?.role).toBe('tool')
+    expect(saved[1]).not.toHaveProperty('model')
+    const error = /"error-text","value":"([^"]*)"/.exec(prompts[1] ?? '')?.[1]
+    expect(error).toContain('output.minutes')
+    expect(error).not.toContain('eight')
+  })
+
+  it('returns an output already submitted in the saved messages without a model call', async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        throw new Error('no call expected')
+      },
+    })
+    const output = await runAgentLoop(
+      loopArgs(model, [], {
+        messages: [
+          { role: 'user', content: '{}' },
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 'call-1',
+                toolName: SUBMIT_TOOL,
+                input: { output: { status: 'missing', reason: 'none' } },
+              },
+            ],
+          },
+          {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'call-1',
+                toolName: SUBMIT_TOOL,
+                output: { type: 'text', value: 'accepted' },
+              },
+            ],
+          },
+        ],
+        savedSteps: 1,
+      }),
+    )
+
+    expect(output).toEqual({ status: 'missing', reason: 'none' })
+  })
+
+  it('spends no step number on a reply cut off before it wrote anything', async () => {
+    const lookUps: string[] = []
+    let calls = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls++
+        if (calls === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: 'stream-start' as const, warnings: [] },
+                {
+                  type: 'finish' as const,
+                  finishReason: {
+                    unified: 'length' as const,
+                    raw: 'max_tokens',
+                  },
+                  usage: {
+                    inputTokens: {
+                      total: 10,
+                      noCache: 10,
+                      cacheRead: 0,
+                      cacheWrite: 0,
+                    },
+                    outputTokens: { total: 10, text: 0, reasoning: undefined },
+                  },
+                },
+              ],
+            }),
+          }
+        }
+        return calls === 2
+          ? callTool('lookUp', {})
+          : callTool(SUBMIT_TOOL, {
+              output: { status: 'missing', reason: 'none' },
+            })
+      },
+    })
+    const saved: AgentMessageRow[] = []
+
+    await runAgentLoop(
+      loopArgs(model, saved, {
+        tools: {
+          lookUp: {
+            description: 'Look it up.',
+            input: z.object({}),
+            execute: async (_input, ctx) => {
+              lookUps.push(ctx.stepKey)
+              return 'nothing yet'
+            },
+          },
+        },
+      }),
+    )
+
+    // The cut-off reply saved no assistant row, so it is not a step: the lookUp
+    // that follows keeps step 0's key, which a resume — which counts saved
+    // assistant rows — would hand it too. Numbering it step 1 would let a
+    // resumed step reuse a key a previous attempt already ran a write under.
+    expect(lookUps).toEqual(['0:lookUp:0'])
+    expect(saved.filter((row) => row.role === 'assistant')).toHaveLength(2)
+  })
+
+  it('stops after the current step when asked to', async () => {
+    let stop = false
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        stop = true
+        return callTool('lookUp', {})
+      },
+    })
+    const saved: AgentMessageRow[] = []
+
+    await expect(
+      runAgentLoop(loopArgs(model, saved, { stopRequested: () => stop })),
+    ).rejects.toThrow(RunStoppedError)
+    expect(saved).toHaveLength(2)
+  })
+
+  it('fails a run that spends its step budget without submitting', async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async () => callTool('lookUp', {}),
+    })
+    const saved: AgentMessageRow[] = []
+
+    await expect(
+      runAgentLoop(loopArgs(model, saved, { savedSteps: 3, maxSteps: 5 })),
+    ).rejects.toThrow(RunBudgetError)
+    expect(saved).toHaveLength(4)
+  })
+
+  it('makes no model call on a resume that has already spent its budget', async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        throw new Error('no call expected')
+      },
+    })
+
+    await expect(
+      runAgentLoop(loopArgs(model, [], { savedSteps: 5, maxSteps: 5 })),
+    ).rejects.toThrow('testAgent used its 5 steps without submitting')
+  })
+
+  it("offers the agent's own tools under their names, and resumes from a step that called one", async () => {
+    const offeredNames: string[] = []
+    const model = new MockLanguageModelV3({
+      doStream: async ({ tools }) => {
+        offeredNames.push(...(tools ?? []).map((tool) => tool.name))
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start' as const, warnings: [] },
+              {
+                type: 'tool-call' as const,
+                toolCallId: 'look-1',
+                toolName: 'lookUp',
+                input: JSON.stringify({}),
+              },
+              {
+                type: 'tool-call' as const,
+                toolCallId: 'submit-1',
+                toolName: SUBMIT_TOOL,
+                input: JSON.stringify({
+                  output: { status: 'missing', reason: 'none' },
+                }),
+              },
+              {
+                type: 'finish' as const,
+                finishReason: {
+                  unified: 'tool-calls' as const,
+                  raw: 'tool_use',
+                },
+                usage: {
+                  inputTokens: {
+                    total: 10,
+                    noCache: 10,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                  outputTokens: { total: 10, text: 10, reasoning: undefined },
+                },
+              },
+            ],
+          }),
+        }
+      },
+    })
+    const saved: AgentMessageRow[] = []
+
+    await runAgentLoop(loopArgs(model, saved))
+
+    expect(offeredNames).toContain('lookUp')
+    const resumed = await runAgentLoop(
+      loopArgs(
+        new MockLanguageModelV3({
+          doStream: async () => {
+            throw new Error('no call expected')
+          },
+        }),
+        [],
+        {
+          messages: [
+            { role: 'user', content: '{}' },
+            ...toModelMessages(saved),
+          ],
+          savedSteps: saved.filter((row) => row.role === 'assistant').length,
+        },
+      ),
+    )
+    expect(resumed).toEqual({ status: 'missing', reason: 'none' })
+  })
+
+  it('saves a nudge as a user row and calls the model again', async () => {
+    // A fresh stream per call: the loop calls the model again after the nudge.
+    const model = new MockLanguageModelV3({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: 'stream-start' as const, warnings: [] },
+            { type: 'text-start' as const, id: 't1' },
+            { type: 'text-delta' as const, id: 't1', delta: 'nothing to add' },
+            { type: 'text-end' as const, id: 't1' },
+            {
+              type: 'finish' as const,
+              finishReason: { unified: 'stop' as const, raw: 'end_turn' },
+              usage: {
+                inputTokens: {
+                  total: 10,
+                  noCache: 10,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                },
+                outputTokens: { total: 10, text: 10, reasoning: undefined },
+              },
+            },
+          ],
+        }),
+      }),
+    })
+    const saved: AgentMessageRow[] = []
+
+    // The run never submits, so it is nudged once and then gives up: the nudge
+    // is a user row in the run like any other user message.
+    await expect(
+      runAgentLoop(loopArgs(model, saved, { tools: {} })),
+    ).rejects.toThrow('ended without submitting its output')
+    expect(saved.map((row) => row.role)).toEqual([
+      'assistant',
+      'user',
+      'assistant',
+    ])
+    expect(JSON.stringify(saved[1]?.parts)).toContain(SUBMIT_TOOL)
+  })
+})
+
+describe('the anti-fabrication gate', () => {
+  // What queryDatabricks returns: a warehouse read reports ok, and a refusal
+  // (a rejected query, a timeout, a warehouse error) reports ok: false.
+  const warehouseTool = (results: unknown[]) => {
+    let call = 0
+    return {
+      description: 'Read the warehouse.',
+      input: z.object({}),
+      readsWarehouse: true as const,
+      execute: async () => results[call++],
+    }
+  }
+
+  const WarehouseOutput = z.object({
+    data_quality: z.enum(['ok', 'partial', 'insufficient_signal']),
+    title: z.string(),
+  })
+
+  const dataQualityOnly = z.object({
+    data_quality: z.enum(['ok', 'partial', 'insufficient_signal']),
+  })
+
+  const gateArgs = (
+    model: MockLanguageModelV3,
+    toolRows: unknown[],
+    overrides: Partial<AgentLoopArgs> = {},
+  ): AgentLoopArgs =>
+    loopArgs(model, [], {
+      output: dataQualityOnly,
+      dataRequiredUnless: {
+        field: 'data_quality',
+        values: ['insufficient_signal'],
+      },
+      tools: { queryDatabricks: warehouseTool(toolRows) },
+      ...overrides,
+    })
+
+  // The replies the loop sends the model, in order.
+  type Reply = () => { stream: ReadableStream }
+  const scripted = (...replies: Reply[]) => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () =>
+        (call < replies.length
+          ? replies[call++]!()
+          : replies.at(-1)!()) as never,
+    })
+    return model
+  }
+  const submit = (output: unknown) => () => callTool(SUBMIT_TOOL, { output })
+  const query = () => () => callTool('queryDatabricks', {})
+  const say = (text: string) => () => ({
+    stream: simulateReadableStream({
+      chunks: [
+        { type: 'stream-start' as const, warnings: [] },
+        { type: 'text-start' as const, id: 't1' },
+        { type: 'text-delta' as const, id: 't1', delta: text },
+        { type: 'text-end' as const, id: 't1' },
+        {
+          type: 'finish' as const,
+          finishReason: { unified: 'stop' as const, raw: 'end_turn' },
+          usage: {
+            inputTokens: {
+              total: 10,
+              noCache: 10,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+            outputTokens: { total: 10, text: 10, reasoning: undefined },
+          },
+        },
+      ],
+    }),
+  })
+
+  it('refuses an output no warehouse query backed, then takes one a query did', async () => {
+    const saved: AgentMessageRow[] = []
+    // Submit before any query, get refused, query, then the same submit lands.
+    const model = scripted(
+      submit({ data_quality: 'ok' }),
+      query(),
+      submit({ data_quality: 'ok' }),
+    )
+
+    const output = await runAgentLoop(
+      gateArgs(model, [{ ok: true, columns: ['n'], rows: [['1']] }], {
+        saveRows: async (rows) => {
+          saved.push(...rows)
+        },
+      }),
+    )
+
+    expect(output).toEqual({ data_quality: 'ok' })
+    // The refusal the model read names the tool to run, which is what makes it
+    // a correction rather than a dead end.
+    expect(JSON.stringify(saved)).toContain('No warehouse query succeeded')
+    expect(JSON.stringify(saved)).toContain('queryDatabricks')
+  })
+
+  it('refuses every submit when the only query failed, refusing the run', async () => {
+    const saved: AgentMessageRow[] = []
+    const model = scripted(
+      query(),
+      submit({ data_quality: 'ok' }),
+      say('nothing else to add'),
+    )
+
+    await expect(
+      runAgentLoop(
+        gateArgs(model, [{ ok: false, reason: 'query_failed' }], {
+          saveRows: async (rows) => {
+            saved.push(...rows)
+          },
+        }),
+      ),
+    ).rejects.toThrow('ended without submitting its output')
+    expect(JSON.stringify(saved)).toContain('No warehouse query succeeded')
+  })
+
+  it('accepts the carve-out value with no successful query at all', async () => {
+    const model = scripted(submit({ data_quality: 'insufficient_signal' }))
+
+    const output = await runAgentLoop(
+      gateArgs(model, [{ ok: false, reason: 'no_scope' }]),
+    )
+
+    expect(output).toEqual({ data_quality: 'insufficient_signal' })
+  })
+
+  it('does not accept another data_quality value as the carve-out', async () => {
+    const saved: AgentMessageRow[] = []
+    const model = scripted(
+      submit({ data_quality: 'partial' }),
+      say('nothing else to add'),
+    )
+
+    await expect(
+      runAgentLoop(
+        gateArgs(model, [], {
+          saveRows: async (rows) => {
+            saved.push(...rows)
+          },
+        }),
+      ),
+    ).rejects.toThrow('ended without submitting its output')
+    expect(JSON.stringify(saved)).toContain('No warehouse query succeeded')
+  })
+
+  it.each([
+    ['no tools at all', {}],
+    [
+      'a tool that reads no warehouse',
+      {
+        webSearch: {
+          description: 'Search.',
+          input: z.object({}),
+          execute: async () => ({ ok: true }),
+        },
+      },
+    ],
+  ])('does nothing for an agent with %s', async (_name, tools) => {
+    const model = new MockLanguageModelV3({
+      doStream: async () =>
+        callTool(SUBMIT_TOOL, { output: { data_quality: 'ok' } }),
+    })
+
+    const output = await runAgentLoop(
+      gateArgs(model, [], {
+        output: WarehouseOutput.omit({ title: true }),
+        tools: tools as AgentLoopArgs['tools'],
+      }),
+    )
+
+    expect(output).toEqual({ data_quality: 'ok' })
+  })
+})
+
+describe('the trace of a run', () => {
+  let exporter: InMemorySpanExporter
+  let provider: BasicTracerProvider
+
+  beforeEach(() => {
+    exporter = new InMemorySpanExporter()
+    provider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    })
+    trace.setGlobalTracerProvider(provider)
+  })
+
+  afterEach(() => {
+    trace.disable()
+  })
+
+  const toolSpan = (toolName: string) => {
+    const spans = exporter
+      .getFinishedSpans()
+      .filter(
+        (s) =>
+          s.attributes['gen_ai.operation.name'] === 'execute_tool' &&
+          s.attributes['gen_ai.tool.name'] === toolName,
+      )
+    expect(spans).toHaveLength(1)
+    return spans[0]!
+  }
+
+  it("records submitOutput's schema rejection, and then its acceptance", async () => {
+    let calls = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls++
+        return callTool(
+          SUBMIT_TOOL,
+          calls === 1
+            ? { output: { status: 'found', minutes: 'eight' } }
+            : { output: { status: 'found', minutes: 8 } },
+        )
+      },
+    })
+
+    await runAgentLoop(loopArgs(model, []))
+
+    const submits = exporter
+      .getFinishedSpans()
+      .filter((s) => s.attributes['gen_ai.tool.name'] === SUBMIT_TOOL)
+    expect(submits.map((s) => s.status.code)).toEqual([
+      SpanStatusCode.ERROR,
+      SpanStatusCode.UNSET,
+    ])
+    expect(submits[0]?.attributes['error.type']).toBe('schema')
+    expect(submits[1]?.attributes).not.toHaveProperty('error.type')
+    // The message is the fix-it instruction the model reads; the span carries
+    // the code and never the text.
+    expect(JSON.stringify(submits[0]?.attributes)).not.toContain('minutes')
+  })
+
+  it('records a warehouse query that came back ok:false', async () => {
+    let calls = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        calls++
+        return calls === 1
+          ? callTool('queryDatabricks', { sql: 'SELECT 1' })
+          : callTool(SUBMIT_TOOL, {
+              output: { status: 'missing', reason: 'no data' },
+            })
+      },
+    })
+
+    await runAgentLoop(
+      loopArgs(model, [], {
+        tools: {
+          queryDatabricks: {
+            description: 'Read the warehouse.',
+            input: z.object({ sql: z.string() }),
+            readsWarehouse: true as const,
+            execute: async () => ({
+              ok: false,
+              reason: 'rejected',
+              detail:
+                "every SELECT must guarantee Residence_Addresses_State = 'NC'",
+            }),
+          },
+        },
+        dataRequiredUnless: {
+          field: 'status',
+          values: ['missing'],
+        },
+      }),
+    )
+
+    expect(toolSpan('queryDatabricks').attributes).toMatchObject({
+      'error.type': 'rejected',
+    })
+    expect(toolSpan('queryDatabricks').status.code).toBe(SpanStatusCode.ERROR)
+  })
+})

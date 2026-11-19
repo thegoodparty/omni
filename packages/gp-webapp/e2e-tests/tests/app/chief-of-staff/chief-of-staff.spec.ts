@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 import {
   blockSlowScripts,
@@ -49,7 +49,7 @@ test.describe('Chief of Staff', () => {
     // the static get-started onboarding cards (briefing task cards need the
     // async pipeline). The "meet" card leads the stack until the user opens
     // or skips it, which this isolated user has not done.
-    const cardTitle = 'Get the staff your office never had'
+    const cardTitle = "Get the staff most local offices don't have"
     const homeCard = page
       .locator('[data-slot="card"]')
       .filter({ hasText: cardTitle })
@@ -74,6 +74,7 @@ test.describe('Chief of Staff', () => {
     // reports itself on.
     const skippedPill = page.locator('[data-value="skipped"]')
     await expect(async () => {
+      if ((await skippedPill.getAttribute('data-state')) === 'on') return
       await skippedPill.click()
       await expect(skippedPill).toHaveAttribute('data-state', 'on', {
         timeout: 2_000,
@@ -93,12 +94,18 @@ test.describe('Chief of Staff', () => {
     })
     await NavigationHelper.dismissOverlays(page)
 
-    await page
-      .getByRole('button', { name: 'Open Chief of Staff chat' })
-      .click({ timeout: 15_000 })
-
+    // The page is loaded on domcontentloaded, so the click can land before
+    // React hydrates and be dropped, leaving the chat closed. Retry until the
+    // composer shows.
+    const openChat = page.getByRole('button', {
+      name: 'Open Chief of Staff chat',
+    })
     const composer = page.getByRole('textbox', { name: 'Ask a question' })
-    await expect(composer).toBeVisible({ timeout: 10_000 })
+    await expect(async () => {
+      if (!(await composer.isVisible()))
+        await openChat.click({ timeout: 2_000 })
+      await expect(composer).toBeVisible({ timeout: 3_000 })
+    }).toPass({ timeout: 25_000 })
 
     const prompt = 'What is most urgent this week?'
     await composer.fill(prompt)
@@ -126,11 +133,6 @@ test.describe('Chief of Staff', () => {
   // network layer so the reveal runs long enough to scroll into and the
   // assertions don't ride on model latency.
   test.describe('scroll-back during a stream', () => {
-    // The Serwist service worker serves same-origin GETs from inside the
-    // worker, where page.route never sees them, so the transcript stub would
-    // leak to the real gp-api. Same reason as the CRM assistant spec.
-    test.use({ serviceWorkers: 'block' })
-
     const PROMPT = 'Summarize everything on my plate this week'
     const CONVERSATION_ID = 'e2e-cos-scroll'
     const ASSISTANT_MESSAGE_ID = 'e2e-cos-assistant-1'
@@ -211,6 +213,7 @@ test.describe('Chief of Staff', () => {
       // is a no-op, and nothing about the DOM says whether it has.
       const composer = page.getByRole('textbox', { name: 'Ask a question' })
       await expect(async () => {
+        if (await composer.isVisible()) return
         await page
           .getByRole('button', { name: 'Open Chief of Staff chat' })
           .click({ timeout: 5_000 })

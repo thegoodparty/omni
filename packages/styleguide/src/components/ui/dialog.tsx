@@ -4,6 +4,13 @@ import { XMarkIcon } from './icons'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * Below 1024px the same content shows as a Drawer; switch with useIsMobile.
+ * Closing with unsaved typed input asks first.
+ *
+ * @summary Use on desktop for a short, focused input. To confirm an irreversible
+ * action, use AlertDialog. A flow or anything with its own actions is a page.
+ */
 function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {

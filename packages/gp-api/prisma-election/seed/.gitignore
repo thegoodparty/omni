@@ -1,0 +1,3 @@
+# Built from the dev election database by refresh.sh. Restricted data: never commit.
+*.sql.gz
+*.sql

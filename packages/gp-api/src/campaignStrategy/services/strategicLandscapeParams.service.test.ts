@@ -34,7 +34,7 @@ const campaign = (details: unknown) =>
 
 describe('StrategicLandscapeParamsService', () => {
   let service: StrategicLandscapeParamsService
-  let electionApi: { getStrategyContext: ReturnType<typeof vi.fn> }
+  let raceContextService: { getStrategyContext: ReturnType<typeof vi.fn> }
   let races: { getPrimaryRaceId: ReturnType<typeof vi.fn> }
   let campaignStory: { getForCampaign: ReturnType<typeof vi.fn> }
   let websites: {
@@ -43,7 +43,7 @@ describe('StrategicLandscapeParamsService', () => {
   }
 
   beforeEach(() => {
-    electionApi = {
+    raceContextService = {
       getStrategyContext: vi.fn(async (id: string) =>
         id === PRIMARY ? primaryCtx : generalCtx,
       ),
@@ -56,7 +56,7 @@ describe('StrategicLandscapeParamsService', () => {
     }
     const logger = { setContext: vi.fn(), warn: vi.fn() }
     service = new StrategicLandscapeParamsService(
-      electionApi as never,
+      raceContextService as never,
       races as never,
       campaignStory as never,
       websites as never,
@@ -75,8 +75,8 @@ describe('StrategicLandscapeParamsService', () => {
     expect(out.user_email).toBe(USER_EMAIL)
     expect(out.user_full_name).toBe('Rob Newland')
     // only the general context was fetched (no primary round-trip)
-    expect(electionApi.getStrategyContext).toHaveBeenCalledTimes(1)
-    expect(electionApi.getStrategyContext).toHaveBeenCalledWith(GENERAL)
+    expect(raceContextService.getStrategyContext).toHaveBeenCalledTimes(1)
+    expect(raceContextService.getStrategyContext).toHaveBeenCalledWith(GENERAL)
   })
 
   it('folds the primary roster into campaign_primary_strategy_context when a primary race exists', async () => {
@@ -84,7 +84,7 @@ describe('StrategicLandscapeParamsService', () => {
 
     const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
 
-    expect(electionApi.getStrategyContext).toHaveBeenCalledWith(PRIMARY)
+    expect(raceContextService.getStrategyContext).toHaveBeenCalledWith(PRIMARY)
     expect(out.campaign_primary_strategy_context).toEqual({
       candidate_count: primaryCtx.candidate_count,
       candidates: primaryCtx.candidates,
@@ -209,7 +209,7 @@ describe('StrategicLandscapeParamsService', () => {
         },
       ],
     }
-    electionApi.getStrategyContext.mockResolvedValue(ctx)
+    raceContextService.getStrategyContext.mockResolvedValue(ctx)
 
     const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
 
@@ -244,10 +244,11 @@ describe('StrategicLandscapeParamsService', () => {
 
     beforeEach(() => {
       races.getPrimaryRaceId.mockResolvedValue(PRIMARY)
-      electionApi.getStrategyContext.mockImplementation(async (id: string) =>
-        id === PRIMARY
-          ? bigPrimary(60)
-          : { candidate_count: 0, candidates: [] },
+      raceContextService.getStrategyContext.mockImplementation(
+        async (id: string) =>
+          id === PRIMARY
+            ? bigPrimary(60)
+            : { candidate_count: 0, candidates: [] },
       )
     })
 
@@ -281,7 +282,7 @@ describe('StrategicLandscapeParamsService', () => {
     it('prioritizes the primary roster over the general roster when both are large', async () => {
       // Both stages return a large roster; the shared budget must go to the
       // primary (the real filed field) before the provisional general seed list.
-      electionApi.getStrategyContext.mockImplementation(async () =>
+      raceContextService.getStrategyContext.mockImplementation(async () =>
         bigPrimary(60),
       )
 
@@ -302,8 +303,11 @@ describe('StrategicLandscapeParamsService', () => {
         background: 'b'.repeat(6000),
       })
       websites.getBioForCampaign.mockResolvedValue('w'.repeat(6000))
-      electionApi.getStrategyContext.mockImplementation(async (id: string) =>
-        id === PRIMARY ? bigPrimary(5) : { candidate_count: 0, candidates: [] },
+      raceContextService.getStrategyContext.mockImplementation(
+        async (id: string) =>
+          id === PRIMARY
+            ? bigPrimary(5)
+            : { candidate_count: 0, candidates: [] },
       )
 
       const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)

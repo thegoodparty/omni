@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Container, Heading, Box, Text } from '@radix-ui/themes'
-import type { AgentRunListItem, PaginationMeta } from '@goodparty_org/sdk'
+import type { AgentRunListItem, PaginationMeta } from '@/shared/gpApi'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { Pagination } from '@/components/Pagination'
 import {

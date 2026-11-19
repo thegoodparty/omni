@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { resolvePostAuthRedirectPath } from './resolvePostAuthRedirectPath.util'
+import {
+  resolvePostAuthRedirectPath,
+  needsPhoneStep,
+} from './resolvePostAuthRedirectPath.util'
 
 describe('resolvePostAuthRedirectPath', () => {
   it('routes a sales user to the sales add-campaign page', () => {
@@ -186,5 +189,31 @@ describe('resolvePostAuthRedirectPath', () => {
     expect(resolvePostAuthRedirectPath(null, { status: 'candidate' })).toBe(
       '/dashboard',
     )
+  })
+})
+
+describe('needsPhoneStep', () => {
+  const recent = '2026-10-01T00:00:00Z'
+  it('is true for a recent account with no phone', () => {
+    expect(needsPhoneStep({ phone: null, createdAt: recent })).toBe(true)
+    expect(needsPhoneStep({ phone: '  ', createdAt: recent })).toBe(true)
+  })
+  it('is false when a phone is on record', () => {
+    expect(needsPhoneStep({ phone: '5551234567', createdAt: recent })).toBe(
+      false,
+    )
+  })
+  it('is false for accounts older than the phone step', () => {
+    expect(
+      needsPhoneStep({ phone: null, createdAt: '2026-09-01T00:00:00Z' }),
+    ).toBe(false)
+  })
+  it('exempts sales staff and fails open on unknown users', () => {
+    expect(
+      needsPhoneStep({ roles: ['sales'], phone: null, createdAt: recent }),
+    ).toBe(false)
+    expect(needsPhoneStep(null)).toBe(false)
+    expect(needsPhoneStep({ phone: null })).toBe(false)
+    expect(needsPhoneStep({ phone: null, createdAt: 'nope' })).toBe(false)
   })
 })

@@ -7,10 +7,10 @@
 // sentence is in the message it stored.
 export const CIVIC_PANEL_JOIN_KEYWORD = 'JOIN'
 
-// Says what joining means in the constituent's terms: who is asking (the
-// office) and how often. Short: it shares a text with the official's own
-// message, and the opt-out line below it already says how to leave.
-export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my civic panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.`
+// The managed invite's ask. Short, and it never names the civic panel: the
+// invite body above it already says what joining means (about once a month,
+// asked what they think), and the opt-out sits directly under it.
+export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to share your perspectives.`
 
 // Every line a stored send may carry, newest first. Sends written before a
 // rewrite carry an older wording (the panel's earlier name among them), so
@@ -18,9 +18,16 @@ export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join 
 // ever writes CIVIC_PANEL_JOIN_LINE. Never drop or edit a legacy line.
 export const CIVIC_PANEL_JOIN_LINES = [
   CIVIC_PANEL_JOIN_LINE,
+  `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my civic panel. My office will text you about once a month to ask what you think before I decide. Sent with GoodParty.org.`,
+  `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my civic panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.`,
   `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.`,
   `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel, residents my office (not my campaign) texts a few times a year to hear what you think before I make decisions. Empowered by GoodParty.org.`,
 ] as const
+
+// Why a Serve text other than the managed invite cannot carry a JOIN line.
+// gp-api refuses the create with it, and the composer shows it before then.
+export const CIVIC_PANEL_JOIN_REFUSED_MESSAGE =
+  'Only the invite we send to build your civic panel can ask people to join it. Remove that line and try again.'
 
 // The join line in a message, if it carries one: the last occurrence of any
 // recognized wording.
@@ -74,16 +81,3 @@ export const CONTACT_REST_DAYS = 30
 // The share of a cold text to the district that replies JOIN. An assumption
 // until offices' own seed sends give it a measured rate.
 export const PANEL_SEED_ASSUMED_JOIN_RATE = 0.03
-
-// The hidden turn the Chief of Staff home sends when the official presses Build
-// my panel on the build card, so the agent starts building the panel and the
-// transcript can leave the turn out. A fixed string: the chat hides it on
-// reload by its exact words, and gp-api titles the conversation off it.
-export const BUILD_CITIZENS_PANEL_MARKER = '[Build civic panel]'
-export const BUILD_CITIZENS_PANEL_MESSAGE = `${BUILD_CITIZENS_PANEL_MARKER} Help me build my civic panel.`
-
-// The hidden turn the home sends when the official presses What's a civic
-// panel? on the build card: the agent explains the panel and builds nothing
-// unless they say yes. Fixed for the same reasons as the build turn.
-export const EXPLAIN_CIVIC_PANEL_MARKER = '[Explain civic panel]'
-export const EXPLAIN_CIVIC_PANEL_MESSAGE = `${EXPLAIN_CIVIC_PANEL_MARKER} What is a civic panel?`

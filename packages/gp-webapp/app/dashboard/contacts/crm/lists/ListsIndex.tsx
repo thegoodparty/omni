@@ -7,10 +7,14 @@ import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useShowContactProModal } from '../ContactProModal'
 import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
-import { getContactsLabels } from '../../../shared/contactsLabels'
+import {
+  getContactsLabels,
+  WIN_NEW_CONTACTS_LABELS,
+} from '../../../shared/contactsLabels'
 import { ALL_SEGMENTS } from '../shared/constants'
 import ListCard from './ListCard'
 import { CitizensPanelListCard } from './CitizensPanelListCard'
+import { isCivicPanelAudienceList } from 'app/dashboard/outreach/v2/audience/civicPanelAudienceList.util'
 
 // The Lovable design's first list row: the whole (unfiltered) universe.
 // Count comes from the same GET /v1/contacts/stats query DistrictStatCard
@@ -23,12 +27,19 @@ const AllContactsCard = ({
   title,
   showSendOutreach,
   canUseProFeatures,
+  showNewContacts,
 }: {
   title: string
   showSendOutreach: boolean
   canUseProFeatures: boolean
+  // Win: new contacts an import added are named next to the voters.
+  showNewContacts: boolean
 }) => {
   const query = useQuery(districtStatsQueryOptions)
+  const newContactsCount =
+    showNewContacts && query.status === 'success'
+      ? (query.data.newContactsCount ?? 0)
+      : 0
   const { selectList } = useContactsTable()
   const showProUpgradeModal = useShowContactProModal()
   const openChannelPicker = useOpenChannelPicker()
@@ -46,7 +57,11 @@ const AllContactsCard = ({
 
   return (
     <Card className="w-full gap-2 rounded-2xl p-4 shadow-xs">
-      <h3 className="text-base font-semibold">{title}</h3>
+      <h3 className="text-base font-semibold">
+        {newContactsCount > 0
+          ? WIN_NEW_CONTACTS_LABELS.allContactsTitle
+          : title}
+      </h3>
       <div className="mt-1 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <UserIcon className="size-3.5" aria-hidden />
@@ -57,6 +72,11 @@ const AllContactsCard = ({
               // Designed loading placeholder (DistrictStatCard's pattern) —
               // not the bare "—" that read as a broken/empty card.
               <div className="h-3.5 w-10 animate-pulse rounded bg-muted" />
+            )
+          ) : newContactsCount > 0 ? (
+            WIN_NEW_CONTACTS_LABELS.votersAndNewContacts(
+              query.data.totalConstituents - newContactsCount,
+              newContactsCount,
             )
           ) : (
             query.data.totalConstituents.toLocaleString()
@@ -105,6 +125,14 @@ export default function ListsIndex() {
   // isWinContextReady keeps the button from flashing at a Serve user while
   // the mode resolves.
   const showSendOutreach = isWinContextReady && isWinContext
+  // A civic panel invite's audience is the outreach's record, not a list the
+  // official keeps: the panel's one list is the built-in Civic panel row. The
+  // list the outreach picker saves for "Your civic panel" is that same
+  // audience, so it stays out too.
+  const savedLists = customSegments.filter(
+    (segment) =>
+      segment.civicPanelInvite !== true && !isCivicPanelAudienceList(segment),
+  )
 
   return (
     <section className="flex flex-col gap-4">
@@ -120,14 +148,15 @@ export default function ListsIndex() {
           title={labels.allContactsTitle}
           showSendOutreach={showSendOutreach}
           canUseProFeatures={canUseProFeatures}
+          showNewContacts={isWinContext}
         />
         <CitizensPanelListCard />
-        {customSegments.length === 0 ? (
+        {savedLists.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             You haven&apos;t created any lists yet.
           </p>
         ) : (
-          customSegments.map((segment) => (
+          savedLists.map((segment) => (
             <ListCard key={segment.id} segment={segment} />
           ))
         )}

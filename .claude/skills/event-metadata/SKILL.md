@@ -1,6 +1,6 @@
 ---
 name: event-metadata
-description: Write an analytics event's governance metadata (purpose, status, supersession lineage, product tag) into Amplitude — when adding a new client event, retiring or superseding one, or enriching/backfilling an existing event that is missing metadata. Called by instrument-analytics-event after it registers a new event, and runnable standalone for governance updates after an audit. Client (Amplitude) events only.
+description: Write an analytics event's governance metadata (purpose, status, supersession lineage, product tag) into Amplitude — when adding a new event, retiring or superseding one, or enriching/backfilling an existing event that is missing metadata. Called by instrument-analytics-event after it registers a new event, and runnable standalone for governance updates after an audit.
 ---
 
 # Write event metadata to Amplitude
@@ -11,9 +11,9 @@ into Amplitude — as a structured block in the event **description** plus a `pr
 **tag** — at the moment of change. It is the writer; it acts on a **named** event and
 does not scan diffs.
 
-Scope: **client (Amplitude) events only** — those in
-`packages/gp-webapp/helpers/analyticsHelper.ts`. Backend `segment.types.ts` events are
-out of scope (see ClickUp 86aj7bdkp).
+Scope: client events in `packages/gp-webapp/helpers/analyticsHelper.ts`, and backend
+`segment.types.ts` events, which land in the same Amplitude projects and get the same
+metadata.
 
 The CSV provenance artifact in omni
 (`packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv`) is
@@ -29,13 +29,18 @@ Two ways it runs:
 - **Standalone**, for post-audit governance updates and to enrich/backfill an existing
   event whose metadata is missing.
 
-## Precondition: the Amplitude MCP must be authenticated
+## Access: developers only
 
-Same as the `amplitude-flag` skill. The real tools (`get_events`, `update_event`,
-`create_events`) appear only after auth. If only `…Amplitude__authenticate` is
-available, tell the user to run `/mcp`, complete the Amplitude OAuth login, and retry —
-don't conclude the skill is broken. The first `get_events` call doubles as a live auth
-check.
+Writes go through the connected Amplitude MCP tools (`mcp__Amplitude__*`: `get_events`,
+`update_event`, `create_events`) in a developer's session. The `amp` CLI doesn't fully cover
+any step here: it can't read or write tags, can't set a display name, and doesn't show whether
+an event is in the plan. The real MCP tools appear only after auth; if only
+`…Amplitude__authenticate` is available, tell the user to run `/mcp`, complete the Amplitude
+OAuth login, and retry. The first `get_events` call doubles as a live auth check. Never print a
+key or token.
+
+An agent without amp or Amplitude MCP access, Delegate included, stops before writing anything
+and asks a developer to run this skill.
 
 ## Fixed facts
 
@@ -66,8 +71,6 @@ outside the marker survives:
 ```
 <!-- gp-meta -->
 <one line: the question this event answers>
-fires_on: <one plain-English line: the surface and the trigger>
-url: <the product path where it happens, app named when it is not the candidate webapp>
 supersession: original | supersedes <event> | superseded by <event> (reason)
 in use: <YYYY-MM-DD> (#PR)    (or)   not in use: <YYYY-MM-DD> (reason, #PR)
 change-set: <id or PRD link>         # optional
@@ -78,17 +81,11 @@ Rules:
 
 - **Purpose line** — drafted by you and confirmed/edited by the human at creation; then
   **immutable** (preserved verbatim on every later run, never regenerated).
-- **`fires_on:`** — one plain-English line naming the surface and the trigger, written so
-  a non-engineer can go and see it: "Admin SMS outreach queue, Approve & book send on a
-  campaign detail page." This is what lets a reader confirm an event is the one they mean,
-  which is the whole reason the field exists (DATA-2426). Drafted by you from the call
-  site, confirmed by the human. Unlike the purpose line it is **mutable** — when the UI
-  moves, the anchor should be corrected, because a stale anchor is worse than a blank one.
-- **`url:`** — the product path where the action happens, e.g. `/dashboard/campaign-plan`.
-  Paths collide across apps, so name the app whenever it is not the candidate webapp:
-  `/dashboard/sms-outreach/:id (gp-admin)`. For global chrome that fires from everywhere,
-  leave the value as a short reason rather than a guessed path: `url: n/a (global nav)`.
-  Never invent a path you have not seen in the router.
+- **`fires_on:` / `url:`** — older events carry these two location lines inside the
+  block. Do not draft them for a new event: the explorer and the product map place events
+  by area and `surface:` tag, and nothing reads the lines beyond showing them on the card.
+  When you touch an event that has them and its surface has moved, correct or delete
+  them, because a stale location is worse than a blank one.
 - **`supersession:`** — always present with an explicit value, including `original` for
   a net-new standalone event. Never leave lineage to be inferred from a blank line.
 - **A named successor must exist in code.** Before writing `superseded by <event>`,
@@ -161,10 +158,7 @@ front.
 ### Mode: NEW (add)
 
 1. Draft the one-line purpose from the event name + surrounding code; human confirms or
-   edits. Draft `fires_on` and `url` the same way, from the call site you found — the
-   route file or page component the call site sits in gives the path. If you cannot locate
-   a call site, or the event fires from global chrome with no single path, say so and
-   leave the field with an explicit reason rather than a guess.
+   edits.
 2. Propose `product:*` from the event name; human confirms or edits. Optionally accept
    cross-cutting tags and a `change-set`.
 3. Ask: net-new, or supersedes an existing event? **A removal elsewhere in the same PR
@@ -190,10 +184,10 @@ that had not shipped.
 For governance/backfill and retirements. Base action is to enrich; supersede-out and
 retire are optional transitions on top.
 
-1. Fetch the event via `get_events`; parse any existing `gp-meta` block.
+1. Read the event (see "Write mechanics"); parse any existing `gp-meta` block.
 2. **Enrich**: draft+confirm the purpose if absent (preserve it verbatim if already
-   set); draft+confirm `fires_on` and `url` if absent, or correct them if the surface has
-   moved; propose+confirm `product:*` if absent; fill missing fields.
+   set); correct or delete existing `fires_on` / `url` lines if the surface has moved
+   (never add them); propose+confirm `product:*` if absent; fill missing fields.
 3. Optional status transition:
    - **None** → stays `in use`; metadata just enriched.
    - **Superseded by another event** → name the successor; require a reason; write
@@ -208,21 +202,22 @@ For an event that fires somewhere other than its label says (DATA-2531). Input i
 row of `instrumentation_data/surface_drift.json` (or a `relabels:` row): the event, the
 proposed `surface:` slug, display name, `fires_on` and `url`.
 
-1. Fetch the event via `get_events` in both projects; parse the `gp-meta` block.
-2. Show the human the proposed display name, `fires_on` and `url`. The display name and
-   the trigger half of `fires_on` are drafts: confirm or edit both. The `surface:` slug
+1. Read the event in both projects (see "Write mechanics"); parse the `gp-meta` block.
+2. Show the human the proposed display name, and the proposed `fires_on` and `url` when
+   the block already carries those lines. The display name is a draft: confirm or edit it. The `surface:` slug
    is mechanical unless the row lists `surface_options`: then the area has more than one
    name (Win and Serve vocabulary for the same page), and the human picks which one the
    event belongs under. Otherwise change it only if the human says so.
 3. Write, per project:
    - replace any existing `surface:` tag with the new one; keep every other tag;
-   - set `fires_on:` and `url:` inside the `gp-meta` block (they are mutable);
+   - if the `gp-meta` block already has `fires_on:` / `url:`, replace them with the
+     proposed values; do not add them to a block that lacks them;
    - add one line **outside** the block: `Previously shown as <old display name>.`, so
      Amplitude's semantic search, which matches descriptions, still finds the event by
      its old name;
-   - set the display name, only in a project where `get_events` returns the event as
-     ingested. For a never-ingested event a display name lands on the tracking-plan
-     entry instead (2026-08-07, dev): skip it there and say so.
+   - set the display name, only in a project where the event has been ingested. For a
+     never-ingested event a display name lands on the tracking-plan entry instead
+     (2026-08-07, dev): skip it there and say so.
 4. **Refuse** in a relabel: any change to the status line (`in use` / `not in use`) or
    to `supersession:`. A relabel says where an event fires, never that it was retired or
    replaced. If either needs changing, stop and run Mode: EXISTING separately.
@@ -244,33 +239,38 @@ the human can see that any existing/UI-entered content is preserved and only the
 For each target project, independently (an event may exist in one project and not the
 other — that is normal given different data volumes):
 
-1. `get_events` for the event name to read current state and any existing description.
+1. Read the event's current state: description, display name, tags, and whether it is in
+   the plan.
 2. **Preserve existing content — never blind-overwrite.** Humans may edit metadata in the
-   Amplitude UI, and that must not be lost. `update_event`'s `descriptions` map has only
-   one primitive: it sets the **whole** description string to what you pass. So the skill
-   does a **read-modify-write** to get append/merge semantics: read the current
-   description, keep every bit of existing text, and change **only** the skill's own
+   Amplitude UI, and that must not be lost. The description write sets the
+   **whole** description string to what you pass. So the skill does a
+   **read-modify-write** to get append/merge semantics: read the current description,
+   keep every bit of existing text, and change **only** the skill's own
    `<!-- gp-meta -->…<!-- /gp-meta -->` block (append the block if there is none yet).
    - Human prose **outside** the markers is preserved untouched.
    - An already-set **purpose line inside** the block is read and kept verbatim (it is
-     immutable); only the status, supersession, and anchor (`fires_on` / `url`) lines
-     change.
+     immutable); only the status and supersession lines, and any existing
+     `fires_on` / `url` lines, change.
    - Pass the full merged string — never just the block. Re-runs update the block in
      place (never duplicate it) and never drop human content.
-3. Apply, branching on the event's `isInSchema` flag in the `get_events` response (the
-   MCP returns it camelCase as `isInSchema` — verified against a live response):
-   - **Brand-new** (the event is not returned by `get_events` at all — never ingested,
-     not in the plan) → `create_events` with the description, then `update_event` to set
-     the `tags`.
-   - **Ingested but unexpected** (returned with `isInSchema: false`) →
-     `create_events(isUnexpected:true)` to add it to the plan, then `update_event` for
-     `descriptions` + `tags`.
-   - **Already in the plan** (`isInSchema: true`) → `update_event` for `descriptions` +
-     `tags` directly.
+   - Tags get the same treatment: send the event's existing tags plus the ones you add,
+     never just yours.
+3. Apply through the MCP tools.
+
+Read with `get_events`. Branch on the event's `isInSchema` flag (the MCP returns it
+camelCase as `isInSchema` — verified against a live response):
+
+- **Brand-new** (the event is not returned by `get_events` at all — never ingested, not in
+  the plan) → `create_events` with the description, then `update_event` to set the `tags`.
+- **Ingested but unexpected** (returned with `isInSchema: false`) →
+  `create_events(isUnexpected:true)` to add it to the plan, then `update_event` for
+  `descriptions` + `tags`.
+- **Already in the plan** (`isInSchema: true`) → `update_event` for `descriptions` + `tags`
+  directly.
 
 ### Verify
 
-Re-read each affected event via `get_events` in **both** projects; confirm the `gp-meta`
+Re-read each affected event in **both** projects (`get_events`); confirm the `gp-meta`
 block, the `product:*` tag, and the status line are present and correct.
 
 ### Refresh the consumer surface (independent, non-fatal)
@@ -280,7 +280,7 @@ without waiting for the daily Databricks sync. This is a **separate step that mu
 separately** — the Amplitude write above has already succeeded and must never be rolled
 back or blocked by a refresh problem.
 
-1. From the **prod** (`694490`) `get_events` re-read in Verify, build an override JSON in
+1. From the **prod** (`694490`) re-read in Verify, build an override JSON in
    the scratchpad, one entry per event you touched (a supersession touches two). Key each
    entry on the **`event_type`** — the raw Amplitude event name as fired in code (e.g.
    `Onboarding V2 - Welcome Completed`) — **not** the Govern display name, even if it

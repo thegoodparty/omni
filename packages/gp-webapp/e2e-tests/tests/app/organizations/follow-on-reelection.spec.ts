@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from 'src/fixtures/test'
 import type { AxiosInstance } from 'axios'
 import {
   setupReelectionEligibleUser,
@@ -10,12 +10,18 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { eventually } from 'tests/utils/eventually'
+import { applyElectionPreset } from 'tests/utils/headless-user'
 
 // Regression coverage for the ENG-10396 fix: a same-office re-election follow-on
 // derives its electionDate from the held office's termEndAt, so the new campaign
 // reads "active" (not "Past") and a second re-election is rejected. This drives
 // the same-office happy path through the real UI and verifies the produced state
 // (org status, hidden actions, 409), not just navigation.
+
+const REELECTION_RACE = {
+  zip: '28202',
+  office: 'Charlotte City Council - District 1',
+}
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
@@ -63,7 +69,9 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
 }) => {
   test.setTimeout(180_000)
 
-  const client = await setupReelectionEligibleUser(page)
+  // Not the default Cheyenne office: its only race has passed, so election-api
+  // derives no next election and the flow stops on the "contact support" alert.
+  const client = await setupReelectionEligibleUser(page, REELECTION_RACE)
   const electedOfficeOrg = await eventually(
     { that: 'the elected office organization exists' },
     () => getElectedOfficeOrg(client),
@@ -75,17 +83,18 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   // is concluded. The win happens on a freshly launched campaign whose
   // electionDate is still in the future, and "I won my race" sets only
   // details.wonGeneral (never the didWin column) — so the won campaign still
-  // reads "active" and canStartCampaign stays false, hiding the action. Backdate
-  // its electionDate (the production state once the election has happened) so
-  // eligibility opens up; this also makes the won campaign org read "Past". PUT
-  // /v1/campaigns/mine merges details, so only electionDate changes, and
-  // resolves the campaign from x-organization-slug.
+  // reads "active" and canStartCampaign stays false, hiding the action. Declare
+  // the won race as passed (the production state once the election has
+  // happened) so eligibility opens up; this also makes the won campaign org
+  // read "Past".
   const wonCampaignSlug = campaignSlugsBefore[0]
   if (!wonCampaignSlug) throw new Error('No won campaign org found after setup')
   client.defaults.headers['x-organization-slug'] = wonCampaignSlug
-  await client.put('/v1/campaigns/mine', {
-    details: { electionDate: '2020-11-03' },
-  })
+  await applyElectionPreset(
+    client,
+    Number(wonCampaignSlug.replace('campaign-', '')),
+    'passed_won',
+  )
 
   // 1–2: reload so the picker's eligibility query refetches, then open the
   // switcher and start the re-election flow.
@@ -143,7 +152,7 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
 
   // 6: pledge -> launch -> dashboard.
   await expect(
-    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+    page.getByRole('heading', { level: 1, name: /people first pledge/i }),
   ).toBeVisible()
   const submit = page
     .getByRole('button', { name: /agree.*create my plan/i })

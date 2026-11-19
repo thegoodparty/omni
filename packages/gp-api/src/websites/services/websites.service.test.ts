@@ -20,6 +20,36 @@ import {
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
 import { CampaignWith } from 'src/campaigns/campaigns.types'
+import { VendorMockVendor, WebsiteStatus } from '@/generated/prisma'
+import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
+import { VercelService } from '@/vendors/vercel/services/vercel.service'
+
+const mockVendorMocks = {
+  findOne: vi.fn(),
+  findMany: vi.fn(),
+}
+const mockVercel = {
+  getProjectId: vi.fn().mockReturnValue('mock-vercel-project'),
+}
+const vendorProviders = [
+  { provide: VendorMockRecordService, useValue: mockVendorMocks },
+  { provide: VercelService, useValue: mockVercel },
+]
+
+// VENDOR_MODE is a module constant, so a test can't flip it
+// through process.env. Default to live mode: the verifyLive tests below cover
+// the live HTTP path; the mock-mode block flips `appEnv.mode`.
+const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get VENDOR_MODE() {
+      return appEnv.mode
+    },
+  }
+})
 
 vi.mock('axios', async (orig) => {
   const real = await orig<typeof import('axios')>()
@@ -87,10 +117,7 @@ describe('WebsitesService.verifyLive', () => {
   let originalOtelEnv: string | undefined
 
   beforeEach(async () => {
-    // verifyLive short-circuits when OTEL_SERVICE_ENVIRONMENT !== 'prod' so the
-    // dev placeholder page doesn't fail the content checks. Pin to 'prod' here
-    // so every test exercises the real code path; the single bypass test
-    // overrides this locally.
+    // Pin to 'prod' so every test exercises the real code path.
     originalOtelEnv = process.env.OTEL_SERVICE_ENVIRONMENT
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
 
@@ -111,6 +138,7 @@ describe('WebsitesService.verifyLive', () => {
         WebsitesService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: PinoLogger, useValue: createMockLogger() },
+        ...vendorProviders,
       ],
     }).compile()
 
@@ -124,29 +152,6 @@ describe('WebsitesService.verifyLive', () => {
       delete process.env.OTEL_SERVICE_ENVIRONMENT
     } else {
       process.env.OTEL_SERVICE_ENVIRONMENT = originalOtelEnv
-    }
-  })
-
-  it('short-circuits to verified=true without fetching when OTEL_SERVICE_ENVIRONMENT=dev', async () => {
-    const original = process.env.OTEL_SERVICE_ENVIRONMENT
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
-    try {
-      const result = await service.verifyLive(1)
-      expect(mockedAxiosGet).not.toHaveBeenCalled()
-      expect(result).toEqual({
-        verified: true,
-        url: 'https://vote-jane.com/',
-        reason: null,
-        checks: {
-          http_200: true,
-          has_privacy_policy: true,
-          has_terms: true,
-          has_candidate_identity: true,
-        },
-      })
-    } finally {
-      if (original === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
-      else process.env.OTEL_SERVICE_ENVIRONMENT = original
     }
   })
 
@@ -319,6 +324,148 @@ describe('WebsitesService.verifyLive', () => {
 
     expect(result.verified).toBe(false)
     expect(result.checks.http_200).toBe(false)
+  })
+})
+
+describe('WebsitesService.verifyLive in mock mode', () => {
+  let service: WebsitesService
+  let mockPrisma: { website: { findUnique: ReturnType<typeof vi.fn> } }
+
+  const stubWebsite = (status: WebsiteStatus) =>
+    mockPrisma.website.findUnique.mockResolvedValue({
+      id: 1,
+      status,
+      domain: { name: 'vote-jane.com' },
+      campaign: { user: { firstName: 'Jane', lastName: 'Doe' } },
+    })
+
+  beforeEach(async () => {
+    appEnv.mode = 'mock'
+    mockPrisma = { website: { findUnique: vi.fn() } }
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        WebsitesService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        ...vendorProviders,
+      ],
+    }).compile()
+    service = module.get<WebsitesService>(WebsitesService)
+    vi.clearAllMocks()
+    mockVendorMocks.findOne.mockResolvedValue(null)
+    mockVendorMocks.findMany.mockResolvedValue([])
+  })
+
+  afterEach(() => {
+    appEnv.mode = 'live'
+  })
+
+  const attachedDomain = (projectId: string) => ({
+    state: {
+      name: 'vote-jane.com',
+      projectId,
+      verified: true,
+      createdAt: 1,
+    },
+  })
+
+  it('verifies a published site whose domain is attached to the Vercel project, without fetching', async () => {
+    stubWebsite(WebsiteStatus.published)
+    mockVendorMocks.findOne.mockResolvedValue(
+      attachedDomain('mock-vercel-project'),
+    )
+
+    const result = await service.verifyLive(1)
+
+    expect(mockVendorMocks.findOne).toHaveBeenCalledWith(
+      VendorMockVendor.vercel,
+      'project_domain',
+      'vote-jane.com',
+    )
+    expect(mockedAxiosGet).not.toHaveBeenCalled()
+    expect(result.verified).toBe(true)
+    expect(result.reason).toBeNull()
+  })
+
+  it('fails an unpublished site with not_live even when the domain is attached', async () => {
+    stubWebsite(WebsiteStatus.unpublished)
+    mockVendorMocks.findOne.mockResolvedValue(
+      attachedDomain('mock-vercel-project'),
+    )
+
+    const result = await service.verifyLive(1)
+
+    expect(result).toEqual({
+      verified: false,
+      url: 'https://vote-jane.com/',
+      reason: 'not_live',
+      checks: {
+        http_200: false,
+        has_privacy_policy: false,
+        has_terms: false,
+        has_candidate_identity: false,
+      },
+    })
+  })
+
+  it('fails a published site whose domain has no project_domain or DNS record with unreachable', async () => {
+    stubWebsite(WebsiteStatus.published)
+
+    const result = await service.verifyLive(1)
+
+    expect(result.verified).toBe(false)
+    expect(result.reason).toBe('unreachable')
+    expect(result.checks.http_200).toBe(false)
+  })
+
+  it('fails when the domain is attached to a different project', async () => {
+    stubWebsite(WebsiteStatus.published)
+    mockVendorMocks.findOne.mockResolvedValue(attachedDomain('other-project'))
+
+    const result = await service.verifyLive(1)
+
+    expect(result.verified).toBe(false)
+    expect(result.reason).toBe('unreachable')
+  })
+
+  it('accepts a DNS record pointing at Vercel when no project_domain exists', async () => {
+    stubWebsite(WebsiteStatus.published)
+    mockVendorMocks.findMany.mockResolvedValue([
+      {
+        state: {
+          domain: 'vote-jane.com',
+          uid: 'rec1',
+          type: 'CNAME',
+          name: '@',
+          value: 'cname.vercel-dns.com',
+          createdAt: 1,
+        },
+      },
+    ])
+
+    const result = await service.verifyLive(1)
+
+    expect(result.verified).toBe(true)
+  })
+
+  it('ignores DNS records that do not point at Vercel', async () => {
+    stubWebsite(WebsiteStatus.published)
+    mockVendorMocks.findMany.mockResolvedValue([
+      {
+        state: {
+          domain: 'vote-jane.com',
+          uid: 'rec1',
+          type: 'MX',
+          name: '@',
+          value: 'mx1.forwardemail.net',
+          createdAt: 1,
+        },
+      },
+    ])
+
+    const result = await service.verifyLive(1)
+
+    expect(result.verified).toBe(false)
   })
 })
 
@@ -700,6 +847,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
         WebsitesService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: PinoLogger, useValue: createMockLogger() },
+        ...vendorProviders,
       ],
     }).compile()
 
@@ -818,6 +966,7 @@ describe('WebsitesService.createByCampaign', () => {
         WebsitesService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: PinoLogger, useValue: createMockLogger() },
+        ...vendorProviders,
       ],
     }).compile()
 

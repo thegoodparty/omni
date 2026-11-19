@@ -4,6 +4,7 @@ import { HttpStatus } from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
 import { of } from 'rxjs'
 import { useTestService } from '@/test-service'
+import { seedTurfEffort } from '@/constituentFeedback/tests/issueCaptureFixtures'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
 import { subDays } from 'date-fns'
@@ -494,37 +495,72 @@ describe('lists saved as a sample', () => {
     expect(response.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
-  // A report back goes to exactly who a send reached, so its list is that
-  // send's recipient rows, frozen, minus anyone who has opted out since.
+  // A report back goes to everyone who answered the priority on any channel,
+  // each person once, so its list is those people, frozen, minus anyone who
+  // has opted out since.
   describe('a report back on a send', () => {
-    const seedSend = async (slug: string, personIds: string[]) => {
+    const seedSend = async (
+      slug: string,
+      answeredByText: string[],
+      answeredAtDoor: string[] = [],
+    ) => {
+      const electedOffice = await service.prisma.electedOffice.create({
+        data: { organizationSlug: slug, userId: service.user.id },
+      })
+      const priority = await service.prisma.priority.create({
+        data: {
+          electedOfficeId: electedOffice.id,
+          title: 'Parking',
+          description: 'Not enough of it.',
+          source: 'user_stated',
+        },
+      })
       const send = await service.prisma.outreach.create({
         data: {
           organizationSlug: slug,
           campaignId: null,
           outreachType: 'text',
           status: 'completed',
+          priorityId: priority.id,
         },
       })
-      await service.prisma.outreachTextRecipient.createMany({
-        data: personIds.map((personId, index) => ({
-          outreachId: send.id,
-          organizationSlug: slug,
+      await service.prisma.pollIndividualMessage.createMany({
+        data: answeredByText.map((personId) => ({
+          id: randomUUID(),
           personId,
-          phone: `+1555000${String(index).padStart(4, '0')}`,
+          sentAt: new Date(),
+          sender: 'CONSTITUENT' as const,
+          isOptOut: false,
+          outreachId: send.id,
         })),
       })
+      if (answeredAtDoor.length > 0) {
+        const walk = await service.prisma.outreach.update({
+          where: { id: (await seedTurfEffort(service, slug)).outreachId },
+          data: { priorityId: priority.id },
+        })
+        await service.prisma.contactInteractionDoorKnock.createMany({
+          data: answeredAtDoor.map((personId) => ({
+            organizationSlug: slug,
+            personId,
+            occurredAt: new Date(),
+            outcome: 'answered' as const,
+            outreachId: walk.id,
+          })),
+        })
+      }
       return send
     }
 
-    it('freezes the people the send reached, minus opt-outs', async () => {
+    it('freezes everyone who answered on any channel once, minus opt-outs', async () => {
       const slug = await setupServeOrg('report-back')
-      const [kept, alsoKept, optedOut] = [
+      const [kept, doorOnly, optedOut] = [
         randomUUID(),
         randomUUID(),
         randomUUID(),
       ]
-      const send = await seedSend(slug, [kept, alsoKept, optedOut])
+      // `kept` answered by text and at the door: one person.
+      const send = await seedSend(slug, [kept, optedOut], [doorOnly])
       await service.prisma.contactInteractionText.create({
         data: {
           organizationSlug: slug,
@@ -538,14 +574,14 @@ describe('lists saved as a sample', () => {
       const draw = stubDraw([])
 
       const response = await createFilter(slug, {
-        name: 'Everyone you texted about parking',
+        name: 'Everyone who answered about parking',
         sample: { size: 3, recipientsOfOutreachId: send.id },
       })
 
       expect(response.status).toBe(HttpStatus.CREATED)
       expect(draw).not.toHaveBeenCalled()
       expect(await sampleMemberIds(response.data.id)).toEqual(
-        [kept, alsoKept].sort(),
+        [kept, doorOnly].sort(),
       )
     })
 

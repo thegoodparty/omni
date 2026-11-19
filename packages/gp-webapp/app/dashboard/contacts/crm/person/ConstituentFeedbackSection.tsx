@@ -51,6 +51,7 @@ const STANCE_LABELS: Record<
 const CHANNEL_LABELS: Record<string, string> = {
   door_knock: 'At the door',
   phone_bank: 'On the phone',
+  text: 'By text',
 }
 
 const formatDate = (value: Date): string =>
@@ -78,7 +79,10 @@ const FeedbackRow = ({
         className="flex flex-col gap-1"
       >
         {entry.issues.map((issue) => (
-          <li key={issue.position}>
+          // flex-col, because globals.css makes every dashboard <li> a flex
+          // row: without it the issue line and Wants sat side by side and
+          // read "MixedWants:" on a computer.
+          <li key={issue.position} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-sm font-semibold text-foreground">
                 {issue.issueLabel}
@@ -101,7 +105,8 @@ const FeedbackRow = ({
 
     {/* The memo itself, kept under its issues rather than replacing them. The
         canvasser recorded this about the person, so it is their own summary
-        and not a quotation — see the module's Prisma comment. */}
+        and not a quotation — see the module's Prisma comment. On a text it
+        is the person's own reply. */}
     {entry.transcript !== null && (
       <p className="text-sm italic text-muted-foreground">{entry.transcript}</p>
     )}
@@ -110,11 +115,16 @@ const FeedbackRow = ({
       {CHANNEL_LABELS[entry.channel] ?? entry.channel}
       {' · '}
       {formatDate(entry.occurredAt)}
-      {entry.actorName !== null && ` · ${entry.actorName}`}
+      {/* A text reply's row is filed under the owner, who did not write it. */}
+      {entry.actorName !== null &&
+        entry.channel !== 'text' &&
+        ` · ${entry.actorName}`}
       {/* An unconfirmed row is a model's reading that nobody who was there
           has checked. Saying so here is the same honesty the reporting owes
           later: it is not evidence until a person agreed with it. */}
-      {entry.confirmedAt === null && ` · ${FEEDBACK_COPY[mode].unconfirmed}`}
+      {entry.confirmedAt === null &&
+        entry.channel !== 'text' &&
+        ` · ${FEEDBACK_COPY[mode].unconfirmed}`}
     </p>
 
     {/* Accepted only, which the API already guarantees: a tag the summary

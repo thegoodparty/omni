@@ -31,12 +31,43 @@ export interface ServiceConfig {
       Effect: 'Allow' | 'Deny'
       Action: string[]
       Resource: pulumi.Input<pulumi.Input<string>[]>
+      Condition?: Record<string, Record<string, string>>
     }[]
   >
   dependsOn: pulumi.ResourceOptions['dependsOn']
 }
 
+// Owned by thegoodparty/ops (step 6a of its docs/deploy-role-trust.md). The
+// role preview deploys run under may create or edit a role only when it
+// carries this boundary, so a preview role is capped by it whatever its own
+// policies say. Dev and prod roles carry none.
+const PREVIEW_ROLE_PERMISSIONS_BOUNDARY =
+  'arn:aws:iam::333022194791:policy/GpApiPreviewRoleBoundary'
+
+// The ECS agent reads every container secret through the execution role, so
+// the role is granted exactly the secrets the task definition names. Derived
+// from the `valueFrom` entries themselves so the two cannot drift. The
+// `-??????` stands in for the random suffix Secrets Manager appends, which
+// keeps the grant valid if a secret is ever recreated under the same name.
+const SECRETS_MANAGER_VALUE_FROM =
+  /^(arn:aws:secretsmanager:[^:]+:\d{12}:secret:[^:]+-)[A-Za-z0-9]{6}(:|$)/
+
+export const executionRoleSecretArns = (valueFroms: string[]): string[] => {
+  const arns = valueFroms.map((valueFrom) => {
+    const match = SECRETS_MANAGER_VALUE_FROM.exec(valueFrom)
+    if (!match) {
+      throw new Error(
+        `Container secret ${valueFrom} is not a full Secrets Manager ARN, ` +
+          'so the execution role cannot be scoped to it.',
+      )
+    }
+    return `${match[1]}??????`
+  })
+  return [...new Set(arns)].sort()
+}
+
 type ServiceOutput = {
+  ecsService: aws.ecs.Service
   url: pulumi.Output<string>
   logGroupName: pulumi.Output<string>
   logGroupArn: pulumi.Output<string>
@@ -84,6 +115,11 @@ export function createService({
     // A preview has no traffic worth draining, and the drain sat on the
     // critical path of every preview deploy.
     deregistrationDelay: select({ preview: 0, dev: 15, prod: 120 }),
+    // Round robin kept handing a task its full share while the hourly
+    // outreachInboundSweep cron parsed Peerly CSVs on its one thread, and on
+    // 2026-10-21 that task saturated while the others idled. Routing to the
+    // task with the fewest requests in flight sends traffic around a busy one.
+    loadBalancingAlgorithmType: 'least_outstanding_requests',
     healthCheck: {
       path: '/v1/health',
       // `interval * healthyThreshold` is on the critical path of every deploy:
@@ -226,8 +262,12 @@ export function createService({
     retentionInDays: isProd ? 60 : 30,
   })
 
+  const permissionsBoundary =
+    environment === 'preview' ? PREVIEW_ROLE_PERMISSIONS_BOUNDARY : undefined
+
   const executionRole = new aws.iam.Role('executionRole', {
     name: `gp-${stage}-gpapi${stage}ExecutionRole-uswest2`,
+    permissionsBoundary,
     assumeRolePolicy: JSON.stringify({
       Version: '2012-10-17',
       Statement: [
@@ -251,13 +291,10 @@ export function createService({
           Statement: [
             {
               Effect: 'Allow',
-              Action: [
-                'ssm:GetParameters',
-                'ssm:GetParameterHistory',
-                'ssm:GetParameter',
-                'secretsmanager:GetSecretValue',
-              ],
-              Resource: '*',
+              Action: ['secretsmanager:GetSecretValue'],
+              Resource: pulumi
+                .output(secrets)
+                .apply((sec) => executionRoleSecretArns(Object.values(sec))),
             },
           ],
         }),
@@ -267,6 +304,7 @@ export function createService({
 
   const taskRole = new aws.iam.Role('taskRole', {
     name: `gp-${stage}-gpapi${stage}TaskRole-uswest2`,
+    permissionsBoundary,
     assumeRolePolicy: JSON.stringify({
       Version: '2012-10-17',
       Statement: [
@@ -290,10 +328,12 @@ export function createService({
     ],
   })
 
-  // Preview gets a full vCPU because its boot is on the critical path of every
-  // PR: migrations and Nest startup are CPU-bound, and at half a vCPU
-  // Nest alone took ~45s to come up. Dev stays at half.
-  const cpu = select({ preview: '1024', dev: '512', prod: '1024' })
+  // A full vCPU everywhere. Preview's boot is on the critical path of every
+  // PR, and at half a vCPU Nest alone took ~45s to come up. Dev takes the
+  // release train's E2E: on one task at half a vCPU (16 Playwright workers)
+  // it ran at its CPU quota for the whole run, gp-api medians went from ~5ms
+  // to ~600ms, and webapp server renders hit Vercel's function timeout.
+  const cpu = '1024'
   const memory = isProd ? '4096' : '2048'
 
   const taskDefinition = new aws.ecs.TaskDefinition('taskDefinition', {
@@ -352,13 +392,19 @@ export function createService({
     ),
   })
 
-  new aws.ecs.Service(
+  // Dev's floor is two tasks because one task was a full outage whenever it
+  // died (a statewide pack build OOM'd it twice on 2026-10-21, mid release
+  // train E2E). Autoscaling cannot stand in for the second task: it adds one
+  // only after the saturation it reacts to, and an OOM is not a CPU signal.
+  const minTasks = select({ preview: 1, dev: 2, prod: 4 })
+
+  const ecsService = new aws.ecs.Service(
     'ecsService',
     {
       name: serviceName,
       cluster: cluster.arn,
       taskDefinition: taskDefinition.arn,
-      desiredCount: isProd ? 2 : 1,
+      desiredCount: minTasks,
       capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
       networkConfiguration: {
         subnets: privateSubnetIds,
@@ -412,11 +458,110 @@ export function createService({
       customTimeouts: { create: '10m', update: '10m' },
       // ECS rejects a target group that no load balancer forwards to yet.
       dependsOn: listenerRule ? [listenerRule] : [],
+      // Autoscaling owns the dev and prod task count. Without this, a deploy
+      // can reset it to the minimum mid-traffic.
+      ignoreChanges: environment === 'preview' ? [] : ['desiredCount'],
     },
   )
 
+  if (environment !== 'preview') {
+    // Register and Put are upserts, so on prod these adopt the SST-era target
+    // and policies by name instead of creating duplicates. The register is
+    // only an upsert while it carries no tags: AWS treats a tagged
+    // RegisterScalableTarget as create-only and rejects it when the target
+    // already exists, and the stack's aws:defaultTags (infra-cli.ts) would tag
+    // it. A provider without defaultTags keeps the adoption working. Dev takes
+    // it too: the SST-era stacks registered a target on dev as well, and if
+    // one is left, an untagged register adopts it instead of failing.
+    const untaggedProvider = new aws.Provider('scalableTargetProvider', {
+      region: aws.config.region,
+    })
+    const scalableTarget = new aws.appautoscaling.Target(
+      'scalableTarget',
+      {
+        serviceNamespace: 'ecs',
+        scalableDimension: 'ecs:service:DesiredCount',
+        resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
+        minCapacity: minTasks,
+        // Dev's cap is cost: a stuck worker keeps wait pressure high, and
+        // wait-pressure tracking would climb all the way to it.
+        maxCapacity: isProd ? 24 : 6,
+      },
+      { provider: untaggedProvider },
+    )
+
+    // The SST-era policies scaled in with a 0s cooldown: on 2026-10-19 they
+    // removed a task every minute, 16 down to 2, and the 2 left saturated
+    // under election traffic. Average CPU then hid it, because each saturated
+    // task failed health checks and its booting replacement read near 0%.
+    const scalingPolicy = (
+      name: string,
+      policyName: string,
+      metricType: string,
+    ) =>
+      new aws.appautoscaling.Policy(name, {
+        name: policyName,
+        policyType: 'TargetTrackingScaling',
+        serviceNamespace: scalableTarget.serviceNamespace,
+        scalableDimension: scalableTarget.scalableDimension,
+        resourceId: scalableTarget.resourceId,
+        targetTrackingScalingPolicyConfiguration: {
+          targetValue: 50,
+          predefinedMetricSpecification: { predefinedMetricType: metricType },
+          scaleInCooldown: 600,
+          scaleOutCooldown: 0,
+        },
+      })
+
+    scalingPolicy(
+      'cpuScalingPolicy',
+      isProd
+        ? 'gp-master-gpapimasterAutoScalingCpuPolicy-xtcnedeu'
+        : 'gp-api-dev-cpu-scaling',
+      'ECSServiceAverageCPUUtilization',
+    )
+    scalingPolicy(
+      'memoryScalingPolicy',
+      isProd
+        ? 'gp-master-gpapimasterAutoScalingMemoryPolicy-tttferft'
+        : 'gp-api-dev-memory-scaling',
+      'ECSServiceAverageMemoryUtilization',
+    )
+
+    // Imports and other background jobs wait on Databricks and S3, not CPU,
+    // so CPU tracking does not see them back up. JobWaitPressure is how long
+    // the oldest startable job has waited over the wait its job allows
+    // (src/jobs/AGENTS.md), so one target fits a 50ms job and a 2-hour one,
+    // which a job count cannot. 0.5 scales out before a job has used half
+    // its allowed wait. Target tracking, not step scaling, because AWS
+    // scales in only when every target-tracking policy agrees: this one
+    // vetoes CPU and memory removing tasks while jobs still wait, which a
+    // step policy cannot. Every task publishes the same value, hence
+    // Maximum.
+    new aws.appautoscaling.Policy('jobWaitTrackingPolicy', {
+      name: `gp-api-${environment}-job-wait-tracking`,
+      policyType: 'TargetTrackingScaling',
+      serviceNamespace: scalableTarget.serviceNamespace,
+      scalableDimension: scalableTarget.scalableDimension,
+      resourceId: scalableTarget.resourceId,
+      targetTrackingScalingPolicyConfiguration: {
+        targetValue: 0.5,
+        customizedMetricSpecification: {
+          namespace: 'GpApi/Jobs',
+          metricName: 'JobWaitPressure',
+          dimensions: [{ name: 'Environment', value: environment }],
+          statistic: 'Maximum',
+        },
+        scaleOutCooldown: 60,
+        scaleInCooldown: 600,
+        disableScaleIn: false,
+      },
+    })
+  }
+
   return {
     url: pulumi.interpolate`https://${domain}`,
+    ecsService,
     logGroupName: logGroup.name,
     logGroupArn: logGroup.arn,
   }

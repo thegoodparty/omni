@@ -9,7 +9,6 @@ import {
   MdMenuBook,
   MdMessage,
   MdPeople,
-  MdPoll,
 } from 'react-icons/md'
 import {
   Circle,
@@ -17,7 +16,6 @@ import {
   ClipboardList,
   ExternalLink,
   LogOut,
-  Send,
   Settings,
   Sparkles,
   UserRound,
@@ -146,7 +144,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     ),
     v2Icon: Circle,
     v2Category: null,
-    link: `${CIRCLE_COMMUNITY_BASE}/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952`,
+    link: CIRCLE_COMMUNITY_BASE,
     target: '_blank',
     id: 'community-dashboard',
   },
@@ -176,16 +174,6 @@ const WIN_CONTACTS_MENU_ITEM: MenuItem = {
   v2Icon: UsersRound,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContacts),
-}
-
-const POLLS_MENU_ITEM: MenuItem = {
-  id: 'polls-dashboard',
-  label: 'Polls',
-  link: '/dashboard/polls',
-  icon: <MdPoll />,
-  v2Icon: Send,
-  v2Category: 'elected-office',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickPolls),
 }
 
 const CONSTITUENT_OUTREACH_MENU_ITEM: MenuItem = {
@@ -321,8 +309,7 @@ export const getDashboardMenuItems = (
     menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
   }
   if (isElectedOffice) {
-    menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
-    menuItems.splice(voterDataIndex + 1, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
+    menuItems.splice(voterDataIndex, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
     if (communityIssuesShown) {
       menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
@@ -547,7 +534,7 @@ const NewNavMenu = ({
       label: 'Community Forum',
       icon: ExternalLink,
       id: 'nav-dash-community',
-      href: `${CIRCLE_COMMUNITY_BASE}/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952`,
+      href: CIRCLE_COMMUNITY_BASE,
       _target: '_blank',
     },
     logout: {

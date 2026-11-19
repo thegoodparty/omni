@@ -278,3 +278,69 @@ def test_main_does_not_warn_when_signals_ran_or_were_skipped(monkeypatch, tmp_pa
     monkeypatch.setattr(sd, "STATE", tmp_path / "surface_drift.json")
     sd.main(["run"])
     assert "::warning::" not in capsys.readouterr().out
+
+
+def _multi_area_row():
+    return sd.build_row("Campaign Story - Rewrite Accepted", "stale_area_name", ("prefix", "Campaign Story"),
+                        reach(QUESTIONS, CONTACTS, routes=["/dashboard/questions", "/dashboard/contacts/[id]"]),
+                        {"display_name": "Campaign Story - Rewrite Accepted", "okr_metrics": []},
+                        None, None, "2026-10-16")
+
+
+def test_an_event_in_several_areas_offers_one_relabel_per_area_and_proposes_none():
+    row = _multi_area_row()
+    assert row["proposed_surface"] == ""
+    assert [o["area"] for o in row["area_options"]] == ["Additional Questions", "Voter Data"]
+    questions, contacts = row["area_options"]
+    assert questions == {"area": "Additional Questions", "surface": "additional-questions",
+                         "display_name": "Additional Questions - Rewrite Accepted",
+                         "fires_on": "Additional Questions (/dashboard/questions)", "url": "/dashboard/questions"}
+    assert contacts["fires_on"] == "Voter Data (/dashboard/contacts/[id])"
+    assert contacts["surface_options"] == ["constituent-data", "voter-data"]
+
+
+def test_an_event_in_one_area_has_no_area_options():
+    row = sd.build_row("Profile - Running Against: Click Save", "moved", ("prefix", "Profile"), reach(QUESTIONS),
+                       {"display_name": "Profile - Running Against: Click Save", "okr_metrics": []},
+                       "93cb4a414 2026-06-19", _sig(), "2026-10-02")
+    assert "area_options" not in row
+
+
+def test_accepting_under_an_area_writes_that_area_as_the_proposal():
+    state = {"rows": {"E": dict(_multi_area_row(), disposition="new")}}
+    sd.dispose(state, "E", "accepted", "", "2026-10-16", area="additional questions")
+    row = state["rows"]["E"]
+    assert row["disposition"] == "accepted"
+    assert row["chosen_area"] == "Additional Questions"
+    assert row["proposed_surface"] == "additional-questions"
+    assert row["proposed_display_name"] == "Additional Questions - Rewrite Accepted"
+    assert row["proposed_url"] == "/dashboard/questions"
+    assert "surface_options" not in row
+
+
+def test_accepting_under_an_area_with_two_names_carries_its_slug_options():
+    state = {"rows": {"E": dict(_multi_area_row(), disposition="new")}}
+    sd.dispose(state, "E", "accepted", "", "2026-10-16", area="Voter Data")
+    assert state["rows"]["E"]["surface_options"] == ["constituent-data", "voter-data"]
+
+
+def test_a_multi_area_accept_without_an_area_or_with_a_wrong_one_refuses():
+    for area in ("", "Profile"):
+        state = {"rows": {"E": dict(_multi_area_row(), disposition="new")}}
+        with pytest.raises(ValueError):
+            sd.dispose(state, "E", "accepted", "", "2026-10-16", area=area)
+        assert state["rows"]["E"]["disposition"] == "new"
+
+
+def test_an_area_is_only_meaningful_on_an_accept():
+    state = {"rows": {"E": dict(_multi_area_row(), disposition="new")}}
+    with pytest.raises(ValueError):
+        sd.dispose(state, "E", "open", "", "2026-10-16", area="Voter Data")
+
+
+def test_merge_keeps_the_chosen_area_of_an_accepted_row():
+    prev = {"E": {"disposition": "accepted", "chosen_area": "Voter Data", "proposed_surface": "voter-data",
+                  "first_seen": "2026-10-16"}}
+    merged = sd.merge(prev, {"E": dict(_multi_area_row())}, "2026-10-19")
+    assert merged["E"]["chosen_area"] == "Voter Data"
+    assert merged["E"]["proposed_surface"] == "voter-data"

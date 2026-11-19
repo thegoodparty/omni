@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { ChatCard, OutreachDetail } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -140,16 +140,14 @@ describe('OutreachProposalCard', () => {
     },
   )
 
-  it('says a sampled proposal reaches some of its audience, picked at random', async () => {
+  it('says a sampled proposal reaches some of its audience', async () => {
     mockNotSent()
 
     renderCard(
       proposalCard({ channel: 'text', count: 58_520, sampleSize: 4_000 }),
     )
 
-    expect(
-      await screen.findByText('Text 4,000 of 58,520, picked at random'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Text 4,000 of 58,520')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Start the text' }),
     ).toBeInTheDocument()
@@ -166,14 +164,11 @@ describe('OutreachProposalCard', () => {
         audience: 'Your civic panel and residents across the district',
         count: 18_400,
         sampleSize: 84,
-        panelSampleSize: 42,
         civicPanelAsk: true,
       }),
     )
 
-    expect(
-      await screen.findByText('Text 84 of 18,400, picked at random'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Text 84 of 18,400')).toBeInTheDocument()
     expect(
       screen.getAllByText('Your civic panel and residents across the district'),
     ).toHaveLength(1)
@@ -198,7 +193,7 @@ describe('OutreachProposalCard', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.getByText(/236 constituents/)).toBeInTheDocument()
-    expect(screen.queryByText(/picked at random/)).toBeNull()
+    expect(screen.queryByText(/ of 236/)).toBeNull()
   })
 
   it('reads a sample no smaller than its audience as the whole audience', async () => {
@@ -209,7 +204,7 @@ describe('OutreachProposalCard', () => {
     expect(
       await screen.findByText('Phone banking · 412 constituents'),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/picked at random/)).toBeNull()
+    expect(screen.queryByText(/ of 412/)).toBeNull()
   })
 
   it('says text is not available, and offers nothing, while SMS is off', async () => {
@@ -254,6 +249,65 @@ describe('OutreachProposalCard', () => {
       'href',
       '/dashboard/constituent-outreach?outreachId=501',
     )
+  })
+
+  describe('a paid text', () => {
+    // The viewer's day is Oct 22; the text is set for Oct 27.
+    const textRow: OutreachDetail = {
+      ...outreachRow,
+      outreachType: 'text',
+      createdAt: new Date('2026-10-22T15:11:00.000Z'),
+      date: null,
+      scheduledLocalDate: '2026-10-27',
+      textCount: 5000,
+    }
+
+    const subtitleFor = async (row: OutreachDetail) => {
+      api.mock('GET /v1/outreach/by-proposal-key/:proposalKey', {
+        status: 200,
+        data: row,
+      })
+      renderCard(proposalCard({ channel: 'text' }), 'priority-1')
+      const link = await screen.findByRole('link', {
+        name: /Riverside neighbors/,
+      })
+      return link.textContent
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-10-22T16:00:00'))
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('reads as scheduled for its day while that day is ahead', async () => {
+      expect(await subtitleFor({ ...textRow, status: 'pending' })).toContain(
+        'Texting 5,000 constituents on Oct 27',
+      )
+    })
+
+    it('reads as scheduled while handed off but before its day', async () => {
+      const subtitle = await subtitleFor({ ...textRow, status: 'in_progress' })
+      expect(subtitle).toContain('Texting 5,000 constituents on Oct 27')
+      expect(subtitle).not.toContain('Sent')
+      expect(subtitle).not.toContain('Oct 22')
+    })
+
+    it('reads as sent on its scheduled day once it has gone out', async () => {
+      vi.setSystemTime(new Date('2026-10-28T09:00:00'))
+      expect(
+        await subtitleFor({ ...textRow, status: 'in_progress' }),
+      ).toContain('Sent to 5,000 constituents · Oct 27')
+    })
+
+    it('reads as sent on its scheduled day once completed', async () => {
+      expect(await subtitleFor({ ...textRow, status: 'completed' })).toContain(
+        'Sent to 5,000 constituents · Oct 27',
+      )
+    })
   })
 
   it('shows one quiet line when the proposal cannot be resolved', async () => {

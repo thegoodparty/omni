@@ -1,16 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
+  AgentMessageRole,
   ChatFeedbackKind,
-  ChatMessageFeedback,
   ChatMessageRole,
   ChatScope,
 } from '../../../generated/prisma'
 import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
-  EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
   type ChatMessageFeedback as ChatMessageFeedbackDTO,
 } from '@goodparty_org/contracts'
-import { ChatMessageFeedbackService } from '@/chats/services/chatMessageFeedback.prisma'
+import {
+  type RatedFeedback,
+  ChatMessageFeedbackService,
+} from '@/chats/services/chatMessageFeedback.prisma'
+import { cannedReplyId } from '@/chats/services/chatAgentMessages.util'
 import {
   ChatMessageWithSegments,
   ChatStoreService,
@@ -44,7 +48,7 @@ export interface LoadedConversation {
   title: string | null
   messages: ChatMessageWithSegments[]
   // The caller's own ratings on this thread, keyed by message id.
-  feedbackByMessageId: Map<string, ChatMessageFeedback>
+  feedbackByMessageId: Map<string, RatedFeedback>
 }
 
 export interface MessageFeedbackScope {
@@ -62,20 +66,21 @@ export interface SendMessageArgs {
   organizationSlug: string | null
   userMessage: string
   signal?: AbortSignal
-  clientMessageId?: string
+  userMessageId?: string
   attachmentIds?: string[]
   pagePath?: string
 }
 
-// The build card's hidden turns would title the conversation with their
+// The managed panel's hidden turns would title the conversation with their
 // markers, which the history list then shows the official.
-const BUILD_CITIZENS_PANEL_TITLE = 'Build your civic panel'
-const EXPLAIN_CIVIC_PANEL_TITLE = "What's a civic panel?"
+const START_MANAGED_CIVIC_PANEL_TITLE = 'Build my civic panel'
+const MANAGED_CIVIC_PANEL_EXHAUSTED_TITLE = 'Fill the rest of my civic panel'
 
 const toTitle = (message: string): string => {
-  if (message === BUILD_CITIZENS_PANEL_MESSAGE)
-    return BUILD_CITIZENS_PANEL_TITLE
-  if (message === EXPLAIN_CIVIC_PANEL_MESSAGE) return EXPLAIN_CIVIC_PANEL_TITLE
+  if (message === START_MANAGED_CIVIC_PANEL_MESSAGE)
+    return START_MANAGED_CIVIC_PANEL_TITLE
+  if (message === MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE)
+    return MANAGED_CIVIC_PANEL_EXHAUSTED_TITLE
   const trimmed = message.trim().replace(/\s+/g, ' ')
   return trimmed.length <= TITLE_MAX_LENGTH
     ? trimmed
@@ -274,11 +279,11 @@ export class GeneralChatsService {
 
       const canned = handler.maybeCannedReply?.(args.userMessage, ctx) ?? null
       if (canned !== null) {
-        if (!args.clientMessageId) {
+        if (!args.userMessageId) {
           yield {
             type: 'error',
             code: 'internal',
-            message: 'clientMessageId is required for this request.',
+            message: 'A message id is required for this request.',
             retryable: false,
           }
           return
@@ -286,14 +291,23 @@ export class GeneralChatsService {
         // Persist the user (sentinel) turn BEFORE the canned assistant reply
         // so history alternates user/assistant. Anthropic rejects two
         // consecutive assistant turns on the candidate's next real message.
-        // The user turn dedups on clientMessageId; the assistant reply carries
-        // a derived idempotency key so a retry with the same clientMessageId
-        // re-streams the same reply without appending a second assistant row.
+        // A retry finds the reply already stored under its derived id and
+        // replays it instead of appending a second one.
+        const reply = await self.chatStore.replayedReplyTo({
+          userMessageId: args.userMessageId,
+          conversationId: args.conversationId,
+          ownerUserId: args.userId,
+        })
+        if (reply) {
+          yield { type: 'text', delta: reply.content }
+          yield { type: 'done', assistantMessageId: reply.id }
+          return
+        }
         const userTurn = await self.chatStore.appendUserMessageIfAlive({
           conversationId: args.conversationId,
           ownerUserId: args.userId,
           content: args.userMessage,
-          clientMessageId: args.clientMessageId,
+          id: args.userMessageId,
         })
         if (!userTurn) {
           yield {
@@ -308,9 +322,15 @@ export class GeneralChatsService {
           conversationId: args.conversationId,
           role: ChatMessageRole.assistant,
           content: canned,
-          clientMessageId: `${args.clientMessageId}:assistant`,
-          inputTokens: 0,
-          outputTokens: 0,
+          agentMessages: [
+            {
+              id: cannedReplyId(args.userMessageId),
+              role: AgentMessageRole.assistant,
+              parts: [{ type: 'text', text: canned }],
+              inputTokens: 0,
+              outputTokens: 0,
+            },
+          ],
         })
         yield { type: 'text', delta: canned }
         yield { type: 'done', assistantMessageId: saved.id }
@@ -349,7 +369,7 @@ export class GeneralChatsService {
         scope: handler.scope,
         ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),
-        ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(args.userMessageId && { userMessageId: args.userMessageId }),
         ...(args.attachmentIds && { attachmentIds: args.attachmentIds }),
         ...(judgeSweepId !== null && { judgeSweepId }),
         ...(handler.onTurnUsage && {
@@ -357,7 +377,7 @@ export class GeneralChatsService {
         }),
         ...(finalizing && {
           finalizeText: (text, turn) =>
-            finalizing.finalizeAssistantText(text, turn),
+            finalizing.finalizeAssistantText(text, turn, ctx),
         }),
       })
 

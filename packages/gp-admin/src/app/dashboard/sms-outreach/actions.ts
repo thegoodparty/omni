@@ -2,7 +2,7 @@
 
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { revalidatePath } from 'next/cache'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError } from '@/shared/gpApi'
 import { PERMISSIONS } from '@/lib/permissions'
 import { extractApiErrorMessage } from '@/lib/utils/sdkError'
 import { gpAction } from '@/shared/util/gpClient.util'
@@ -10,6 +10,7 @@ import type {
   SmsAdminDetailResponse,
   SmsApprovalQueueItem,
   SmsApprovalQueueResponse,
+  SmsJobReplaceReason,
   SmsVendorAccount,
 } from '@goodparty_org/contracts'
 import type { SmsActionResult } from './types'
@@ -69,14 +70,20 @@ export const getSmsDetail = async (
   return gpAction(async (client) => client.smsOutreachAdmin.getDetail(id))
 }
 
-export const approveSms = async (id: number): Promise<SmsApprovalQueueItem> => {
-  const { email } = await requireApprover()
-  const item = await gpAction(async (client) =>
-    client.smsOutreachAdmin.approve(id, { approvedBy: email })
-  )
+// Refusals come back as data because a thrown server action reaches the
+// client redacted in prod (e.g. "the send window closed").
+export const approveSms = async (id: number): Promise<SmsActionResult> => {
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.approve(id, { approvedBy: email })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to approve campaign')
+  }
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)
-  return item
+  return { error: null }
 }
 
 export const denySms = async (
@@ -114,24 +121,91 @@ export const cancelSms = async (id: number): Promise<SmsActionResult> => {
   return { error: null }
 }
 
+const toActionResult = (error: unknown, fallback: string): SmsActionResult => ({
+  error:
+    error instanceof SdkError
+      ? extractApiErrorMessage(error, fallback)
+      : error instanceof Error
+        ? error.message
+        : fallback,
+})
+
 // Rescheduling moves the vendor send window (and rebooks canvassers on a
-// booked send), so it carries the same org:admin gate as deciding.
+// booked send), so it carries the same org:admin gate as deciding. Refusals
+// come back as data because the dialog shows them (e.g. "already sending").
 export const editSmsDate = async (
   id: number,
   sendAt: string,
   scheduledLocalDate: string
-): Promise<SmsApprovalQueueItem> => {
-  const { email } = await requireApprover()
-  const item = await gpAction(async (client) =>
-    client.smsOutreachAdmin.editDate(id, {
-      sendAt: new Date(sendAt),
-      scheduledLocalDate,
-      editedBy: email,
-    })
-  )
+): Promise<SmsActionResult> => {
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.editDate(id, {
+        sendAt: new Date(sendAt),
+        scheduledLocalDate,
+        editedBy: email,
+      })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to update the send date')
+  }
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)
-  return item
+  return { error: null }
+}
+
+// Replacing a job cancels it at the vendor and makes a new one, so it
+// carries the same org:admin gate as deciding. Refusals come back as data
+// because the confirm step shows them (e.g. "already sending").
+export const replaceSmsJob = async (
+  id: number,
+  input: {
+    sendAt: string
+    scheduledLocalDate: string
+    currentJobId: string
+    reason: SmsJobReplaceReason
+    otherReason?: string
+  }
+): Promise<SmsActionResult> => {
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.replaceJob(id, {
+        ...input,
+        sendAt: new Date(input.sendAt),
+        replacedBy: email,
+      })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to replace the Peerly job')
+  }
+  revalidatePath('/dashboard/sms-outreach')
+  revalidatePath(`/dashboard/sms-outreach/${id}`)
+  return { error: null }
+}
+
+// Same gate: it repoints which vendor job the send follows.
+export const linkSmsJob = async (
+  id: number,
+  input: {
+    jobId: string
+    currentJobId: string
+    reason: SmsJobReplaceReason
+    otherReason?: string
+  }
+): Promise<SmsActionResult> => {
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.linkJob(id, { ...input, linkedBy: email })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to link the Peerly job')
+  }
+  revalidatePath('/dashboard/sms-outreach')
+  revalidatePath(`/dashboard/sms-outreach/${id}`)
+  return { error: null }
 }
 
 // A test send fires a real text (the campaign's live template) to the
@@ -158,4 +232,21 @@ export const editSms = async (
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)
   return item
+}
+
+// The backfill reads Peerly reports for every Win send in retention, so it
+// carries the same org:admin gate as deciding. It only queues a job; the
+// summary lands in gp-api's logs.
+export const startWinReplyBackfill = async (
+  dryRun: boolean
+): Promise<SmsActionResult> => {
+  try {
+    await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.backfillReplies({ dryRun })
+    )
+  } catch (error) {
+    return toActionResult(error, 'Failed to start the reply backfill')
+  }
+  return { error: null }
 }

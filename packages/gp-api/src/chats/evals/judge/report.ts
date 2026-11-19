@@ -17,6 +17,7 @@ import type { IdenticalOutputs } from './identicalOutputs'
 import type { InvariantViolation } from './invariants'
 import type { IdenticalConfigNotice } from './normalize'
 import type { Interval } from './bootstrap'
+import type { SignTest } from './signTest'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { PRICING_VERSION } from './pricing'
 import {
@@ -155,10 +156,24 @@ const formatInterval = (interval: Interval | null): string =>
     ? 'no interval'
     : `[${interval.lower.toFixed(2)}, ${interval.upper.toFixed(2)}]`
 
+// Under gates.bootstrapMinCases there is no interval, and the count that
+// decided is printed in its place with its one-sided p, so the number a
+// reader sees is the one the label came from.
+const formatSign = (sign: SignTest): string => {
+  const votes = sign.forCandidate + sign.forBase
+  if (votes === 0) return 'no case favoured either arm'
+  return sign.forBase > sign.forCandidate
+    ? `${sign.forBase} of ${votes} cases for the base, p = ${sign.pWorse.toFixed(3)}`
+    : `${sign.forCandidate} of ${votes} cases for the candidate, p = ` +
+        sign.pBetter.toFixed(3)
+}
+
 const formatDelta = (score: DimensionScore): string =>
   score.delta === null
     ? 'no delta'
-    : `${signed(score.delta, 2)} ${formatInterval(score.interval)}`
+    : score.interval === null && score.sign !== null
+      ? `${signed(score.delta, 2)} (${formatSign(score.sign)})`
+      : `${signed(score.delta, 2)} ${formatInterval(score.interval)}`
 
 const percentOf = (value: number | null): string =>
   value === null ? 'n/a' : `${(value * 100).toFixed(0)}%`
@@ -167,23 +182,10 @@ const dimensionRow = (name: string, score: DimensionScore): string =>
   `| ${name} | ${formatDelta(score)} | ${score.cases} | ` +
   `${score.wins}/${score.ties}/${score.losses} | ${score.cannotDetermine} |`
 
-// A case dimension is usually asked by one or two cases, so its interval is a
-// resample of almost nothing and reads tighter than it is. Below the floor
-// the label logic applies to the overall verdict, the row says so in place of
-// an interval, and the W/T/L beside it is the evidence.
-const caseDimensionDelta = (
-  score: DimensionScore,
-  config: JudgeConfig,
-): string =>
-  score.delta === null || score.cases >= config.gates.minCases
-    ? formatDelta(score)
-    : `${signed(score.delta, 2)}, too few cases for an interval ` +
-      `(${score.cases} of ${config.gates.minCases})`
-
-const caseDimensionLines = (
-  score: AgentScore,
-  config: JudgeConfig,
-): string[] => {
+// A case dimension is usually asked by one or two cases, so it is scored
+// like any short list: a count in place of an interval, which the W/T/L
+// beside it shows in full.
+const caseDimensionLines = (score: AgentScore): string[] => {
   const rows = score.caseDimensions ?? []
   if (rows.length === 0) return []
   return [
@@ -195,7 +197,7 @@ const caseDimensionLines = (
     '| --- | --- | --- | --- | --- | --- |',
     ...rows.map(
       (row) =>
-        `| ${row.name} | ${caseDimensionDelta(row.score, config)} | ` +
+        `| ${row.name} | ${formatDelta(row.score)} | ` +
         `${row.score.cases} | ` +
         `${row.score.wins}/${row.score.ties}/${row.score.losses} | ` +
         `${row.score.cannotDetermine} | ${row.caseIds.join(', ')} |`,
@@ -319,7 +321,9 @@ const handlingLines = (score: AgentScore): string[] => {
       "pair(s). Judged per run against each case's handledWhen; partly, " +
       'and a value that changes with the order, count as not handled. A ' +
       'regression or improvement needs the arm that fell short to do so in ' +
-      'every order it was read. Not part of the verdict above.',
+      'every order it was read. Handled runs, compared within each case, ' +
+      'decide the label on their own once a permutation test over them is ' +
+      'significant; the line under the heading says when they did.',
     ...(notGraded === 0
       ? []
       : [
@@ -334,6 +338,30 @@ const handlingLines = (score: AgentScore): string[] => {
     ),
     '',
   ]
+}
+
+// Only when the handling signal moved the label off the quality comparison's:
+// a signal that agrees with a label the quality delta already reached decided
+// nothing.
+const signalHeadline = (score: AgentScore): string | null => {
+  const signals = score.signals
+  const handling = signals?.handling
+  if (
+    signals === undefined ||
+    handling === undefined ||
+    score.label === signals.qualityLabel ||
+    handling.says !== score.label
+  ) {
+    return null
+  }
+  const p = handling.says === 'WORSE' ? handling.pWorse : handling.pBetter
+  return (
+    `**${score.label} on condition handling: the base met its checks in ` +
+    `${handling.baseHandled} of ${handling.runs} runs, the candidate in ` +
+    `${handling.candidateHandled} (p = ${p.toFixed(3)}).** The quality ` +
+    `comparison alone says ` +
+    `${signals.qualityLabel}.`
+  )
 }
 
 const controlLines = (score: AgentScore): string[] => {
@@ -464,8 +492,8 @@ const consistencyLine = (score: AgentScore, config: JudgeConfig): string => {
 const exclusionLine = (score: AgentScore): string => {
   const e = score.exclusions
   const base =
-    `Excluded pairs: ${e.toolError} tool error, ${e.infraError} infra ` +
-    `error, ${e.identicalConfig} identical config. Plus ${e.unpaired} ` +
+    `Excluded pairs: ${e.infraError} infra error, ${e.identicalConfig} ` +
+    `identical config. Plus ${e.unpaired} ` +
     `unpaired record(s). Separately, ${e.ungraded} ungraded judgment(s) ` +
     "(the judge itself failed, which is not a CAN'T SAY verdict)."
   // THE REASON, not just the count. A sweep whose judge failed on every pair
@@ -495,10 +523,10 @@ const causeLines = (
   return more > 0 ? [...lines, `- and ${more} more`] : lines
 }
 
-// Under the "Excluded pairs" line, the causes of the tool-error exclusions
-// (chat only). Then, for a background agent, the causes on pairs that were
-// scored anyway, under their own heading so a reader never takes them for
-// exclusions: the pairs are in the verdict, and the list is evidence beside it.
+// Under the "Excluded pairs" line, the tool-error causes on excluded pairs.
+// Then the causes on pairs that were scored anyway, under their own heading so
+// a reader never takes them for exclusions: the pairs are in the verdict, and
+// the list is evidence beside it.
 const toolErrorCauseLines = (score: AgentScore): string[] => {
   const excluded = causeLines(score.agentId, score.exclusions.toolErrorCauses)
   const scored = causeLines(score.agentId, score.scoredToolErrorCauses)
@@ -555,6 +583,8 @@ const agentSection = (
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
   lines.push('')
+  const decidedBy = signalHeadline(score)
+  if (decidedBy !== null) lines.push(decidedBy, '')
 
   // A candidate-only flag is stated first whatever the verdict, but only once
   // its type repeats across cases (one case for restricted_data): one-case
@@ -591,7 +621,8 @@ const agentSection = (
   )
   lines.push('')
   lines.push(
-    '| dimension | Δ (95% CI) | cases | W/T/L (pairs) | ' +
+    `| dimension | Δ (95% CI, or the count under ` +
+      `${config.gates.bootstrapMinCases} cases) | cases | W/T/L (pairs) | ` +
       "can't tell (pairs) |",
   )
   lines.push('| --- | --- | --- | --- | --- |')
@@ -601,13 +632,13 @@ const agentSection = (
     if (dimension !== undefined) lines.push(dimensionRow(name, dimension))
   }
   lines.push('')
-  lines.push(...caseDimensionLines(score, config))
+  lines.push(...caseDimensionLines(score))
 
   if (score.regressions.length > 0) {
     lines.push(
       `Regression on ${score.regressions.join(', ')} ` +
-        '(upper bound below zero). This qualifies the verdict and does not ' +
-        'change it.',
+        '(upper bound below zero, or the count for the base significant). ' +
+        'This qualifies the verdict and does not change it.',
     )
     lines.push('')
   }

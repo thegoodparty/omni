@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Input, Calendar } from '@styleguide'
+import { Input, Calendar, cn } from '@styleguide'
 import { DayPickerProps } from 'react-day-picker'
 import { parse, format, isValid } from 'date-fns'
 
@@ -104,7 +104,10 @@ const DateInputCalendar = ({
 
   return (
     <div
-      className={`flex flex-col items-center justify-center gap-2 ${className}`}
+      className={cn(
+        'flex flex-col items-center justify-center gap-2',
+        className,
+      )}
     >
       {showTextInput && (
         <div className="flex flex-col gap-1 w-full">

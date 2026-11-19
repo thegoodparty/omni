@@ -23,6 +23,12 @@ vi.mock('./PrioritizeButton', () => ({
 
 vi.mock('./CommunityIssuesChatDock', () => ({ default: () => null }))
 
+const pollsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/experiments/serveSelfServePollsFlag', () => ({
+  SERVE_SELF_SERVE_POLLS_FLAG_KEY: 'serve-self-serve-polls',
+  useServeSelfServePollsFlag: () => pollsFlag,
+}))
+
 const makeDetail = (): CommunityIssueContent => ({
   sources: [],
   overview: { summary: 'Overview text', source_ids: [] },
@@ -48,9 +54,20 @@ const makeFeedDetail = (
 
 beforeEach(() => {
   vi.mocked(trackEvent).mockClear()
+  pollsFlag.enabled = false
 })
 
 describe('IssueDetail actions', () => {
+  it('points "Run a poll" at the Outreach poll flow when self-serve polls are on', () => {
+    pollsFlag.enabled = true
+    render(<IssueDetail issue={makeFeedDetail()} />)
+    const link = screen.getByRole('link', { name: /run a poll/i })
+    expect(link).toHaveAttribute(
+      'href',
+      '/dashboard/constituent-outreach?compose=poll',
+    )
+  })
+
   it('renders a "Run a poll" link pointing to the poll create route', () => {
     render(<IssueDetail issue={makeFeedDetail()} />)
     const link = screen.getByRole('link', { name: /run a poll/i })

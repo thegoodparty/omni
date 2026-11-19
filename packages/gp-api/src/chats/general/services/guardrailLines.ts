@@ -11,7 +11,6 @@
 // Keys inside each guardrail: "<chat>.<variant>", "<chat>", or "default",
 // tried in that order. The chat names are the bench's names, not ChatScope
 // values: the briefing chat has no scope of its own.
-import { ChatScope } from '../../../generated/prisma'
 import lines from './guardrailLines.json'
 
 export const GUARDRAIL_IDS = [
@@ -70,13 +69,3 @@ export const guardrailLine = (
   }
   return text
 }
-
-const CHAT_BY_SCOPE: Partial<Record<ChatScope, GuardrailChat>> = {
-  [ChatScope.campaign_assistant]: 'campaign_assistant',
-  [ChatScope.chief_of_staff]: 'chief_of_staff',
-  [ChatScope.ordinance_flow]: 'ordinance_flow',
-  [ChatScope.briefing_annotation]: 'briefing_chat',
-}
-
-export const guardrailChatForScope = (scope: ChatScope): GuardrailChat | null =>
-  CHAT_BY_SCOPE[scope] ?? null

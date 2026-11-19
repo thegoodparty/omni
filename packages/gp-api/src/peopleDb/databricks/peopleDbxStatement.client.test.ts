@@ -1,6 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from 'vitest'
+import {
+  PeopleDbxClientAbortedError,
   PeopleDbxStatementClient,
+  requestAbortSignal,
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
@@ -33,7 +43,7 @@ const succeeded = (dataArray: Array<Array<string | null>>) => ({
 
 describe('PeopleDbxStatementClient', () => {
   const original = new Map<string, string | undefined>()
-  let fetchMock: ReturnType<typeof vi.fn>
+  let fetchMock: Mock<(url: string, init?: RequestInit) => Promise<object>>
   let client: PeopleDbxStatementClient
 
   // Read through mock.calls rather than a side array: a test that overrides
@@ -180,6 +190,65 @@ describe('PeopleDbxStatementClient', () => {
       vi.spyOn(Date, 'now').mockImplementation(() => start + 61_000)
 
       await expect(pending).rejects.toThrow(PeopleDbxTimeoutError)
+    })
+
+    it('cancels the statement and stops polling once the request aborts', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ statement_id: 's1', status: { state: 'RUNNING' } }),
+      )
+      const aborter = new AbortController()
+
+      const pending = requestAbortSignal.run(aborter.signal, () =>
+        client.query(stmt('SELECT 1')),
+      )
+      aborter.abort()
+
+      await expect(pending).rejects.toThrow(PeopleDbxClientAbortedError)
+      expect(callsMatching('/cancel')).toHaveLength(1)
+    })
+
+    // An agent tool caps the rows at the warehouse rather than pulling every
+    // match into this process and cutting afterwards.
+    it('sends a row limit when one is given, and none when it is not', async () => {
+      await client.query(stmt('SELECT 1'), { rowLimit: 50001 })
+
+      expect(JSON.parse(String(callAt(0).init?.body))).toMatchObject({
+        row_limit: 50001,
+      })
+
+      fetchMock.mockClear()
+      await client.query(stmt('SELECT 1'))
+      expect(JSON.parse(String(callAt(0).init?.body))).not.toHaveProperty(
+        'row_limit',
+      )
+    })
+
+    // A pg-boss worker has no HTTP request to hang a signal on, so the tool
+    // hands one in directly and the statement still stops.
+    it('cancels the statement and stops polling once a passed-in signal aborts', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ statement_id: 's1', status: { state: 'RUNNING' } }),
+      )
+      const aborter = new AbortController()
+
+      const pending = client.query(stmt('SELECT 1'), {
+        signal: aborter.signal,
+      })
+      aborter.abort()
+
+      await expect(pending).rejects.toThrow(PeopleDbxClientAbortedError)
+      expect(callsMatching('/cancel')).toHaveLength(1)
+    })
+
+    it('does not poll a statement that already finished when the request aborts', async () => {
+      const aborter = new AbortController()
+      aborter.abort()
+
+      const result = await requestAbortSignal.run(aborter.signal, () =>
+        client.query(stmt('SELECT 1')),
+      )
+
+      expect(result.rows).toEqual([['1']])
     })
 
     // Reachable because id sets are inlined rather than bound: the contract

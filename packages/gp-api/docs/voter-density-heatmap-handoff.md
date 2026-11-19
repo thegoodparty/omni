@@ -14,11 +14,11 @@ live_, as a density surface — never individual voters.
 
 The app never computes density at request time. The data team precomputes an
 **aggregated, k-anonymized, H3-binned** density table per district and loads it
-into **election-db**, beside the `District` the rows are keyed on. election-api
-serves the cells and gp-api proxies them to the public page. The target tables,
-their schema and the load path are specified in
-`packages/election-api/docs/voter-density-election-db-handoff.md`; this
-document specifies the pipeline that produces the rows.
+into **election-db**, beside the `District` the rows are keyed on. gp-api reads the cells from
+election-db and serves them to the public page. The target tables and their
+schema are the `DistrictVoterDensity` and `DistrictVoterDensityMeta` models in
+`packages/gp-api/prisma-election/schema/`; this document specifies the pipeline
+that produces the rows.
 
 ## 2. Privacy contract (non-negotiable)
 
@@ -216,17 +216,17 @@ generate_salted_uuid([state, l2_district_type, l2_district_name])
 ```
 
 This is the identical call that produces `District.id` in the district mart, so
-the density table joins cleanly to `District` and to election-api's
+the density table joins cleanly to `District` and to election-db's
 `Position.district_id`. If you compute the id any other way the app's
 `districtId` lookups silently return empty.
 
 ## 5. Load path (Airflow)
 
-The destination tables, their FK ordering, the cadence and the full-rebuild
-rule are specified in
-`packages/election-api/docs/voter-density-election-db-handoff.md`. election-api
-owns the DDL through its own Prisma migrations — the loader publishes rows into
-tables that already exist and never creates or alters them.
+The destination tables are the `DistrictVoterDensity` and
+`DistrictVoterDensityMeta` models in `packages/gp-api/prisma-election/schema/`.
+gp-api owns the DDL through the election Prisma migrations — the loader
+publishes rows into tables that already exist and never creates or alters
+them.
 
 ## 6. Phase-0 questions (answer before we finalize resolution/K)
 
@@ -256,7 +256,7 @@ data:
 
 ## 7. What the app already does (for your validation)
 
-- election-api resolves `personId → Position.districtId` and reads the density
+- gp-api resolves `personId → Position.districtId` and reads the density
   rows for that district in one query, returning
   `{ coverage, cells: [{ lat, lng, count }] }`. No H3 math in Postgres — it
   just returns the precomputed centroids. `resolution` defaults to **8** when

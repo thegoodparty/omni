@@ -31,8 +31,15 @@ export type MarkDoneTarget =
   | { kind: 'turf'; name: string; unloggedCount: number }
   | { kind: 'route'; unloggedCount: number }
 
-const dialogTitle = (target: MarkDoneTarget): string => {
-  if (target.kind === 'campaign') return 'Mark this campaign done?'
+const CAMPAIGN_DONE_TITLE = {
+  win: 'Mark this campaign done?',
+  serve: 'Mark this outreach done?',
+}
+
+const dialogTitle = (target: MarkDoneTarget, isServe: boolean): string => {
+  if (target.kind === 'campaign') {
+    return CAMPAIGN_DONE_TITLE[isServe ? 'serve' : 'win']
+  }
   return target.kind === 'turf'
     ? 'Mark this turf done?'
     : 'Mark this route done?'
@@ -62,6 +69,7 @@ interface MarkDoneDialogProps {
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
   pending?: boolean
+  isServe?: boolean
 }
 
 export const MarkDoneDialog = ({
@@ -69,13 +77,14 @@ export const MarkDoneDialog = ({
   onOpenChange,
   onConfirm,
   pending = false,
+  isServe = false,
 }: MarkDoneDialogProps) => (
   <AlertDialog open={target !== null} onOpenChange={onOpenChange}>
     <AlertDialogContent>
       {target && (
         <>
           <AlertDialogHeader>
-            <AlertDialogTitle>{dialogTitle(target)}</AlertDialogTitle>
+            <AlertDialogTitle>{dialogTitle(target, isServe)}</AlertDialogTitle>
             <AlertDialogDescription>
               {dialogDescription(target)}
             </AlertDialogDescription>

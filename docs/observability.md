@@ -9,8 +9,20 @@ configured in `.mcp.json`; required env vars are in `docs/mcp.md`.
 - **Datasource UIDs:** Loki `grafanacloud-logs`, Tempo `grafanacloud-traces`,
   Prometheus `grafanacloud-prom`
 - **Stream labels, and there are only these two:**
-  - `service_name`: `gp-api` | `election-api`
+  - `service_name`: `gp-api`, or `gp-webapp-server` for gp-webapp's
+    server-side request errors
   - `deployment_environment_name`: `dev` | `prod`
+
+gp-webapp's browser errors are the exception, with labels of their own; see
+[Front-end errors](#front-end-errors-grafana-frontend-observability).
+
+gp-api PR preview stacks send nothing to Grafana: no logs, metrics, traces or
+profiles. Their task gets no Grafana Cloud token
+(`packages/gp-api/deploy/gp-api-secret-keys.ts`), so OpenTelemetry never
+starts. Each preview otherwise exported its own copy of every metric series,
+under instance ids that changed on every deploy. Read a preview's logs in
+CloudWatch, log group
+`/sst/cluster/gp-pr-<N>-fargateCluster/gp-api-pr-<N>/gp-api-pr-<N>`.
 
 That is the entire set you can narrow on. Everything else a log line carries —
 `request_endpoint`, `response_statusCode`, `responseTimeMs`, `exception_type`,
@@ -83,9 +95,10 @@ whole of it:
 
 The plan includes log queries up to **100x** what we ingest. Ingest is the
 denominator, so cutting log volume also cuts the free query budget — reducing
-ingest is not a fix for a query overage. No alert rule watches the spend (the
-6h ratio is driven by ad-hoc Grafana reads, which no rule change bounds), so
-check it by hand.
+ingest is not a fix for a query overage. No alert rule watches the query spend
+on its own (the 6h ratio is driven by ad-hoc Grafana reads, which no rule
+change bounds), so check it by hand. `grafana-spend-anomaly` (below) only
+catches the whole account's spend growing much faster than usual.
 
 Live usage is on the `grafanacloud-usage` Prometheus datasource
 (`grafanacloud_logs_instance_query_bytes:rate5m` against
@@ -104,22 +117,53 @@ Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the
 alert rules. This datasource is Grafana's own usage stream and does not bill
 against our allowance, so it is safe to query over 24h.
 
-## Alerting reads a metric, not the logs
+## How alert rules read the logs
 
-gp-api's per-route alerts do not query Loki. A pair of Loki **recording rules**
-reads the prod and dev streams once a minute and writes the error counts into
-Prometheus; the alert rules then evaluate against that metric. Cost is
-proportional to ingest and independent of how many alert rules exist, which is
-what makes adding one free. See `packages/gp-api/docs/observability.md`.
+gp-api's per-route and per-queue alerts query Loki directly, each as a
+one-minute instant read every minute, so every log line is read once per
+rule. Only a query that sums to one unlabelled series can be a Loki
+**recording rule** that writes a Prometheus metric (door knocking's credit
+spend is the one there is); Grafana's writer rejects anything with a label
+left on it. See `packages/gp-api/docs/observability.md`.
 
-The consequence when you are debugging: an alert's own query is PromQL over
-`gp_api:route_errors:count1m` and shows you counts, not lines. The Slack
-notification links to the matching log lines; follow that link rather than
-widening the metric query.
+## Background jobs are watched through their logs
+
+gp-api's jobs system (pg-boss) has no per-queue metrics except wait
+pressure, which one task reports. Its two alerts count `JobsService` log
+lines: `job dead-lettered` and `job queue backed up`. pg-boss's spans stay
+on, so a job's `process <queue>` span links to the request that sent it,
+and the jobs dashboard reads Grafana's span metrics. See
+`packages/gp-api/src/jobs/AGENTS.md` § Metrics, dashboard and alerts.
+
+## Operational errors are alerts, not Slack posts
+
+An error someone on call would act on gets a log line and a prod alert rule,
+which files a Bugs-board ticket. It does not post to Slack: `#bot-dev` is for
+features whose normal job is to post there, and an error posted into that
+volume is not seen. `SlackService.errorMessage()` takes an explicit channel so
+nothing lands there by default. Rules that replaced former `#bot-dev` error
+posts, all in `packages/gp-api/deploy/components/alerts.ts`:
+
+- `queue-message-discarded`: the queue consumer dropped a message after a
+  non-retryable error, one instance per `queueMessageType`.
+- `race-target-details-failed`: a swallowed projected turnout lookup error.
+- `hubspot-sync-errors`: more than 25 HubSpot company or Office Holder sync
+  errors in an hour.
+- `hubspot-form-submission-failed`: a HubSpot form submission failed.
+- `gp-marketing-people-sitemaps-failed`: gp-marketing's people sitemap run
+  failed (reads the `service_name="gp-marketing"` stream).
+
+Grafana Cloud's own spend is watched the same way. `grafana-spend-anomaly`, in
+the same file, reads `grafanacloud_org_total_overage` on `grafanacloud-usage`
+and fires when the last 24h of overage growth is more than 2.5x the median day
+of the week before, above a small floor. It does not evaluate before the 5th of
+the month (UTC), because Grafana re-estimates the overage in the first days of
+each month. When it fires, Billing/Usage and Cardinality management in Grafana
+Cloud say which product grew.
 
 ## Log redaction
 
-Every log line gp-api and election-api write passes through `redactLine`
+Every log line gp-api writes passes through `redactLine`
 (`packages/nest-common/src/observability/log-redaction.ts`), wired in as pino's
 `hooks.streamWrite`. It scrubs the literal values of the env vars named in
 `SECRETS_MANAGER_KEYS`, sensitive query parameters, connection-string passwords, and
@@ -130,19 +174,111 @@ produces by `JSON.stringify`-ing an error into a log message. Schemes are left
 visible; the credential becomes `[REDACTED]`.
 
 The hook only protects _logs_. Anything that leaves the process another way —
-Slack notifications, Sentry events, SQS payloads, HTTP responses — is not
+Slack notifications, Faro payloads, SQS payloads, HTTP responses — is not
 redacted, so don't hand a serialized Axios error (its `config.headers` carries
 the credential) to those paths.
 
-## Sentry (frontend errors)
+## Chat and agent runs (Grafana Agent Observability)
 
-- **Org slug:** `goodparty`
-- **Web URL:** https://goodparty.sentry.io
-- **Region URL:** https://us.sentry.io
+https://goodparty.grafana.net/a/grafana-agento11y-app
 
-Use the Sentry MCP to look up issues, events, and stack traces for gp-webapp.
-Sentry is not metered the way Loki is; the budget discipline above is a Loki
-concern.
+Every chat turn's model calls and tool calls appear as generations in Agent
+Observability, grouped by conversation and labelled with the chat scope the
+caller declares (`chief_of_staff`, `campaign_assistant`, `ordinance_flow`,
+`priority_flow`), or `chat` when it declares none. Briefing chat declares no
+scope (scope also decides attachment injection and which product a citation is
+attributed to), so its route names its agent on the turn instead and appears as
+`briefing_annotation`. Its **Conversations** view answers what a
+single turn did — which tools ran, in what order, what each model call cost —
+without a Tempo query.
+
+Spans reach it through the same OTel exporter as everything else. What gets
+them in is `agentTrace.ts`, which stamps `agento11y.record`,
+`gen_ai.conversation.id` and `gen_ai.agent.name` on the AI SDK's spans and names
+each one's operation. It is set only on a chat turn; a background model call or
+a non-chat LLM call is a plain Tempo trace.
+
+Prompt and reply text are **not** recorded (`recordInputs` and `recordOutputs`
+are off in `llm.service.ts`), because prompts here carry voter and campaign
+data. A span shows the model, the token counts, the finish reason and the tool
+names — never a message body, tool arguments or a tool result. Don't turn those
+on to debug a prompt; use the Braintrust trace or the stored `AgentMessage` rows.
+
+Background agents (`packages/gp-api/src/agents`) reach the same app on their own
+path: `agentRunSpanProcessor` stamps the run's id and agent on every span, so a
+run's `execute_tool <name>` spans answer whether that agent's tools worked. Each
+one reports a failure the standard OTel way, per the GenAI `gen_ai.execute_tool`
+span: status `ERROR` and `error.type` set to the tool's code (`rejected`,
+`timeout`, `no_scope`), `schema` or `no_data` for a refused `submitOutput`,
+`thrown` for a throw, `_OTHER` when there is no clean code. A tool that worked
+sets neither, so its span reads `UNSET`. `error.type` is a code only, never a
+URL, SQL or message text; see `src/agents/AGENTS.md` § Observability.
+
+Grafana Cloud must have Agent Observability enabled on the stack before
+data appears. If the Conversations view is empty but Tempo has the spans, check
+that before the instrumentation.
+
+## Front-end errors (Grafana Frontend Observability)
+
+gp-webapp's browser errors go to Grafana Cloud Frontend Observability through
+the Faro Web SDK (`packages/gp-webapp/instrumentation-client.ts`), from product
+routes only (`isProductRoute`). There is one Frontend Observability app per
+environment: `gp-webapp-prod` takes Vercel Production, and `gp-webapp-dev`
+takes Vercel Preview, which is both dev.goodparty.org and every PR preview.
+The browser posts to a same-origin relay, `/fx` (`app/fx/route.ts`), so ad
+blockers do not drop it. Faro does not start in an automated browser
+(`navigator.webdriver`, or the `gp-e2e` user-agent marker the E2E Playwright
+config adds), since each one is a billed session, and it stops sending once an
+E2E or QA test user is signed in.
+
+- **Report an error.** Faro catches uncaught errors and unhandled
+  rejections on its own. The `error.tsx` boundaries (`app/error.tsx`,
+  `app/dashboard/error.tsx`, `app/global-error.tsx`) report what they catch,
+  and code that catches an error it still wants seen calls
+  `reportClientError` (`app/shared/observability/reportClientError.tsx`),
+  the one way to push an error to Faro.
+- **Find an error.** Grafana, Frontend, Frontend Apps, `gp-webapp-prod`,
+  Errors. Stack traces are source-mapped when the build uploaded its maps
+  (`scripts/upload-faro-sourcemaps.mjs`), and each error carries the user, the
+  page and the session.
+- **Query it.** Exceptions are logfmt lines on
+  `{service_name="gp-webapp-prod", kind="exception"}` (or `gp-webapp-dev`).
+  `service_name` is the Frontend Observability app's name, not the SDK's
+  `app.name`, so `{service_name="gp-webapp"}` matches nothing. The dev app
+  takes dev and every PR preview, so narrow on the parsed `app_environment`
+  field (`prod` | `dev` | `preview` | `local`). The message is `value`;
+  `type`, `session_id`, `user_id`, `user_email`, `user_attr_campaignSlug`,
+  `user_attr_organizationSlug` and `page_url` are there too. The cost rules
+  above apply: bound the window.
+
+  ```logql
+  {service_name="gp-webapp-prod", kind="exception"} | logfmt | app_environment="prod"
+  ```
+
+- **Watch the session.** Signed-in users who are not test users are
+  recorded with Faro session replay
+  (`app/shared/observability/ObservabilityIdentifier.tsx`): inputs
+  masked, other text and media not. Open a session from an error, or from
+  the app's Sessions tab; a recording can take 5 minutes to appear and is
+  kept 30 days. Session replay is a Grafana public preview feature, so
+  expect rough edges and breaking changes.
+- **Server-side errors** (render, route handler, server action, middleware)
+  come from `onRequestError` in `instrumentation.ts` as OTLP log lines on
+  `{service_name="gp-webapp-server", deployment_environment_name="prod"}`, with
+  `exception_*`, `url_path` and `next_route_path` as structured metadata.
+- **Alerts**, prod only, defined in
+  `packages/gp-api/deploy/components/alerting/frontend-error-alerts.ts`. They
+  go through the normal notification policy to `dev-alerts`, and so to
+  Delegate, which files a Bugs-board ticket.
+  - _Front-end error hitting several users_ (`frontend-error-spreading`): one
+    error group seen in 3 or more sessions in the last hour.
+  - _New front-end error in prod_ (`frontend-error-new`): an error group seen
+    in the last hour and not in the 7 days before it.
+
+  An error group is its type and message. Each firing carries them as
+  `error_type` and `error_message`, which is what a ticket is deduplicated
+  on. Both rules drop network failures (`Failed to fetch`, `Load failed` and
+  the like) and errors thrown from browser-extension frames.
 
 ## Debugging an incident with the MCPs
 
@@ -173,8 +309,9 @@ A workable default playbook:
    count in step 3 showed the spike starting before it — and say why.
 5. **Trace it.** Grab a representative trace from Tempo (`grafanacloud-traces`) to
    see where time or the failure went across services.
-6. **Frontend?** If it surfaced in the browser, pull the matching Sentry issue for
-   the stack trace and breadcrumbs.
+6. **Frontend?** If it surfaced in the browser, open the error in Frontend
+   Observability (`gp-webapp-prod`) for the stack trace, the page and the
+   session; see [Front-end errors](#front-end-errors-grafana-frontend-observability).
 7. **Confirm before stamping.** A 2xx or a webhook hit is evidence of a _request_,
    not a _state_. Verify against the source of truth before concluding it's fixed.
 

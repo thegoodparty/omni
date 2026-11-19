@@ -9,7 +9,7 @@ import {
   type GpEnvironment,
 } from '@/shared/util/gpEnvironment'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { SdkError, type UpdateUserInput, type User } from '@goodparty_org/sdk'
+import { SdkError, type UpdateUserInput, type User } from '@/shared/gpApi'
 import { revalidatePath } from 'next/cache'
 import {
   DEFAULT_PER_PAGE,

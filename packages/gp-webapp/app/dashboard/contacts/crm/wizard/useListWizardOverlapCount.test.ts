@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import React from 'react'
@@ -23,9 +23,17 @@ const wrapper = (qc: QueryClient) =>
     return React.createElement(QueryClientProvider, { client: qc }, children)
   }
 
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 // Mirrors the 600ms debounce window with slack (useListWizardCount.test.ts
 // precedent).
-const debounceSettle = () => new Promise((resolve) => setTimeout(resolve, 700))
+const debounceSettle = () => act(() => vi.advanceTimersByTimeAsync(700))
 
 describe('useListWizardOverlapCount — debounce', () => {
   it('coalesces a burst of rapid payload changes into a single request for the final value', async () => {
@@ -52,6 +60,7 @@ describe('useListWizardOverlapCount — debounce', () => {
     })
 
     await debounceSettle()
+    await vi.waitFor(() => expect(bodies).toHaveLength(2))
 
     expect(bodies).toEqual([
       { genderMale: true },
@@ -94,12 +103,14 @@ describe('useListWizardOverlapCount — isStale', () => {
       },
     )
 
-    await waitFor(() => expect(result.current.isStale).toBe(false))
+    await debounceSettle()
+    expect(result.current.isStale).toBe(false)
 
     rerender({ payload: { genderFemale: true } })
     expect(result.current.isStale).toBe(true)
 
-    await waitFor(() => expect(result.current.isStale).toBe(false))
+    await act(() => vi.advanceTimersByTimeAsync(600))
+    expect(result.current.isStale).toBe(false)
   })
 })
 

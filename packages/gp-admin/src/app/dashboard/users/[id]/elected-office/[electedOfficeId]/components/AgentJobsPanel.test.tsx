@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
-import type { BriefingDispatchPreview } from '@goodparty_org/sdk'
+import type { BriefingDispatchPreview } from '@/shared/gpApi'
 import { AgentJobsPanel } from './AgentJobsPanel'
 import type { AgentJobsStatus } from '../agentJobs'
 

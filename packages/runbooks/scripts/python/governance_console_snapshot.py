@@ -40,10 +40,7 @@ import digest_triage as dt  # noqa: E402
 GAPS = PY / "instrumentation_data" / "instrumentation_gaps.json"
 REPORT = PY / "instrumentation_data" / "analytics_event_health_report.json"
 CODE_CSV = PY / "instrumentation_data" / "amplitude_event_provenance.csv"
-EXPLORER = (
-    PY.parent.parent.parent
-    / "prototypes/app/p/analytics-event-explorer/data/event-explorer.json"
-)
+EXPLORER = PY.parent.parent / "surfaces/event-explorer/data/event-explorer.json"
 
 # A gap the sweep is still waiting on a ruling for. Everything else has been judged and
 # belongs in `settled`, visible but out of the queue.
@@ -76,6 +73,12 @@ PROPOSAL_VERBS = {
     "defer": "Defer",
 }
 
+REMOVAL_VERBS = {"remove": "Remove from watchlist", "keep": "Keep watching", "defer": "Defer"}
+
+# Causes whose silence a human may rule expected, and then take off the watchlist
+# (DATA-2676). Never proposed automatically: going quiet is what the list exists to catch.
+UNWATCHABLE_CAUSES = frozenset({"dormant", "dormant_elevated"})
+
 ALIGNMENT_VERBS = {
     "fix_omni": "Fix in omni",
     "draft_upstream": "Draft upstream",
@@ -100,6 +103,10 @@ DRIFT = PY / "instrumentation_data" / "surface_drift.json"
 # permanence is the property that decides how carefully a row is worth reading.
 VERB_EFFECTS = {
     "flags": {
+        "unwatch": (
+            "Take the watched events under this cause off the watchlist, because their "
+            "silence is expected. They stop being treated as high priority."
+        ),
         "govern": (
             "Write this to Amplitude Govern. A retirement here tells every consumer "
             "the events are dead."
@@ -150,6 +157,14 @@ VERB_EFFECTS = {
             "proposed."
         ),
         "defer": "Leave it for a later run. It comes back next time.",
+        "remove": (
+            "Take the event off the watchlist. Its code is gone, so there is nothing "
+            "left to watch."
+        ),
+        "keep": (
+            "Keep watching it despite the retirement. Permanent: it stops being "
+            "proposed for removal."
+        ),
     },
     "alignment": {
         "fix_omni": (
@@ -263,6 +278,11 @@ def recommend_gap(gap: Mapping) -> tuple[str, str]:
             + (f": {prior['reason']}" if prior.get("reason") else "")
             + ". Usually the same call.",
         )
+    if gap.get("value") == "low":
+        # No verb: defer writes `open`, which the sweep never re-judges, so the gap could
+        # not turn needed once someone asks its question. Unruled, it stays `new`.
+        return ("", "No question anyone asked needs this event yet. Leave it unruled and "
+                    "it is judged again next run.")
     return ("accept", gap.get("judge_reason") or "The judge called this a real gap.")
 
 
@@ -472,12 +492,14 @@ QUEUE_CAVEATS = {
         "has_tracking_call, tracked_in_hook (DATA-2560)",
     ),
     "proposals": _caveat(
-        "We compare every event in the catalog against the watchlist, and list "
-        "anything belonging to a family we already watch that is not itself watched.",
-        "We watch this family of events, and this one is not being watched.",
+        "We compare the watchlist against the metrics the company steers by and against "
+        "the code. We list a metric's event that is not yet watched, and a watched event "
+        "whose code has been removed.",
+        "Either a metric counts this event and nobody is watching it, or the watchlist "
+        "is watching an event that can no longer fire.",
         None,
         None,
-        "monitored_events.yaml",
+        "monitored_events.yaml, sem anchored_on, provenance retired_date",
     ),
     "alignment": _caveat(
         "We compare the events omni associates with each governed metric against the "
@@ -570,15 +592,16 @@ CARD_FIELDS = (
 def queue_event_types(queues: Sequence[Mapping]) -> set[str]:
     """Every event named anywhere in this run's queues.
 
-    Flags carry their members in ``events``; a proposal is itself an event; a gap is
-    about a surface and names none.
+    Flags carry their members in ``events``; a proposal (addition or removal) is itself
+    an event; a gap is about a surface and names none.
     """
     names: set[str] = set()
     for queue in queues:
         for item in queue["items"]:
             names.update(item.get("events") or [])
             if queue["queue"] == "proposals":
-                names.add(item["id"])
+                # A removal's id is "remove:<event>"; the card is the event's.
+                names.add(item["id"].removeprefix("remove:"))
     return names
 
 
@@ -779,10 +802,16 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
         evidence = _sorted_evidence(
             [_flag_evidence(record, code, run_date) for record in by_cause.get(cause, [])]
         )
+        verbs = _verbs(FLAG_VERBS, dismissable)
+        if cause.partition("@")[0] in UNWATCHABLE_CAUSES and any(
+            r.get("on_watchlist") and not r.get("okr") and not r.get("okr_base")
+            for r in by_cause.get(cause, [])
+        ):
+            verbs = {**verbs, "unwatch": "Stop watching"}
         items.append({
             "id": cause,
             "queue": "flags",
-            "verbs": _verbs(FLAG_VERBS, dismissable),
+            "verbs": verbs,
             "caveat": caveat_for_cause(cause),
             "recommended": verdict,
             "recommendation_reason": why,
@@ -876,7 +905,7 @@ def build_gap_queue(gaps: Mapping) -> list[dict]:
 
 
 def build_proposal_queue(report: Mapping) -> list[dict]:
-    """Watchlist proposals: catalog events in a watched family not yet on the list."""
+    """Watchlist proposals: unwatched OKR legs to add, and retired watched rows to remove."""
     return [{
         "id": p["event_type"],
         "queue": "proposals",
@@ -884,8 +913,8 @@ def build_proposal_queue(report: Mapping) -> list[dict]:
         "caveat": QUEUE_CAVEATS["proposals"],
         "recommended": "accept",
         "recommendation_reason": (
-            "A live event in a watched family that is not on the list. The list exists "
-            "to watch this family, so the default is to watch it."
+            "A live event a governed metric counts, and nobody is watching it. The "
+            "default is to watch it."
         ),
         "label": p["event_type"],
         "rank": PROPOSAL_RANK,
@@ -896,7 +925,23 @@ def build_proposal_queue(report: Mapping) -> list[dict]:
             "family": p.get("family"),
             "first_seen_date": p.get("first_seen_date"),
         }],
-    } for p in (report.get("proposals") or [])]
+    } for p in (report.get("proposals") or [])] + [{
+        "id": f"remove:{r['event_type']}",
+        "queue": "proposals",
+        "verbs": REMOVAL_VERBS,
+        "caveat": QUEUE_CAVEATS["proposals"],
+        "recommended": "remove",
+        "recommendation_reason": (
+            "Retired in code, so the watchlist row watches nothing. Keep it only if the "
+            "retirement date is wrong."
+        ),
+        "label": f"Remove from watchlist: {r['event_type']}",
+        "rank": PROPOSAL_RANK,
+        "count": 1,
+        "dismissable": False,
+        "dismissed": None,
+        "evidence": [{"retired_date": r.get("retired_date")}],
+    } for r in (report.get("removal_proposals") or [])]
 
 
 def build_alignment_queue(report: Mapping) -> list[dict]:
@@ -944,6 +989,16 @@ def build_surface_queue(drift: Mapping) -> list[dict]:
                 if high else ""
             ),
             "label": f"{event}: labeled {r.get('claimed')}, fires from {', '.join(r.get('areas') or [])}",
+            "relabel": {
+                "now": {"display_name": r.get("display_name") or event, "claimed": r.get("claimed"),
+                        "claimed_kind": r.get("claimed_kind") or "prefix"},
+                "proposed": ({"area": (r.get("areas") or [""])[0], "surface": r.get("proposed_surface"),
+                              "display_name": r.get("proposed_display_name"),
+                              "fires_on": r.get("proposed_fires_on"),
+                              "surface_options": r.get("surface_options") or []}
+                             if r.get("proposed_surface") else None),
+                "options": r.get("area_options") or [],
+            },
             "rank": SURFACE_RANK,
             "count": 1,
             "dismissable": True,
@@ -957,10 +1012,6 @@ def build_surface_queue(drift: Mapping) -> list[dict]:
                 "page_path_agreement": (r.get("signal") or {}).get("agreement"),
                 "page_path_users": (r.get("signal") or {}).get("users"),
                 "okr": r.get("okr"),
-                "proposed_surface": r.get("proposed_surface"),
-                "surface_options": ", ".join(r.get("surface_options") or []),
-                "proposed_display_name": r.get("proposed_display_name"),
-                "proposed_fires_on": r.get("proposed_fires_on"),
             }],
         })
     return out

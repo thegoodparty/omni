@@ -20,6 +20,10 @@ const TOKEN_TTL_SECONDS = 3600
 
 export type FetchImpl = typeof fetch
 
+// How the seeded priority is answered: how many residents answer, and
+// whether their answers split evenly.
+export type SeedPriorityOptions = { answers?: number; split?: 'lean' | 'even' }
+
 // Mirrors deviceFlow.ts: a stalled Clerk or localhost connection must not
 // hang the terminal at the final step of an otherwise-finished bootstrap.
 const FETCH_TIMEOUT_MS = 10_000
@@ -68,6 +72,7 @@ const mintFixtureUser = async (
   userState: string,
   fetchImpl: FetchImpl,
   withActivity: boolean,
+  options: SeedPriorityOptions,
 ): Promise<{ email: string; password: string; orgSlug?: string }> => {
   const res = await fetchImpl(`${GP_API_BASE_URL}/v1/test-fixtures/users`, {
     method: 'POST',
@@ -77,7 +82,7 @@ const mintFixtureUser = async (
     },
     body: JSON.stringify(
       withActivity
-        ? { state: userState, activity: 'seeded' }
+        ? { state: userState, activity: 'seeded', ...options }
         : { state: userState },
     ),
     signal: AbortSignal.timeout(
@@ -107,6 +112,7 @@ export const runSeedLogin = async (
   userState: string,
   fetchImpl: FetchImpl = fetch,
   withActivity = false,
+  options: SeedPriorityOptions = {},
 ): Promise<SeedLoginResult> => {
   if (!machineSecret) {
     return { kind: 'skipped', reason: MISSING_SECRET }
@@ -118,6 +124,7 @@ export const runSeedLogin = async (
       userState,
       fetchImpl,
       withActivity,
+      options,
     )
     return { kind: 'minted', ...user }
   } catch (error) {
@@ -134,6 +141,7 @@ export const runSeedActivity = async (
   machineSecret: string,
   orgSlug: string,
   fetchImpl: FetchImpl = fetch,
+  options: SeedPriorityOptions = {},
 ): Promise<SeedActivityResult> => {
   if (!machineSecret) {
     return { kind: 'skipped', reason: MISSING_SECRET }
@@ -148,7 +156,7 @@ export const runSeedActivity = async (
           Authorization: `Bearer ${m2mToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify(options),
         signal: AbortSignal.timeout(SEED_TIMEOUT_MS),
       },
     )

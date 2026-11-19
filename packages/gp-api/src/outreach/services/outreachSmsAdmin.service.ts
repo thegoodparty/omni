@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -6,21 +7,34 @@ import {
 } from '@nestjs/common'
 import {
   checkSmsStandards,
+  findSmsRestrictedWords,
   type ApproveSmsOutreachRequest,
   type CancelSmsOutreachRequest,
   type DenySmsOutreachRequest,
   type EditSmsOutreachDateRequest,
   type EditSmsOutreachRequest,
+  SMS_JOB_REPLACE_REASON_LABELS,
+  type LinkSmsOutreachJobRequest,
+  type ReplaceSmsOutreachJobRequest,
   type SmsAdminDetailResponse,
   type SmsAdminJobStats,
   type SmsApprovalQueueItem,
   type SmsApprovalStatus,
+  type SmsJobReplaceReason,
   type SmsTestMessageRequest,
   type SmsTestMessageResponse,
   type SmsVendorAccount,
 } from '@goodparty_org/contracts'
-import { addDays, format, isAfter, subDays } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
+import {
+  addDays,
+  format,
+  isAfter,
+  isBefore,
+  parseISO,
+  subDays,
+  subMilliseconds,
+} from 'date-fns'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import {
   OutreachStatus,
@@ -32,15 +46,20 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyAccountService } from 'src/vendors/peerly/services/peerlyAccount.service'
-import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
+import { SmsTestSendService } from './smsTestSend.service'
 import { OutreachService } from './outreach.service'
 import {
   HoldStillSettlingException,
   OutreachP2pSmsCancelService,
 } from './outreachP2pSmsCancel.service'
 import { OutreachNotificationService } from './outreachNotification.service'
-import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
-import { resolveSendWindowStart } from 'src/vendors/peerly/utils/sendWindowStart.util'
+import { PeerlyJob, PeerlyJobStatus } from 'src/vendors/peerly/peerly.types'
+import {
+  resolveSendWindowStart,
+  SEND_WINDOW_END,
+} from 'src/vendors/peerly/utils/sendWindowStart.util'
+import { resolveSendWindowTimeZone } from 'src/shared/util/sendWindowTimeZone.util'
+import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
@@ -129,10 +148,17 @@ const detailFailedRetryCooldownMs = () =>
   Number(process.env.DETAIL_FAILED_RETRY_COOLDOWN_MS ?? 60_000)
 const detailOutstandingRetryCooldownMs = () =>
   Number(process.env.DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS ?? 10 * 60 * 1000)
-// A test send is a real vendor text; a double-click or impatient retry
-// must not spam it. Env-overridable like the other knobs, for tests.
-const testSendCooldownMs = () =>
-  Number(process.env.TEST_SEND_COOLDOWN_MS ?? 30_000)
+// A job replacement's claim outlives a crashed request only this long. Job
+// creation is a handful of vendor calls (seconds); a claim older than this
+// belongs to a request that died, and a retry may take it over.
+const jobReplaceClaimStaleMs = () =>
+  Number(process.env.JOB_REPLACE_CLAIM_STALE_MS ?? 10 * 60 * 1000)
+
+// A candidate's edit claim outlives a crashed request only this long. The
+// edit is one Peerly template write (seconds); approve treats an older
+// claim as abandoned, and so does the candidate's next edit.
+const candidateEditClaimStaleMs = () =>
+  Number(process.env.CANDIDATE_EDIT_CLAIM_STALE_MS ?? 10 * 60 * 1000)
 
 // The whole account's job list is one cache entry; so is its balance.
 const ACCOUNT_JOBS_KEY = 'account'
@@ -192,15 +218,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     string,
     DetailInFlightEntry<OwnerRead>
   >()
-  // Per-row test-send claims (outreachId -> claimed-at ms), same
-  // per-process posture as the vendor-read maps above: the goal is one
-  // test text per click, not a cluster-wide lock.
-  private readonly testSendClaims = new Map<number, number>()
 
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly peerlyAccountService: PeerlyAccountService,
-    private readonly peerlyTestListService: PeerlyTestListService,
+    private readonly smsTestSend: SmsTestSendService,
     private readonly analytics: AnalyticsService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
@@ -447,6 +469,42 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         'Only scheduled SMS campaigns can be approved',
       )
     }
+    // A send day that has already passed would book canvassers for a window
+    // Peerly has closed: it accepts the request, auto-approves it and stamps
+    // canvassRequestedAt, which then locks the row out of every reschedule
+    // (editDate refuses a booked in_progress row). Refuse BEFORE the claim, so
+    // a stale row stays untouched and staff can still move its date.
+    const sendDay = row.scheduledLocalDate
+    if (
+      sendDay &&
+      isBefore(
+        parseISO(sendDay),
+        parseISO(formatInTimeZone(new Date(), EASTERN_TIMEZONE, DATE_FMT)),
+      )
+    ) {
+      throw new BadRequestException(
+        `The send date (${sendDay}) has already passed — set a new date ` +
+          'before approving',
+      )
+    }
+    // Same-day approval inside the window is allowed on purpose (product call,
+    // ENG-11614): Peerly starts sending as soon as canvassers are booked. Only
+    // a send day whose window has already closed is refused, because booking
+    // it locks the row the same way a passed day does. The close is read in
+    // the zone approve hands to request_canvassers (the row's didState).
+    if (sendDay) {
+      const sendWindowZone = resolveSendWindowTimeZone(row.didState)
+      const windowEnd = fromZonedTime(
+        `${sendDay}T${SEND_WINDOW_END}:00`,
+        sendWindowZone,
+      )
+      if (!isBefore(new Date(), windowEnd)) {
+        throw new BadRequestException(
+          `The send window for ${sendDay} closed at ${SEND_WINDOW_END} ` +
+            `${sendWindowZone}. Set a new date before approving.`,
+        )
+      }
+    }
     // Approval is what books canvassers, which is the vendor spend — so it is
     // the last gate before money is committed to the send. Two funding models
     // reach this console, told apart by whether the row has an OutreachP2pSms
@@ -501,10 +559,26 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         status: { in: REVIEWABLE_STATUSES },
         approvedAt: null,
         deniedAt: null,
+        OR: [
+          { candidateEditClaimedAt: null },
+          { candidateEditClaimedAt: { lt: this.candidateEditStaleCutoff() } },
+        ],
       },
       data: { approvedAt: new Date(), approvedBy: input.approvedBy },
     })
     if (claimed.count === 0) {
+      const current = await this.model.findFirst({
+        where: { id: outreachId },
+        select: { candidateEditClaimedAt: true },
+      })
+      if (
+        current?.candidateEditClaimedAt &&
+        isAfter(current.candidateEditClaimedAt, this.candidateEditStaleCutoff())
+      ) {
+        throw new ConflictException(
+          'The candidate is editing this text, refresh in a moment.',
+        )
+      }
       throw new ConflictException('This campaign was just decided elsewhere')
     }
 
@@ -804,51 +878,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
 
-    // The vendor refuses a shortened link outright, and the template update is
-    // a destructive overwrite — so an edit carrying one fails at the vendor
-    // with the vendor's wording, after we have already started writing to a
-    // live job. Refuse it here instead. Only this rule is enforced: the rest of
-    // the standards check stays advisory in the console, where the human
-    // approval is the gate.
-    if (checkSmsStandards(input.script).failures.includes('link_shortener')) {
-      throw new BadRequestException(
-        'Links must not use a shortener like bit.ly — paste the full web ' +
-          'address instead',
-      )
-    }
-
-    // Peerly's template update is a destructive overwrite, so it always
-    // needs the image bytes — a script-only edit re-sends the stored one.
-    if (!row.imageUrl) {
-      throw new BadRequestException(
-        'This campaign has no stored image; it must be edited by the candidate',
-      )
-    }
-    const imageKey = decodeURIComponent(new URL(row.imageUrl).pathname.slice(1))
-    const image = await this.s3.getFileBytesWithContentType(
-      ASSET_DOMAIN,
-      imageKey,
-    )
-    if (!image) {
-      throw new BadRequestException(
-        'The stored image could not be read; the campaign cannot be edited',
-      )
-    }
-
-    await this.peerlyP2pJobService.updatePeerlyP2pJob({
-      jobId: row.projectId,
-      campaignId: row.campaignId,
-      imageInfo: {
-        fileStream: image.bytes,
-        fileName: imageKey.split('/').pop() ?? 'outreach-image',
-        mimeType: image.contentType ?? 'image/jpeg',
-        title: row.title ?? undefined,
+    this.assertScriptAccepted(input.script)
+    await this.writeScriptToVendor(
+      {
+        projectId: row.projectId,
+        identityId: row.identityId,
+        campaignId: row.campaignId,
+        imageUrl: row.imageUrl,
+        title: row.title,
+        name: row.name,
       },
-      scriptText: input.script,
-      identityId: row.identityId,
-      name: row.name ?? undefined,
-    })
-    this.invalidateVendorReads(row.projectId)
+      input.script,
+    )
 
     const edited = await this.model.updateMany({
       where: { id: outreachId, status: { in: REVIEWABLE_STATUSES } },
@@ -881,6 +922,237 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       registrations.get(updated.campaignId ?? -1),
       null,
     )
+  }
+
+  /**
+   * The candidate's own edit of a text staff have not approved yet. Peerly
+   * is written before the DB (the admin edit's order), so the row is
+   * claimed first: approve refuses a row while the claim is fresh, and
+   * staff can never book the old script mid-edit. The final write and any
+   * rollback are scoped to the exact claim stamp, so a request that outlived
+   * its claim cannot clear or overwrite a newer one.
+   */
+  async candidateEditScript(
+    outreachId: number,
+    campaignId: number,
+    script: string,
+  ): Promise<void> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+      include: queueInclude,
+    })
+    if (!row) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (row.status === OutreachStatus.canceled) {
+      throw new ConflictException('This text was canceled')
+    }
+    if (row.status === OutreachStatus.completed) {
+      throw new ConflictException('This text has already sent')
+    }
+    if (
+      row.outreachType !== OutreachType.p2p ||
+      !row.projectId ||
+      !row.identityId ||
+      row.campaignId === null
+    ) {
+      throw new BadRequestException('This text cannot be edited')
+    }
+    if (row.approvedAt || row.canvassRequestedAt) {
+      throw new ConflictException(
+        'This text is already queued for sending and cannot be edited',
+      )
+    }
+    this.assertScriptAccepted(script)
+    await this.assertPaidForByKept(campaignId, row.script, script)
+
+    const claimedAt = new Date()
+    const claimed = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        status: { in: REVIEWABLE_STATUSES },
+        approvedAt: null,
+        canvassRequestedAt: null,
+        OR: [
+          { candidateEditClaimedAt: null },
+          { candidateEditClaimedAt: { lt: this.candidateEditStaleCutoff() } },
+        ],
+      },
+      data: { candidateEditClaimedAt: claimedAt },
+    })
+    if (claimed.count === 0) {
+      throw new ConflictException(
+        'This text is already being edited or was just queued for sending',
+      )
+    }
+
+    try {
+      await this.writeScriptToVendor(
+        {
+          projectId: row.projectId,
+          identityId: row.identityId,
+          campaignId: row.campaignId,
+          imageUrl: row.imageUrl,
+          title: row.title,
+          name: row.name,
+        },
+        script,
+      )
+    } catch (error) {
+      await this.model.updateMany({
+        where: { id: outreachId, candidateEditClaimedAt: claimedAt },
+        data: { candidateEditClaimedAt: null },
+      })
+      throw error
+    }
+
+    const edited = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        candidateEditClaimedAt: claimedAt,
+        approvedAt: null,
+        canvassRequestedAt: null,
+      },
+      data: {
+        script,
+        message: script,
+        deniedAt: null,
+        deniedBy: null,
+        deniedReason: null,
+        candidateEditedAt: new Date(),
+        candidateEditClaimedAt: null,
+      },
+    })
+    if (edited.count === 0) {
+      this.logger.error(
+        { outreachId },
+        'Candidate edit lost its claim after Peerly took the new script; ' +
+          'the row kept the old one — manual reconciliation required',
+      )
+      throw new ConflictException(
+        'This text changed while you were editing it, refresh and try again',
+      )
+    }
+
+    try {
+      const notifRow = await this.model.findFirst({
+        where: { id: outreachId },
+        include: {
+          campaign: { include: { user: true } },
+          voterFileFilter: true,
+        },
+      })
+      if (notifRow?.campaign?.user) {
+        await this.notifications.notifyEdited({
+          user: notifRow.campaign.user,
+          campaign: notifRow.campaign,
+          outreach: notifRow,
+          textCount: notifRow.textCount ?? undefined,
+          billableTextCount: notifRow.billableTextCount ?? undefined,
+        })
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'Candidate edit Slack notice failed; the edit itself is unaffected',
+      )
+    }
+  }
+
+  private candidateEditStaleCutoff(): Date {
+    return subMilliseconds(new Date(), candidateEditClaimStaleMs())
+  }
+
+  // Refused only when the stored script passed: a row that never carried the
+  // line would otherwise be uneditable.
+  private async assertPaidForByKept(
+    campaignId: number,
+    savedScript: string | null,
+    script: string,
+  ): Promise<void> {
+    const tcr = await this.client.tcrCompliance.findFirst({
+      where: { campaignId },
+      select: { committeeName: true },
+    })
+    const context = { committeeName: tcr?.committeeName ?? null }
+    const fails = (text: string) =>
+      checkSmsStandards(text, context).failures.includes('paid_for_by')
+    if (fails(script) && !fails(savedScript ?? '')) {
+      throw new BadRequestException(
+        'Keep the "Paid for by" line in your message',
+      )
+    }
+  }
+
+  // The vendor refuses a shortened link or a restricted word outright, and
+  // the template update is a destructive overwrite — so an edit carrying one
+  // fails at the vendor with the vendor's wording, after we have already
+  // started writing to a live job. Refuse it here instead. Only these rules
+  // are enforced: the rest of the standards check stays advisory in the
+  // console, where the human approval is the gate.
+  private assertScriptAccepted(script: string): void {
+    const { failures } = checkSmsStandards(script)
+    if (failures.includes('link_shortener')) {
+      throw new BadRequestException(
+        'Links must not use a shortener like bit.ly — paste the full web ' +
+          'address instead',
+      )
+    }
+    if (failures.includes('restricted_word')) {
+      throw new BadRequestException(
+        `Remove ${findSmsRestrictedWords(script)
+          .map((word) => `"${word}"`)
+          .join(
+            ' and ',
+          )} — the texting provider rejects messages that contain it`,
+      )
+    }
+  }
+
+  // Shared by the staff and candidate edits. Peerly's template update is a
+  // destructive overwrite, so it always needs the image bytes — a
+  // script-only edit re-sends the stored one.
+  private async writeScriptToVendor(
+    row: {
+      projectId: string
+      identityId: string
+      campaignId: number
+      imageUrl: string | null
+      title: string | null
+      name: string | null
+    },
+    script: string,
+  ): Promise<void> {
+    if (!row.imageUrl) {
+      throw new BadRequestException(
+        'This campaign has no stored image, so it cannot be edited',
+      )
+    }
+    const imageKey = decodeURIComponent(new URL(row.imageUrl).pathname.slice(1))
+    const image = await this.s3.getFileBytesWithContentType(
+      ASSET_DOMAIN,
+      imageKey,
+    )
+    if (!image) {
+      throw new BadRequestException(
+        'The stored image could not be read; the campaign cannot be edited',
+      )
+    }
+
+    await this.peerlyP2pJobService.updatePeerlyP2pJob({
+      jobId: row.projectId,
+      campaignId: row.campaignId,
+      imageInfo: {
+        fileStream: image.bytes,
+        fileName: imageKey.split('/').pop() ?? 'outreach-image',
+        mimeType: image.contentType ?? 'image/jpeg',
+        title: row.title ?? undefined,
+      },
+      scriptText: script,
+      identityId: row.identityId,
+      name: row.name ?? undefined,
+    })
+    this.invalidateVendorReads(row.projectId)
   }
 
   /**
@@ -1039,10 +1311,365 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   }
 
   /**
+   * Replace a send's Peerly job before it sends (2026-11-02: Peerly flagged
+   * a job's sending number as bad and asked CAS to clone the job and submit
+   * it again). Makes a new job from what the row already stores (script,
+   * image, identity, phone list) through the same submit the purchase
+   * finalize uses, on the day picked, cancels the current job, and points
+   * the row at the new one, so the send ends with exactly one live job. No
+   * money moves: the send was paid once and the payment record is
+   * untouched. The row goes back to awaiting review, because approval is
+   * what books canvassers on the new job, and CAS can send a test from the
+   * new number before it does.
+   */
+  async replaceJob(
+    outreachId: number,
+    input: ReplaceSmsOutreachJobRequest,
+  ): Promise<SmsApprovalQueueItem> {
+    const row = await this.findReplaceableRow(outreachId, input.currentJobId)
+    const oldJobId = row.projectId
+    // A finished or sending job cannot be canceled, and replacing it would
+    // leave two jobs for one send. A send already out is linked instead.
+    if (row.status === OutreachStatus.completed) {
+      throw new ConflictException(
+        'This campaign has already sent, so its job cannot be canceled. If ' +
+          'a new job was made in Peerly, link it instead.',
+      )
+    }
+    if (row.status === OutreachStatus.in_progress) {
+      const current =
+        row.canvassRequestedAt === null
+          ? await this.peerlyP2pJobService.findJob(oldJobId)
+          : null
+      if (
+        row.canvassRequestedAt !== null ||
+        (current !== null && hasPeerlyCanvassersBooked(current))
+      ) {
+        throw new BadRequestException(
+          'This campaign is already sending, so its job cannot be canceled',
+        )
+      }
+    }
+    if (!isAfter(input.sendAt, new Date())) {
+      throw new BadRequestException('The new send time must be in the future')
+    }
+    if (
+      formatInTimeZone(input.sendAt, EASTERN_TIMEZONE, DATE_FMT) !==
+      input.scheduledLocalDate
+    ) {
+      throw new BadRequestException(
+        'scheduledLocalDate must match the Eastern calendar day of sendAt',
+      )
+    }
+
+    const claimedAt = await this.claimForReplacement(outreachId, oldJobId)
+    const releaseClaim = () =>
+      this.model.updateMany({
+        where: { id: outreachId, jobReplaceClaimedAt: claimedAt },
+        data: { jobReplaceClaimedAt: null },
+      })
+
+    // New job first: until canvassers are booked on it, it cannot send, so
+    // for this moment two jobs exist but only the old one could go out.
+    let newJobId: string
+    try {
+      newJobId = await this.outreachService.submitDraftToPeerly({
+        ...row,
+        scheduledLocalDate: input.scheduledLocalDate,
+      })
+    } catch (err) {
+      await releaseClaim()
+      throw err
+    }
+
+    try {
+      await this.peerlyP2pJobService.deleteJob(oldJobId)
+    } catch (err) {
+      // The old job is still live, so the new one must go: a send never
+      // ends with two jobs.
+      this.logger.error(
+        { err, outreachId, oldJobId, newJobId },
+        'Replace job could not cancel the current vendor job; removing the ' +
+          'new one',
+      )
+      await this.deleteOrphanJob(outreachId, newJobId)
+      await releaseClaim()
+      throw new BadGatewayException(
+        'Peerly could not cancel the current job, so nothing changed. Try ' +
+          'again.',
+      )
+    }
+
+    // Back to awaiting review on the new job: every approval stamp belonged
+    // to the old one, and a denial no longer describes anything.
+    const swapped = await this.swapToReplacementJob(outreachId, {
+      oldJobId,
+      newJobId,
+      claimedAt,
+      by: input.replacedBy,
+      reason: this.replaceReasonText(input),
+      date: input.sendAt,
+      scheduledLocalDate: input.scheduledLocalDate,
+      bookedAt: null,
+    })
+    if (!swapped) {
+      // Canceled mid-flight, or a stale-claim takeover won: the new job
+      // belongs to nothing.
+      await this.deleteOrphanJob(outreachId, newJobId)
+      throw new ConflictException(
+        'This campaign changed while its job was being replaced',
+      )
+    }
+
+    this.invalidateVendorReads(oldJobId)
+    this.invalidateVendorReads(newJobId)
+    this.logger.info(
+      {
+        outreachId,
+        oldJobId,
+        newJobId,
+        replacedBy: input.replacedBy,
+        reason: input.reason,
+      },
+      'CAS replaced the vendor job of an SMS send',
+    )
+    return this.queueItemFor(outreachId)
+  }
+
+  /**
+   * The same recovery when staff already made the replacement job by hand
+   * in Peerly (cloned it and requested canvassers there): point the row at
+   * that job so the sweeps, results and this console follow it. Nothing is
+   * written to Peerly. The current job must be finished or gone, so the
+   * send still ends with one live job. The phone list stays the row's own:
+   * replies map to people through the recipients we captured when it was
+   * built, and a hand-uploaded copy of the list holds the same numbers.
+   */
+  async linkReplacementJob(
+    outreachId: number,
+    input: LinkSmsOutreachJobRequest,
+  ): Promise<SmsApprovalQueueItem> {
+    const row = await this.findReplaceableRow(outreachId, input.currentJobId)
+    const oldJobId = row.projectId
+    const jobId = input.jobId
+    if (jobId === oldJobId) {
+      throw new BadRequestException(
+        'That job is already linked to this campaign',
+      )
+    }
+    const holder = await this.model.findFirst({
+      where: { projectId: jobId },
+      select: { id: true },
+    })
+    if (holder) {
+      throw new ConflictException(
+        `That Peerly job is already linked to campaign ${holder.id}`,
+      )
+    }
+
+    const job = await this.peerlyP2pJobService.findJob(jobId)
+    if (!job || job.status === PeerlyJobStatus.DELETED) {
+      throw new BadRequestException('Peerly has no live job with that id')
+    }
+    if (job.identity_id !== row.identityId) {
+      throw new BadRequestException(
+        'That Peerly job sends from a different identity than this campaign',
+      )
+    }
+    const current = await this.peerlyP2pJobService.findJob(oldJobId)
+    if (
+      current &&
+      current.status !== PeerlyJobStatus.DELETED &&
+      (current.leads_remaining ?? 0) > 0
+    ) {
+      throw new BadRequestException(
+        'The current Peerly job still has texts to send. Cancel it in ' +
+          'Peerly first, or replace the job here instead.',
+      )
+    }
+
+    // The job's own day becomes the row's, so the sweeps anchor on it. A
+    // booking made in Peerly stamps nothing on our row, so it is recorded
+    // here; an unbooked job goes to awaiting review for approve to book.
+    const jobDay = /^\d{4}-\d{2}-\d{2}$/.test(job.start_date ?? '')
+      ? job.start_date
+      : null
+    const booked = hasPeerlyCanvassersBooked(job)
+    const claimedAt = await this.claimForReplacement(outreachId, oldJobId)
+    const swapped = await this.swapToReplacementJob(outreachId, {
+      oldJobId,
+      newJobId: jobId,
+      claimedAt,
+      by: input.linkedBy,
+      reason: this.replaceReasonText(input),
+      date: jobDay
+        ? fromZonedTime(
+            `${jobDay}T${row.scheduledLocalTime ?? '09:00'}:00`,
+            EASTERN_TIMEZONE,
+          )
+        : row.date,
+      scheduledLocalDate: jobDay ?? row.scheduledLocalDate,
+      bookedAt: booked ? claimedAt : null,
+    })
+    if (!swapped) {
+      throw new ConflictException(
+        'This campaign changed while the job was being linked',
+      )
+    }
+    this.invalidateVendorReads(oldJobId)
+    this.invalidateVendorReads(jobId)
+    this.logger.info(
+      {
+        outreachId,
+        oldJobId,
+        newJobId: jobId,
+        booked,
+        linkedBy: input.linkedBy,
+        reason: input.reason,
+      },
+      'CAS linked an SMS send to a replacement vendor job made in Peerly',
+    )
+    return this.queueItemFor(outreachId)
+  }
+
+  private async findReplaceableRow(outreachId: number, currentJobId: string) {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, ...this.queueWhere() },
+      include: queueInclude,
+    })
+    if (!row || !row.projectId || row.campaignId === null) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    if (row.status === OutreachStatus.canceled) {
+      throw new ConflictException('A canceled campaign has no job to replace')
+    }
+    if (row.projectId !== currentJobId) {
+      throw new ConflictException(
+        'This campaign is already on a different Peerly job. Reload to see it.',
+      )
+    }
+    return { ...row, projectId: row.projectId }
+  }
+
+  private replaceReasonText(input: {
+    reason: SmsJobReplaceReason
+    otherReason?: string
+  }): string {
+    return input.reason === 'other' && input.otherReason
+      ? input.otherReason
+      : SMS_JOB_REPLACE_REASON_LABELS[input.reason]
+  }
+
+  // A new job nothing points at. It has no canvassers, so it cannot send,
+  // but it must not sit at the vendor either.
+  private async deleteOrphanJob(
+    outreachId: number,
+    jobId: string,
+  ): Promise<void> {
+    try {
+      await this.peerlyP2pJobService.deleteJob(jobId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, jobId },
+        'Replace job could not remove a vendor job nothing points at; ' +
+          'delete it by hand in Peerly',
+      )
+    }
+  }
+
+  // Claimed before any vendor write, so a double click or a retry while the
+  // first request is still working is refused rather than making a second
+  // job. A claim older than the stale window belongs to a request that died.
+  private async claimForReplacement(
+    outreachId: number,
+    oldJobId: string,
+  ): Promise<Date> {
+    const claimedAt = new Date()
+    const claimed = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        projectId: oldJobId,
+        status: { not: OutreachStatus.canceled },
+        OR: [
+          { jobReplaceClaimedAt: null },
+          {
+            jobReplaceClaimedAt: {
+              lt: subMilliseconds(claimedAt, jobReplaceClaimStaleMs()),
+            },
+          },
+        ],
+      },
+      data: { jobReplaceClaimedAt: claimedAt },
+    })
+    if (claimed.count === 0) {
+      throw new ConflictException(
+        'This campaign is already having its job replaced',
+      )
+    }
+    return claimedAt
+  }
+
+  // The status returns to pending so the completion sweep and the inbound
+  // sweep follow the new job from its own send day.
+  private async swapToReplacementJob(
+    outreachId: number,
+    swap: {
+      oldJobId: string
+      newJobId: string
+      claimedAt: Date
+      by: string
+      reason: string
+      date: Date | null
+      scheduledLocalDate: string | null
+      bookedAt: Date | null
+    },
+  ): Promise<boolean> {
+    const swapped = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        projectId: swap.oldJobId,
+        jobReplaceClaimedAt: swap.claimedAt,
+        status: { not: OutreachStatus.canceled },
+      },
+      data: {
+        projectId: swap.newJobId,
+        status: OutreachStatus.pending,
+        date: swap.date,
+        scheduledLocalDate: swap.scheduledLocalDate,
+        approvedAt: swap.bookedAt,
+        approvedBy: swap.bookedAt ? swap.by : null,
+        canvassRequestedAt: swap.bookedAt,
+        deniedAt: null,
+        deniedBy: null,
+        deniedReason: null,
+        jobReplacedAt: swap.claimedAt,
+        jobReplacedBy: swap.by,
+        previousJobId: swap.oldJobId,
+        jobReplaceReason: swap.reason,
+        jobReplaceClaimedAt: null,
+      },
+    })
+    return swapped.count > 0
+  }
+
+  private async queueItemFor(outreachId: number) {
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      include: queueInclude,
+    })
+    const registrations = await this.registrationsByCampaign([updated])
+    return this.toQueueItem(
+      updated,
+      registrations.get(updated.campaignId ?? -1),
+      null,
+    )
+  }
+
+  /**
    * CAS's pre-approval check: send the campaign's live template to the
    * reviewer's own handset, the way Peerly's platform "send test" button
-   * does. Find-or-create the job's test job (reused across clicks —
-   * every test job is a real vendor object) AND the identity's Peerly test
+   * does. Create a fresh test job on the real job for every send (see
+   * below for why one is never reused) AND the identity's Peerly test
    * list holding the typed number (Peerly only texts a number that sits on
    * one, and names the list in the send), then fire the test text to ONLY
    * the explicitly typed phone — never a number derived from campaign or
@@ -1052,7 +1679,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     outreachId: number,
     input: SmsTestMessageRequest,
   ): Promise<SmsTestMessageResponse> {
-    const phone = this.normalizeUsPhone(input.phone)
+    const phone = this.smsTestSend.normalizeUsPhone(input.phone)
     const row = await this.findFirst({
       where: { id: outreachId, ...this.queueWhere() },
     })
@@ -1080,58 +1707,13 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
 
-    // Claim BEFORE the vendor calls so a double-click's second request is
-    // refused rather than racing the first to two texts; released on a
-    // vendor failure so a real error stays retryable immediately.
-    const now = Date.now()
-    for (const [id, claimedAt] of this.testSendClaims) {
-      if (now - claimedAt >= testSendCooldownMs()) {
-        this.testSendClaims.delete(id)
-      }
-    }
-    const claimedAt = this.testSendClaims.get(outreachId)
-    if (claimedAt !== undefined && now - claimedAt < testSendCooldownMs()) {
-      throw new ConflictException(
-        'A test was just sent for this campaign — wait a moment before ' +
-          'sending another',
-      )
-    }
-    this.testSendClaims.set(outreachId, now)
-
-    try {
-      const testListId = await this.peerlyTestListService.resolveTestListId({
-        identityId: row.identityId,
-        phone,
-      })
-      const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
-        row.projectId,
-      )
-      const testJobId =
-        existingTestJobIds[0] ??
-        (await this.peerlyP2pJobService.createTestJob(row.projectId))
-      await this.peerlyP2pJobService.sendTestMessage(
-        testJobId,
-        phone,
-        testListId,
-      )
-    } catch (error) {
-      this.testSendClaims.delete(outreachId)
-      throw error
-    }
+    const { results } = await this.smsTestSend.send({
+      row: { id: row.id, projectId: row.projectId, identityId: row.identityId },
+      phones: [phone],
+    })
+    const [refusal] = results.filter(({ result }) => result !== 'sent')
+    if (refusal?.message) throw new BadRequestException(refusal.message)
     return { sent: true }
-  }
-
-  // Peerly's test send takes the national 10-digit form ("3217891234").
-  private normalizeUsPhone(raw: string): string {
-    const digits = raw.replace(/\D/g, '')
-    const national =
-      digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
-    if (national.length !== 10) {
-      throw new BadRequestException(
-        'Enter a US phone number: 10 digits, or 11 starting with 1',
-      )
-    }
-    return national
   }
 
   private async registrationsByCampaign(
@@ -1432,9 +2014,15 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       canvassRequestedAt: row.canvassRequestedAt,
       adminEditedAt: row.adminEditedAt,
       adminEditedBy: row.adminEditedBy,
+      candidateEditedAt: row.candidateEditedAt,
       canceledAt: row.canceledAt,
       canceledBy: row.canceledBy,
       canceledByAdmin: row.canceledByAdmin,
+      jobReplacedAt: row.jobReplacedAt,
+      jobReplacedBy: row.jobReplacedBy,
+      previousJobId: row.previousJobId,
+      jobId: row.projectId,
+      jobReplaceReason: row.jobReplaceReason,
       standards: row.script
         ? checkSmsStandards(row.script, {
             candidateNames,

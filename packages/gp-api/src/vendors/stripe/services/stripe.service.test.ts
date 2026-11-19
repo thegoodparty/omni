@@ -3,7 +3,6 @@ import { BadGatewayException } from '@nestjs/common'
 import { fromUnixTime } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { UsersService } from 'src/users/services/users.service'
 import { User } from 'src/generated/prisma'
 import { PaymentType } from 'src/payments/payments.types'
@@ -17,10 +16,13 @@ const {
   productsRetrieve,
   paymentIntentsCreate,
   paymentIntentsSearch,
+  paymentIntentsList,
   customersCreate,
   customersDel,
   subscriptionsRetrieve,
   subscriptionsCancel,
+  promoCodesRetrieve,
+  promoCodesCreate,
   MockStripeError,
   MockStripeCardError,
 } = vi.hoisted(() => ({
@@ -30,10 +32,13 @@ const {
   productsRetrieve: vi.fn(),
   paymentIntentsCreate: vi.fn(),
   paymentIntentsSearch: vi.fn(),
+  paymentIntentsList: vi.fn(),
   customersCreate: vi.fn(),
   customersDel: vi.fn(),
   subscriptionsRetrieve: vi.fn(),
   subscriptionsCancel: vi.fn(),
+  promoCodesRetrieve: vi.fn(),
+  promoCodesCreate: vi.fn(),
   MockStripeError: class StripeInvalidRequestError extends Error {},
   MockStripeCardError: class StripeCardError extends Error {
     payment_intent?: { id: string }
@@ -61,8 +66,10 @@ vi.mock('stripe', () => ({
     paymentIntents = {
       create: paymentIntentsCreate,
       search: paymentIntentsSearch,
+      list: paymentIntentsList,
     }
     customers = { create: customersCreate, del: customersDel }
+    promotionCodes = { retrieve: promoCodesRetrieve, create: promoCodesCreate }
     subscriptions = {
       retrieve: subscriptionsRetrieve,
       cancel: subscriptionsCancel,
@@ -93,7 +100,6 @@ describe('StripeService Pro subscription checkout', () => {
     setCustomerIdIfAbsent = vi.fn()
     findUser = vi.fn()
     service = new StripeService(
-      {} as unknown as SlackService,
       { setCustomerIdIfAbsent, findUser } as unknown as UsersService,
       createMockLogger(),
     )
@@ -299,7 +305,6 @@ describe('StripeService.createOffSessionCharge', () => {
 
   beforeEach(() => {
     service = new StripeService(
-      {} as unknown as SlackService,
       {} as unknown as UsersService,
       createMockLogger(),
     )
@@ -331,7 +336,7 @@ describe('StripeService.createOffSessionCharge', () => {
       metadata: { outreachId: '42', kind: 'robocall_fresh_charge' },
     })
     // Stable per outreach so a retry replays instead of double-charging.
-    expect(opts).toEqual({ idempotencyKey: 'robocall-fresh-charge-42' })
+    expect(opts).toEqual({ idempotencyKey: 'robocall-fresh-charge-cus_1-42' })
   })
 
   it('maps a card decline to StripeChargeDeclinedError carrying the PI id', async () => {
@@ -395,11 +400,12 @@ describe('StripeService.createOffSessionCharge', () => {
       data: [{ id: 'pi_landed', amount_received: 450 }],
     })
 
-    const found = await service.findSucceededChargeByOutreach(42)
+    const found = await service.findSucceededChargeByOutreach(42, 'cus_1')
 
     expect(found).toEqual({ paymentIntentId: 'pi_landed', amountReceived: 450 })
     const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
     expect(query).toContain("status:'succeeded'")
+    expect(query).toContain("customer:'cus_1'")
     expect(query).toContain("metadata['kind']:'robocall_fresh_charge'")
     expect(query).toContain("metadata['outreachId']:'42'")
   })
@@ -407,7 +413,29 @@ describe('StripeService.createOffSessionCharge', () => {
   it('returns null when no succeeded fresh charge exists', async () => {
     paymentIntentsSearch.mockResolvedValue({ data: [] })
 
-    expect(await service.findSucceededChargeByOutreach(42)).toBeNull()
+    expect(await service.findSucceededChargeByOutreach(42, 'cus_1')).toBeNull()
+  })
+
+  it("finds live holds by outreach, scoped to the row's customer", async () => {
+    paymentIntentsSearch.mockResolvedValue({ data: [{ id: 'pi_live' }] })
+
+    expect(await service.findLiveManualHoldsByOutreach(42, 'cus_1')).toEqual([
+      'pi_live',
+    ])
+    const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
+    expect(query).toContain("status:'requires_capture'")
+    expect(query).toContain("customer:'cus_1'")
+    expect(query).toContain("metadata['outreachId']:'42'")
+  })
+
+  it('searches live holds unscoped when the row has no customer', async () => {
+    paymentIntentsSearch.mockResolvedValue({ data: [] })
+
+    await service.findLiveManualHoldsByOutreach(42, null)
+
+    const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
+    expect(query).not.toContain('customer:')
+    expect(query).toContain("metadata['outreachId']:'42'")
   })
 })
 
@@ -416,7 +444,6 @@ describe('StripeService.createManualCaptureHold', () => {
 
   beforeEach(() => {
     service = new StripeService(
-      {} as unknown as SlackService,
       {} as unknown as UsersService,
       createMockLogger(),
     )
@@ -458,7 +485,7 @@ describe('StripeService.createManualCaptureHold', () => {
     // The account is not enrolled in extended authorization, so the hold must
     // never request it — an ineligible account rejects the whole intent.
     expect(body).not.toHaveProperty('payment_method_options')
-    expect(opts).toEqual({ idempotencyKey: 'robocall-hold-42-0' })
+    expect(opts).toEqual({ idempotencyKey: 'robocall-hold-cus_1-42-0' })
   })
 
   it('falls back to now+7d when Stripe omits capture_before', async () => {
@@ -507,12 +534,228 @@ describe('StripeService.createManualCaptureHold', () => {
   })
 })
 
+describe('StripeService.createOutreachManualCaptureHold', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  const holdArgs = {
+    customerId: 'cus_1',
+    paymentMethodId: 'pm_1',
+    amountInCents: 5000,
+    outreachId: 42,
+    holdAttempt: 2,
+    offSession: false,
+    metadata: { outreachId: '42', holdAttempt: '2' },
+  }
+
+  it('places an on-session hold under the outreach hold key', async () => {
+    const captureBeforeUnix = 1893456000
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+      latest_charge: {
+        payment_method_details: {
+          card: { capture_before: captureBeforeUnix },
+        },
+      },
+    })
+
+    const result = await service.createOutreachManualCaptureHold(holdArgs)
+
+    expect(result).toEqual({
+      paymentIntentId: 'pi_hold',
+      captureBefore: fromUnixTime(captureBeforeUnix),
+    })
+    const [body, opts] = firstOrThrow(paymentIntentsCreate.mock.calls)
+    expect(body).toMatchObject({
+      amount: 5000,
+      customer: 'cus_1',
+      payment_method: 'pm_1',
+      capture_method: 'manual',
+      confirm: true,
+      automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+      metadata: { outreachId: '42', holdAttempt: '2' },
+      expand: ['latest_charge'],
+    })
+    expect(body).not.toHaveProperty('off_session')
+    expect(opts).toEqual({ idempotencyKey: 'outreach-hold-cus_1-42-2' })
+  })
+
+  it('sends off_session for a sweep placement', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+    })
+
+    await service.createOutreachManualCaptureHold({
+      ...holdArgs,
+      offSession: true,
+    })
+
+    const [body] = firstOrThrow(paymentIntentsCreate.mock.calls)
+    expect(body).toMatchObject({ off_session: true })
+  })
+
+  it('assumes the shortest card window when the charge has no capture_before', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+    })
+
+    const before = Date.now()
+    const result = await service.createOutreachManualCaptureHold(holdArgs)
+    const after = Date.now()
+
+    const shortest = (4 * 24 + 18) * 60 * 60 * 1000
+    const captured = result.captureBefore.getTime()
+    expect(captured).toBeGreaterThanOrEqual(before + shortest)
+    expect(captured).toBeLessThanOrEqual(after + shortest)
+  })
+
+  it('maps a card decline to a decline carrying its code', async () => {
+    const declined = new MockStripeCardError('declined')
+    Object.assign(declined, { decline_code: 'insufficient_funds' })
+    paymentIntentsCreate.mockRejectedValue(declined)
+
+    await expect(
+      service.createOutreachManualCaptureHold(holdArgs),
+    ).rejects.toMatchObject({
+      name: 'StripeOutreachHoldDeclinedError',
+      declineCode: 'insufficient_funds',
+    })
+  })
+
+  it('treats an intent short of requires_capture as a decline', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_pending',
+      status: 'requires_action',
+    })
+
+    await expect(
+      service.createOutreachManualCaptureHold(holdArgs),
+    ).rejects.toMatchObject({
+      name: 'StripeOutreachHoldDeclinedError',
+      declineCode: 'requires_action',
+    })
+  })
+
+  it('maps a non-card Stripe failure to a 502', async () => {
+    paymentIntentsCreate.mockRejectedValue(new Error('stripe down'))
+
+    await expect(
+      service.createOutreachManualCaptureHold(holdArgs),
+    ).rejects.toBeInstanceOf(BadGatewayException)
+  })
+})
+
+describe('StripeService.findOutreachHolds', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  const args = { customerId: 'cus_1', outreachId: 42, holdAttempt: 2 }
+  const listing = (data: object[]) => ({
+    autoPagingToArray: vi.fn().mockResolvedValue(data),
+  })
+
+  it('lists the customer’s intents from the last 8 days', async () => {
+    paymentIntentsList.mockReturnValue(listing([]))
+
+    const before = Date.now()
+    await service.findOutreachHolds(args)
+
+    const [params] = firstOrThrow(paymentIntentsList.mock.calls)
+    expect(params).toMatchObject({
+      customer: 'cus_1',
+      expand: ['data.latest_charge'],
+    })
+    const eightDays = 8 * 24 * 60 * 60
+    expect(params.created.gte).toBeGreaterThanOrEqual(
+      Math.floor(before / 1000) - eightDays - 1,
+    )
+  })
+
+  it('keeps only this attempt, and reads each deadline from the charge', async () => {
+    const created = 1893456000
+    paymentIntentsList.mockReturnValue(
+      listing([
+        {
+          id: 'pi_live',
+          status: 'requires_capture',
+          created,
+          metadata: { outreachId: '42', holdAttempt: '2' },
+          latest_charge: {
+            payment_method_details: { card: { capture_before: 1893800000 } },
+          },
+        },
+        {
+          id: 'pi_declined',
+          status: 'requires_payment_method',
+          created,
+          metadata: { outreachId: '42', holdAttempt: '2' },
+          latest_charge: null,
+          last_payment_error: { decline_code: 'insufficient_funds' },
+        },
+        {
+          id: 'pi_earlier_attempt',
+          status: 'canceled',
+          created,
+          metadata: { outreachId: '42', holdAttempt: '1' },
+        },
+        {
+          id: 'pi_other_send',
+          status: 'requires_capture',
+          created,
+          metadata: { outreachId: '7', holdAttempt: '2' },
+        },
+      ]),
+    )
+
+    const result = await service.findOutreachHolds(args)
+
+    expect(result).toEqual([
+      {
+        paymentIntentId: 'pi_live',
+        status: 'requires_capture',
+        captureBefore: fromUnixTime(1893800000),
+        declineCode: null,
+      },
+      {
+        paymentIntentId: 'pi_declined',
+        status: 'requires_payment_method',
+        captureBefore: fromUnixTime(created + (4 * 24 + 18) * 60 * 60),
+        declineCode: 'insufficient_funds',
+      },
+    ])
+  })
+
+  it('maps a Stripe failure to a 502', async () => {
+    paymentIntentsList.mockReturnValue({
+      autoPagingToArray: vi.fn().mockRejectedValue(new Error('stripe down')),
+    })
+
+    await expect(service.findOutreachHolds(args)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+  })
+})
+
 describe('StripeService.cancelSubscription', () => {
   let service: StripeService
 
   beforeEach(() => {
     service = new StripeService(
-      { errorMessage: vi.fn() } as unknown as SlackService,
       {} as unknown as UsersService,
       createMockLogger(),
     )
@@ -702,7 +945,6 @@ describe('StripeService.createCustomCheckoutSession', () => {
 
   beforeEach(() => {
     service = new StripeService(
-      {} as unknown as SlackService,
       {
         setCustomerIdIfAbsent: vi.fn(),
         findUser: vi.fn(),
@@ -784,5 +1026,90 @@ describe('StripeService.createCustomCheckoutSession', () => {
 
     const args = firstOrThrow(sessionsCreate.mock.calls)[0]
     expect(args.payment_intent_data).toEqual({ receipt_email: email })
+  })
+})
+
+describe('StripeService.regeneratePromotionCode', () => {
+  let service: StripeService
+  const spent = {
+    id: 'promo_spent',
+    code: 'ONETIME50',
+    active: false,
+    expires_at: null,
+    customer: null,
+    metadata: { campaignId: '9' },
+    restrictions: {
+      first_time_transaction: false,
+      minimum_amount: 500,
+      minimum_amount_currency: 'usd',
+    },
+    promotion: { type: 'coupon', coupon: 'co_1' },
+  }
+
+  beforeEach(() => {
+    promoCodesRetrieve.mockReset()
+    promoCodesCreate.mockReset()
+    service = new StripeService(
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  it('mints a single-use replacement with the same code, coupon and restrictions', async () => {
+    promoCodesRetrieve.mockResolvedValue(spent)
+    promoCodesCreate.mockResolvedValue({ id: 'promo_new' })
+
+    const result = await service.regeneratePromotionCode('promo_spent')
+
+    expect(result).toEqual({ id: 'promo_new' })
+    expect(promoCodesCreate).toHaveBeenCalledWith({
+      promotion: { type: 'coupon', coupon: 'co_1' },
+      code: 'ONETIME50',
+      max_redemptions: 1,
+      restrictions: {
+        first_time_transaction: false,
+        minimum_amount: 500,
+        minimum_amount_currency: 'usd',
+      },
+      metadata: { campaignId: '9', restoredFrom: 'promo_spent' },
+    })
+  })
+
+  it('drops first-purchase-only from the spent code so a paid customer can use it', async () => {
+    promoCodesRetrieve.mockResolvedValue({
+      ...spent,
+      restrictions: { first_time_transaction: true },
+    })
+    promoCodesCreate.mockResolvedValue({ id: 'promo_new' })
+
+    await service.regeneratePromotionCode('promo_spent')
+
+    expect(promoCodesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        restrictions: { first_time_transaction: false },
+      }),
+    )
+  })
+
+  it('does nothing when the code is still active', async () => {
+    promoCodesRetrieve.mockResolvedValue({ ...spent, active: true })
+
+    expect(await service.regeneratePromotionCode('promo_spent')).toBeNull()
+    expect(promoCodesCreate).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when the code has already expired', async () => {
+    promoCodesRetrieve.mockResolvedValue({ ...spent, expires_at: 1_000 })
+
+    expect(await service.regeneratePromotionCode('promo_spent')).toBeNull()
+    expect(promoCodesCreate).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a Stripe failure as a 502', async () => {
+    promoCodesRetrieve.mockRejectedValue(new Error('boom'))
+
+    await expect(
+      service.regeneratePromotionCode('promo_spent'),
+    ).rejects.toBeInstanceOf(BadGatewayException)
   })
 })

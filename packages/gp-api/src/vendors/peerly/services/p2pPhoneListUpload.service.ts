@@ -6,13 +6,17 @@ import {
   Inject,
   Injectable,
 } from '@nestjs/common'
-import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { Campaign, Organization, User } from '../../../generated/prisma'
+import {
+  Campaign,
+  Organization,
+  PhoneListBuildStatus,
+  User,
+} from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
   ContactsFilterResolutionInput,
@@ -24,9 +28,8 @@ import {
   resolveFilterAudience,
 } from '@/contacts/utils/audienceResolution.util'
 import { csvEscape } from '@/shared/util/csv.util'
-import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
-import { MessageGroup, QueueType } from '@/queue/queue.types'
-import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobShutdownError, JobsService } from '@/jobs/jobs.service'
 import { OrganizationsService } from '../../../organizations/services/organizations.service'
 import {
   P2pPhoneListRequestSchema,
@@ -36,6 +39,7 @@ import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSms
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PhoneListState } from '../peerly.types'
+import { peerlyScrubCounts } from '../utils/peerlyScrubCounts.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { WIN_SMS_HOLD_BILLING_FLAG } from '@/shared/util/winSmsHold.util'
 import { FeaturesService } from '@/features/services/features.service'
@@ -44,7 +48,7 @@ import { FeaturesService } from '@/features/services/features.service'
 // export — each contacts-pipeline consumer keeps its own copy (see that
 // file's SEGMENT_PAGE_SIZE for the sibling constant).
 const SEGMENT_PAGE_SIZE = 1000
-const MAX_PHONE_LIST_RECIPIENTS = 100_000
+const MAX_PHONE_LIST_RECIPIENTS = 200_000
 
 const CSV_HEADER_ROW = 'first_name,last_name,lead_phone,state,city,zip'
 
@@ -60,30 +64,23 @@ type P2pPhoneListFilterInput = Omit<
 >
 
 // A `building` row whose updatedAt is older than this is assumed abandoned
-// (the handler crashed, was OOM-killed, or lost its SQS message before
-// finishing) and is reclaimed by the sweep below. Comfortably exceeds a
-// healthy-but-slow run: filter resolution over a 100k-recipient audience
-// plus a ~100MB Peerly upload, against a 60s Peerly upload timeout
-// (peerlyBaseConfig's PEERLY_UPLOAD_TIMEOUT_MS) — this has no request
-// deadline (see buildPhoneList's isInteractive branch), so it can
-// legitimately run for several minutes.
+// (the job crashed, was OOM-killed, or its task stopped before it finished)
+// and is reclaimed by the p2pPhoneListBuildStaleSweep schedule. A healthy run
+// is never this stale however large its audience: buildPhoneList bumps
+// updatedAt every BUILD_HEARTBEAT_RECIPIENTS while it resolves (a
+// 200k-recipient resolution can run ~17 minutes at the slow end of prod's
+// page times), and what follows resolution is bounded on its own — a 60s
+// Peerly upload timeout (peerlyBaseConfig's PEERLY_UPLOAD_TIMEOUT_MS) and
+// recordUpload's transaction timeout.
 const P2P_PHONE_LIST_BUILD_STALE_MINUTES = 20
+// ~10 pages, ~15-25s of resolution: far inside the stale window above, and
+// rare enough that the extra writes don't matter.
+const BUILD_HEARTBEAT_RECIPIENTS = 10_000
 // How many times the reaper will re-queue a stuck build before giving up and
 // marking it permanently failed. Bounds a build that fails the same way on
 // every retry (e.g. a persistently broken filter) rather than re-queuing it
 // forever.
 const P2P_PHONE_LIST_BUILD_MAX_ATTEMPTS = 3
-// Every 15 minutes, offset off the top of the hour. grep -rn '@Cron(' before
-// changing this — see docs/scheduled-jobs.md.
-const P2P_PHONE_LIST_BUILD_SWEEP_CRON = '14,29,44,59 * * * *'
-const P2P_PHONE_LIST_BUILD_SWEEP_JOB = 'p2pPhoneListBuildStaleSweep'
-// Every 15 minutes, on digits the sibling sweep above (4/9) and the */5 and
-// top-of-hour herds don't use. The robocall 6-lane sweep family saturates the
-// minute space in this one process, so no slot is collision-free; this one at
-// least shares no instant with the sibling p2p sweep. grep -rn '@Cron(' before
-// changing — see docs/scheduled-jobs.md.
-const P2P_PHONE_LIST_FINISH_SWEEP_CRON = '8,23,38,53 * * * *'
-const P2P_PHONE_LIST_FINISH_SWEEP_JOB = 'p2pPhoneListFinishSweep'
 // A `processing` row untouched for this long is assumed stranded: the
 // candidate's browser poll — which would otherwise stamp it `ready` — has
 // stopped (the tab closed). Comfortably exceeds the browser poll interval so
@@ -128,7 +125,7 @@ export class P2pPhoneListUploadService {
     private readonly tcrComplianceService: CampaignTcrComplianceService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
-    private readonly queueProducer: QueueProducerService,
+    private readonly jobs: JobsService,
     // forwardRef: OutreachModule and PeerlyModule import each other, so the
     // capture provider is resolved through that cycle.
     @Inject(forwardRef(() => OutreachP2pSmsCaptureService))
@@ -170,10 +167,9 @@ export class P2pPhoneListUploadService {
         requestSnapshot: { ...request },
       })
 
-      // AFTER the row commits (queue outbox rule: never enqueue before the
-      // thing the handler will look up exists), and `throwOnError` because a
-      // producer failure swallowed here would accept a request nothing will
-      // ever build (queue/AGENTS.md "Failure modes").
+      // AFTER the row commits (never queue before the thing the job will
+      // look up exists). A failed send throws, so a request nothing will
+      // ever build is never accepted.
       await this.enqueueBuild(build.id, 0)
       this.logger.debug(
         `P2P phone list build ${build.id} enqueued for campaign ${campaign.id}`,
@@ -240,21 +236,21 @@ export class P2pPhoneListUploadService {
     return { token, listName, buildId: build.id }
   }
 
-  // Queue handler for QueueType.P2P_PHONE_LIST_BUILD (dispatched from
-  // queueConsumer.service.ts — no business logic there, it only dispatches).
-  // Returns true to ack. Throws to let SQS redeliver; the claim CAS below
-  // (queued-only) makes a redelivery or a reaper-driven retry safe either
-  // way — see queue/AGENTS.md "Failure modes".
-  async handleQueuedBuild(buildId: string): Promise<boolean> {
+  // The p2pPhoneListBuild job's worker. Returns to complete the job; throws
+  // to retry it. The claim CAS below (queued-only) makes a retry or a
+  // reaper-driven re-send safe either way.
+  async handleQueuedBuild(job: JobRun<{ buildId: string }>): Promise<void> {
+    const { buildId } = job.data
     const claimed = await this.peerlyPhoneListCapture.claimForBuild(buildId)
     if (!claimed) {
-      // A concurrent delivery already owns this build, or it has already
-      // advanced past `queued` (processing/ready/failed) — idempotent no-op.
+      // Another job already owns this build, or it has already advanced past
+      // `queued` (processing/ready/failed) — idempotent no-op.
       this.logger.info(
         { buildId },
-        'p2pPhoneListBuild: claim missed (already owned or advanced); acking',
+        'p2pPhoneListBuild: claim missed (already owned or advanced); ' +
+          'completing',
       )
-      return true
+      return
     }
 
     const build = await this.peerlyPhoneListCapture.findFirst({
@@ -262,13 +258,13 @@ export class P2pPhoneListUploadService {
     })
     if (!build) {
       // Can't happen in the normal flow (the claim above just matched this
-      // row by id) — but a redelivery racing a hard-delete elsewhere must
-      // not crash the consumer.
+      // row by id) — but a retry racing a hard-delete elsewhere must not
+      // fail the job.
       this.logger.error(
         { buildId },
-        'p2pPhoneListBuild: claimed row vanished; acking',
+        'p2pPhoneListBuild: claimed row vanished; completing',
       )
-      return true
+      return
     }
 
     const snapshot = p2pPhoneListRequestSchema.safeParse(build.requestSnapshot)
@@ -281,7 +277,7 @@ export class P2pPhoneListUploadService {
         buildId,
         new BadRequestException('Missing or invalid build request'),
       )
-      return true
+      return
     }
     const { name: listName, ...filterInput } = snapshot.data
 
@@ -295,7 +291,7 @@ export class P2pPhoneListUploadService {
           'TCR compliance record does not have a Peerly identity ID',
         ),
       )
-      return true
+      return
     }
 
     const organization = await this.organizationsService.findFirst({
@@ -306,7 +302,7 @@ export class P2pPhoneListUploadService {
         buildId,
         new BadRequestException('Organization not found for campaign'),
       )
-      return true
+      return
     }
 
     const resolvedFilterInput = await this.resolveFilterInput(
@@ -318,7 +314,7 @@ export class P2pPhoneListUploadService {
         buildId,
         new BadRequestException('Voter file filter not found'),
       )
-      return true
+      return
     }
 
     const excludePersonIds = await this.resolveOptOutScrub(
@@ -336,37 +332,62 @@ export class P2pPhoneListUploadService {
         excludePersonIds,
         isInteractive: false,
         existingToken: build.token ?? undefined,
+        signal: job.signal,
       })
-      return true
     } catch (error) {
       if (error instanceof HttpException) {
-        // runBuild already called markBuildFailed before throwing — a
-        // permanent, client-input-shaped failure. Ack; retrying can't help.
-        return true
+        // Every permanent rejection has already moved the row off `building`
+        // (markBuildFailed). A Peerly upload failure the vendor layer wrapped
+        // as a 502 hasn't: the row is still `building`. The first is handed
+        // back for an immediate retry, and one on the last attempt parks the
+        // build now. Any other is left to the stale-building reaper, which
+        // spaces attempts 20 minutes apart, so a short Peerly outage cannot
+        // use up every attempt of a paid list in a few minutes.
+        const row = await this.peerlyPhoneListCapture.findFirst({
+          where: { id: buildId },
+          select: { buildStatus: true, buildAttempts: true },
+        })
+        if (
+          row?.buildStatus === PhoneListBuildStatus.building &&
+          (row.buildAttempts <= 1 ||
+            row.buildAttempts >= P2P_PHONE_LIST_BUILD_MAX_ATTEMPTS)
+        ) {
+          await this.reclaimStaleBuild(buildId, new Date())
+        }
+        return
+      }
+      // The signal also aborts when the attempt times out. That attempt is
+      // spent, so its row is left `building` for the stale-building reaper,
+      // as a transient fault's is: handed back `queued`, a last attempt's
+      // timeout would leave it with no job to build it.
+      if (job.signal.reason instanceof JobShutdownError) {
+        // A deploy is stopping this task mid-resolution, before anything was
+        // uploaded. JobsService puts this job back in its queue without
+        // spending an attempt, so give the row back the same way: `queued`,
+        // with this run's claim taken off its attempt count, for the
+        // requeued job to claim on another task.
+        await this.peerlyPhoneListCapture.releaseBuildingClaim(buildId)
+        throw error
       }
       // Transient (people-db, S3, a Peerly 5xx/network, or anything
-      // unclassified): rethrow so SQS redelivers. The claim is single-owner
-      // and queued-only, so the actual retry is driven by the stale-building
-      // reaper resetting this row back to `queued`, not by SQS's own
-      // redelivery of this exact message landing on a `building` row.
+      // unclassified): rethrow so the job retries. The claim is single-owner
+      // and queued-only, so a retry of this job lands on a `building` row and
+      // completes; the actual rebuild is driven by the stale-building reaper
+      // resetting the row back to `queued`.
       throw error
     }
   }
 
-  // Stale-building reaper: a row claimed (queued -> building) by some
-  // handler invocation that never finished gets re-queued, or parked
-  // `failed` once it has used up its retry budget. Per-record CAS
-  // (reclaimStaleBuilding/failStaleBuilding), idempotent across replicas and
-  // across overlapping sweeps — mirrors
-  // OutreachRobocallStagingService.sweepRobocallStaging's reasoning for
-  // omitting a whole-job CronLockService: two replicas can both SELECT the
-  // same stale candidate, but only one's CAS matches (the other's `updatedAt
-  // < staleCutoff` predicate loses once the winner bumps it), so a build is
-  // never re-queued twice from one sweep.
-  @Cron(P2P_PHONE_LIST_BUILD_SWEEP_CRON, {
-    name: P2P_PHONE_LIST_BUILD_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
+  // Stale-building reaper, the p2pPhoneListBuildStaleSweep schedule's
+  // worker: a row claimed (queued -> building) by some job that never
+  // finished gets re-queued, or parked `failed` once it has used up its
+  // retry budget. Per-record CAS (reclaimStaleBuilding/failStaleBuilding):
+  // a run retried after a partial pass, or racing an immediate hand-back,
+  // can SELECT the same stale candidate, but only one CAS matches (the
+  // other's `updatedAt < staleCutoff` predicate loses once the winner bumps
+  // it), so a build is never re-queued twice for one attempt. Not fanned
+  // out: each record's work is that CAS and one job send, and the
+  // p2pPhoneListBuild job it sends is the per-build job.
   async sweepStaleBuilding(): Promise<void> {
     const staleCutoff = subMinutes(
       new Date(),
@@ -421,7 +442,7 @@ export class P2pPhoneListUploadService {
     } catch (err) {
       // Undo the reclaim so the row doesn't strand at `queued` with nothing
       // ever claiming it — the reaper only looks at `building` rows, so a
-      // `queued` row with a dead enqueue would otherwise sit forever.
+      // `queued` row with no job would otherwise sit forever.
       await this.peerlyPhoneListCapture.revertReclaimedBuilding(buildId)
       throw err
     }
@@ -434,15 +455,15 @@ export class P2pPhoneListUploadService {
   // the list strands at `processing` forever. This sweep does the same Peerly
   // read + stamp headless.
   //
-  // No CronLockService, mirroring sweepStaleBuilding and
-  // OutreachRobocallStagingService.sweepRobocallStaging: the stamp is a
-  // single-owner CAS (stampPeerlyListId guards on peerlyListId IS NULL), so
-  // two replicas both reading ACTIVE stamp exactly once, and a concurrent
-  // browser poll can't double-stamp either. Gated to the dev+prod deploys
-  // (not every preview stack) because it reads a rate-limited vendor (Peerly);
-  // it runs on dev as well as prod since it moves no money and sends nothing,
-  // and sendless dev validation depends on it. process.env is read live so a
-  // test can stub the gate.
+  // The p2pPhoneListFinishSweep schedule's worker. The stamp is a
+  // single-owner CAS (stampPeerlyListId guards on peerlyListId IS NULL), so a
+  // retried run and a concurrent browser poll both reading ACTIVE stamp
+  // exactly once. Gated to the dev+prod deploys (not every preview stack)
+  // because it reads a rate-limited vendor (Peerly); it runs on dev as well
+  // as prod since it moves no money and sends nothing, and sendless dev
+  // validation depends on it. process.env is read live so a test can stub
+  // the gate. Not fanned out: a row Peerly cannot read yet is re-read next
+  // pass and only logs, and the batch cap is what bounds the vendor reads.
   //
   // Selection is bounded by a stale-age floor and a batch cap (see the two
   // constants above) so the vendor reads stay bounded per pass. A row whose
@@ -451,11 +472,7 @@ export class P2pPhoneListUploadService {
   // it already has today, and a terminal-failure path for it is intentionally
   // out of this slice's scope (which is producing `ready`), mirroring how the
   // stale-building reaper and this finisher stay separate concerns.
-  @Cron(P2P_PHONE_LIST_FINISH_SWEEP_CRON, {
-    name: P2P_PHONE_LIST_FINISH_SWEEP_JOB,
-    timeZone: EASTERN_TIMEZONE,
-  })
-  async sweepUnfinishedBuilds(): Promise<void> {
+  async sweepUnfinishedBuilds(job: JobRun<ScheduleData>): Promise<void> {
     if (
       !P2P_PHONE_LIST_FINISH_DEPLOY_ENVIRONMENTS.has(
         process.env.OTEL_SERVICE_ENVIRONMENT ?? '',
@@ -476,6 +493,9 @@ export class P2pPhoneListUploadService {
 
     for (const { id: buildId, token } of candidates) {
       if (!token) continue
+      // Each build is finished on its own, so a run stopped by a deploy
+      // leaves the rest for its retry.
+      job.signal.throwIfAborted()
       try {
         await this.finishBuild(buildId, token)
       } catch (err) {
@@ -521,6 +541,10 @@ export class P2pPhoneListUploadService {
       leadsSupplied: details.leads_supplied,
     })
     if (!stable) return
+    this.logger.info(
+      { buildId, listId, ...peerlyScrubCounts(details) },
+      'Peerly phone list ready',
+    )
 
     // Single-owner CAS (peerlyListId IS NULL): a no-op if a browser poll or
     // another replica stamped it first.
@@ -560,19 +584,20 @@ export class P2pPhoneListUploadService {
     }
   }
 
-  // FIFO group per build, so a build's own redeliveries/retries serialize
-  // rather than racing each other through the claim CAS. `attempt` only
-  // varies the deduplicationId — SQS's dedup window would otherwise collapse
-  // a genuine retry (after a prior one failed) with the original message.
-  private async enqueueBuild(buildId: string, attempt: number): Promise<void> {
-    await this.queueProducer.sendMessage(
-      { type: QueueType.P2P_PHONE_LIST_BUILD, data: { buildId } },
-      `${MessageGroup.p2pPhoneListBuild}-${buildId}`,
+  // Grouped per build, so a build's own jobs serialize rather than racing
+  // each other through the claim CAS. Keyed on the build and its attempt:
+  // two sends for one attempt (a hand-back racing the reaper) make one job
+  // while the first is still queued or running, and a genuine retry after a
+  // prior attempt failed is a new key, so it is never collapsed into the old
+  // one.
+  async enqueueBuild(buildId: string, attempt: number): Promise<void> {
+    await this.jobs.sendMany('p2pPhoneListBuild', [
       {
-        throwOnError: true,
-        deduplicationId: `${QueueType.P2P_PHONE_LIST_BUILD}-${buildId}-attempt-${attempt}`,
+        data: { buildId },
+        key: `${buildId}:attempt-${attempt}`,
+        group: buildId,
       },
-    )
+    ])
   }
 
   // Resolves a persisted voterFileFilterId into the full saved-segment
@@ -610,6 +635,8 @@ export class P2pPhoneListUploadService {
     excludePersonIds: Set<string>
     isInteractive: boolean
     existingToken?: string
+    // The queued path's job signal; see buildPhoneList.
+    signal?: AbortSignal
   }): Promise<string> {
     const {
       buildId,
@@ -621,6 +648,7 @@ export class P2pPhoneListUploadService {
       excludePersonIds,
       isInteractive,
       existingToken,
+      signal,
     } = params
 
     // HARD SEND CAP (Win SMS hold, team decision 2 — never oversend): the
@@ -646,11 +674,13 @@ export class P2pPhoneListUploadService {
     }
     try {
       phoneList = await this.buildPhoneList(
+        buildId,
         resolvedFilterInput,
         organization,
         excludePersonIds,
         isInteractive,
         sendCap,
+        signal,
       )
     } catch (error) {
       // The row's buildError mirrors whatever is ABOUT TO BE thrown to the
@@ -672,8 +702,8 @@ export class P2pPhoneListUploadService {
       )
       if (!isInteractive) {
         // Async path: an unclassified error here (people-db, network) is
-        // TRANSIENT — rethrow raw so the queue handler redelivers rather
-        // than parking a build that would have succeeded on retry. The
+        // TRANSIENT — rethrow raw so the job retries rather than parking a
+        // build that would have succeeded on retry. The
         // synchronous path below keeps wrapping this as a 400 (unchanged).
         throw error
       }
@@ -780,6 +810,7 @@ export class P2pPhoneListUploadService {
   }
 
   private async buildPhoneList(
+    buildId: string,
     filterInput: ContactsFilterResolutionInput,
     organization: Organization,
     excludePersonIds: Set<string>,
@@ -788,6 +819,10 @@ export class P2pPhoneListUploadService {
     // been collected, so the uploaded list never exceeds the paid count. Null
     // applies no cap (flag off, or no hold authorized for this build yet).
     sendCap: number | null = null,
+    // Checked between recipients on the queued path, so a deploy stops a
+    // long resolution before anything is uploaded and the job hands the row
+    // back for another task.
+    signal?: AbortSignal,
   ): Promise<{
     csvBuffer: Buffer
     recipients: PhoneListRecipient[]
@@ -805,8 +840,10 @@ export class P2pPhoneListUploadService {
       maxRecipients: MAX_PHONE_LIST_RECIPIENTS,
       isEligible: hasGeoTargetableAddress,
       limitExceededMessage:
-        `This filter matches over the ${MAX_PHONE_LIST_RECIPIENTS} ` +
-        `phone-list limit — narrow the filter and try again.`,
+        `This list reaches over ` +
+        `${MAX_PHONE_LIST_RECIPIENTS.toLocaleString('en-US')} people, which ` +
+        `is more than one text campaign can send to. Narrow your filters ` +
+        `and try again.`,
       // Only the interactive (synchronous) path has an official sat in
       // front of it waiting for a token, so only it gets a clock. The
       // queued build has no deadline — it genuinely completes however long
@@ -845,8 +882,12 @@ export class P2pPhoneListUploadService {
       // send that reads it) never exceeds what the hold authorized. A capped-down
       // send is fine — we charge the hold and send the hold's worth.
       if (sendCap !== null && recipients.length >= sendCap) break
+      signal?.throwIfAborted()
       const person = next.value
       recipients.push({ personId: person.id, phone: person.cellPhone })
+      if (recipients.length % BUILD_HEARTBEAT_RECIPIENTS === 0) {
+        await this.peerlyPhoneListCapture.touchBuilding(buildId)
+      }
       rows.push(
         [
           person.firstName,

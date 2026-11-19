@@ -1,7 +1,7 @@
 # Runbooks
 
-Reusable runbooks, slash commands, and PMF experiment manifests for AI agents.
-Lives in omni as `packages/runbooks`. `books/` and `commands/` are still written
+Reusable runbooks, the scripts behind omni's ClickUp skills, and PMF experiment manifests for AI agents.
+Lives in omni as `packages/runbooks`. `books/` is still written
 to be portable (clone-anywhere, no paths outside this package); `experiments/` is
 coupled to omni — its `manifest.json` schemas drive TS codegen in `gp-api` and
 `gp-webapp` (`scripts/generate-agent-job-types.ts`).
@@ -11,12 +11,10 @@ coupled to omni — its `manifest.json` schemas drive TS codegen in `gp-api` and
 ```
 runbooks/
 ├── books/               # Procedures and reference docs (markdown) — read-only-when-asked
-│   ├── INDEX.md         # Routing table — read this first to find the right procedure (covers books/ AND commands/)
+│   ├── INDEX.md         # Routing table — read this first to find the right procedure (also routes to the runbooks skills)
 │   ├── .env.example     # Non-sensitive config (paths, regions, org names)
 │   └── .env             # AI agents MAY read this
-├── commands/            # Procedures that ALSO register as Claude Code slash commands via install.sh
-│                        # Same shape as books/; difference is invocation surface, not content
-├── agents/              # Claude Code subagent definitions dispatched BY commands (installed via install.sh)
+├── agents/              # Claude Code subagent definitions dispatched BY the runbooks skills (installed via install.sh)
 │                        # e.g. /work-on-clickup's gp-reviewer + gp-ui-tester
 ├── scripts/
 │   ├── INDEX.md         # Script inventory — what each script does and which procedure uses it
@@ -24,11 +22,11 @@ runbooks/
 │   ├── .env             # AI agents MUST NOT read this
 │   ├── python/          # Python scripts — managed by uv (pyproject.toml)
 │   └── shell/           # Shell scripts — no runtime manager
-├── install.sh           # Symlinks (or copies) commands/*.md AND agents/*.md into a Claude Code config dir
+├── install.sh           # Symlinks (or copies) agents/*.md into a Claude Code config dir
 └── AGENTS.md
 ```
 
-When given a task, start by reading `books/INDEX.md` to find the relevant procedure. The index routes to both `books/` and `commands/` — the agent should treat both the same way when reading.
+When given a task, start by reading `books/INDEX.md` to find the relevant procedure. The index routes to books and to the runbooks skills.
 
 ## CAP agent skills (authoring + cost)
 
@@ -39,11 +37,11 @@ Two top-level Claude Code skills (auto-discovered, in `.claude/skills/`) own the
 
 ## Analytics governance surfaces
 
-The event-state spreadsheet is generated, never hand-edited. `scripts/python/event_state_gsheet.py` writes every tab: `refresh` (events), `refresh-gaps` (gaps), `refresh-questions` (questions), `refresh-anchors` (anchors, DATA-2426). The scheduled `analytics-governance` workflow runs the first three; `refresh-anchors` stays manual, and mirrors `event_anchors.py`'s review queue read-only. Anchors are reviewed in the committed markdown queue at `scripts/python/instrumentation_data/event-anchors-review.md`, which the Slack digest links to; the `anchors` tab is for browsing, not editing.
+The event-state spreadsheet is generated, never hand-edited. `scripts/python/event_state_gsheet.py` writes every tab: `refresh` (events), `refresh-gaps` (gaps), `refresh-questions` (questions). The scheduled `analytics-governance` workflow runs all three.
 
-The one exception is the sheet's `README` tab: a hand-maintained column dictionary for all four data tabs, which no script writes. Adding or renaming a column in `event_state_assembler.COLUMNS`, `GAPS_COLUMNS`, `ANCHORS_COLUMNS` or `QUESTIONS_COLUMNS` means updating that tab and the "Analytics event state" wiki page in the same change, or the dictionary silently goes wrong.
+The one exception is the sheet's `README` tab: a hand-maintained column dictionary for all three data tabs, which no script writes. Adding or renaming a column in `event_state_assembler.COLUMNS`, `GAPS_COLUMNS` or `QUESTIONS_COLUMNS` means updating that tab and the "Analytics event state" wiki page in the same change, or the dictionary silently goes wrong.
 
-There is a second consumer surface beside the sheet: the analytics-event explorer, a browsable page over the same data (DATA-2506). `scripts/python/event_explorer_snapshot.py` builds its one JSON from `event_state_assembler.assemble()` rather than from the sheet, so the page and the sheet cannot disagree and no Google identity is needed. The scheduled workflow runs it and commits the result; a scheduled cloud routine rebuilds the standalone page from that commit and republishes the shared artifact, which is the only thing that makes the live page move. Page detail, including its own tracking and feedback, is in `packages/prototypes/app/p/analytics-event-explorer/README.md`.
+There is a second consumer surface beside the sheet: the analytics-event explorer, a browsable page over the same data (DATA-2506). `scripts/python/event_explorer_snapshot.py` builds its one JSON from `event_state_assembler.assemble()` rather than from the sheet, so the page and the sheet cannot disagree and no Google identity is needed. The scheduled workflow runs it and commits the result; a scheduled cloud routine rebuilds the page from that commit and republishes the shared artifact, which is the only thing that makes the live page move. Page detail, including its own tracking and feedback, is in `surfaces/event-explorer/README.md`.
 
 A third surface sits beside those two, for the operator rather than the consumer: the
 event health console in `surfaces/governance-console/` (DATA-2546). It shows the catalog
@@ -86,17 +84,17 @@ detector, which flags an event whose label no longer matches where the code reac
 writes `instrumentation_data/surface_drift.json` for the console's surface queue and the
 triage skill's Queue D. See `books/monitor-analytics-event-health.md`.
 
-## Used by the delegate worker
+## Runbooks skills
 
-The `ops/delegate/worker` (in the separate `ops` repo) clones omni at boot via the GitHub App token with a partial + sparse checkout of just this package, and sets `RUNBOOKS_DIR=/app/omni/packages/runbooks` in the agent environment. Updates to `commands/*.md` propagate to the bot on the next agent run with no `ops` redeploy — the clone is fresh each boot. See `ops/delegate/worker/entrypoint.ts` for the clone step and `ops/delegate/README.md` for the operator runbook.
+`clickup-epic-create`, `clickup-epic-edit`, `work-on-clickup`, `work-on-epic` and `validate-feature` are omni skills in `.claude/skills/<name>/SKILL.md`, loaded by Claude Code and gp-pi from the checkout. Their scripts, `.env` files and subagents stay here, so each skill opens with a `resolve-runbooks-dir` block that `cd`s into this package (`$RUNBOOKS_DIR` if set, else `<repo root>/packages/runbooks`). Keep those blocks identical across the five skills.
 
-This is the only first-party consumer that pins specific paths into this package's content. Keep individual `books/`/`commands/` procedures portable — don't reference paths outside this package.
+The gp-ai autopilot image (`packages/gp-ai/autopilot/Dockerfile`) bakes a copy of this package at `/opt/runbooks`, sets `RUNBOOKS_DIR` to it, and runs `install.sh` for the subagents; the skills reach it with the omni checkout. It only picks up changes here on its next image build.
 
 ## Rules
 
 ### Standalone Project
 
-Procedures and references in `books/` and `commands/` are self-contained. Do not reference or link to external repositories, file paths outside this repo, or project-specific directories from those documents. Users clone this repo wherever they want — never assume a specific path.
+Procedures and references in `books/` are self-contained. Do not reference or link to external repositories, file paths outside this repo, or project-specific directories from those documents. Users clone this repo wherever they want — never assume a specific path.
 
 Exception: the top-level `AGENTS.md` may include a dedicated "Used by" section that names first-party consumers (e.g., bots and services that clone this repo at boot), so maintainers know where the runbooks are read from. Keep individual procedures clean.
 
@@ -126,29 +124,15 @@ Books are markdown files in `books/`. There are two types:
 - Books can reference other books (`see books/vpn.md`) but should still work standalone
 - Avoid deep reference chains — if book A requires B which requires C, something's wrong
 
-### Commands
-
-Commands are markdown procedures in `commands/` that _also_ register as Claude Code slash commands via `install.sh`. Same shape as books — the difference is invocation surface, not content.
-
-- A `commands/<name>.md` file is invokable as `/<name>` after the user runs `./install.sh`
-- Without install, agents read `commands/<name>.md` directly the same way they read books
-- All **shared rules for books** above apply to commands as well — one-line summary, kebab-case naming, self-explanatory, no deep reference chains
-- Commands are usually procedures (`proc`); they should not be references (`ref`)
-- Commands run from arbitrary working directories (the user invoked `/<name>` from some other project), so each command must include a "Where this runs" block at the top that resolves the runbooks repo path via `$RUNBOOKS_DIR` (with fallbacks)
-- Add a row to `books/INDEX.md` under `Procedure: commands/<name>.md` with trigger keywords, same as for books
-- When adding a new command, no `install.sh` change is required — it picks up `commands/*.md` automatically
-- Commands header convention: start the file with `<!-- v<N> — <YYYY-MM-DD> -->` so reviewers can spot major revisions in the file itself
-- The "Where this runs" / `$RUNBOOKS_DIR` resolution block is duplicated by design (slash commands run with only their own file in context, so a shared helper file would create a chicken-and-egg dependency). Each copy is wrapped in `<!-- BEGIN: resolve-runbooks-dir -->` … `<!-- END: resolve-runbooks-dir -->` markers so future bulk-edits across `commands/*.md` are mechanical — keep them in sync
-
 ### Agents
 
-Subagent definitions in `agents/` are Claude Code `.md` files (YAML frontmatter — `name`, `description`, `tools` — plus a system-prompt body) that **commands dispatch by name**. They are not invoked directly by users; a command (e.g. `commands/work-on-clickup.md`) spawns them via the subagent mechanism.
+Subagent definitions in `agents/` are Claude Code `.md` files (YAML frontmatter — `name`, `description`, `tools` — plus a system-prompt body) that **the runbooks skills dispatch by name**. They are not invoked directly by users; a skill (e.g. `work-on-clickup`) spawns them via the subagent mechanism.
 
 - One agent per file, kebab-case, named for its role (`gp-reviewer.md`, `gp-ui-tester.md`). Prefix shared GoodParty agents with `gp-` so they don't collide with generic agents in a user's config dir.
-- `install.sh` installs `agents/*.md` into `$CLAUDE_CONFIG_DIR/agents` (or `./.claude/agents` for `project` scope) the same way it installs commands. **Subagents only resolve after a session restart** — say so wherever a command depends on one.
+- `install.sh` installs `agents/*.md` into `$CLAUDE_CONFIG_DIR/agents` (or `./.claude/agents` for `project` scope). **Subagents only resolve after a session restart** — say so wherever a skill depends on one.
 - Keep the `tools:` allowlist tight and intentional. It gates **MCP tools too** — a UI agent that needs Playwright must name the `mcp__playwright__*` tools explicitly; omitting them silently denies access. "Read-only" reviewers omit `Edit`/`Write`.
-- A command that dispatches an agent must **degrade gracefully** when it isn't installed (skip it with a note, or fall back to inline) — don't assume the user ran `install.sh`.
-- Same portability rules as books/commands: self-contained, no paths outside this repo. Pass repo-specific paths (convention files, diffs, output files) in at dispatch time rather than hardcoding them.
+- A skill that dispatches an agent must **degrade gracefully** when it isn't installed (skip it with a note, or fall back to inline) — don't assume the user ran `install.sh`.
+- Same portability rules as books: self-contained, no paths outside this repo. Pass repo-specific paths (convention files, diffs, output files) in at dispatch time rather than hardcoding them.
 
 ### Scripts
 
@@ -210,13 +194,12 @@ Subagent definitions in `agents/` are Claude Code `.md` files (YAML frontmatter 
 - Procedures: name by the action (`query-voter-data.md`, `debug-peerly-errors.md`)
 - References: name by the topic (`platform-overview.md`, `aws-infrastructure.md`)
 
-### Adding a New Book or Command
+### Adding a New Book
 
-1. Create the markdown file in `books/` (read-when-asked) **or** `commands/` (also `/<name>`-invokable) following the appropriate template below
-2. Add a row to `books/INDEX.md` with type, trigger keywords, path (`books/...` or `commands/...`), and description
+1. Create the markdown file in `books/` following the appropriate template below (a procedure people should invoke as `/<name>` is an omni skill instead, with a `resolve-runbooks-dir` block like the others)
+2. Add a row to `books/INDEX.md` with type, trigger keywords, path, and description
 3. If it references a new script, create it in the appropriate `scripts/` subdirectory and add it to `scripts/INDEX.md`
 4. If it needs new env vars, add them to the appropriate `.env.example`
-5. Commands only: prepend the `<!-- v1 — <YYYY-MM-DD> -->` header and include the "Where this runs" block that resolves `$RUNBOOKS_DIR`
 
 **Procedure template:**
 

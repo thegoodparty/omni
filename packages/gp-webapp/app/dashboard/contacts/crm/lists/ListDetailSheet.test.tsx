@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -47,7 +48,7 @@ vi.mock('../shared/channelPicker/ChannelPickerProvider', () => ({
 // Everything else in the barrel (Drawer, Dialog, AlertDialog, Button, …)
 // stays real, so the sheet + DeleteListDialog interactions
 // are exercised for real.
-vi.mock('@styleguide', async (importOriginal) => {
+vi.mock('@styleguide/components/ui/dropdown-menu', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
   return {
     ...actual,
@@ -116,6 +117,7 @@ const emptyDetailResponse = {
     robocall: 100,
     phoneBanking: 100,
     doorKnocking: 100,
+    email: 0,
     polls: 100,
   },
   outreachHistory: [],
@@ -1168,5 +1170,36 @@ describe('ListDetailSheet — request gating', () => {
     await flush()
 
     expect(onRequest).not.toHaveBeenCalled()
+  })
+})
+
+// The free robocall offer has ended, so its saved list is a plain list.
+describe('ListDetailSheet — the free robocall offer list', () => {
+  const mockOfferList = () =>
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        {
+          id: 42,
+          name: 'Promotional robocall: landline voters in selected precincts',
+          recommendedVariant: 'freeOfferElectionEveRobocall',
+        },
+      ],
+    })
+
+  it('asks for a channel', async () => {
+    mockOfferList()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    await screen.findByText(
+      'Promotional robocall: landline voters in selected precincts',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Send outreach' }))
+    expect(openChannelPicker).toHaveBeenCalledWith({
+      kind: 'list',
+      segment: expect.objectContaining({ id: 42 }),
+    })
+    expect(router.push).not.toHaveBeenCalled()
   })
 })

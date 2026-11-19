@@ -1,13 +1,13 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from 'src/fixtures/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import {
-  SEED_VALID_EIN,
   seedCandidateProfileComplete,
   seedEinAndFiled,
+  uniqueEin,
 } from 'src/helpers/pro-upgrade.helper'
 
 // Pro upgrade front-end gates in the live wizard:
@@ -57,7 +57,7 @@ test.describe('Pro upgrade v2 validation gates', () => {
     const { data } = await client.get<CampaignEinState>('/v1/campaigns/mine')
     expect(data.details?.einNumber ?? null).toBeNull()
 
-    await einField.fill(SEED_VALID_EIN)
+    await einField.fill(uniqueEin())
     await page.getByRole('button', { name: 'Continue' }).click()
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/filing-details`, {
       timeout: 30_000,

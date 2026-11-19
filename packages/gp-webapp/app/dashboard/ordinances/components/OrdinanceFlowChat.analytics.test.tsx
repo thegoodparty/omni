@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   streamMessage: vi.fn(),
   fetchOrdinanceBySlug: vi.fn(),
+  updateOrdinance: vi.fn(),
   trackEvent: vi.fn(),
 }))
 
@@ -40,6 +41,7 @@ vi.mock('../data/chat-api', () => ({
 
 vi.mock('../data/ordinances-api', () => ({
   fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
+  updateOrdinance: mocks.updateOrdinance,
 }))
 
 const ordinance: Ordinance = {
@@ -92,6 +94,7 @@ const eventCalls = (name: string): unknown[][] =>
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.fetchOrdinanceBySlug.mockResolvedValue(ordinance)
+  mocks.updateOrdinance.mockResolvedValue(ordinance)
   mocks.createConversation.mockResolvedValue({ conversationId: 'conv-1' })
   mocks.listMessages.mockResolvedValue([
     assistantTurn('m1', [{ kind: 'text', text: 'Welcome back.' }]),

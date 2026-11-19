@@ -5,8 +5,12 @@ import { ProBadge } from '@/shared/components/ProBadge'
 import { formatPhone } from '@/lib/utils/phone'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
+import { PublicProfileCard } from './PublicProfileCard'
+import { ChangeEmailDialog } from './ChangeEmailDialog'
+import { ProtectedContent } from '@/components/ProtectedContent'
+import { PERMISSIONS } from '@/lib/permissions'
 import { useUser } from '../context/UserContext'
-import { UserRole } from '@goodparty_org/sdk'
+import { UserRole } from '@/shared/gpApi'
 
 const HUBSPOT_PORTAL_ID = '21589597'
 const HUBSPOT_CONTACT_URL = `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1`
@@ -39,7 +43,17 @@ export function UserSection({ isPro }: UserSectionProps) {
         <DataRow label="User ID">{id}</DataRow>
         <DataRow label="First Name">{firstName}</DataRow>
         <DataRow label="Last Name">{lastName}</DataRow>
-        <DataRow label="Email">{email}</DataRow>
+        <DataRow label="Email">
+          <Flex as="span" gap="3" align="center">
+            {email}
+            <ProtectedContent
+              requiredPermission={PERMISSIONS.WRITE_USERS}
+              hideWhenUnauthorized
+            >
+              <ChangeEmailDialog />
+            </ProtectedContent>
+          </Flex>
+        </DataRow>
         <DataRow label="Phone">{formatPhone(phone)}</DataRow>
         <DataRow label="ZIP">{zip}</DataRow>
       </InfoCard>
@@ -89,6 +103,8 @@ export function UserSection({ isPro }: UserSectionProps) {
           )}
         </Flex>
       </InfoCard>
+
+      <PublicProfileCard />
     </Grid>
   )
 }

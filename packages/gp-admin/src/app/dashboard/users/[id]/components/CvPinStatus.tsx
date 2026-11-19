@@ -1,14 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import * as Sentry from '@sentry/nextjs'
 import { Badge, Checkbox, Flex, Text } from '@radix-ui/themes'
 import { HiOutlineMail } from 'react-icons/hi'
 import {
   ComplianceStage,
   PeerlyCvVerificationStatus,
   type ComplianceStateOutput,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 import { formatLocalDateString } from '@/lib/utils/date'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
@@ -149,7 +148,6 @@ function CvPinStatusContent() {
           : 'Internal testing approval removed'
       )
     } catch (error) {
-      Sentry.captureException(error)
       showToast(
         describeActionFailure(
           error,

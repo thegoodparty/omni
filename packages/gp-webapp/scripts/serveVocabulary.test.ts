@@ -190,6 +190,30 @@ export const keyed = { voter: 'Someone you represent' }`,
       ).toEqual(['voter'])
     })
 
+    it('flags the outreach history strings Serve once showed', () => {
+      expect(
+        words(
+          SHARED_FILE,
+          `const SERVE_HISTORY_COPY = {
+  title: 'Active campaigns',
+  caption: "Every campaign you've sent, most recent first.",
+  column: 'Campaign',
+  results: '0 supporters',
+}`,
+        ),
+      ).toEqual(['campaign', 'campaign', 'campaign', 'supporter'])
+    })
+
+    it('reads a capitalised single word as a label', () => {
+      expect(
+        words(
+          SERVE_FILE,
+          `const El = () => <th>Campaign</th>
+export const kind = 'campaign'`,
+        ),
+      ).toEqual(['campaign'])
+    })
+
     it('reads a derive-by-replace override as the Serve string it produces', () => {
       // ThinkingStream.tsx: Serve's list is Win's with one message swapped, so
       // the Win string it matches on sits inside the SERVE_ declaration. The

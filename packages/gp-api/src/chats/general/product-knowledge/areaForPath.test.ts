@@ -24,9 +24,9 @@ describe('areaForPath', () => {
   })
 
   it('matches a bracketed segment against any one segment', () => {
-    expect(
-      areaForPath('serve', '/dashboard/issue-capture/42/review')?.path,
-    ).toBe('/dashboard/issue-capture/[outreachId]/review')
+    expect(areaForPath('serve', '/dashboard/issue-capture/42')?.path).toBe(
+      '/dashboard/issue-capture/[outreachId]',
+    )
   })
 
   it('names the tab users see, never an alias of it', () => {

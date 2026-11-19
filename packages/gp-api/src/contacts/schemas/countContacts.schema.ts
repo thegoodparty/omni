@@ -19,6 +19,9 @@ const countContactsSchema = voterFilterBaseSchema.extend({
   // A bare id from the client, so it is resolved through the org-scoped
   // segment lookup that 404s anything this organization does not own.
   boundaryFromSegmentId: z.coerce.number().int().positive().optional(),
+  // A channel's reach on the count only, like hasLandline for robocall:
+  // email counts people with an email address. Not a saved list column.
+  hasEmail: z.boolean().optional(),
 })
 
 export class CountContactsDTO extends createZodDto(countContactsSchema) {}

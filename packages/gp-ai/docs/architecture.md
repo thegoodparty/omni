@@ -1,6 +1,6 @@
 # Architecture
 
-A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and `ai-rules/`.
+A pointer-heavy doc. Detailed conventions live in `CLAUDE.md`.
 
 ## What this repo is
 
@@ -28,8 +28,6 @@ A **`uv` workspace** for GoodParty's Python AI / data services. Members are most
 | `shared/`             | Library               | Cross-cutting clients: `aws_clients`, `braintrust`, `clickup_client`, `databricks_client`, `google_sheets_client`, `llm_gemini_3` / `llm_gemini`, plus utilities |
 | `serve/v1_pipeline/`  | FastAPI / SQS service | Main pipeline service — strict mypy                                                                                                                              |
 | `hubspot_ddhq_match/` | Lambda                | Match HubSpot contacts to DDHQ records                                                                                                                           |
-| `clickup_bot/`        | Lambda                | ClickUp automation                                                                                                                                               |
-| `engineer_agent/`     | Lambda                | Engineer-style coding agent                                                                                                                                      |
 | `pmf_engine/`         | Lambda                | Product/market-fit engine                                                                                                                                        |
 | `broker/`             | Service               | Message broker service                                                                                                                                           |
 
@@ -61,7 +59,7 @@ When in doubt about whether a directory is a workspace member, check `pyproject.
 └── README.md                   # member-specific runbook
 ```
 
-`pmf_engine/` and `engineer_agent/` are good examples: each pairs the member code (`pyproject.toml`, handler, `Dockerfile`, `tests/`) with a matching `infrastructure/modules/<name>/` Terraform module.
+`pmf_engine/` is a good example: it pairs the member code (`pyproject.toml`, handler, `Dockerfile`, `tests/`) with a matching `infrastructure/modules/<name>/` Terraform module.
 
 ## Adding a workspace member
 
@@ -90,7 +88,7 @@ Lambda handler (e.g. pmf_engine/control_plane/dispatch_handler.py)
    │
    ├─ shared.* (clients to AWS, Databricks, Braintrust, LLM providers)
    │
-   ├─ member-specific logic (engineer_agent/, broker/, pmf_engine/, ...)
+   ├─ member-specific logic (broker/, pmf_engine/, autopilot/, ...)
    │
    ├─ LLM calls (anthropic / openai / google-genai)
    │
@@ -123,7 +121,7 @@ standalone `gp-ai-projects` repo and did not come across.
 One workflow covers everything. It has no path filter, so it runs on every commit
 and gates internally on a change-detection job:
 
-- **Validate** — ruff lint + format check and the pytest suites. Runs on any
+- **Lint and Test** — ruff lint + format check and the pytest suites. Runs on any
   Python change, and unconditionally on `main` so deployed code is always
   validated at the commit it ships from. mypy runs advisory-only; it has a large
   pre-existing backlog and is not yet a gate.
@@ -135,6 +133,9 @@ and gates internally on a change-detection job:
   posts one consolidated comment.
 - **Deploy dev** — on `main`, applies every dev root, re-plans to confirm
   convergence, then asserts the running configuration matches the commit.
+- **Validate (gp-ai)** — the gate the `main` ruleset requires. Green when
+  Lint and Test, build and the TF plan each passed or were skipped by change
+  detection.
 
 Prod is reached only by promotion: `promote.yml` waits for the commit's checks to
 go green on dev, then applies the prod roots pinned to the same SHA-tagged images.
@@ -142,5 +143,5 @@ Nothing is rebuilt at promotion time.
 
 ## Skills
 
-- `.claude/agents/code-critic.md` — strict reviewer that applies `ai-rules/` + `CLAUDE.md` + the actual ruff/mypy config.
+- `.claude/agents/code-critic.md` — strict reviewer that applies `CLAUDE.md` + the actual ruff/mypy config.
 - `.claude/skills/python-developer.md` — captures the workspace + uv reality so agents don't reach for the wrong package manager or run the wrong test command.

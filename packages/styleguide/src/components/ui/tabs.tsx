@@ -5,6 +5,11 @@ import * as TabsPrimitive from '@radix-ui/react-tabs'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * @summary Use to switch between a few peer views in one place, one at a time.
+ * For filter pills or toggled choices, use ToggleGroup; for ordered steps, use
+ * Stepper.
+ */
 function Tabs({
   className,
   ...props

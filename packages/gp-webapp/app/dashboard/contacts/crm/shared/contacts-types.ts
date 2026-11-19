@@ -7,6 +7,9 @@ import type {
   ContactStatuses,
   ConstituentActivity,
   ConstituentActivityEvent,
+  ConstituentPriorityAnswer,
+  GetPersonPriorityAnswersResponse,
+  PersonPriorityAnswer,
   ConstituentActivityEventType,
   ContactStatusField,
   DoorKnockConstituentActivity,
@@ -35,11 +38,15 @@ import type {
   UpdateCivicPanelInput,
   VoterLikelihood,
   VoterOutreachAttributionSource,
+  VotedStatus,
 } from '@goodparty_org/contracts'
 // Keeps the activity-condition shape defined once (ENG-10708); the sibling
 // pulls its contract types from @goodparty_org/contracts directly so this
 // import stays one-directional (madge circular check).
-import type { ActivityConditionInput } from './activityConditionOptions'
+import type {
+  ActivityConditionInput,
+  PeopleFilterSource,
+} from './activityConditionOptions'
 
 export interface SegmentResponse {
   id: number
@@ -53,6 +60,14 @@ export interface SegmentResponse {
   // this to swap rename/delete for "duplicate to edit").
   activityConditions?: ActivityConditionInput[]
   supportStatus?: SupportStatusRollup[]
+  // "Voted in election" on the saved list (Win only).
+  votedStatus?: VotedStatus[]
+  // Source on the saved list (Win only): the voter file, imported new
+  // contacts, or both.
+  source?: PeopleFilterSource[]
+  // "Imported in": the people any of these contact uploads added. An id
+  // whose upload was undone stays here and matches nobody.
+  contactUploadIds?: string[]
   firstUsedForOutreachAt?: string | null
   // The drawn boundary narrowing the list, Serve only. Declared here rather
   // than taken from contracts because the saved-list shape has never lived
@@ -64,6 +79,11 @@ export interface SegmentResponse {
   // Recommended-lists provenance (Task 7): null on a hand-built list, or
   // when accepted, whether the candidate edited it before submitting.
   recommendedModified?: boolean | null
+  // Which recommendation the list was saved from, null on a hand-built list.
+  recommendedVariant?: string | null
+  // Serve: a list our code saved as a civic panel invite's audience. The
+  // lists index leaves it out; the built-in Civic panel row is the panel's.
+  civicPanelInvite?: boolean
   [key: string]: unknown
 }
 
@@ -119,6 +139,9 @@ export type GetConstituentIssuesResponse = {
 export type {
   ConstituentActivity,
   ConstituentActivityEvent,
+  ConstituentPriorityAnswer,
+  GetPersonPriorityAnswersResponse,
+  PersonPriorityAnswer,
   ConstituentActivityEventType,
   ContactStatusField,
   DoorKnockConstituentActivity,

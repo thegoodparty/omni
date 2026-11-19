@@ -9,23 +9,15 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { UsersService } from '@/users/services/users.service'
 import { newFixtureUserEmail } from '@/users/util/users.util'
 import { User } from '../../generated/prisma'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 // IS_NON_PROD_DEPLOY is a module-level constant read inside testSetPersonId.
-// Mock the util so the guard is toggleable per-test via a getter. Default true
-// because the unit-test env has no OTEL_SERVICE_ENVIRONMENT (so the real value
-// is false) yet the happy-path cases need a non-prod deploy; other exports pass
-// through untouched.
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+// Default true because the unit-test env has no OTEL_SERVICE_ENVIRONMENT (so
+// the real value is false) yet the happy-path cases need a non-prod deploy.
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -43,7 +35,7 @@ describe('testSetPersonId', () => {
   let users: { updateUser: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     users = { updateUser: vi.fn().mockResolvedValue(undefined) }
     controller = new PersonProfilesController(
       {} as unknown as PersonProfilesService,
@@ -114,7 +106,7 @@ describe('testSetPersonId', () => {
   // false models prod or a misconfigured/absent OTEL_SERVICE_ENVIRONMENT, where
   // the fail-closed guard must deny rather than silently ungate.
   it('refuses outside a known non-prod deploy, even for a test user', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     await expect(controller.testSetPersonId(testUser())).rejects.toBeInstanceOf(
       ForbiddenException,

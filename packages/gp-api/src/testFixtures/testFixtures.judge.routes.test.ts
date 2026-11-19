@@ -1,19 +1,20 @@
+import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CHAT_AGENT_IDS, chatOrgSlug } from './judgeChatFixture/seed'
+import {
+  CHAT_AGENT_IDS,
+  JUDGE_POSITION,
+  chatOrgSlug,
+} from './judgeChatFixture/seed'
+import { ElectionsService } from '@/elections/services/elections.service'
 import { useTestService } from '@/test-service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 
@@ -63,9 +64,18 @@ const countFixtureRows = async (organizationSlug: string) => {
   }
 }
 
+// useTestService answers getPositionById with null, and the fixture refuses
+// a district that does not resolve. Stubbed with the row election-api really
+// holds for the seeded id, the way a deployed target answers it.
+const stubJudgePosition = () =>
+  vi
+    .spyOn(service.app.get(ElectionsService), 'getPositionById')
+    .mockResolvedValue(JUDGE_POSITION)
+
 describe('POST /v1/test-fixtures/judge-chat-cases', () => {
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    stubJudgePosition()
   })
 
   it('stages a case the judge can drive, under a judge- slug', async () => {
@@ -84,6 +94,51 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
       where: { slug: res.data.organizationSlug },
     })
     expect(organization.ownerId).toBe(service.user.id)
+  })
+
+  it('returns the district the deployment resolved for the position', async () => {
+    const res = await setUp({ ...BRIEFING_CASE, agentId: 'priority_flow' })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.district).toEqual({
+      state: 'WY',
+      l2DistrictType: 'City_Ward',
+      l2DistrictName: 'CHEYENNE CITY WARD 1',
+      level: 'CITY',
+      positionName: 'Cheyenne City Council - Ward 1',
+    })
+  })
+
+  // A position that does not resolve drops the constituent tools without an
+  // error, so the case would run with no district while recording one.
+  it('503s and leaves nothing behind when the district does not resolve', async () => {
+    vi.spyOn(
+      service.app.get(ElectionsService),
+      'getPositionById',
+    ).mockResolvedValue(null)
+
+    const res = await setUp({ ...BRIEFING_CASE, agentId: 'priority_flow' })
+
+    expect(res.status).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+    await expect(
+      service.prisma.organization.count({ where: {} }),
+    ).resolves.toBe(0)
+  })
+
+  it('does not ask for a district when the case asked for none', async () => {
+    vi.spyOn(
+      service.app.get(ElectionsService),
+      'getPositionById',
+    ).mockResolvedValue(null)
+
+    const res = await setUp({
+      ...BRIEFING_CASE,
+      agentId: 'priority_flow',
+      accountState: { district: false },
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.district).toBeUndefined()
   })
 
   // A sweep retries, and the seeder creates rather than upserts — so without
@@ -111,7 +166,7 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
   })
 
   it('404s outside a known non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     const res = await setUp(BRIEFING_CASE)
 
@@ -201,7 +256,8 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
 
 describe('DELETE /v1/test-fixtures/judge-chat-cases/:organizationSlug', () => {
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    stubJudgePosition()
   })
 
   it('removes exactly what setup created', async () => {
@@ -222,6 +278,32 @@ describe('DELETE /v1/test-fixtures/judge-chat-cases/:organizationSlug', () => {
       annotations: 0,
       notes: 0,
     })
+  })
+
+  it("deletes every version of the fixture org's contact upload files", async () => {
+    const { data } = await setUp(BRIEFING_CASE)
+    const fileKey = `${data.organizationSlug}/${randomUUID()}.csv`
+    await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug: data.organizationSlug,
+        name: 'Newsletter',
+        fileName: 'people.csv',
+        fileKey,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+      },
+    })
+    const purge = vi
+      .spyOn(service.app.get(S3Service), 'deleteAllObjectVersions')
+      .mockResolvedValue(1)
+
+    const res = await tearDown(data.organizationSlug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(purge).toHaveBeenCalledWith(process.env.CONTACT_UPLOADS_BUCKET, [
+      fileKey,
+    ])
   })
 
   it('leaves a second case alone while removing the first', async () => {
@@ -308,7 +390,7 @@ describe('DELETE /v1/test-fixtures/judge-chat-cases/:organizationSlug', () => {
 
   it('404s outside a known non-prod deploy', async () => {
     const { data } = await setUp(BRIEFING_CASE)
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     const res = await tearDown(data.organizationSlug)
 

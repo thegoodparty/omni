@@ -1,9 +1,10 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from 'src/fixtures/test'
 import { faker } from '@faker-js/faker'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
+import { uniquePhone } from 'src/helpers/testIdentifiers.helper'
 import { WaitHelper } from 'src/helpers/wait.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 
@@ -142,7 +143,7 @@ test.describe('Website Management', () => {
       throw new Error('onAddressSelect handler not found')
     })
     await emailInput.fill(faker.internet.email())
-    await phoneInput.fill('(202) 555-0123')
+    await phoneInput.fill(uniquePhone())
     await committeeInput.fill(
       `Friends of ${faker.person.firstName()} ${faker.person.lastName()}`,
     )

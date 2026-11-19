@@ -11,7 +11,8 @@ import {
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BUILD_CITIZENS_PANEL_PURPOSE,
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   PHONE_BANKING_NAME_MAX_LENGTH,
   REPORT_BACK_PURPOSE,
   type ChatCard,
@@ -35,6 +36,7 @@ import {
   getTcrCompliance,
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { transformVoterFileFiltersForBackend } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { trackListCreated } from 'app/dashboard/contacts/crm/shared/trackListCreated.util'
 import {
   PhoneBankingFlow,
   SERVE_PHONE_BANKING_SURFACE,
@@ -287,55 +289,78 @@ export const ProposalFlowsProvider = ({
     }
   }, [opened, queryClient, close])
 
+  const savedLists = useRef(new Map<string, number>())
+  const savingLists = useRef(new Map<string, Promise<number | null>>())
+
   const openDoorKnocking = useCallback(
     async (opened: Opened) => {
       const { proposal } = opened
       // The map page takes a saved list and nothing else, so this is the
       // latest point the list can be saved: the official has started.
       const audience = proposedAudienceOf(proposal, opened.priorityId)
-      let listId = proposal.savedFilterId ?? null
+      const key = proposal.proposalKey
+      // A second press while the first is saving would save a second list.
+      if (savingLists.current.has(key)) return
+      let listId = proposal.savedFilterId ?? savedLists.current.get(key) ?? null
       if (listId === null && audience) {
-        try {
-          const { data } = await clientRequest(
-            'POST /v1/voters/voter-file/filter',
-            {
-              name: audience.name,
-              ...transformVoterFileFiltersForBackend(audience.filters),
-              supportStatus: audience.supportStatus,
-              precincts: audience.precincts,
-              ...(audience.sample && { sample: audience.sample }),
-              ...(audience.unreachedAreaOfPriorityId && {
-                unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
-              }),
-            },
-          )
-          listId = data.id
-        } catch {
-          // The card's button stays live, so pressing it again retries.
-          errorSnackbar("We couldn't save this list. Try again.")
-          return
-        }
+        const run = (async () => {
+          try {
+            const { data } = await clientRequest(
+              'POST /v1/voters/voter-file/filter',
+              {
+                name: audience.name,
+                ...transformVoterFileFiltersForBackend(audience.filters),
+                supportStatus: audience.supportStatus,
+                precincts: audience.precincts,
+                ...(audience.sample && { sample: audience.sample }),
+                ...(audience.unreachedAreaOfPriorityId && {
+                  unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
+                }),
+              },
+            )
+            trackListCreated({
+              isServe: mode === 'serve',
+              source: 'aiProposal',
+              listId: data.id,
+              channel: 'doorKnocking',
+            })
+            return data.id
+          } catch {
+            // The card's button stays live, so pressing it again retries.
+            errorSnackbar("We couldn't save this list. Try again.")
+            return null
+          }
+        })()
+        savingLists.current.set(key, run)
+        listId = await run
+        savingLists.current.delete(key)
+        if (listId === null) return
+        savedLists.current.set(key, listId)
       }
       // The card's link rides to the walk's own create, which puts the check
       // out on the server: nothing here survives the navigation to say so.
+      // A priority's walk asks people the check's question, so it opens on
+      // that goal with the card's message as the question, the way a text
+      // arrives with its message written.
       const params = new URLSearchParams({
         create: '1',
         ...(listId ? { listId: String(listId) } : {}),
         ...linkOf(opened),
         launchSource: opened.launchSource,
+        ...(opened.priorityId !== undefined && {
+          purpose: COMMUNITY_INPUT_PURPOSE,
+          question: proposal.message
+            .trim()
+            .slice(0, COMMUNITY_INPUT_QUESTION_MAX_LENGTH),
+        }),
       })
       router.push(`/dashboard/door-knocking?${params.toString()}`)
     },
-    [router, errorSnackbar],
+    [router, errorSnackbar, mode],
   )
-
-  const savedLists = useRef(new Map<string, number>())
-  const savingLists = useRef(new Map<string, Promise<number | null>>())
 
   // Saves the card's audience as a list once, the way the builder would have
   // after the official confirmed it, so the flow can open on the message.
-  // The panel invite always goes to its seeded draw of the district, never a
-  // list a card named.
   const saveProposalList = useCallback(
     (
       proposal: OutreachProposal,
@@ -345,10 +370,7 @@ export const ProposalFlowsProvider = ({
       const inFlight = savingLists.current.get(key)
       if (inFlight) return inFlight
       const run = (async () => {
-        const buildsPanel = proposal.purpose === BUILD_CITIZENS_PANEL_PURPOSE
-        if (!buildsPanel && proposal.savedFilterId) {
-          return proposal.savedFilterId
-        }
+        if (proposal.savedFilterId) return proposal.savedFilterId
         const known = savedLists.current.get(key) ?? readStoredList(key)
         if (known !== null) {
           const { data } = await clientRequest(
@@ -378,6 +400,12 @@ export const ProposalFlowsProvider = ({
             }),
           },
         )
+        trackListCreated({
+          isServe: mode === 'serve',
+          source: 'aiProposal',
+          listId: data.id,
+          channel: proposal.channel,
+        })
         savedLists.current.set(key, data.id)
         storeList(key, data.id)
         return data.id
@@ -387,7 +415,7 @@ export const ProposalFlowsProvider = ({
       void run.then(settle, settle)
       return run
     },
-    [],
+    [mode],
   )
 
   const open = useCallback(
@@ -491,6 +519,10 @@ export const ProposalFlowsProvider = ({
           {...(mode === 'serve' && { surface: SERVE_SOCIAL_SURFACE })}
           prefill={{
             draftText: proposal.message,
+            // The agent wrote the words, so it is the official's own
+            // message. Without a purpose the flow can neither write the
+            // posts nor save them, and Back to pick one clears the words.
+            purpose: 'custom',
             proposalLink: linkOf(opened),
           }}
           source={mode === 'win' ? 'campaign_manager' : 'deep_link'}
@@ -529,11 +561,13 @@ export const ProposalFlowsProvider = ({
           onScheduled={async () => settled()}
           surface={SERVE_SMS_SURFACE}
           initialScript={proposal.message}
-          initialAsksToJoinCivicPanel={proposal.civicPanelAsk === true}
           {...(proposal.purpose && { initialPurpose: proposal.purpose })}
           {...(proposal.reportBackForOutreachId !== undefined && {
             initialPurpose: REPORT_BACK_PURPOSE,
             reportBackForOutreachId: proposal.reportBackForOutreachId,
+          })}
+          {...(proposal.roundTwoSize !== undefined && {
+            roundTwoSize: proposal.roundTwoSize,
           })}
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}

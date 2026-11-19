@@ -2,9 +2,14 @@
 // banking are the first two, not the definition — a poll response and an
 // inbound constituent form are the same object with a different provenance —
 // so this grows rather than the table forking.
+//
+// `text` is a Serve resident's own text reply to a priority's check, read
+// for issues by the priority answer coding pass. Its words are the
+// resident's, not a canvasser's, and no interaction row backs it.
 enum ConstituentFeedbackChannel {
   door_knock
   phone_bank
+  text
 }
 
 // Where the constituent stands on the issue they named. Deliberately NOT
@@ -34,6 +39,17 @@ enum ConstituentFeedbackExtractionStatus {
   pending
   extracted
   failed
+}
+
+// How a memo came to be confirmed. `reviewed`: the person who was there
+// accepted or corrected the issues. `skipped`: they passed on the check, so
+// it holds no issues. `automatic`: nobody could check it (a recording
+// transcribed later, or a confirm step abandoned), so it holds no issues
+// either. Only `reviewed` carries issues a person stood behind.
+enum ConstituentFeedbackConfirmation {
+  reviewed
+  skipped
+  automatic
 }
 
 // What a canvasser or caller recorded about one conversation with one
@@ -93,6 +109,10 @@ model ConstituentFeedback {
   // the pending-transcription cron can poll it. Null until a job starts.
   transcriptionJobName String? @map("transcription_job_name")
 
+  // Transcribe jobs started, or tried, for this recording. The cron starts
+  // another after a failed one until the cap, then marks the memo failed.
+  transcriptionAttempts Int @default(0) @map("transcription_attempts")
+
   extractionStatus     ConstituentFeedbackExtractionStatus @default(pending) @map("extraction_status")
   extractionConfidence Float?                              @map("extraction_confidence")
   extractionModel      String?                             @map("extraction_model")
@@ -107,10 +127,17 @@ model ConstituentFeedback {
   // extraction has to stay readable against the prompt it actually ran with.
   effortQuestion String? @map("effort_question") @db.Text
 
-  // Set when the person who was there accepted or corrected the issues. Null
-  // means nobody with first-hand knowledge ever saw it, and no rollup should
-  // count such a row as evidence of anything.
-  confirmedAt DateTime? @map("confirmed_at")
+  // Set when the memo is confirmed, in any of the three ways
+  // `confirmation` names. Null means it waits on that step, and no rollup
+  // counts it. Its words reach synthesis once it is set; its issues are
+  // only ever ones a person reviewed.
+  confirmedAt  DateTime?                        @map("confirmed_at")
+  confirmation ConstituentFeedbackConfirmation?
+
+  // What the model proposed for a memo confirmed without review, kept only
+  // to measure extraction. Apart from `issues` so nothing that reads a
+  // memo's issues can count an unreviewed guess.
+  unreviewedProposal ConstituentFeedbackUnreviewedIssue[]
 
   // Replay idempotency for a dead-zone retry, the same contract the knock
   // payload's `clientKey` carries: the same key upserts the same row.
@@ -133,6 +160,9 @@ model ConstituentFeedback {
   @@index([organizationSlug, outreachId])
   // The pending-transcription cron reads across orgs, and pending rows are few.
   @@index([extractionStatus])
+  // The abandoned-confirm sweep reads across orgs every minute, oldest
+  // unconfirmed first.
+  @@index([confirmedAt, updatedAt])
   @@map("constituent_feedback")
 }
 
@@ -157,6 +187,26 @@ model ConstituentFeedbackIssue {
   proposedStance         String? @map("proposed_stance")
   proposedDesiredOutcome String? @map("proposed_desired_outcome") @db.Text
 
+  themes FeedbackThemeIssue[]
+
   @@unique([feedbackId, position])
   @@map("constituent_feedback_issue")
+}
+
+// One issue the model proposed on a memo nobody reviewed: skipped at the
+// door, or confirmed automatically. Raw model output, measurement only;
+// nothing outside tests reads it.
+model ConstituentFeedbackUnreviewedIssue {
+  id             String              @id @default(uuid(7))
+  createdAt      DateTime            @default(now()) @map("created_at")
+  feedbackId     String              @map("feedback_id")
+  feedback       ConstituentFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  position       Int
+  issueLabel     String              @map("issue_label")
+  // Free text, as the model said it, like `proposedStance`.
+  stance         String?
+  desiredOutcome String?             @map("desired_outcome") @db.Text
+
+  @@unique([feedbackId, position])
+  @@map("constituent_feedback_unreviewed_issue")
 }

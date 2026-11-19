@@ -11,9 +11,9 @@ import {
 
 // The in-process runtime's real work needs the booted app, and
 // chat.integration.test.ts drives all of it through runChatCase. What is
-// left here is the two answers it gives without touching anything, both of
-// which are load-bearing: a refusal it must never make, and a teardown it
-// must never attempt.
+// left here is the answers it gives without touching anything, all of
+// which are load-bearing: the refusals it must and must never make, and a
+// teardown it must never attempt.
 const runtime = inProcessChatRuntime({} as TestServiceContext)
 
 describe('the in-process runtime', () => {
@@ -36,6 +36,34 @@ describe('the in-process runtime', () => {
         toolFailure: { tool: 'get_my_notes', mode: 'error' },
         script: { steps: [], usage: { inputTokens: 1, outputTokens: 1 } },
         dataVersion: '412',
+      }),
+    ).not.toThrow()
+  })
+
+  // The exception: useTestService pins getPositionById to null, so no
+  // district resolves in process and priority_flow's constituent tools never
+  // register. A real-model run of it is refused; a dry run, or a case that
+  // asks for no district, is not.
+  it('refuses a real-model priority_flow case that expects a district', () => {
+    const priorityCase = {
+      agentId: 'priority_flow',
+      caseId: 'case-1',
+      scope: ChatScope.priority_flow,
+    }
+    expect(() =>
+      runtime.assertCanDrive({ ...priorityCase, realModel: true }),
+    ).toThrow(UnsupportedOnRuntimeError)
+    expect(() =>
+      runtime.assertCanDrive({
+        ...priorityCase,
+        script: { steps: [], usage: { inputTokens: 1, outputTokens: 1 } },
+      }),
+    ).not.toThrow()
+    expect(() =>
+      runtime.assertCanDrive({
+        ...priorityCase,
+        realModel: true,
+        accountState: { district: false },
       }),
     ).not.toThrow()
   })

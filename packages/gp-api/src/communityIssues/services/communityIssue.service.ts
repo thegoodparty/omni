@@ -15,6 +15,7 @@ import {
   CommunityIssueUpsertService,
   CommunityIssueUpsertSummary,
 } from './communityIssueUpsert.service'
+import { shortTitle, teaser } from '../communityIssueEmailText'
 
 const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
   'top_community_issues',
@@ -26,6 +27,11 @@ const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
 const parseJson = (raw: string): Record<string, unknown> =>
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
   JSON.parse(raw) as Record<string, unknown>
+
+// What ingesting an artifact needs of the run that produced it: the id every
+// issue is stamped with, and the org whose feed and cards it writes. A PMF
+// Engine run and an AgentRun both answer these.
+type GeneratedRun = { runId: string; organizationSlug: string }
 
 // Cap on how many issues per list get flattened into the email event below.
 const MAX_EMAIL_ISSUES = 5
@@ -40,6 +46,9 @@ type EmailIssueFields = {
 // topIssue1Summary, topIssue1Priority, topIssue2Title, …) so a HubSpot email
 // workflow can read them — HubSpot can't index into an array. See the
 // instrument-analytics-event skill's emailable-events convention.
+// Title/Summary stay full-length (existing workflows read them); ShortTitle
+// (~60 chars) and Teaser (~120 chars) are bite-sized variants for subject
+// lines and body tokens.
 const flattenIssuesForEmail = (
   prefix: string,
   issues: EmailIssueFields[],
@@ -49,9 +58,24 @@ const flattenIssuesForEmail = (
     const n = i + 1
     out[`${prefix}${n}Title`] = issue.title
     out[`${prefix}${n}Summary`] = issue.summary
+    out[`${prefix}${n}ShortTitle`] = shortTitle(issue.title)
+    out[`${prefix}${n}Teaser`] = teaser(issue.summary)
     out[`${prefix}${n}Priority`] = issue.priority
   })
   return out
+}
+
+// Top-level props for the #1 issue of a list, so a subject line can use
+// {{leadIssueTitle}} without knowing the indexed prefix.
+const leadIssueForEmail = (
+  issues: EmailIssueFields[],
+): Record<string, string> => {
+  const lead = issues[0]
+  if (!lead) return {}
+  return {
+    leadIssueTitle: shortTitle(lead.title),
+    leadIssueTeaser: teaser(lead.summary),
+  }
 }
 
 @Injectable()
@@ -94,6 +118,30 @@ export class CommunityIssueService extends createPrismaBase(
       )
       return
     }
+    await this.ingestArtifact(run, parsed)
+  }
+
+  // The trending_issues and top_community_issues agents' onArtifact
+  // (src/agents). Its run is an
+  // AgentRun, not an ExperimentRun, but the artifact, the validation and the
+  // upsert are the PMF Engine's. onArtifact can run twice for one run, and the
+  // upsert is one transaction that stamps every issue it writes with the run,
+  // so a run that already has stamped rows is done.
+  async ingestAgentArtifact(
+    run: { runId: string; organizationSlug: string },
+    artifact: unknown,
+  ): Promise<void> {
+    const applied = await this.model.count({
+      where: { lastRefreshedRunId: run.runId },
+    })
+    if (applied > 0) return
+    await this.ingestArtifact(run, artifact)
+  }
+
+  private async ingestArtifact(
+    run: GeneratedRun,
+    parsed: unknown,
+  ): Promise<void> {
     const validation = validateCommunityIssuesArtifact(parsed)
     if (!validation.ok) {
       this.logger.error(
@@ -153,7 +201,7 @@ export class CommunityIssueService extends createPrismaBase(
   // the SQS run-completed message would redeliver and the id-less issues would be
   // re-created as duplicate rows on the already-committed upsert.
   private async syncCardsForCreatedIssues(
-    run: ExperimentRun,
+    run: GeneratedRun,
     summary: CommunityIssueUpsertSummary,
   ): Promise<void> {
     if (summary.wasFirstGenerationForList) return
@@ -184,7 +232,7 @@ export class CommunityIssueService extends createPrismaBase(
   }
 
   private async emitGenerationEvents(
-    run: ExperimentRun,
+    run: GeneratedRun,
     summary: CommunityIssueUpsertSummary,
   ): Promise<void> {
     const office = await this.client.electedOffice.findFirst({
@@ -228,6 +276,7 @@ export class CommunityIssueService extends createPrismaBase(
             .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
               topIssueCount: topIssues.length,
               trendingIssueCount: trendingIssues.length,
+              ...leadIssueForEmail(topIssues),
               ...flattenIssuesForEmail('topIssue', topIssues),
               ...flattenIssuesForEmail('trendingIssue', trendingIssues),
             })
@@ -249,6 +298,7 @@ export class CommunityIssueService extends createPrismaBase(
         .track(userId, EVENTS.CommunityIssues.TopIssuesRefreshed, {
           topIssueCount: topIssues.length,
           trendingIssueCount: trendingIssues.length,
+          ...leadIssueForEmail(topIssues),
           ...flattenIssuesForEmail('topIssue', topIssues),
         })
         .catch(() => undefined)
@@ -257,6 +307,7 @@ export class CommunityIssueService extends createPrismaBase(
         .track(userId, EVENTS.CommunityIssues.TrendingIssuesRefreshed, {
           topIssueCount: topIssues.length,
           trendingIssueCount: trendingIssues.length,
+          ...leadIssueForEmail(trendingIssues),
           ...flattenIssuesForEmail('trendingIssue', trendingIssues),
         })
         .catch(() => undefined)

@@ -18,7 +18,9 @@ import { ContactStatusService } from './contactStatus.service'
 
 // PO-confirmed mapping (ENG-10841): a canvass answer is a strong-enough GOTV
 // signal to record only for yes/no; `unsure` carries no signal and writes
-// nothing. Exported so phone banking's call-outcome writer (ENG-10915)
+// nothing. `already_voted` writes nothing either: likelihood is a turnout
+// propensity for an election still to come, and whether this person has
+// already voted is its own fact rather than a notch on that scale. Exported so phone banking's call-outcome writer (ENG-10915)
 // shares the exact same mapping rather than redefining it.
 export const mapWillVoteToLikelihood = (
   willVote: WillVoteAnswer | null,

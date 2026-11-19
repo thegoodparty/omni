@@ -45,7 +45,7 @@ describe('OpponentResearchService.buildParams', () => {
 
   let service: OpponentResearchService
   let raceOpponent: RaceOpponentService
-  let electionApi: { getRaceContext: ReturnType<typeof vi.fn> }
+  let raceContextService: { getRaceContext: ReturnType<typeof vi.fn> }
   let storyFindUnique: ReturnType<typeof vi.fn>
   let websiteFindUnique: ReturnType<typeof vi.fn>
 
@@ -83,7 +83,7 @@ describe('OpponentResearchService.buildParams', () => {
   }
 
   beforeEach(() => {
-    electionApi = { getRaceContext: vi.fn(async () => raceContext) }
+    raceContextService = { getRaceContext: vi.fn(async () => raceContext) }
     storyFindUnique = vi.fn()
     websiteFindUnique = vi.fn()
     // The real RaceOpponentService owns buildCandidatePlatform — exercise it
@@ -105,7 +105,7 @@ describe('OpponentResearchService.buildParams', () => {
       raceOpponent,
       {} as never,
       {} as never,
-      electionApi as never,
+      raceContextService as never,
     )
     // logger is property-injected by Nest; stub it for a direct instantiation
     // (Object.assign sidesteps the readonly declaration). service._prisma is

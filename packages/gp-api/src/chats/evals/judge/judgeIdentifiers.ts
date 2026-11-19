@@ -1,6 +1,10 @@
 import { appendFileSync } from 'node:fs'
 import { RaceListItemArraySchema } from '@goodparty_org/contracts'
 import { Headers, MimeTypes } from 'http-constants-ts'
+import {
+  RaceTimeframe,
+  resolveFixtureRace,
+} from '../../../testFixtures/util/fixtureRace.util'
 import { JUDGE_USER_EMAIL } from './judgeFixtureIdentity'
 import { JUDGE_ORG_SLUG_PREFIX, ORG_SLUG } from './runners/background'
 import { JUDGE_FIXTURE_RACE } from './sweepFixture'
@@ -54,23 +58,29 @@ const RACES_BY_YEAR_PATH = '/v1/elections/races-by-year'
 
 // The BallotReady id of the race the case lists name, read from gp-api's
 // public races route (`@PublicAccess()`, no credential). A real id rather than
-// a constant, because the field is documented as one.
+// a constant, because the field is documented as one. Resolved the way the
+// test fixtures resolve their office: the next upcoming race, else the most
+// recent past one, so the office's election passing never loses the id.
 export const resolveRaceId = async (
   baseUrl: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> => {
-  const url = new URL(RACES_BY_YEAR_PATH, baseUrl)
-  url.searchParams.set('zipcode', JUDGE_FIXTURE_RACE.zip)
-  const response = await fetchImpl(url, {
-    headers: { [Headers.ACCEPT]: MimeTypes.APPLICATION_JSON },
-    signal: AbortSignal.timeout(30_000),
-  })
-  if (!response.ok) {
-    throw new Error(`GET ${RACES_BY_YEAR_PATH} answered ${response.status}`)
+  const search = async (timeframe: RaceTimeframe) => {
+    const url = new URL(RACES_BY_YEAR_PATH, baseUrl)
+    url.searchParams.set('zipcode', JUDGE_FIXTURE_RACE.zip)
+    if (timeframe === 'past') {
+      url.searchParams.set('timeframe', timeframe)
+    }
+    const response = await fetchImpl(url, {
+      headers: { [Headers.ACCEPT]: MimeTypes.APPLICATION_JSON },
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (!response.ok) {
+      throw new Error(`GET ${RACES_BY_YEAR_PATH} answered ${response.status}`)
+    }
+    return RaceListItemArraySchema.parse(await response.json())
   }
-  const match = RaceListItemArraySchema.parse(await response.json()).find(
-    (race) => race.position.name === JUDGE_FIXTURE_RACE.office,
-  )
+  const match = await resolveFixtureRace(JUDGE_FIXTURE_RACE.office, search)
   if (match === undefined) {
     throw new Error(
       `no race named "${JUDGE_FIXTURE_RACE.office}" for zip ` +
@@ -81,9 +91,8 @@ export const resolveRaceId = async (
 }
 
 // What a sweep has to hand both arms. The race id alone can be missing: the
-// slug and the address are made here, but the race is read from dev data,
-// and the races route lists upcoming races only, so it goes missing as soon
-// as that election has passed.
+// slug and the address are made here, but the race is read from dev data, so
+// it goes missing when that lookup fails or the office is gone from it.
 export interface ResolvedIdentifiers {
   orgSlug: string
   userEmail: string
@@ -143,10 +152,17 @@ export const resolveJudgeIdentifiers = async (
 // failure: the outputs go without race_id. Exits non-zero with one sentence
 // otherwise; judge.yml decides that a failure refuses the background agents
 // and not the sweep.
-if (require.main === module) {
-  const [out] = process.argv.slice(2)
-  const sweepId = process.env.JUDGE_SWEEP_ID
-  const run = async (): Promise<void> => {
+export const runJudgeIdentifiersEntry = async (
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  io: {
+    writeStdout: (text: string) => void
+    writeStderr: (text: string) => void
+  },
+): Promise<number> => {
+  const [out] = args
+  const sweepId = env.JUDGE_SWEEP_ID
+  try {
     if (!out || !sweepId) {
       throw new Error(
         'usage: JUDGE_SWEEP_ID=<id> JUDGE_FIXTURE_API_URL=<url> ' +
@@ -155,26 +171,33 @@ if (require.main === module) {
     }
     const ids = await resolveJudgeIdentifiers(
       sweepId,
-      process.env.JUDGE_FIXTURE_API_URL,
+      env.JUDGE_FIXTURE_API_URL,
     )
     appendFileSync(out, identifierOutputLines(ids))
     if (ids.raceUnavailable !== undefined) {
       // stdout, because that is where Actions reads workflow commands.
-      process.stdout.write(
+      io.writeStdout(
         `::warning::no race id for this sweep (${ids.raceUnavailable}), so ` +
           'the three background agents that need one are refused by name; ' +
           'the rest run\n',
       )
     }
-    process.stderr.write(
+    io.writeStderr(
       `background agents run as ${ids.orgSlug}, race ` +
         `${ids.raceId ?? 'none'}\n`,
     )
+    return 0
+  } catch (err) {
+    io.writeStderr(`${err instanceof Error ? err.message : String(err)}\n`)
+    return 1
   }
-  run().catch((err: unknown) => {
-    process.stderr.write(
-      `${err instanceof Error ? err.message : String(err)}\n`,
-    )
-    process.exit(1)
+}
+
+if (require.main === module) {
+  void runJudgeIdentifiersEntry(process.argv.slice(2), process.env, {
+    writeStdout: (text) => process.stdout.write(text),
+    writeStderr: (text) => process.stderr.write(text),
+  }).then((code) => {
+    if (code !== 0) process.exit(code)
   })
 }

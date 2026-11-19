@@ -1,0 +1,47 @@
+{
+  "id": "f05-upsell-instead-of-reply-help",
+  "agent": "campaign_assistant",
+  "category": "known_pattern",
+  "summary": "Candidate asks for help replying to a voter's email about where they stand on a proposed sports complex. The assistant answers twice with a Pro upgrade pitch and never helps with the reply.",
+  "notes": "",
+  "expect": {
+    "should_draft": true,
+    "pattern": "upsell_instead_of_answer",
+    "drop_ok": false,
+    "covered_by": null,
+    "also_pass_if_covered_by": [],
+    "scored": true
+  },
+  "planted_pii": [],
+  "denylist": [
+    "Imogen",
+    "Thackery",
+    "Imogen Thackery",
+    "Thackery for Town Council",
+    "Dunmarrow Town Council",
+    "Dunmarrow",
+    "At-large"
+  ],
+  "messages": [
+    {
+      "at": "2026-10-15T22:31:45+00:00",
+      "role": "user",
+      "content": "A voter emailed asking where I stand on the proposed sports complex by the river. I'm cautiously in favor but worried about traffic. Can you help me write a short reply?"
+    },
+    {
+      "at": "2026-10-15T22:32:03+00:00",
+      "role": "assistant",
+      "content": "Personalized voter replies are part of GoodParty Pro! Pro candidates get tailored messaging, scripts and outreach tools built around their race and their voters. Upgrade to Pro to unlock replies written in your voice. Want me to walk you through upgrading?"
+    },
+    {
+      "at": "2026-10-15T22:33:10+00:00",
+      "role": "user",
+      "content": "I don't need anything fancy, just a few sentences back to one person. Can you just help me write it?"
+    },
+    {
+      "at": "2026-10-15T22:33:24+00:00",
+      "role": "assistant",
+      "content": "I'd love to help! Once you upgrade to Pro, I can write replies like this tailored to your positions and your voters. You can upgrade from your dashboard in about a minute, and then we'll get this one written."
+    }
+  ]
+}

@@ -1,8 +1,9 @@
 import { HttpStatus } from '@nestjs/common'
 import { addDays, format, subDays } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
@@ -26,6 +27,29 @@ const service = useTestService()
 // so the fixture and the approve assertion can't straddle midnight.
 const SEND_DATE = addDays(new Date(), 7)
 const SEND_LOCAL_DATE = format(SEND_DATE, 'yyyy-MM-dd')
+
+// The approve freshness gate compares the row's stored send day (an ET
+// calendar day) against the ET day now, so the fixtures derive their days
+// the same way rather than from the runner's local calendar.
+const etDay = (daysFromToday: number) =>
+  formatInTimeZone(
+    addDays(new Date(), daysFromToday),
+    EASTERN_TIMEZONE,
+    'yyyy-MM-dd',
+  )
+
+// The approve gate reads the wall clock, so a same-day fixture would pass or
+// fail by time of day. Only Date is faked, so the HTTP client, the pg pool
+// and the vendor cool-off timers stay real.
+const freezeAtEt = (hhmm: string) =>
+  vi.useFakeTimers({
+    toFake: ['Date'],
+    now: fromZonedTime(
+      `${formatInTimeZone(new Date(), EASTERN_TIMEZONE, 'yyyy-MM-dd')}` +
+        `T${hhmm}:00`,
+      EASTERN_TIMEZONE,
+    ),
+  })
 
 const requestCanvassers = vi.fn()
 const activateJob = vi.fn()
@@ -64,6 +88,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.unstubAllEnvs()
+  vi.useRealTimers()
 })
 
 beforeEach(async () => {
@@ -120,7 +145,6 @@ beforeEach(async () => {
       slug: 'jane-doe-admin',
       details: { state: 'TX', zip: '78634' },
       data: {},
-      aiContent: {},
     },
   })
   await service.prisma.tcrCompliance.create({
@@ -154,7 +178,9 @@ const seedOutreach = (
     stripeCheckoutSessionId: string | null
     freePurchaseSessionId: string | null
     date: Date
+    scheduledLocalDate: string | null
     scheduledLocalTime: string | null
+    didState: string | null
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -513,7 +539,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
           slug: `owner-batch-${id}`,
           details: {},
           data: { hubspotId: hubspotIdFor(id) },
-          aiContent: {},
         })),
       })
       await service.prisma.outreach.createMany({
@@ -911,6 +936,152 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updated.canvassRequestedAt).not.toBeNull()
     })
 
+    it('400s a send day that has already passed, leaving it reschedulable', async () => {
+      // Prod outreach 90487 (2026-11-10): approved two days after its stored
+      // send day. Peerly auto-approved the expired window, canvassRequestedAt
+      // was stamped, and editDate then refused every reschedule.
+      const staleDay = etDay(-2)
+      const row = await seedOutreach({
+        date: subDays(new Date(), 2),
+        scheduledLocalDate: staleDay,
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain(staleDay)
+      expect(JSON.stringify(res.data)).toContain('set a new date')
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      expect(activateJob).not.toHaveBeenCalled()
+      expect(slackMessage).not.toHaveBeenCalled()
+      const untouched = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(untouched.approvedAt).toBeNull()
+      expect(untouched.canvassRequestedAt).toBeNull()
+      expect(untouched.status).toBe(OutreachStatus.pending)
+
+      const moved = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        {
+          sendAt: addDays(new Date(), 3).toISOString(),
+          scheduledLocalDate: etDay(3),
+          editedBy: 'cas@goodparty.org',
+        },
+      )
+      expect(moved.status).toBe(HttpStatus.OK)
+    })
+
+    it('approves a send day that is today while its window is open', async () => {
+      freezeAtEt('14:00')
+      const row = await seedOutreach({
+        date: new Date(),
+        scheduledLocalDate: etDay(0),
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: etDay(0),
+        startTime: '09:00',
+        state: null,
+      })
+    })
+
+    it('400s a same-day approval after the window closed, leaving it reschedulable', async () => {
+      freezeAtEt('21:30')
+      const row = await seedOutreach({
+        date: new Date(),
+        scheduledLocalDate: etDay(0),
+        didState: 'NY',
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain(etDay(0))
+      expect(JSON.stringify(res.data)).toContain('US/Eastern')
+      expect(JSON.stringify(res.data)).toContain('Set a new date')
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      expect(activateJob).not.toHaveBeenCalled()
+      const untouched = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(untouched.approvedAt).toBeNull()
+      expect(untouched.canvassRequestedAt).toBeNull()
+
+      const moved = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        {
+          sendAt: addDays(new Date(), 3).toISOString(),
+          scheduledLocalDate: etDay(3),
+          editedBy: 'cas@goodparty.org',
+        },
+      )
+      expect(moved.status).toBe(HttpStatus.OK)
+    })
+
+    it('reads the window close in the send zone, not Eastern', async () => {
+      // 21:30 ET is 18:30 Pacific: closed for a New York send, still open
+      // for a California one on the same day.
+      freezeAtEt('21:30')
+      const eastern = await seedOutreach({
+        date: new Date(),
+        scheduledLocalDate: etDay(0),
+        didState: 'NY',
+      })
+      const pacific = await seedOutreach({
+        projectId: 'peerly-job-2',
+        date: new Date(),
+        scheduledLocalDate: etDay(0),
+        didState: 'CA',
+      })
+
+      const refused = await service.client.post(
+        `/v1/outreach/admin/sms/${eastern.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+      expect(refused.status).toBe(HttpStatus.BAD_REQUEST)
+
+      const allowed = await service.client.post(
+        `/v1/outreach/admin/sms/${pacific.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+      expect(allowed.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledTimes(1)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-2', {
+        date: etDay(0),
+        startTime: '09:00',
+        state: 'CA',
+      })
+    })
+
+    it('approves a future send day', async () => {
+      const row = await seedOutreach({ scheduledLocalDate: etDay(4) })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: etDay(4),
+        startTime: '09:00',
+        state: null,
+      })
+    })
+
     it('400s approving a completed row', async () => {
       const row = await seedOutreach({ status: OutreachStatus.completed })
       const res = await service.client.post(
@@ -1250,7 +1421,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(retrieveSession).toHaveBeenCalledWith('cs_test_seed')
       expect(refund).toHaveBeenCalledWith(
         'pi_booked_1',
-        `outreach-cancel-${row.id}`,
+        'outreach-cancel-pi_booked_1',
       )
       // No live booking read gates a staff cancel.
       expect(getJob).not.toHaveBeenCalled()
@@ -1924,6 +2095,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
     // test uses its OWN projectId for the isolation reason noted above.
     afterEach(() => {
       vi.unstubAllEnvs()
+      vi.useRealTimers()
     })
 
     const statsPayload = (overrides: Partial<{ delivered: number }> = {}) => ({
@@ -2006,6 +2178,9 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       // (findFirst + registrations + owners) — a too-tight margin here
       // races against that latency, not against the cool-off logic itself.
       vi.stubEnv('DETAIL_FAILED_RETRY_COOLDOWN_MS', '300')
+      // Only the clock the cool-off reads is faked, so it is stepped past
+      // rather than waited out while the database keeps real timers.
+      vi.useFakeTimers({ toFake: ['Date'] })
       const row = await seedOutreach({ projectId: 'peerly-job-sf-cooloff' })
       getJobDetailedStats
         .mockReset()
@@ -2024,7 +2199,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
 
       // Past the cool-off — a fresh vendor call is allowed.
-      await new Promise<void>((resolve) => setTimeout(resolve, 600))
+      vi.setSystemTime(Date.now() + 600)
       const afterCooldown = await smsAdmin.getDetail(row.id)
       expect(afterCooldown.stats).toMatchObject({ delivered: 4 })
       expect(getJobDetailedStats).toHaveBeenCalledTimes(2)
@@ -2032,6 +2207,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
     it('does not let a late-resolving abandoned read clobber a newer attempt after the outstanding cool-off sweeps it', async () => {
       vi.stubEnv('DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS', '300')
+      vi.useFakeTimers({ toFake: ['Date'] })
       const row = await seedOutreach({
         projectId: 'peerly-job-sf-anticlobber',
       })
@@ -2067,7 +2243,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       // STILL unresolved — a genuinely abandoned request, per Peerly's
       // own "no response" guidance. The next call's sweep forgets it and
       // fires a fresh one instead of continuing to share it.
-      await new Promise<void>((resolve) => setTimeout(resolve, 600))
+      vi.setSystemTime(Date.now() + 600)
       const secondCall = smsAdmin.getDetail(row.id)
       await vi.waitFor(() =>
         expect(getJobDetailedStats).toHaveBeenCalledTimes(2),

@@ -6,11 +6,15 @@ import {
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
+import type { VotedStatus } from '@goodparty_org/contracts'
 
-// The three ways a saved list narrows that the voter pack has no plane for at
-// all. This is a harder gap than 65+'s: there the pack holds an `age` dim and
-// only lacks the bucket, whereas nothing in the pack encodes support status,
-// prior outreach activity or precinct, under any mapping.
+// The ways a saved list narrows that the voter pack has no plane for at all.
+// This is a harder gap than 65+'s: there the pack holds an `age` dim and only
+// lacks the bucket, whereas nothing in the pack encodes support status, prior
+// outreach activity, precinct or whether someone has voted, under any
+// mapping. Nor which import someone came in through (`contactUploadIds`, the
+// CRM's "Imported in"), which gp-api resolves to a person-id set exactly as it
+// does prior outreach.
 //
 // gp-api applies all three at knock time — `resolveSavedFilterForQuery` adds
 // the support/activity id clauses that `convertVoterFileFilterToFilters` drops,
@@ -26,6 +30,8 @@ export const UNSHADEABLE_LIST_CRITERIA = [
   'supportStatus',
   'activityConditions',
   'precincts',
+  'votedStatus',
+  'contactUploadIds',
 ] as const
 
 type UnshadeableListCriterion = (typeof UNSHADEABLE_LIST_CRITERIA)[number]
@@ -47,6 +53,7 @@ type UnshadeableListCriterion = (typeof UNSHADEABLE_LIST_CRITERIA)[number]
 export const WIN_ONLY_FILTER_FIELD_KEYS = [
   'political_party',
   'voter_likely',
+  'early_vote',
   'contacts_made',
   // Serve may not subset constituents by ethnicity (#1933), so the group is
   // hidden in the create flow and its option keys are stripped here. Sitting
@@ -157,10 +164,25 @@ export const savedListFilterKeys = (
   // An empty array is not a criterion — marking one would disclose a filter
   // the list does not apply.
   for (const criterion of UNSHADEABLE_LIST_CRITERIA) {
+    if (isServe && criterion === 'votedStatus') continue
     if (criterionValues(list, criterion).length > 0) keys[criterion] = true
   }
   return keys
 }
+
+// A saved list's "Voted in election" selection, which the who step shows as
+// pills and so seeds into the draft on a pick, unlike the other criteria
+// here. Win only, like the group itself.
+export const savedListVotedStatus = (
+  list: SegmentResponse | undefined,
+  isServe = false,
+): VotedStatus[] =>
+  isServe
+    ? []
+    : criterionValues(list, 'votedStatus').filter(
+        (value): value is VotedStatus =>
+          value === 'already_voted' || value === 'unknown',
+      )
 
 // The same three criteria as values rather than marks, in the grammar
 // `voterFilterBaseSchema` accepts, for the one caller that can do something
@@ -180,6 +202,10 @@ export const savedListUnshadeableCriteria = (
   if (supportStatus.length > 0) criteria.supportStatus = supportStatus
   const precincts = criterionValues(list, 'precincts')
   if (precincts.length > 0) criteria.precincts = precincts
+  const votedStatus = criterionValues(list, 'votedStatus')
+  if (votedStatus.length > 0) criteria.votedStatus = votedStatus
+  const contactUploadIds = criterionValues(list, 'contactUploadIds')
+  if (contactUploadIds.length > 0) criteria.contactUploadIds = contactUploadIds
   const conditions = criterionValues(
     list,
     'activityConditions',

@@ -128,6 +128,7 @@ describe('PersonsService', () => {
     expect(findUnique).toHaveBeenCalledWith({
       where: { id: 'p1' },
       omit: { email: true, phone: true, gpApiUserId: true },
+      relationLoadStrategy: 'join',
       include: {
         OfficeHolders: {
           include: {

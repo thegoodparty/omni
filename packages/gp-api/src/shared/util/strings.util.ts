@@ -32,11 +32,6 @@ export const generateRandomString = (
     .map((b) => CHARSET[b % CHARSET.length])
     .join('')
 
-export function camelToSentence(text: string) {
-  const result = text.replace(/([A-Z])/g, ' $1')
-  return result.charAt(0).toUpperCase() + result.slice(1)
-}
-
 export function capitalizeFirstLetter(str: string): string {
   if (!str || str.length < 2) return str
 
@@ -114,13 +109,20 @@ export const phoneDigitsKey = (phone: string): string | null => {
   return tenDigits.length === 10 ? tenDigits : null
 }
 
+// Trimmed first, because surrounding whitespace is never part of a name: it
+// came from a form field a user padded, and it breaks exact-match joins and
+// outbound integrations downstream. Every write of a person's name funnels
+// through here, which is what makes this the one place that has to hold.
+//
 // Only all-lowercase input is rewritten: mixed case (McDonald, de La Cruz) is
 // a deliberate spelling, and all caps may be initials.
-export const normalizePersonName = (value: string): string =>
-  value === value.toLowerCase()
-    ? value.replace(
+export const normalizePersonName = (value: string): string => {
+  const trimmed = value.trim()
+  return trimmed === trimmed.toLowerCase()
+    ? trimmed.replace(
         /(^|[^\p{L}])(\p{L})/gu,
         (_match, boundary: string, letter: string) =>
           `${boundary}${letter.toUpperCase()}`,
       )
-    : value
+    : trimmed
+}

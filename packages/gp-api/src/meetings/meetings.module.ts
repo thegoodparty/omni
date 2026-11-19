@@ -5,7 +5,6 @@ import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { LlmModule } from '@/llm/llm.module'
-import { CronModule } from '@/cron/cron.module'
 import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
 import { CrmModule } from '@/crm/crmModule'
 import { BriefingsPdfController } from './controllers/briefingsPdf.controller'
@@ -25,7 +24,6 @@ import { UserAgendaUploadService } from './services/userAgendaUpload.service'
     OrganizationsModule,
     AwsModule,
     LlmModule,
-    CronModule,
     DashboardCardsModule,
     CrmModule,
   ],

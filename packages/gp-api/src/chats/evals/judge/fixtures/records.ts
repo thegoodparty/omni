@@ -81,9 +81,8 @@ const record = (
   ],
   telemetry: {
     latencyMs: 12_000,
-    // The real measured shape of a Chief of Staff turn. Cache counts are
-    // zero because prompt caching is not enabled, not because they are
-    // unmodelled — a consumer that ignores them breaks the day it is.
+    // The real measured shape of a Chief of Staff turn, captured before the
+    // chats cached their prompts, so its cache counts are zero.
     tokens: {
       input: 31_213,
       output: 227,
@@ -224,9 +223,9 @@ export const BACKGROUND_PAIR: [RunRecord, RunRecord] = pair(
 )
 
 // The candidate's voter tool failed. Both arms still answered, so nothing
-// looks broken — the candidate just answered with less information. Scoring
-// must resolve this to CAN'T SAY rather than letting a dead credential read
-// as a code regression.
+// looks broken — the candidate just answered with less information. The pair
+// is judged on that answer, as its user saw it, and the tool error is counted
+// beside the verdict.
 export const TOOL_ERROR_PAIR: [RunRecord, RunRecord] = pair(
   record('cos-constituents', 'base', { toolCalls: 1 }),
   record('cos-constituents', 'candidate', {

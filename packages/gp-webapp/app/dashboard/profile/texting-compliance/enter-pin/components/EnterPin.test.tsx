@@ -367,6 +367,41 @@ describe('EnterPin — submit flow', () => {
     expect(router.push).not.toHaveBeenCalled()
   })
 
+  // ENG-11389: the PIN verified, but Peerly refuses a brand tagged 501(c)
+  // tax-exempt. It is a 422 like a mismatch, so the errorCode must win.
+  it('422 tax-exempt brand: sends them to support, never says the PIN was wrong', async () => {
+    const user = userEvent.setup()
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+
+    api.mock(
+      'POST /v1/campaigns/tcr-compliance/:tcrComplianceId/submit-cv-pin',
+      {
+        status: 422,
+        data: {
+          message: 'Peerly refused the Campaign Verify token',
+          errorCode: 'CAMPAIGN_VERIFY_TAX_EXEMPT_BRAND',
+        },
+      },
+    )
+
+    render(<EnterPin />)
+    await waitFor(() => expect(getDigitInputs()).toHaveLength(6))
+
+    await fillPin(user, '123456')
+    await user.click(screen.getByRole('button', { name: /submit/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /listed as a tax-exempt nonprofit/i,
+      )
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /campaignsuccess@goodparty\.org/,
+    )
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/didn’t match/i)
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
   it('409 response: re-reads the CV status and replaces the form with the in-progress notice', async () => {
     const user = userEvent.setup()
     mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))

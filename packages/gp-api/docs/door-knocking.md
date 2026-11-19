@@ -67,6 +67,10 @@ campaign, read off the turf's own envelope or, for a sibling, its anchor's
 (a card's link is written to the anchor only). Null when no card opened it.
 The client puts it on the door-knocking `Outreach - Campaign Completed`.
 
+And `purpose`, the turf's own column, for the same event: Completed fires on
+another page from the flow that picked it, so the turf is where the client
+reads it back. Null on a turf made before the column existed.
+
 ### A campaign is a grouping, not a row
 
 Many turfs make one campaign, and the campaign has no table. The anchor's
@@ -509,8 +513,10 @@ attribution.
   has to be pushed. The sweep would not catch it: it is scoped to orgs that
   recorded a knock, and an org that deletes a list and then stops has no next
   event to correct the stale company record.
-- **A daily sweep** at 05:00 Eastern over every org that recorded a knock in
-  the last 24 hours, behind `CronLockService` so two replicas emit once. The
+- **A daily sweep**, the `doorKnockingCanvassingTotalsSweep` pg-boss
+  schedule at 10:00 UTC (5 AM Eastern in winter, 6 AM in summer), sends one
+  `doorKnockingCanvassingTotals` job per org that recorded a knock in the
+  last 24 hours, so one org's Segment failure retries on its own. The
   window is measured on `createdAt`, not `occurredAt`: it asks which rows
   _landed_ since the last sweep, which is what catches a phone syncing a walk
   it did offline and a manual log backdated to last week.
@@ -546,8 +552,9 @@ carries a `DO NOT MODIFY` comment in `segment.types.ts` and is pinned by
 
 `src/doorKnocking/` (turf CRUD + the create transaction; controller routes
 under `/v1/door-knocking`), `src/vendors/geoapify/` (Route Planner client —
-requires `GEOAPIFY_API_KEY`, validated lazily at call time so environments
-without it still boot), and the evaluation/residents contracts in
+requires `GEOAPIFY_API_KEY` in live mode, validated lazily at call time so
+environments without it still boot; in mock mode it sends a constant mock key
+and needs no real key), and the evaluation/residents contracts in
 `@goodparty_org/contracts`, served in-process by
 `src/peopleDb/services/voterDoorKnocking.service.ts`.
 
@@ -905,7 +912,7 @@ or labelled. Every metric attribute is a closed set of literals.
 | Signal                                         | Where                                                | Reads                                                                                                                                                                                                           |
 | ---------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `event: 'DoorKnockingSpend'` log line          | `doorKnockingCreate.service.ts` spend path           | `organizationSlug`, `turfId`, `waypoints` (stops), `credits` (both calls) — emitted before the ledger write and regardless of its outcome, so a lost ledger row cannot hide money the vendor has already billed |
-| `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing`, no org label (Prometheus cardinality)                                                                                                                        |
+| `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing` / `reverse_geocode` (the civic panel naming a census tract, once per tract), no org label (Prometheus cardinality)                                            |
 | `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — call counts and failures, including a geometry fetch that was billed and returned nothing usable                                                                    |
 
 What pages: the global **route planner spend ceiling** alert (>10,000 credits /
@@ -990,10 +997,10 @@ enum and a state-level race runs past 256 pairs; it accumulates as u16 and
 narrows back to u8 when the district fits, which p75 (13-15 pairs) always
 does. Past `MAX_PRECINCT_FILTER_VALUES` the plane is omitted rather than
 truncated, so the disclosure returns rather than the map shading
-confidently wrong. **`supportStatus` and `activityConditions` remain
-unshadeable** and are a different problem: both are org-scoped Postgres id
-sets rather than district facts, so they cannot live in a district-cached
-artifact at all.
+confidently wrong. **`supportStatus`, `activityConditions` and
+`contactUploadIds` remain unshadeable** and are a different problem: all are
+org-scoped Postgres id sets rather than district facts, so they cannot live in
+a district-cached artifact at all.
 
 **Where the slow reads actually are**, from the same window, max `dbxMs` by
 op: `dk-evaluate` 5.0s, `dk-residents` 13.4s, `list` 26.3s, **`dk-pack`
@@ -1091,6 +1098,10 @@ Three things to know before trusting a tier:
 - **Rolling 24h, not calendar.** LogQL has no calendar alignment, so the window
   can span the tail of one metered day and the head of the next. That
   over-estimates, which is the safe direction here.
+- **Tract naming is not in the expression.** The civic panel's reverse
+  geocodes (one credit per census tract, once ever) count only in
+  `geoapify_credits_total{api="reverse_geocode"}`, not in
+  `DoorKnockingSpend`. A district costs tens of credits, once.
 
 All four read the same `DoorKnockingSpend` expression, differing only in
 threshold, so Loki's result cache serves tiers 2-4 from the work tier 1 does.
@@ -1209,10 +1220,7 @@ with no composed introduction or thank-you around it. `POST /v1/outreach/door-kn
 `serve/` sibling return one `draft`. A fresh draft is 4 or 5 bullets, one
 action each, about the campaign's (or the office's) goal rather than the
 person at the door, assembled server-side so every line starts with the bullet marker. An
-Improve is a light polish that keeps whatever shape the candidate wrote. For
-one release the response also carries the optional `engagementQuestion`,
-`context` and `ask` filled from the draft's lines, so a tab open across the
-deploy keeps working.
+Improve is a light polish that keeps whatever shape the candidate wrote.
 
 **The list's purpose and its audience are the whole prompt input that is
 specific to this channel.** `DoorKnockingTurf.purpose` takes the same ten
@@ -1646,8 +1654,9 @@ campaign's own outreach rather than by the district — usually a rounding error
 against 611,000 rows.
 
 **Past `PACK_CONTACTS_MADE_MAX` the plane is omitted, not truncated.** The cap
-is `MAX_RESOLVED_ID_SET_SIZE` (100,000), deliberately the same number at which
-resolving a contacts-made filter for a real query gives up: above it the
+is 100,000, deliberately no larger than `MAX_RESOLVED_ID_SET_SIZE` (200,000
+since ENG-11424), the point at which resolving a contacts-made filter for a
+real query gives up: above the resolver's cap the
 filter cannot be applied at knock time either. Truncating would read the
 dropped people as "0 prior contacts", which is the bucket candidates select
 most and the one answer that must never be invented. Absent, the dim never
@@ -1817,10 +1826,11 @@ all?" — the create's own empty-audience refusal, asked two steps before a
 boundary exists.
 
 It exists because the create flow's counts are pack arithmetic and the pack
-encodes no support status, no previous outreach and no contacts-made. A list cut
-by one of those shades as the whole district, so `districtHouseholds` reports the
-district, the who step's Continue is enabled by that number, and the audience is
-not resolved for real until the paid create — which then refuses. QA reported
+encodes no support status, no previous outreach, no import and no
+contacts-made. A list cut by one of those shades as the whole district, so
+`districtHouseholds` reports the district, the who step's Continue is enabled
+by that number, and the audience is not resolved for real until the paid
+create — which then refuses. QA reported
 that as a valid selection being rejected, and reasonably: the boundary was fine,
 and redrawing it (the only thing that refusal suggested) could not have helped.
 Rewording the refusal is the other half of this gap and is worth doing; this is
@@ -1857,7 +1867,7 @@ behind it as the backstop.
 
 The webapp fires it from `CreateListSurface` — where the picked list's clauses
 are already assembled for the preview request — and only for a draft carrying one
-of the three criteria that can resolve to nobody (`emptiableCriteria.ts`).
+of the four criteria that can resolve to nobody (`emptiableCriteria.ts`).
 Everything else has a known answer and buys nothing. The gate **fails open** on
 error and while pending: an advisory check must not hold a candidate out of their
 own flow, since a missed empty audience is the status quo while a false block is
@@ -1873,8 +1883,9 @@ address at all, so it cannot; this runs the knock's own evaluation instead.
 [`doorKnockingKnock.service.ts`](../src/doorKnocking/services/doorKnockingKnock.service.ts)
 does right up to the vendor call and then stops:
 `resolveEligibleDistrict`, `resolveSavedFilterForQuery` on the **unsaved**
-filter draft (so activity conditions, support status, contacts-made and the
-voter-likelihood overrides are applied, exactly as they will be at knock time),
+filter draft (so activity conditions, support status, imported in
+(`contactUploadIds`), contacts-made and the voter-likelihood overrides are
+applied, exactly as they will be at knock time),
 do-not-knock + not-a-voter exclusions deduped into one `excludePersonIds`, then
 `evaluate` over the polygon's bbox with an in-process ray-cast. Nothing is
 written, nothing is frozen and no Geoapify credit is spent.
@@ -1912,15 +1923,15 @@ looked at, and QA reported a valid selection being rejected. `emptyAudience.util
 now holds one message per case; `EMPTY_TURF_MESSAGE` is the second, verbatim.
 
 The empty-audience message names every criterion on the list that _can_ resolve
-to nobody (support status, previous outreach, contacts made) rather than the one
-that was decisive. Which one was decisive is not knowable at the throw site —
+to nobody (support status, previous outreach, imported in, contacts made) rather
+than the one that was decisive. Which one was decisive is not knowable at the throw site —
 `intersectIdFilterResolutions` intersects its inputs and reports a single
 `empty` for the result — and threading a reason back through every id-filter
 path in the CRM is a large change for one sentence. Their intersection is what
 came back empty, so naming all of them is true, and it points at the pills to go
 and look at.
 
-**Why this is easy to hit without knowing it**: those three criteria are exactly
+**Why this is easy to hit without knowing it**: those four criteria are exactly
 the ones the voter pack cannot shade (`UNSHADEABLE_LIST_CRITERIA` in gp-webapp's
 `savedListFilters.ts`). The map shades a district full of matching voters while
 the audience behind it is empty, so the create's 400 is the first news of it.
@@ -2064,10 +2075,10 @@ draw on our tile budget.
 
 Setting the tiles key requires a **rebuild**, not just a redeploy —
 `NEXT_PUBLIC_` values are baked in at build time, so an env var added after the
-last build is invisible until the next one. The server key needs no Pulumi
-change: `deploy/index.ts` maps `Object.keys(secret)` into the task definition,
-so any key added to the `GP_API_<ENV>` secret JSON is injected on the next
-deploy. A missing server key is the gentlest failure of the four — the client
+last build is invisible until the next one. The server key is injected only
+if it is listed in `deploy/gp-api-secret-keys.ts`, and its value has to be in
+the `GP_API_<ENV>` secret before that change deploys, because the deploy stops
+on a listed key the secret lacks. A missing server key is the gentlest failure of the four — the client
 validates lazily, so the environment boots and only the knock endpoint 502s.
 
 **Pro and a resolvable district.** Pilot campaigns need `isPro` (admin-settable)

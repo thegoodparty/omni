@@ -3,6 +3,7 @@ import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts
 import {
   savedListFilterKeys,
   savedListUnshadeableCriteria,
+  savedListVotedStatus,
   withoutUnshadeableCriteria,
 } from './savedListFilters'
 
@@ -48,6 +49,16 @@ describe('savedListFilterKeys', () => {
         }),
       ),
     ).toEqual({ activityConditions: true, precincts: true })
+  })
+
+  // "Imported in" has no pack plane either, and an undone import empties the
+  // list, so the who step has to know the list carries it.
+  it('marks an imported-in list for Win and Serve alike', () => {
+    const imported = list({ contactUploadIds: ['upload-1'] })
+    expect(savedListFilterKeys(imported)).toEqual({ contactUploadIds: true })
+    expect(savedListFilterKeys(imported, true)).toEqual({
+      contactUploadIds: true,
+    })
   })
 
   // The back door behind the hidden control. A list cut on the Win surface —
@@ -98,7 +109,12 @@ describe('savedListFilterKeys', () => {
   it('marks nothing for a list carrying empty criteria arrays', () => {
     expect(
       savedListFilterKeys(
-        list({ supportStatus: [], activityConditions: [], precincts: [] }),
+        list({
+          supportStatus: [],
+          activityConditions: [],
+          precincts: [],
+          contactUploadIds: [],
+        }),
       ),
     ).toEqual({})
   })
@@ -141,6 +157,37 @@ describe('savedListUnshadeableCriteria', () => {
     )
     expect(savedListUnshadeableCriteria(undefined)).toEqual({})
   })
+
+  // Without it the address preview answers for every door in the ring, and
+  // the draw step prints that as the count the route is built from.
+  it('sends the imports the list was cut by', () => {
+    expect(
+      savedListUnshadeableCriteria(
+        list({ contactUploadIds: ['upload-1', 'upload-2'] }),
+      ),
+    ).toEqual({ contactUploadIds: ['upload-1', 'upload-2'] })
+  })
+})
+
+describe('Voted in election on a saved list', () => {
+  const voted = list({ votedStatus: ['unknown'] })
+
+  it('marks it for Win and not for Serve, where the group is never shown', () => {
+    expect(savedListFilterKeys(voted)).toEqual({ votedStatus: true })
+    expect(savedListFilterKeys(voted, true)).toEqual({})
+  })
+
+  it('sends it to the address preview', () => {
+    expect(savedListUnshadeableCriteria(voted)).toEqual({
+      votedStatus: ['unknown'],
+    })
+  })
+
+  it('reads the selection back for the pills, Win only', () => {
+    expect(savedListVotedStatus(voted)).toEqual(['unknown'])
+    expect(savedListVotedStatus(voted, true)).toEqual([])
+    expect(savedListVotedStatus(undefined)).toEqual([])
+  })
 })
 
 describe('withoutUnshadeableCriteria', () => {
@@ -156,6 +203,7 @@ describe('withoutUnshadeableCriteria', () => {
         supportStatus: true,
         activityConditions: true,
         precincts: true,
+        contactUploadIds: true,
       }),
     ).toEqual({ partyDemocrat: true })
   })

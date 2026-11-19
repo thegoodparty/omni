@@ -23,6 +23,9 @@ const Nav = (): React.JSX.Element => {
     // and showing a marketing "Login" link to someone mid-sign-in is worse than
     // useless.
     pathname?.startsWith('/sign-in-link') ||
+    // Unsubscribe and reply-address pages opened from outreach email: a card
+    // with its own wordmark, and no marketing nav for a one-click action.
+    pathname?.startsWith('/email') ||
     // Dev-only surfaces (e.g. the /dev/briefings gallery) reuse dashboard
     // chrome and should not show the marketing nav.
     pathname?.startsWith('/dev')

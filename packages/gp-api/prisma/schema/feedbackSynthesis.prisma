@@ -38,6 +38,10 @@ model FeedbackSynthesisRun {
   // send's answers are not in it, so the stale-run sweep starts a fresh
   // pooled run once this one is done.
   repoolOwed        Boolean            @default(false) @map("repool_owed")
+  // Set once each member issue was matched to at most one of its note's
+  // themes (FeedbackThemeIssue). Null while unmatched, or when matching
+  // failed: the report then counts every issue in a theme's notes.
+  issuesMatchedAt   DateTime?          @map("issues_matched_at")
   // Denominators as of the run, so the caption cannot drift from the themes.
   conversations     Int
   memos             Int
@@ -72,6 +76,7 @@ model FeedbackTheme {
   tag       IssueTag?            @relation(fields: [tagId], references: [id], onDelete: SetNull)
 
   members FeedbackThemeMember[]
+  issues  FeedbackThemeIssue[]
 
   @@index([runId, rank])
   @@map("feedback_theme")
@@ -98,4 +103,19 @@ model FeedbackThemeMember {
   @@unique([themeId, feedbackId])
   @@unique([themeId, textReplyId])
   @@map("feedback_theme_member")
+}
+
+// One issue a member note raised, assigned to one of that note's themes
+// after the run completes. Membership is per note, so this is what lets a
+// theme count only its own issues' stances and asks. An issue sits in at
+// most one theme of a run; that is checked when the rows are written.
+model FeedbackThemeIssue {
+  themeId String                   @map("theme_id")
+  theme   FeedbackTheme            @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  issueId String                   @map("issue_id")
+  issue   ConstituentFeedbackIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@id([themeId, issueId])
+  @@index([issueId])
+  @@map("feedback_theme_issue")
 }

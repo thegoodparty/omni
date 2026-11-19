@@ -77,7 +77,7 @@ describe('ServeSmsScheduleStep', () => {
   it('states the fixed send time instead of offering a time picker', () => {
     render(
       <ServeSmsScheduleStep
-        name="Northside residents — SMS"
+        name="Northside residents"
         onNameChange={vi.fn()}
         date={undefined}
         onDateChange={vi.fn()}
@@ -95,7 +95,7 @@ describe('ServeSmsScheduleStep', () => {
   it('shows the estimated completion once a date is picked', () => {
     render(
       <ServeSmsScheduleStep
-        name="Northside residents — SMS"
+        name="Northside residents"
         onNameChange={vi.fn()}
         date={new Date(2026, 8, 4, 11, 0, 0, 0)}
         onDateChange={vi.fn()}
@@ -105,5 +105,24 @@ describe('ServeSmsScheduleStep', () => {
     expect(screen.getByText(/Estimated completion:/)).toBeInTheDocument()
     // Sep 4 + 3 business days = Wed Sep 9.
     expect(screen.getByText(/Wed, Sep 9, 2026/)).toBeInTheDocument()
+  })
+
+  // A priority's round 2 is drawn three business days before it sends, so
+  // its first bookable day is a day later than any other send's.
+  it('holds a send with more lead to a later first day', () => {
+    render(
+      <ServeSmsScheduleStep
+        date={undefined}
+        onDateChange={vi.fn()}
+        minLeadBusinessDays={3}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: /^Monday, September 7(?!\d)/ }),
+    ).toBeEnabled()
   })
 })

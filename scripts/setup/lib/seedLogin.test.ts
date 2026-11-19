@@ -133,6 +133,30 @@ describe('runSeedLogin', () => {
   })
 })
 
+describe('runSeedLogin with how the priority is answered', () => {
+  it('sends the answers beside the seeded activity', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(201, { token: 'mt_abc' }))
+      .mockResolvedValueOnce(
+        jsonResponse(201, {
+          email: 'qa-123@goodparty.org',
+          password: 'correct-horse',
+          orgSlug: 'eo-abc',
+        }),
+      )
+
+    await runSeedLogin('secret_123', 'serve', fetchImpl, true, { answers: 0 })
+
+    const [, fixtureInit] = fetchImpl.mock.calls[1]
+    expect(JSON.parse(fixtureInit.body)).toEqual({
+      state: 'serve',
+      activity: 'seeded',
+      answers: 0,
+    })
+  })
+})
+
 describe('runSeedActivity', () => {
   it('skips cleanly when the machine secret is absent', async () => {
     const fetchImpl = vi.fn()
@@ -171,6 +195,23 @@ describe('runSeedActivity', () => {
       'http://localhost:3000/v1/test-fixtures/organizations/eo-abc/activity',
     )
     expect(init.headers.Authorization).toBe('Bearer mt_abc')
+  })
+
+  it('sends how the seeded priority is answered', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(201, { token: 'mt_abc' }))
+      .mockResolvedValueOnce(
+        jsonResponse(201, { people: 250, efforts: [{ memos: 0 }] }),
+      )
+
+    await runSeedActivity('secret_123', 'eo-abc', fetchImpl, {
+      answers: 15,
+      split: 'even',
+    })
+
+    const [, init] = fetchImpl.mock.calls[1]
+    expect(JSON.parse(init.body)).toEqual({ answers: 15, split: 'even' })
   })
 
   it('fails when gp-api refuses the org', async () => {

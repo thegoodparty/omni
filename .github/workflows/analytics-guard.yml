@@ -25,14 +25,14 @@ env:
 
 jobs:
   guard:
-    name: Analytics guard
+    name: Analytics Guard
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
       PR: ${{ github.event.pull_request.number }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -42,7 +42,7 @@ jobs:
         id: setup_uv
         if: env.GOVERNANCE_GUARD_MODE != 'off'
         continue-on-error: true
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           version: latest
 
@@ -60,6 +60,9 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # For the choice check (choice_judge.py), a warning only. Fork and Dependabot PRs
+          # get no secrets, and the check then reports itself as skipped.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
         run: |
           set +e
           # A stacked PR's base branch is often deleted when the PR under it merges, and
@@ -73,7 +76,7 @@ jobs:
           fi
           base=$(git merge-base "$base_tip" HEAD)
           echo "base=$base" >> "$GITHUB_OUTPUT"
-          uv run governance_guard.py check --base "$base" --head HEAD \
+          uv run governance_guard.py check --base "$base" --head HEAD --judge-choices \
             --markdown "$RUNNER_TEMP/guard.md" --summary "$RUNNER_TEMP/guard-full.md" \
             --json "$RUNNER_TEMP/guard.json"
           code=$?

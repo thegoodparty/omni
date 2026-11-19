@@ -22,7 +22,13 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
-import { ElectedOffice, Organization, Prisma, User } from '../generated/prisma'
+import {
+  ElectedOffice,
+  ElectedOfficeWinSource,
+  Organization,
+  Prisma,
+  User,
+} from '../generated/prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
@@ -41,14 +47,19 @@ import {
   ElectedOfficeService,
 } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
+import { WinTermService } from './services/winTerm.service'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
-import { electedOfficeToApi } from './util/electedOffice.util'
+import { electedOfficeToApi, isPreparedOffice } from './util/electedOffice.util'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
+  campaignWasEverPro,
+  MyElectedOffice,
+  MyElectedOfficeSchema,
   SupportEstimate,
   SupportEstimateSchema,
 } from '@goodparty_org/contracts'
+import { z } from 'zod'
 
 @Controller('elected-office')
 @UsePipes(ZodValidationPipe)
@@ -60,6 +71,7 @@ export class ElectedOfficeController {
     private readonly crmOfficeHolder: CrmOfficeHolderService,
     @Inject(forwardRef(() => PrioritiesService))
     private readonly prioritiesService: PrioritiesService,
+    private readonly winTerm: WinTermService,
   ) {}
 
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
@@ -82,7 +94,8 @@ export class ElectedOfficeController {
   // enforce the no-overlapping-term-dates invariant (the term-date selector
   // greys out ranges already covered by an existing office).
   @Get('mine')
-  async listMine(@ReqUser() user: User) {
+  @ResponseSchema(z.array(MyElectedOfficeSchema))
+  async listMine(@ReqUser() user: User): Promise<MyElectedOffice[]> {
     // The global SessionGuard admits M2M tokens without populating request.user,
     // so guard against that here — "mine" is meaningless without a user.
     if (!user) {
@@ -97,9 +110,25 @@ export class ElectedOfficeController {
     // official with issues they ran on confirms they are in office.
     const withWinIssues =
       await this.prioritiesService.officesWithWinIssues(offices)
+    const linkedCampaignIds = offices.flatMap((office) =>
+      office.campaignId === null ? [] : [office.campaignId],
+    )
+    const linkedCampaigns =
+      linkedCampaignIds.length === 0
+        ? []
+        : await this.electedOfficeService.client.campaign.findMany({
+            where: { id: { in: linkedCampaignIds } },
+            select: { id: true, isPro: true, details: true },
+          })
+    const everProCampaignIds = new Set(
+      linkedCampaigns.filter(campaignWasEverPro).map((c) => c.id),
+    )
     return offices.map((office) => ({
       ...this.toApi(office),
       hasWinIssues: withWinIssues.has(office.id),
+      campaignWasEverPro:
+        office.campaignId !== null && everProCampaignIds.has(office.campaignId),
+      prepared: isPreparedOffice(office),
     }))
   }
 
@@ -191,12 +220,40 @@ export class ElectedOfficeController {
       )
     }
 
-    const created = await this.electedOfficeService.create({
+    // A win sends no term: fill it from the winner's own BallotReady record
+    // when there is one, so Serve onboarding's term step comes prefilled.
+    const winTerm =
+      campaignId != null &&
+      !eoFields.termStartDate &&
+      !eoFields.termEndDate &&
+      eoFields.onboardingCompletedAt == null
+        ? await this.winTerm.forWinner(orgData.positionId, user)
+        : null
+
+    // A campaign org's create is the Pro winner's own "I won".
+    const createArgs = {
       ...eoFields,
       userId: user.id,
       campaignId,
+      winSource:
+        campaignId != null ? ElectedOfficeWinSource.self_reported : undefined,
       orgData,
-    })
+    }
+    if (winTerm) {
+      try {
+        return this.toApi(
+          await this.electedOfficeService.create({
+            ...createArgs,
+            ...winTerm,
+          }),
+        )
+      } catch (err) {
+        // A looked-up term that collides with an office they already hold
+        // must not cost them the win: create it term-less and let them say.
+        if (!(err instanceof ConflictException)) throw err
+      }
+    }
+    const created = await this.electedOfficeService.create(createArgs)
     return this.toApi(created)
   }
 
@@ -303,6 +360,17 @@ export class ElectedOfficeController {
           'Elected office term overlaps an existing elected office for this user',
         )
       }
+    }
+
+    // Completing serve onboarding is the pledge: it makes the office live and
+    // fires its paid dispatches. A prepared office's campaign has no result
+    // yet, so onboarding into it would hand a candidate who may have lost a
+    // live office. Serve onboarding sends its holder to report the result
+    // instead; this refuses the write if the pledge reaches one anyway.
+    if (body.onboardingCompletedAt != null && isPreparedOffice(existing)) {
+      throw new ConflictException(
+        'This office is awaiting an election result and cannot be onboarded yet',
+      )
     }
 
     // Completing serve onboarding is only meaningful once the office has a real,

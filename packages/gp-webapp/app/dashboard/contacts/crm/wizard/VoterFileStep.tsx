@@ -20,14 +20,22 @@ import {
   SPECIFIC_PHONE_FILTER_KEYS,
   WIN_ONLY_RECOMMENDED_FIELD_KEYS,
 } from '../shared/recommendedListFilters.config'
-import { SUPPORT_STATUS_OPTIONS } from '../shared/activityConditionOptions'
+import {
+  SOURCE_OPTIONS,
+  SUPPORT_STATUS_OPTIONS,
+  VOTED_STATUS_OPTIONS,
+  type PeopleFilterSource,
+} from '../shared/activityConditionOptions'
 import type { SupportStatusRollup } from '../shared/contacts-types'
+import type { VotedStatus } from '@goodparty_org/contracts'
 import {
   hasAnyVoterFileSelection,
   type VoterFileFilters,
 } from '../shared/voterFileFilterTransform.util'
 import DayRangeFilter from './DayRangeFilter'
+import ImportedInFilter from './ImportedInFilter'
 import PrecinctFilter from './PrecinctFilter'
+import type { ImportedInOptionsResult } from './useImportedInOptions'
 import type { PrecinctOptionsResult } from './usePrecinctOptions'
 
 interface VoterFileStepProps {
@@ -35,6 +43,21 @@ interface VoterFileStepProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   supportStatus: SupportStatusRollup[]
   onSupportStatusChange: (value: SupportStatusRollup[]) => void
+  // "Voted in election", Win only. Optional: only Voter Data's Create a list
+  // passes it, so the other surfaces that share this step don't gain it.
+  votedStatus?: VotedStatus[]
+  onVotedStatusChange?: (value: VotedStatus[]) => void
+  // "Source", Win only: the voter file or imported new contacts. Optional
+  // for the same reason as votedStatus, and Voter Data's Create a list
+  // passes it only with Import contacts on.
+  source?: PeopleFilterSource[]
+  onSourceChange?: (value: PeopleFilterSource[]) => void
+  // "Imported in", Win and Serve: the org's imports by name. Optional for
+  // the same reason as source; door knocking passes none. Shown once there
+  // is an import to pick, or a saved one to remove.
+  contactUploadIds?: string[]
+  onContactUploadIdsChange?: (value: string[]) => void
+  importedIn?: ImportedInOptionsResult
   precincts: string[]
   onPrecinctsChange: (value: string[]) => void
   // Fetched by the caller, not here: this component stays dumb (same reason
@@ -68,6 +91,7 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 // field missing from this array still renders, after the ordered set.
 const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
   'voter_likely',
+  'early_vote',
   'political_party',
   'age',
   'marital_status',
@@ -97,6 +121,13 @@ export default function VoterFileStep({
   onFiltersChange,
   supportStatus,
   onSupportStatusChange,
+  votedStatus = [],
+  onVotedStatusChange,
+  source = [],
+  onSourceChange,
+  contactUploadIds = [],
+  onContactUploadIdsChange,
+  importedIn,
   precincts,
   onPrecinctsChange,
   precinctOptions,
@@ -136,6 +167,7 @@ export default function VoterFileStep({
         (!isElectedOfficial ||
           (field.key !== 'political_party' &&
             field.key !== 'voter_likely' &&
+            field.key !== 'early_vote' &&
             field.key !== 'ethnicity')),
     )
     .sort((a, b) => orderIndex(a.key) - orderIndex(b.key))
@@ -177,11 +209,17 @@ export default function VoterFileStep({
     filters,
     supportStatus,
     precincts,
+    votedStatus,
+    source,
+    contactUploadIds,
   )
 
   const handleClearFilters = () => {
     onFiltersChange({})
     onSupportStatusChange([])
+    onVotedStatusChange?.([])
+    onSourceChange?.([])
+    onContactUploadIdsChange?.([])
     onPrecinctsChange([])
   }
 
@@ -260,7 +298,60 @@ export default function VoterFileStep({
         )}
       </div>
 
-      {/* First group on the step, per the locked prototype: Precinct sits
+      {!isElectedOfficial && onSourceChange && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Source</h4>
+            <Button
+              type="button"
+              variant="link"
+              size="small"
+              className="h-auto border-none p-0 text-xs"
+              onClick={() =>
+                onSourceChange(
+                  source.length === SOURCE_OPTIONS.length
+                    ? []
+                    : SOURCE_OPTIONS.map((option) => option.value),
+                )
+              }
+            >
+              {source.length === SOURCE_OPTIONS.length ? 'Clear' : 'Select all'}
+            </Button>
+          </div>
+          <ToggleGroup
+            type="multiple"
+            value={source}
+            onValueChange={(values) =>
+              onSourceChange(values as PeopleFilterSource[])
+            }
+            aria-label="Source"
+            className="flex flex-wrap gap-2"
+          >
+            {SOURCE_OPTIONS.map((option) => (
+              <ToggleGroupItem
+                key={option.value}
+                value={option.value}
+                className={PILL_TOGGLE_ITEM_CLASSNAME}
+              >
+                {option.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+      )}
+
+      {onContactUploadIdsChange &&
+        importedIn &&
+        (importedIn.options.length > 0 || contactUploadIds.length > 0) && (
+          <ImportedInFilter
+            importedIn={importedIn}
+            selected={contactUploadIds}
+            onChange={onContactUploadIdsChange}
+          />
+        )}
+
+      {/* First group on the step after Win's Source, per the locked
+          prototype: Precinct sits
           above Prior contacts made. Offered to Win and Serve alike — a
           precinct is a subdivision of the district an official already
           serves, so unlike party or voter likelihood it has a plain Serve
@@ -347,6 +438,50 @@ export default function VoterFileStep({
           ))}
         </ToggleGroup>
       </div>
+
+      {!isElectedOfficial && onVotedStatusChange && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Voted in election</h4>
+            <Button
+              type="button"
+              variant="link"
+              size="small"
+              className="h-auto border-none p-0 text-xs"
+              onClick={() =>
+                onVotedStatusChange(
+                  votedStatus.length === VOTED_STATUS_OPTIONS.length
+                    ? []
+                    : VOTED_STATUS_OPTIONS.map((option) => option.value),
+                )
+              }
+            >
+              {votedStatus.length === VOTED_STATUS_OPTIONS.length
+                ? 'Clear'
+                : 'Select all'}
+            </Button>
+          </div>
+          <ToggleGroup
+            type="multiple"
+            value={votedStatus}
+            onValueChange={(values) =>
+              onVotedStatusChange(values as VotedStatus[])
+            }
+            aria-label="Voted in election"
+            className="flex flex-wrap gap-2"
+          >
+            {VOTED_STATUS_OPTIONS.map((option) => (
+              <ToggleGroupItem
+                key={option.value}
+                value={option.value}
+                className={PILL_TOGGLE_ITEM_CLASSNAME}
+              >
+                {option.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+      )}
 
       {fieldsBelowSupportStatus.map((field) => renderField(field))}
 

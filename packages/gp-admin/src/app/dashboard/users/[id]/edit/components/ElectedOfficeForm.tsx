@@ -23,7 +23,7 @@ import {
   FORM_MODE,
   UNSAVED_CHANGES_MESSAGE,
 } from '../constants'
-import type { ElectedOffice } from '@goodparty_org/sdk'
+import type { ElectedOffice } from '@/shared/gpApi'
 
 interface ElectedOfficeFormProps {
   initialData: ElectedOffice | null

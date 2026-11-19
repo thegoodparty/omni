@@ -3,12 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
-  BUILD_CITIZENS_PANEL_PURPOSE,
   ComposeHandoffPayloadSchema,
-  PANEL_SEED_SAMPLE_SIZE,
+  type EmailDraft,
   type OutreachDetail,
 } from '@goodparty_org/contracts'
-import type { ProposedAudience } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
+import { useSnackbar } from 'helpers/useSnackbar'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
 import ServeChannelCards from './ServeChannelCards'
@@ -36,24 +35,17 @@ import {
   fetchServeOutreachDetail,
   useSeedOutreachDetail,
 } from 'app/dashboard/outreach/v2/useOutreachDetail'
-import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
+import {
+  isEmailRow,
+  type HistoryRow,
+} from 'app/dashboard/outreach/v2/historyStatus.util'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { useServeSelfServePollsFlag } from '@shared/experiments/serveSelfServePollsFlag'
+import { useServeEmailOutreachFlag } from '@shared/experiments/serveEmailOutreachFlag'
+import { EmailFlow } from 'app/dashboard/outreach/v2/email/EmailFlow'
+import { SERVE_EMAIL_SURFACE } from 'app/dashboard/outreach/v2/email/emailSurface'
 import { PollFlow } from 'app/dashboard/outreach/v2/poll/PollFlow'
-import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { clientRequest } from 'gpApi/typed-request'
-
-// The first civic panel text goes to a random draw of the whole district,
-// so the panel looks like the district rather than like any one list. The
-// one filter is the cell-phone reach a text needs, which is also what lets
-// the builder continue: it holds Continue until something is selected.
-const SERVE_PANEL_SEED_AUDIENCE: ProposedAudience = {
-  filters: { hasCellPhone: true },
-  supportStatus: [],
-  precincts: [],
-  name: 'Civic panel invite',
-  sample: { size: PANEL_SEED_SAMPLE_SIZE },
-}
 
 interface ConstituentOutreachPageProps {
   pathname?: string
@@ -71,13 +63,15 @@ interface ConstituentOutreachPageProps {
 // `serve-sms-outreach`: only an org that has already sent has a text row at
 // all, and an org whose flag is later turned off would otherwise lose the
 // results for a send it paid for. The flag gates the way IN, not the record
-// of what already went out.
+// of what already went out. Email rows follow the same rule: a sent one
+// shows its results and the email, a draft reopens in the flow.
 const isDrawerRow = (row: HistoryRow): boolean =>
   row.outreachType === OUTREACH_TYPES.socialMedia ||
   row.outreachType === OUTREACH_TYPES.nativePhoneBanking ||
   row.outreachType === OUTREACH_TYPES.nativeDoorKnocking ||
   row.outreachType === OUTREACH_TYPES.text ||
-  row.outreachType === 'poll'
+  row.outreachType === 'poll' ||
+  isEmailRow(row)
 
 const ConstituentOutreachContent = () => {
   const router = useRouter()
@@ -130,42 +124,63 @@ const ConstituentOutreachContent = () => {
   // Until it resolves this surface is the pre-SMS one, unchanged.
   const { ready: smsFlagReady, enabled: smsFlagEnabled } = useServeSmsFlag()
   const smsMounted = smsFlagReady && smsFlagEnabled
+  const [emailFlowOpen, setEmailFlowOpen] = useState(false)
+  const { ready: emailFlagReady, enabled: emailFlagEnabled } =
+    useServeEmailOutreachFlag()
+  const emailMounted = emailFlagReady && emailFlagEnabled
+  // A saved email draft reopens in its own EmailFlow, keyed by id, since the
+  // flow reads its draft once on mount.
+  const [emailDraft, setEmailDraft] = useState<EmailDraft | null>(null)
+  const { errorSnackbar } = useSnackbar()
+  // Email is the one Serve channel that saves drafts. A row that stopped
+  // being a draft since the list loaded just refreshes the list. Not gated
+  // on the flag: a draft only exists if the office was let in, and its
+  // Schedule email button must not do nothing.
+  const resumeEmailDraft = async (row: HistoryRow) => {
+    if (!isEmailRow(row)) return
+    try {
+      const { data } = await clientRequest('GET /v1/outreach/serve/email/:id', {
+        id: String(row.id),
+      })
+      if (data.status === 'draft') {
+        setEmailDraft(data)
+        return
+      }
+      void refetchOutreaches()
+    } catch {
+      errorSnackbar("Couldn't open this draft. Please try again.")
+    }
+  }
   const [pollFlowOpen, setPollFlowOpen] = useState(false)
   // Same shape as SMS: the tile is the treatment surface, and the flow is
   // mounted only on `ready && enabled`.
   const { ready: pollsFlagReady, enabled: pollsFlagEnabled } =
     useServeSelfServePollsFlag()
   const pollsMounted = pollsFlagReady && pollsFlagEnabled
-  const { ready: panelsFlagReady, enabled: panelsFlagEnabled } =
-    useServeCitizenPanelsFlag(false)
-  // The Chief of Staff's "Build your civic panel" card links here as
-  // `?compose=text&purpose=build_citizens_panel`, which opens the text flow
-  // on that purpose with the seed draw already picked.
-  const [smsSeedsPanel, setSmsSeedsPanel] = useState(false)
+  // A community issue's "Run a poll on this issue" links here as
+  // `?compose=poll` once the polls flag is on for the office.
+  const pollDeepLinkRef = useRef(false)
+  useEffect(() => {
+    if (composeParam !== 'poll') {
+      pollDeepLinkRef.current = false
+      return
+    }
+    if (pollDeepLinkRef.current || !pollsFlagReady) return
+    pollDeepLinkRef.current = true
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    if (pollsMounted) setPollFlowOpen(true)
+  }, [composeParam, pollsFlagReady, pollsMounted, router])
   const smsDeepLinkRef = useRef(false)
-  const purposeParam = searchParams?.get('purpose')
   useEffect(() => {
     if (composeParam !== 'text') {
       smsDeepLinkRef.current = false
       return
     }
-    if (smsDeepLinkRef.current || !smsFlagReady || !panelsFlagReady) return
+    if (smsDeepLinkRef.current || !smsFlagReady) return
     smsDeepLinkRef.current = true
     router.replace('/dashboard/constituent-outreach', { scroll: false })
-    if (!smsMounted) return
-    setSmsSeedsPanel(
-      panelsFlagEnabled && purposeParam === BUILD_CITIZENS_PANEL_PURPOSE,
-    )
-    setSmsFlowOpen(true)
-  }, [
-    composeParam,
-    purposeParam,
-    smsFlagReady,
-    smsMounted,
-    panelsFlagReady,
-    panelsFlagEnabled,
-    router,
-  ])
+    if (smsMounted) setSmsFlowOpen(true)
+  }, [composeParam, smsFlagReady, smsMounted, router])
   // The follow-up list the results drawer just saved, handed to the flow as
   // its audience so "Call them back" lands on the who step already answered.
   const [followUpListId, setFollowUpListId] = useState<number | undefined>()
@@ -293,6 +308,7 @@ const ConstituentOutreachContent = () => {
         // keeps the card out of the grid entirely.
         onSmsClick={smsMounted ? () => setSmsFlowOpen(true) : undefined}
         onPollClick={pollsMounted ? () => setPollFlowOpen(true) : undefined}
+        onEmailClick={emailMounted ? () => setEmailFlowOpen(true) : undefined}
         // A navigation, not a flow: door knocking's create wizard is drawn
         // over its own map, which is a route rather than a drawer, and the map
         // is most of what the flow is for. `?create=1` so the card still opens
@@ -335,19 +351,32 @@ const ConstituentOutreachContent = () => {
       {smsMounted && (
         <SmsFlow
           open={smsFlowOpen}
-          onClose={() => {
-            setSmsFlowOpen(false)
-            // Spent on close, like the follow-up list below: the tile opens
-            // a plain flow afterwards.
-            setSmsSeedsPanel(false)
-          }}
+          onClose={() => setSmsFlowOpen(false)}
           onScheduled={refetchOutreaches}
           surface={SERVE_SMS_SURFACE}
-          {...(smsSeedsPanel && {
-            initialPurpose: BUILD_CITIZENS_PANEL_PURPOSE,
-            proposedAudience: SERVE_PANEL_SEED_AUDIENCE,
-          })}
-          source={smsSeedsPanel ? 'deep_link' : 'outreach_page'}
+          source="outreach_page"
+        />
+      )}
+      {emailMounted && (
+        <EmailFlow
+          open={emailFlowOpen}
+          onClose={() => {
+            setEmailFlowOpen(false)
+            void refetchOutreaches()
+          }}
+          surface={SERVE_EMAIL_SURFACE}
+        />
+      )}
+      {emailDraft && (
+        <EmailFlow
+          key={emailDraft.id}
+          open
+          onClose={() => {
+            setEmailDraft(null)
+            void refetchOutreaches()
+          }}
+          surface={SERVE_EMAIL_SURFACE}
+          draft={emailDraft}
         />
       )}
       {pollsMounted && (
@@ -371,6 +400,8 @@ const ConstituentOutreachContent = () => {
         }}
         detailFetcher={fetchServeOutreachDetail}
         isServe
+        onResumeDraft={(row) => void resumeEmailDraft(row)}
+        onDraftDeleted={refetchOutreaches}
         onCallFollowUpList={(listId) => {
           // Close the drawer first: the flow is a full-screen sheet, and two
           // stacked sheets is the thing the CRM's own drawers avoid.

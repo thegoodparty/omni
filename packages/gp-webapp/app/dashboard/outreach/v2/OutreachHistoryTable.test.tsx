@@ -9,6 +9,65 @@ import type { HistoryRow } from './historyStatus.util'
 const desktopTable = () => screen.getAllByRole('table')[0] as HTMLElement
 
 describe('OutreachHistoryTable — unified history', () => {
+  it('shows how many emails were delivered in Results', async () => {
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: {
+        id: 31,
+        status: 'completed',
+        goal: 'Introduce myself',
+        layout: 'newsletter',
+        theme: 'neutral',
+        subject: 'Hello',
+        headline: null,
+        body: 'Hi',
+        imageUrl: null,
+        buttonLabel: null,
+        buttonUrl: null,
+        paidForBy: null,
+        date: null,
+        voterFileFilterId: 1,
+        recipientCount: 1000,
+        recipientCap: 1000,
+        priceCents: 1000,
+        sentCount: 1000,
+        pauseReason: null,
+        stopping: false,
+        cardDeclined: false,
+        estimate: null,
+        content: {
+          layout: 'personal_letter',
+          theme: 'neutral',
+          subject: 'Hello',
+          blocks: [],
+        },
+        deliveryCounts: {
+          sent: 1000,
+          delivered: 978,
+          bounced: 22,
+          complained: 2,
+          opened: 412,
+          clicked: 87,
+        },
+      },
+    })
+    const rows = [
+      {
+        id: 31,
+        date: '2026-11-03',
+        outreachType: 'email',
+        name: 'Neighbor letter',
+        status: 'completed',
+      },
+    ] as unknown as HistoryRow[]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(
+      await within(desktopTable()).findByText('978 delivered'),
+    ).toBeInTheDocument()
+  })
+
   it('renders both legacy status vocabularies', () => {
     const rows: HistoryRow[] = [
       // P2P row (phoneListId set): a completed spine reads Done whatever
@@ -575,6 +634,106 @@ describe('OutreachHistoryTable — unified history', () => {
     render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
 
     expect(await within(desktopTable()).findByText('n/a')).toBeInTheDocument()
+  })
+
+  describe('on the Serve surface', () => {
+    const serveRow = (overrides: Partial<HistoryRow> = {}): HistoryRow => ({
+      id: 21,
+      createdAt: '2026-08-10T00:00:00Z',
+      outreachType: 'nativePhoneBanking',
+      name: 'Introduction calls',
+      status: 'in_progress',
+      ...overrides,
+    })
+
+    it('names the history outreach, never campaigns', () => {
+      render(<OutreachHistoryTable rows={[serveRow()]} isServe />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Your outreach' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText("Everything you've sent, most recent first."),
+      ).toBeInTheDocument()
+      expect(
+        within(desktopTable()).getByRole('columnheader', { name: 'Outreach' }),
+      ).toBeInTheDocument()
+      expect(document.body.textContent).not.toMatch(/campaign|supporter/i)
+    })
+
+    it('reads a call list by who needs a follow-up, not by supporters', async () => {
+      api.mock('GET /v1/outreach/:id', {
+        status: 200,
+        data: {
+          id: 21,
+          createdAt: new Date('2026-08-10T00:00:00Z'),
+          updatedAt: new Date('2026-08-10T00:00:00Z'),
+          campaignId: null,
+          outreachType: 'nativePhoneBanking',
+          projectId: null,
+          name: 'Introduction calls',
+          status: 'in_progress',
+          error: null,
+          audienceRequest: null,
+          script: null,
+          message: null,
+          date: null,
+          imageUrl: null,
+          voterFileFilterId: null,
+          doorKnockingRouteId: null,
+          phoneBankingListId: 5,
+          phoneListId: null,
+          identityId: null,
+          didState: null,
+          didNpaSubset: [],
+          title: null,
+          textCount: null,
+          billableTextCount: null,
+          campaignPlanDueDate: null,
+          organizationSlug: 'eo-1',
+          archivedAt: null,
+          phoneBanking: {
+            listId: 5,
+            entriesTotal: 10,
+            entriesCalled: 4,
+            peopleTotal: 10,
+            peopleCalled: 4,
+            byOutcome: {
+              answered: 4,
+              no_answer: 0,
+              voicemail: 0,
+              wrong_number: 0,
+              refused: 0,
+              disconnected: 0,
+              hung_up: 0,
+            },
+            supporters: 0,
+            unsure: 0,
+            nonSupporters: 0,
+            byFollowUp: { yes: 3, no: 1 },
+          },
+        },
+      })
+
+      render(<OutreachHistoryTable rows={[serveRow()]} isServe />)
+
+      expect(
+        await within(desktopTable()).findByText('3 need follow-up'),
+      ).toBeInTheDocument()
+      expect(
+        within(desktopTable()).queryByText(/supporter/),
+      ).not.toBeInTheDocument()
+    })
+
+    it('says the empty and archived states in outreach', () => {
+      render(<OutreachHistoryTable rows={[]} isServe />)
+
+      expect(
+        screen.getAllByText(
+          'No outreach yet. Pick a channel above to send your first.',
+        ),
+      ).toHaveLength(2)
+    })
   })
 
   it('singularizes the supporter count when exactly one supporter is logged', async () => {

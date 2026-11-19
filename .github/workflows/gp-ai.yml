@@ -20,8 +20,13 @@ permissions:
 # and while cancel was off the new run also queued behind it. Safe for the two
 # jobs that touch AWS — the image build only pushes to ECR on main, and the
 # terraform plans run -lock=false, so neither can strand state. Never on main.
+#
+# On main the group is the run id, so pushes never share a group. A shared
+# group still dropped runs with cancel-in-progress off: GitHub keeps one
+# pending run per group, so a third quick merge cancelled the queued one,
+# and release.yml then failed that commit as "cancelled".
 concurrency:
-  group: gp-ai-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: gp-ai-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -42,11 +47,11 @@ jobs:
       infra: ${{ steps.filter.outputs.infra }}
       services: ${{ steps.services.outputs.list }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
           filters: |
@@ -88,11 +93,6 @@ jobs:
               - 'packages/gp-ai/shared/**'
               - 'packages/gp-ai/pyproject.toml'
               - 'packages/gp-ai/uv.lock'
-            engineer-agent:
-              - 'packages/gp-ai/engineer_agent/**'
-              - 'packages/gp-ai/shared/**'
-              - 'packages/gp-ai/pyproject.toml'
-              - 'packages/gp-ai/uv.lock'
             autopilot-agent:
               - 'packages/gp-ai/autopilot/**'
               - 'packages/gp-ai/shared/**'
@@ -107,7 +107,7 @@ jobs:
       # Collapse the per-service booleans into a JSON array the build matrix
       # consumes, so only changed services get a build job. An empty array
       # skips the build job entirely rather than running a no-op matrix.
-      # EVERY main push builds all seven images and deploys, whether or not this
+      # EVERY main push builds all six images and deploys, whether or not this
       # commit touched packages/gp-ai. The invariant is "the deployed artifact
       # corresponds to the commit on main" — with no exceptions to reason about.
       #
@@ -127,13 +127,13 @@ jobs:
           ALL: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
         run: |
           set -euo pipefail
-          all='["broker","pmf-engine","serve-analyze","ddhq-matcher","engineer-agent","autopilot-agent","autopilot-agent-playwright"]'
+          all='["broker","pmf-engine","serve-analyze","ddhq-matcher","autopilot-agent","autopilot-agent-playwright"]'
           if [ "$ALL" = "true" ]; then
             list="$all"
             echo "main push: building all services so every one has an image at this SHA"
           else
             list='[]'
-            for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent autopilot-agent autopilot-agent-playwright; do
+            for s in broker pmf-engine serve-analyze ddhq-matcher autopilot-agent autopilot-agent-playwright; do
               if [ "$(jq -r --arg s "$s" '.[$s] // "false"' <<<"$FILTERS")" = "true" ]; then
                 list=$(jq -c --arg s "$s" '. + [$s]' <<<"$list")
               fi
@@ -143,12 +143,12 @@ jobs:
           echo "Services to build: $list"
 
   validate:
-    name: Validate
+    name: Lint and Test
     needs: changes
     # Also unconditional on main, for the same reason the build is. Gating this
     # on the path filter while the build ignores it opens a bypass: a commit
     # touching nothing under packages/gp-ai skips lint/test but still builds and
-    # deploys all seven services — carrying along any broken Python an earlier
+    # deploys all six services — carrying along any broken Python an earlier
     # commit left in the tree. Deployed code must have been validated at the
     # commit it is deployed from.
     if: >-
@@ -159,12 +159,12 @@ jobs:
       run:
         working-directory: packages/gp-ai
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
         with:
           version: latest
 
@@ -220,7 +220,7 @@ jobs:
     # minutes and intermittently died on `npm error code ETIMEDOUT` fetching a
     # different tarball each time. The registry was fine; QEMU starved the
     # download of CPU until npm's fetch timeout tripped. Building natively
-    # removes the emulator, and with it that entire failure class. The GHA
+    # removes the emulator, and with it that entire failure class. The
     # layer cache carries over unchanged — these layers were always arm64.
     runs-on: ubuntu-24.04-arm
     strategy:
@@ -228,7 +228,7 @@ jobs:
       matrix:
         service: ${{ fromJSON(needs.changes.outputs.services) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -240,7 +240,6 @@ jobs:
             pmf-engine)                 echo "file=packages/gp-ai/pmf_engine/Dockerfile" ;;
             serve-analyze)              echo "file=packages/gp-ai/serve/v1_pipeline/Dockerfile" ;;
             ddhq-matcher)               echo "file=packages/gp-ai/hubspot_ddhq_match/deployment/Dockerfile" ;;
-            engineer-agent)             echo "file=packages/gp-ai/engineer_agent/Dockerfile" ;;
             autopilot-agent)            echo "file=packages/gp-ai/autopilot/Dockerfile" ;;
             autopilot-agent-playwright) echo "file=packages/gp-ai/autopilot/Dockerfile" ;;
           esac >> "$GITHUB_OUTPUT"
@@ -283,44 +282,78 @@ jobs:
       # pulls there are limited per IP and shared runners hit 429s; logged in,
       # the limit is per account. So every build logs in to ECR Public. A pull
       # request builds to validate the Dockerfile and throws the image away, so
-      # it never gets the deploy role and its ECR push. It borrows the
-      # read-only plan role, which any PR can already assume and which can
-      # mint the ECR Public login token.
+      # it never gets the deploy role and its ECR push. It assumes the
+      # pull-request role, which can mint the ECR Public login token.
       - name: Configure AWS Credentials (ECR Public login)
         if: github.event_name == 'pull_request'
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Configure AWS Credentials
         if: github.event_name == 'push' && github.ref_name == 'main'
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR Public
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
         with:
           registry-type: public
 
+      # A pull request logs in only to read the layer cache, under the plan
+      # role. If that role cannot, the PR builds without the cache.
       - name: Login to Amazon ECR
-        if: github.event_name == 'push' && github.ref_name == 'main'
-        uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-private
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           driver-opts: |
             image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
             network=host
 
+      # The layer cache lives in ECR, not the GitHub Actions cache. The Actions
+      # cache evicts entries under load, and a missing blob ("BlobNotFound",
+      # "failed to copy ... actions-cache") failed the build and with it the
+      # release train. Same pattern as gp-api in release.yml: the first main
+      # build for a key writes it, later builds only read it, and
+      # ignore-error keeps a failed write from failing the build. Only the
+      # Dockerfile is in the key: every Dockerfile here copies the source
+      # before `uv sync`, so the layers that survive a code change (base
+      # image, apt and npm installs) depend on nothing else. The ISO week is in
+      # it too, so a moved python:3.12-slim tag stops matching the cache within
+      # a week instead of leaving it stale until the Dockerfile changes.
+      - name: Pick Docker layer cache
+        id: docker-cache
+        env:
+          SERVICE: ${{ matrix.service }}
+          CAN_READ: ${{ steps.ecr-private.outcome == 'success' }}
+          CAN_WRITE: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+          DOCKERFILE_HASH: ${{ hashFiles(steps.df.outputs.file) }}
+        run: |
+          if [ "$CAN_READ" != "true" ]; then
+            echo "from=" >> "$GITHUB_OUTPUT"
+            echo "to=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TAG="$SERVICE-buildcache-$(date -u +%G-%V)-$DOCKERFILE_HASH"
+          echo "from=type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$CAN_WRITE" = "true" ] && ! aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "to=type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:$TAG,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "to=" >> "$GITHUB_OUTPUT"
+          fi
+
       # Build on PRs too (catches a broken Dockerfile before merge) but only
       # push from main — a PR pushing SHA tags would litter ECR with images for
       # commits that never land.
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           # context is the subtree, not the repo root: every COPY in these
           # Dockerfiles was written relative to the old repo root. Widening it
@@ -336,8 +369,8 @@ jobs:
           # <service>-dev tag is gone: terraform now pins the exact SHA, so a
           # moving tag would just be a second, lying source of truth.
           tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }}
-          cache-from: type=gha,scope=gp-ai-${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=gp-ai-${{ matrix.service }}
+          cache-from: ${{ steps.docker-cache.outputs.from }}
+          cache-to: ${{ steps.docker-cache.outputs.to }}
           provenance: false
 
   # Plans every dev root and posts one consolidated comment. PR-only: this shows
@@ -365,7 +398,7 @@ jobs:
     env:
       PLAN_DIR: /tmp/tfplans
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -377,24 +410,25 @@ jobs:
       - name: Check every terraform root is deployed
         run: bash packages/gp-ai/infrastructure/scripts/ci-check-root-coverage.sh
 
-      # `vars.AWS_PLAN_ROLE_ARN`, not `vars.AWS_ROLE_ARN`. The latter is the shared
-      # deploy role, which carries AdministratorAccess and is assumable from
-      # `refs/pull/N/merge`, so every infra PR ran PR-authored Terraform with
-      # admin. This role can read the dev state it plans against and little
-      # else: no Pulumi state, no SSM parameters, and no secret value except
-      # AI_SECRETS_DEV, which `dev/shared-infra` reads through a data source at
-      # plan time.
+      # The pull-request role, not `vars.AWS_ROLE_ARN`, the admin deploy role:
+      # the Terraform comes from the pull request. The role reads what the
+      # dev roots manage through ReadOnlyAccess, and its denies keep it off
+      # other projects' state, prod Terraform state, and every secret value
+      # and parameter the preview path does not read. No plan needs one:
+      # `dev/shared-infra` takes SERVE_API_KEY from its own state
+      # (ci-plan-root.sh), and no root manages a secret version.
       #
-      # Step 5 of docs/deploy-role-trust.md in thegoodparty/ops.
+      # thegoodparty/ops deploy/components/ci-roles/policies.ts,
+      # `githubActionsPullRequestJobs`.
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       # 1.15.x, not 1.9.x: the S3 backends set `use_lockfile = true`, which needs
       # Terraform >= 1.10. Pinned to the version these plans were verified with.
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
@@ -406,10 +440,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       # Each of these records its result to files and always exits 0. `wait-all`
       # short-circuits everything after it if any background step fails, and we
@@ -430,12 +461,12 @@ jobs:
       - name: plan dev/broker
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/broker broker-${{ github.sha }}
+      - name: plan dev/case-scout
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/case-scout
       - name: plan dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ github.sha }}
-      - name: plan dev/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/engineer-agent-fargate engineer-agent-${{ github.sha }}
       - name: plan dev/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-control-plane
@@ -451,14 +482,11 @@ jobs:
       - name: plan dev/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
-      - name: plan dev/universal-judge-sweep-policy
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/universal-judge-sweep-policy
 
       - wait-all:
 
       - name: Post consolidated plan comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs')
@@ -580,7 +608,7 @@ jobs:
       # `arn:aws:iam::<account>:role/github-actions-pulumi-deploy` from
       # `sts:GetCallerIdentity`'s **account**, not from the calling role, so
       # it still asks "could the deploy role apply this?" while running as the
-      # plan role. What the plan role does need, and has, is
+      # pull-request role. What that role does need, and has, is
       # `sts:GetCallerIdentity` and `iam:SimulatePrincipalPolicy`.
       - name: Simulate apply-time IAM permissions
         run: bash packages/gp-ai/infrastructure/scripts/ci-simulate-apply-perms.sh
@@ -590,7 +618,7 @@ jobs:
   # legitimate pass here (the commit didn't touch this subtree); `failure` and
   # `cancelled` are not.
   gate:
-    name: gp-ai
+    name: Validate (gp-ai)
     needs: [changes, validate, build, terraform-plan]
     if: always()
     runs-on: ubuntu-latest

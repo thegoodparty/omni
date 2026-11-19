@@ -1,11 +1,12 @@
 'use client'
 
 import { useUser as useClerkUser } from '@clerk/nextjs'
-import { createContext, useCallback, useMemo } from 'react'
+import { createContext, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { User } from 'helpers/types'
 import { apiRoutes } from 'gpApi/routes'
 import { clientFetch } from 'gpApi/clientFetch'
+import { clientRequest } from 'gpApi/typed-request'
 import { noop } from '@shared/utils/noop'
 
 export type UserContextValue = [User | null, (user?: User) => void, boolean]
@@ -27,7 +28,7 @@ async function fetchCurrentUser(): Promise<User | null> {
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { isSignedIn, isLoaded } = useClerkUser()
+  const { isSignedIn, isLoaded, user: clerkUser } = useClerkUser()
   const queryClient = useQueryClient()
 
   const { data: appUser, isLoading: isQueryLoading } = useQuery({
@@ -48,6 +49,31 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({
     },
     [queryClient],
   )
+
+  // gp-api only accepts an email change from Clerk, after Clerk verified it.
+  // When the user changes it in Clerk's profile modal, ask gp-api to copy it.
+  const primaryEmail = clerkUser?.primaryEmailAddress
+  const verifiedClerkEmail =
+    primaryEmail?.verification?.status === 'verified'
+      ? primaryEmail.emailAddress.trim().toLowerCase()
+      : undefined
+  const syncedEmailKey = useRef<string | null>(null)
+  useEffect(() => {
+    if (!appUser || !verifiedClerkEmail) return
+    if (verifiedClerkEmail === appUser.email.toLowerCase()) return
+    const key = `${appUser.id}:${verifiedClerkEmail}`
+    if (syncedEmailKey.current === key) return
+    syncedEmailKey.current = key
+    clientRequest(
+      'POST /v1/users/me/sync-email',
+      {},
+      { ignoreResponseError: true },
+    )
+      .then((res) => {
+        if (res.ok) queryClient.setQueryData([CURRENT_USER_QUERY_KEY], res.data)
+      })
+      .catch(noop)
+  }, [appUser, verifiedClerkEmail, queryClient])
 
   const isUserLoading = !isLoaded || (!!isSignedIn && isQueryLoading)
 

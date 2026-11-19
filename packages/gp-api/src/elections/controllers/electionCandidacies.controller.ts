@@ -13,6 +13,7 @@ import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { CandidacyFilterDto } from '@/electionDb/candidacies/candidacies.schema'
 import { CandidaciesService } from '@/electionDb/candidacies/candidacies.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
 // Every field is nullish because `?columns=`/`?raceColumns=` let the caller
@@ -125,7 +126,7 @@ export const candidaciesResponseSchema = z.array(candidacySchema)
 
 @Controller('elections/candidacies')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ZodResponseInterceptor)
+@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
 export class ElectionCandidaciesController {
   constructor(private readonly candidaciesService: CandidaciesService) {}
 

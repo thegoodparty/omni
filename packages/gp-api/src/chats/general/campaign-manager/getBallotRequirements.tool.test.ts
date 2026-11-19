@@ -60,13 +60,6 @@ describe('buildGetBallotRequirementsTool', () => {
     })
   })
 
-  it('does not promise deadline answers it cannot look up', () => {
-    const { tool } = build(null)
-
-    expect(tool.description).not.toContain('or deadlines')
-    expect(tool.description).toContain('filingPeriodEnd')
-  })
-
   it('does not leak the extraction source (audit-only field)', async () => {
     const { run } = build(FULL)
 

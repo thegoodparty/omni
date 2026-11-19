@@ -428,20 +428,12 @@ describe('refusals', () => {
 })
 
 describe('exclusions', () => {
-  // The rule this whole design keeps repeating: a tool failure is never a
-  // quality signal. The Databricks client resolves lazily, so a dead
-  // credential yields a coherent but worse-informed answer, and a judge
-  // shown that would confidently report a code regression.
-  it('excludes a case where one arm hit a tool error, naming the arm', () => {
+  // The judge compares what each arm's user received, and a tool that failed
+  // shows up in that answer, so the pair is judged like any other.
+  it('judges a chat pair where one arm hit a tool error', () => {
     const result = normalizeAgent(TOOL_ERROR_PAIR, ALWAYS_X_IS_BASE)
-    expect(result.judgeable).toHaveLength(0)
-    expect(result.excluded).toEqual([
-      expect.objectContaining({
-        caseId: 'cos-constituents',
-        reason: 'toolError',
-        arms: ['candidate'],
-      }),
-    ])
+    expect(result.excluded).toEqual([])
+    expect(result.judgeable.map((c) => c.caseId)).toEqual(['cos-constituents'])
   })
 
   // A background agent is judged on its final artifact. Live sweeps showed
@@ -832,9 +824,10 @@ describe('an explicitly named selection is judged rather than refused', () => {
   // naming it as judged would have the qualifier claim a verdict that does not
   // exist. The agent-level fact still has to be reported.
   it('does not name an excluded pair among the judged ones', () => {
-    const broken = IDENTICAL_DIGEST_PAIR.map((record) => ({
+    const broken: RunRecord[] = IDENTICAL_DIGEST_PAIR.map((record) => ({
       ...record,
-      telemetry: { ...record.telemetry, toolErrors: 1 },
+      status: 'infraError',
+      output: null,
     }))
     const result = normalizeAgent(
       broken,

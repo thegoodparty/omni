@@ -7,26 +7,9 @@ from alert_filter.classify import SUPPRESS, URGENT, classify
 from alert_filter.metrics import METRIC_PREFIX, format_metric_line
 from alert_filter.payload import firings
 
-# The consumer's copy of the token. Imported from the digest rather than
-# retyped, so the contract is asserted against the thing that actually reads it.
-from clickup_bot import weekly_digest
-
 
 def line(alert=None, decision=None, **kwargs):
     return json.loads(format_metric_line(alert, decision, **kwargs).partition(METRIC_PREFIX + " ")[2])
-
-
-class TestTheTwoPrefixesCannotCollide:
-    # `filter-log-events` matches the token as a bare substring anywhere in the
-    # message, so a shared prefix would put alert decisions into the gpbot
-    # digest's verdict counts and its cost total. Sharing no prefix at all is
-    # the only version of this that cannot go wrong.
-    def test_neither_metric_token_contains_the_other(self):
-        assert METRIC_PREFIX not in weekly_digest.METRIC_PREFIX
-        assert weekly_digest.METRIC_PREFIX not in METRIC_PREFIX
-
-    def test_the_alert_metric_token_is_the_one_the_digest_looks_for(self):
-        assert METRIC_PREFIX == "GPALERT_METRIC"
 
 
 class TestTheLineIsOneParseableRecord:

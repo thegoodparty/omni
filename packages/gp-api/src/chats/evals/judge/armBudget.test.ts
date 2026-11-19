@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import {
   copyFileSync,
   mkdirSync,
@@ -6,6 +6,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -26,6 +27,7 @@ import {
   baseCannotRunChat,
   candidateChatTurns,
   resolveChatRefusals,
+  runArmBudgetEntry,
 } from './armBudget'
 import {
   DEFAULT_JUDGE_CONFIG,
@@ -63,6 +65,10 @@ import {
 // input entirely would still arrive at it.
 
 const REPO_ROOT = join(__dirname, '../../../../../..')
+
+// The same CLI judge.yml's `npx tsx` resolves to, run without npx's own
+// startup on every call.
+const TSX_CLI = createRequire(__filename).resolve('tsx/cli')
 
 // WHAT AN ARM'S ENV SCHEMA LOOKS LIKE, old and new. Today's main carries
 // fifteen real `JUDGE_` keys, so an "old" fixture with none would let a probe
@@ -173,17 +179,18 @@ const baseTree = (spec: {
   return root
 }
 
-// The entry run exactly as judge.yml runs it, with stderr kept: the refusal
-// reasons a reader of the job log gets are printed there.
+// The entry called in-process with judge.yml's argument and env, with stderr
+// kept: the refusal reasons a reader of the job log gets are printed there.
+// One test below spawns the real command, which proves the `require.main`
+// wiring; a spawn per case costs ~3s of tsx startup and proves nothing more.
 const runEntry = (env: NodeJS.ProcessEnv) => {
   const out = join(mkdtempSync(join(tmpdir(), 'budget-')), 'github-output')
-  const result = spawnSync(
-    'npx',
-    ['tsx', join(__dirname, 'armBudget.ts'), out],
-    {
-      cwd: join(__dirname, '../../../..'),
-      encoding: 'utf8',
-      env: { ...process.env, ...env },
+  let stderr = ''
+  const status = runArmBudgetEntry(
+    [out],
+    { ...process.env, ...env },
+    (text) => {
+      stderr += text
     },
   )
   let written = ''
@@ -192,7 +199,7 @@ const runEntry = (env: NodeJS.ProcessEnv) => {
   } catch {
     written = ''
   }
-  return { status: result.status, stderr: result.stderr, written }
+  return { status, stderr, written }
 }
 
 const PARSE = (lines: string): NodeJS.ProcessEnv => {
@@ -417,16 +424,20 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
   // to the arm rather than to a second copy of the arithmetic.
   it('writes what the arms read when run as the workflow runs it', () => {
     const out = join(mkdtempSync(join(tmpdir(), 'budget-')), 'github-output')
-    execFileSync('npx', ['tsx', join(__dirname, 'armBudget.ts'), out], {
-      cwd: join(__dirname, '../../../..'),
-      stdio: ['ignore', 'ignore', 'pipe'],
-      env: {
-        ...process.env,
-        BASE_DIR: REPO_ROOT,
-        JUDGE_AGENTS:
-          'chief_of_staff,find_existing_ordinances,opposition_research',
+    execFileSync(
+      process.execPath,
+      [TSX_CLI, join(__dirname, 'armBudget.ts'), out],
+      {
+        cwd: join(__dirname, '../../../..'),
+        stdio: ['ignore', 'ignore', 'pipe'],
+        env: {
+          ...process.env,
+          BASE_DIR: REPO_ROOT,
+          JUDGE_AGENTS:
+            'chief_of_staff,find_existing_ordinances,opposition_research',
+        },
       },
-    })
+    )
     const arm = parseArmEnv(intoArmEnv(PARSE(readFileSync(out, 'utf8'))))
     const { attemptsPerCase, maxCases } = DEFAULT_JUDGE_CONFIG.background
     expect(arm.backgroundBudget).toEqual({ attemptsPerCase, maxCases })
@@ -564,24 +575,25 @@ describe('the resolver run against a base tree that differs', () => {
     expect(status).toBe(0)
     expect(written).toMatch(/^admitted=$/m)
     expect(stderr).toMatch(
-      /refused opposition_research: would take 195 minutes/,
+      /refused opposition_research: would take 325 minutes/,
     )
     // What the ARMS read, not the log. stderr is printed from the refusals
     // before they are serialized, so a dropped reason or a wrong budget still
     // looked fine there.
     const arm = parseArmEnv(intoArmEnv(PARSE(written)))
     expect(arm.backgroundRefused?.get('opposition_research')).toMatch(
-      /^would take 195 minutes/,
+      /^would take 325 minutes/,
     )
     expect(arm.armBudgetMs).toBe(ARM_BUDGET_MS)
   })
 
   // THE SAME SELECTION, TWO ANSWERS, by how the base walks. Two agents of
-  // three 15-minute runs: one after another that is 45 minutes each, and the
-  // second does not fit what the first left; in one wave both are six runs
-  // finishing together. So this is what proves the probe reaches the rule.
+  // five runs at the slower arm's 10-minute timeout: one after another that
+  // is 75 minutes each against a 70-minute arm, so neither fits; in one wave
+  // both are ten runs finishing together. So this is what proves the probe
+  // reaches the rule.
   it.each<[string, boolean, string]>([
-    ['one run after another', false, 'opposition_research'],
+    ['one run after another', false, ''],
     ['all at once', true, 'opposition_research,race_opponent_actions'],
   ])('admits by how the base arm walks: %s', (_label, concurrent, admitted) => {
     const { written, stderr } = runEntry({
@@ -616,7 +628,7 @@ describe('the resolver run against a base tree that differs', () => {
     expect(stderr).toMatch(/up to 12 runs at once/)
   })
 
-  // Five agents of three runs against twelve slots: the fifth is refused and
+  // Five agents of five runs against twelve slots: the third is refused and
   // says so, rather than being started and queued behind the platform's cap.
   it('fills the slots in walk order and refuses the rest by name', () => {
     const ids = [
@@ -634,16 +646,19 @@ describe('the resolver run against a base tree that differs', () => {
       JUDGE_AGENTS: ids.join(','),
     })
     expect(written).toMatch(
-      new RegExp(`^admitted=${ids.slice(0, 4).join(',')}$`, 'm'),
+      new RegExp(`^admitted=${ids.slice(0, 2).join(',')}$`, 'm'),
     )
     expect(stderr).toMatch(
-      /refused district_issue_pulse: needs 3 runs in flight at once, and 0 of the arm's 12 slots/,
+      /refused race_opponent_summary: needs 5 runs in flight at once, and 2 of the arm's 12 slots/,
     )
   })
 
   it('refuses an agent the base ref does not have, and admits one it does', () => {
     const { written, stderr } = runEntry({
-      BASE_DIR: baseTree({ timeouts: { race_opponent_actions: 600 } }),
+      BASE_DIR: baseTree({
+        concurrent: true,
+        timeouts: { race_opponent_actions: 600 },
+      }),
       JUDGE_AGENTS: 'opposition_research,race_opponent_actions',
     })
     expect(written).toMatch(/^admitted=race_opponent_actions$/m)
@@ -1042,10 +1057,11 @@ describe('resolveAdmission', () => {
         'utf8',
       ),
     ) as { cases: { caseId: string }[] }
-    const first = real.cases.slice(0, 3).map((one) => one.caseId)
+    const first = real.cases.slice(0, 5).map((one) => one.caseId)
     const result = resolveAdmission(
       ['opposition_research'],
       baseTree({
+        concurrent: true,
         timeouts: { opposition_research: 600 },
         caseIds: { opposition_research: [...first].reverse() },
       }),
@@ -1513,7 +1529,7 @@ describe('the chat agents refused for time', () => {
   })
 
   // The base arm walks ITS attempts, so a base that walks more is the slower
-  // arm: 9 cases at 30 attempts is 270 turns.
+  // arm: 11 cases at 30 attempts is 330 turns.
   it("costs the base arm's attempts when they are the larger", () => {
     const root = chatTree({ timeouts: {} })
     writeFileSync(
@@ -1528,7 +1544,7 @@ describe('the chat agents refused for time', () => {
       JUDGE_AGENTS: 'chief_of_staff',
     })
     expect(refusedIn(written).get('chief_of_staff')).toMatch(
-      /^would take about 90 minutes for 270 chat turns/,
+      /^would take about 110 minutes for 330 chat turns/,
     )
   })
 

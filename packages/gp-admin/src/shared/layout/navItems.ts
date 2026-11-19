@@ -5,10 +5,12 @@ import {
   HiLightningBolt,
   HiClipboardList,
   HiChatAlt2,
+  HiMail,
   HiEyeOff,
   HiKey,
   HiStatusOnline,
   HiCheckCircle,
+  HiTerminal,
 } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -40,9 +42,21 @@ export const navItems: NavItem[] = [
     permission: PERMISSIONS.READ_AGENT_RUNS,
   },
   {
+    title: 'Agent Run',
+    href: '/dashboard/background-agent-runs',
+    icon: HiTerminal,
+    permission: PERMISSIONS.READ_AGENT_RUNS,
+  },
+  {
     title: 'SMS Outreach',
     href: '/dashboard/sms-outreach',
     icon: HiChatAlt2,
+    permission: PERMISSIONS.READ_CAMPAIGNS,
+  },
+  {
+    title: 'Email sends',
+    href: '/dashboard/email-sends',
+    icon: HiMail,
     permission: PERMISSIONS.READ_CAMPAIGNS,
   },
   {

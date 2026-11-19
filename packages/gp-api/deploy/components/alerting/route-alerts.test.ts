@@ -7,6 +7,7 @@ import {
 import {
   CONTROLLERS_WITHOUT_ROUTE_ALERTS,
   GLOBAL_ALERTS,
+  ROUTES_WITHOUT_ROUTE_ALERTS,
   SERVER_ERRORS_ONLY,
 } from '../alerts'
 import { alertTimeRange } from '../grafana'
@@ -98,9 +99,9 @@ const serverErrorAlert = () => {
 // alerting engine actually fetches when an alert does not pin its own.
 const DEFAULT_FETCH_SECONDS = 600
 
-// `max_query_series` on the Loki tenant. One rule now returns one series per
-// route across every controller it covers, so the widest group has to stay
-// under it, and so therefore does the whole route map.
+// `max_query_series` on the Loki tenant. A rule returns one series per route
+// that errored in its window, so only a rule whose own route list reaches the
+// cap could ever exceed it on a single evaluation.
 const MAX_QUERY_SERIES = 500
 
 const UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 }
@@ -191,6 +192,20 @@ describe('route alert groups', () => {
       )
       expect(covering.length, controller).toBe(1)
     }
+  })
+
+  // The SNS webhook answers 503 by design when inbound mail is not wired, so
+  // its route is out of every alternation while its controller's other routes
+  // stay watched.
+  it('keeps opted-out routes out of every alternation', () => {
+    for (const endpoint of ROUTES_WITHOUT_ROUTE_ALERTS) {
+      for (const group of GROUPS) {
+        expect(group.endpoints, group.slug).not.toContain(endpoint)
+      }
+    }
+    expect(GROUPS.flatMap((group) => group.endpoints)).toContain(
+      'GET /v1/email/unsubscribe',
+    )
   })
 
   // An opted-out controller is not in a group at all, rather than
@@ -585,17 +600,16 @@ describe('the grouped route alerts', () => {
     })
   })
 
+  // Per rule, not across the route map. A query only returns the routes that
+  // errored in the window, so the whole map reaching the cap means more than
+  // 500 distinct routes failing in one minute: a total outage, which the CPU,
+  // memory and probe rules page on. Even then the rule fails to evaluate and
+  // pages through execErrState, without naming routes. Bounding the whole map
+  // instead made every new controller choose between its alerts and the cap.
   it('keeps every group under the tenant series cap', () => {
     for (const group of GROUPS) {
       expect(group.endpoints.length, group.slug).toBeLessThan(MAX_QUERY_SERIES)
     }
-
-    // The fan-out moved with the read. Two rules now cover every watched route
-    // between them, so the bound that matters is the whole route map rather
-    // than any one controller's slice of it.
-    expect(Object.values(ROUTE_MAP).flat().length).toBeLessThan(
-      MAX_QUERY_SERIES,
-    )
   })
 
   // The regression: the vector was written `[1h]` while these alerts take the
@@ -709,6 +723,24 @@ describe('which statuses count as an error', () => {
     }
   })
 
+  // A 504 is a voter query that outran its ceiling and told the user to narrow
+  // the audience. It must stop paging on the contacts routes only: the same
+  // status on any other server-errors route (door-knocking's pack scan) is
+  // still a fault, and 500, 502 and a null status still page everywhere.
+  it('drops 504 only on the routes in VOTER_QUERY_TIMEOUTS_NOT_PAGED', () => {
+    const { expr } = alertFor('route-errors-server-errors')
+    const contacts = ROUTE_MAP.contacts.map(({ endpoint }) => endpoint)
+    expect(contacts.length).toBeGreaterThan(0)
+
+    expect(expr).toContain(
+      '( response_statusCode >= 500 and response_statusCode != 504 )',
+    )
+    expect(expr).toContain(
+      `( response_statusCode = 504 and request_endpoint !~ \`${routeEndpointPattern([...new Set(contacts)])}\` )`,
+    )
+    expect(expr).toContain('response_statusCode = ""')
+  })
+
   // The per-controller filter has to survive the collapse: a controller outside
   // SERVER_ERRORS_ONLY must still get the wider filter rather than inherit its
   // neighbour's. The subject is DERIVED rather than named, because naming one
@@ -733,7 +765,7 @@ describe('which statuses count as an error', () => {
   it('excludes the designed client-error vocabulary, 400 included', () => {
     const { expr } = anyErrorAlert()
 
-    for (const code of [400, 401, 403, 404, 409, 498]) {
+    for (const code of [400, 401, 402, 403, 404, 409, 498]) {
       expect(expr).toContain(`response_statusCode != ${code}`)
     }
   })
@@ -822,9 +854,7 @@ describe('which statuses count as an error', () => {
       const { expr } = alertFor(group.slug)
 
       if (group.serverErrorsOnly) {
-        expect(expr, group.slug).toContain(
-          '( response_statusCode >= 500 ) or (',
-        )
+        expect(expr, group.slug).toMatch(/\( response_statusCode >= 500[ )]/)
       } else {
         expect(expr, group.slug).toContain('( response_statusCode >= 400')
       }

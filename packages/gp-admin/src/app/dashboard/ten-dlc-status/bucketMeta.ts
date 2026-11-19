@@ -1,4 +1,4 @@
-import type { TenDlcStatusBucketKey } from '@goodparty_org/sdk'
+import type { TenDlcStatusBucketKey } from '@/shared/gpApi'
 
 export interface BucketMeta {
   label: string

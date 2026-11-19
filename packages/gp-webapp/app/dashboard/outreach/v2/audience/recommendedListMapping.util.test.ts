@@ -89,6 +89,20 @@ describe('builderFiltersFromRecommendation', () => {
     })
   })
 
+  it('carries the early-vote screen onto the saved list', () => {
+    expect(
+      builderFiltersFromRecommendation({
+        independentAffinity: true,
+        earlyVoteVeryLikely: true,
+        earlyVoteLikely: true,
+      }),
+    ).toEqual({
+      independentAffinity: true,
+      earlyVoteVeryLikely: true,
+      earlyVoteLikely: true,
+    })
+  })
+
   it('sets no key for a dimension the filter leaves unset', () => {
     // A mutation that flips this to `result[key] = !!filter.independentAffinity`
     // would start emitting an explicit `false`, which is a real behavior change

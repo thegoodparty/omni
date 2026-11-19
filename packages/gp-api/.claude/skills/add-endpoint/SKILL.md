@@ -113,7 +113,7 @@ Default (no decorator) requires a logged-in user.
 
 ## 6. Test
 
-Integration with real DB (preferred):
+Test the endpoint through its route with `useTestService()`. Do not write a controller test that builds the controller with mocks; put any controller logic (role branches, response mapping) under a route test.
 
 ```ts
 import { useTestService } from '@/test-service'
@@ -126,8 +126,6 @@ it('creates a thing', async () => {
   expect(res.data.name).toBe('foo')
 })
 ```
-
-Unit (controllers): direct instantiation with a `Partial<ThingsService>` mock.
 
 See `.claude/skills/run-tests/SKILL.md` for invocation patterns.
 

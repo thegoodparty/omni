@@ -25,3 +25,42 @@ describe('<FooterChatBar> paperclip', () => {
     expect(onAttachFile).toHaveBeenCalledWith(file)
   })
 })
+
+describe('<FooterChatBar> placeholder', () => {
+  it('greets by name by default, on one line', () => {
+    render(
+      <FooterChatBar
+        firstName="Ana"
+        onOpen={vi.fn()}
+        onOpenConversation={vi.fn()}
+        onAttachFile={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Hi, Ana, how can I help?' }),
+    ).toHaveClass('truncate')
+  })
+
+  it("shows a page's own question, which may wrap to two lines", async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    render(
+      <FooterChatBar
+        firstName="Ana"
+        onOpen={onOpen}
+        onOpenConversation={vi.fn()}
+        onAttachFile={vi.fn()}
+        placeholder="Ask who still needs to join your civic panel"
+      />,
+    )
+
+    const question = screen.getByRole('button', {
+      name: 'Ask who still needs to join your civic panel',
+    })
+    expect(question).toHaveClass('line-clamp-2')
+    expect(screen.queryByText('Hi, Ana, how can I help?')).toBeNull()
+    await user.click(question)
+    expect(onOpen).toHaveBeenCalled()
+  })
+})

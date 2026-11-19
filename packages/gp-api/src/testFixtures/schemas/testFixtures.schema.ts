@@ -1,10 +1,17 @@
-import { TestFixtureStateSchema, zCoerceDate } from '@goodparty_org/contracts'
+import {
+  TestFixtureAnswersSchema,
+  TestFixtureSplitSchema,
+  TestFixtureStateSchema,
+  zCoerceDate,
+} from '@goodparty_org/contracts'
 import { z } from 'zod'
 
 export const CreateTestFixtureUserSchema = z
   .object({
     state: TestFixtureStateSchema,
     activity: z.literal('seeded').optional(),
+    answers: TestFixtureAnswersSchema.optional(),
+    split: TestFixtureSplitSchema.optional(),
     race: z
       .object({
         zip: z.string().regex(/^\d{5}$/),

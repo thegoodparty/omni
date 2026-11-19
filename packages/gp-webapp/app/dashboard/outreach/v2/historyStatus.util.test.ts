@@ -35,6 +35,16 @@ describe('getHistoryStatusLabel', () => {
   })
 })
 
+it('labels a Serve email draft Ready to schedule with no membership', () => {
+  const emailType: string = 'email'
+  const row = {
+    ...p2pRow({ status: 'draft', phoneListId: null }),
+    outreachType: emailType,
+  } as HistoryRow
+  expect(getHistoryStatusLabel(row, null, true)).toBe('Ready to schedule')
+  expect(getHistoryStatusLabel(row, null, false)).toBeNull()
+})
+
 describe('getHistoryStatusLabel — draft rows read the next step from membership', () => {
   const draftP2pRow = p2pRow({ status: 'draft', phoneListId: null })
 
@@ -251,6 +261,22 @@ describe('getHistoryStatusLabel — robocall', () => {
       'Canceled',
     )
   })
+
+  it('labels a hold_failed robocall Payment failed, not Pending payment', () => {
+    expect(
+      getHistoryStatusLabel(
+        robocallRow({
+          status: 'pending_payment',
+          robocall: {
+            audioKey: 'audio/1.mp3',
+            callbackNumber: '+15125550199',
+            billableCount: 100,
+            settleState: 'hold_failed',
+          },
+        }),
+      ),
+    ).toBe('Payment failed')
+  })
 })
 
 describe('getHistoryStatusLabel — Serve SMS', () => {
@@ -378,6 +404,62 @@ describe('getHistoryStatusLabel — a Serve poll', () => {
     )
     expect(getHistoryStatusLabel(pollRow('in_progress'), null, true)).toBe(
       'In progress',
+    )
+  })
+})
+
+describe('getHistoryStatusLabel — an email', () => {
+  const emailRow = (status: HistoryRow['status']): HistoryRow =>
+    ({ id: 12, outreachType: 'email', status }) as unknown as HistoryRow
+
+  it('reads like its status page: Scheduled, Sending, then Done', () => {
+    expect(getHistoryStatusLabel(emailRow('pending'))).toBe('Scheduled')
+    expect(getHistoryStatusLabel(emailRow('in_progress'))).toBe('Sending')
+    expect(getHistoryStatusLabel(emailRow('completed'))).toBe('Done')
+    expect(getHistoryStatusLabel(emailRow('canceled'))).toBe('Canceled')
+  })
+})
+
+describe('getHistoryStatusLabel — a priority text follow-up', () => {
+  const followUp = (
+    status: HistoryRow['status'],
+    sampledAt: string | null,
+  ): HistoryRow =>
+    ({
+      id: 9,
+      outreachType: 'text',
+      phoneListId: null,
+      status,
+      roundOneOutreachId: 4,
+      voterFileFilter: { sampleSize: 300, sampledAt },
+    }) as HistoryRow
+
+  it('is a Draft until its recipients are picked, never In review', () => {
+    expect(getHistoryStatusLabel(followUp('pending', null), null, true)).toBe(
+      'Draft',
+    )
+  })
+
+  it('is Scheduled once its recipients are picked', () => {
+    expect(
+      getHistoryStatusLabel(
+        followUp('pending', '2026-11-04T11:00:00.000Z'),
+        null,
+        true,
+      ),
+    ).toBe('Scheduled')
+  })
+
+  it('reads from its own status after that, like any Serve text', () => {
+    expect(
+      getHistoryStatusLabel(
+        followUp('in_progress', '2026-11-04T11:00:00.000Z'),
+        null,
+        true,
+      ),
+    ).toBe('In progress')
+    expect(getHistoryStatusLabel(followUp('canceled', null), null, true)).toBe(
+      'Canceled',
     )
   })
 })

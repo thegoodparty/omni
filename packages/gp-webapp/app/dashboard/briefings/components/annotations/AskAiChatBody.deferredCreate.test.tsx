@@ -27,8 +27,10 @@ vi.mock('@shared/briefings/chat-api', () => ({
   },
 }))
 
-// Silence Sentry — we don't care about side effects, only the API calls.
-vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+// Silence error reporting — we don't care about side effects, only the API calls.
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError: vi.fn(),
+}))
 
 // `useDictationAppend` reaches for browser APIs; stub it to a no-op for
 // these unit tests.
@@ -378,7 +380,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     })
   })
 
-  it('replays the same clientMessageId on retry after a stream error (server dedupe)', async () => {
+  it('replays the same message id on retry after a stream error', async () => {
     const user = userEvent.setup()
     createMock.mockResolvedValue({
       annotationId: 'ann_dedupe',
@@ -400,7 +402,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     // First send errored; capture the client-message id it used.
     await screen.findByRole('alert')
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
-    const firstId = streamMessageMock.mock.calls[0]?.[0]?.clientMessageId as
+    const firstId = streamMessageMock.mock.calls[0]?.[0]?.id as
       | string
       | undefined
     expect(firstId).toBeTruthy()
@@ -412,13 +414,13 @@ describe('<AskAiChatBody> deferred creation', () => {
     expect(streamMessageMock.mock.calls[1]?.[0]).toMatchObject({
       annotationId: 'ann_dedupe',
       content: 'dedupe me',
-      clientMessageId: firstId,
+      id: firstId,
     })
     // No second chat row was minted for the retry.
     expect(createMock).toHaveBeenCalledTimes(1)
   })
 
-  it('replays the original clientMessageId when retrying a bare user turn (no reply)', async () => {
+  it('replays the original message id when retrying a bare user turn (no reply)', async () => {
     const user = userEvent.setup()
     createMock.mockResolvedValue({
       annotationId: 'ann_bare',
@@ -448,7 +450,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     await user.click(screen.getByRole('button', { name: /ask assistant/i }))
 
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
-    const firstId = streamMessageMock.mock.calls[0]?.[0]?.clientMessageId as
+    const firstId = streamMessageMock.mock.calls[0]?.[0]?.id as
       | string
       | undefined
     expect(firstId).toBeTruthy()
@@ -462,7 +464,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     expect(streamMessageMock.mock.calls[1]?.[0]).toMatchObject({
       annotationId: 'ann_bare',
       content: 'ping the server',
-      clientMessageId: firstId,
+      id: firstId,
     })
   })
 })

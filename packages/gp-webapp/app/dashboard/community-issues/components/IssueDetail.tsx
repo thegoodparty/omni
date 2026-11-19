@@ -17,6 +17,7 @@ import { SectionSourcePills, SourcesCollapsible } from '@shared/citations'
 import type { SourceInput } from '@shared/briefings/displaySource'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
+import { useServeSelfServePollsFlag } from '@shared/experiments/serveSelfServePollsFlag'
 import { priorityVariant } from './IssueCard'
 import PrioritizeButton from './PrioritizeButton'
 import IssuesNavHeader from './IssuesNavHeader'
@@ -79,6 +80,7 @@ const IssueDetail = ({ issue, devPreview }: Props): React.JSX.Element => {
   const [prioritized, setPrioritized] = useState(issue.prioritized)
   const router = useRouter()
   const { enabled: prioritiesEnabled } = useServePrioritiesFlag(false)
+  const { enabled: selfServePollsEnabled } = useServeSelfServePollsFlag(false)
 
   useEffect(() => {
     if (devPreview) return
@@ -270,7 +272,11 @@ const IssueDetail = ({ issue, devPreview }: Props): React.JSX.Element => {
               />
             ))}
             <NextStepCard
-              href="/dashboard/polls/create"
+              href={
+                selfServePollsEnabled
+                  ? '/dashboard/constituent-outreach?compose=poll'
+                  : '/dashboard/polls/create'
+              }
               title="Run a poll on this issue"
               description="Get defensible numbers from your constituents."
               onClick={() => {

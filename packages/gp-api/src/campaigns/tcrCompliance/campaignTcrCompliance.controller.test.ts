@@ -5,7 +5,7 @@ import { CommitteeType, TcrComplianceStatus } from '../../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceController } from './campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
@@ -20,7 +20,6 @@ import {
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { Nightly10DlcReportService } from './services/nightly10DlcReport.service'
 
 function getGuards(methodName: keyof CampaignTcrComplianceController) {
@@ -71,18 +70,11 @@ describe('CampaignTcrComplianceController', () => {
   let mockNightlyReportService: {
     getAdminStatusSnapshot: ReturnType<typeof vi.fn>
   }
-  let mockSendSingleSend: ReturnType<typeof vi.fn>
-
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
 
   beforeEach(async () => {
     mockAnalytics = {
       track: vi.fn().mockResolvedValue(undefined),
     }
-    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
-
     mockTcrService = {
       fetchByCampaignId: vi.fn().mockResolvedValue(null),
       isPastSmsCutoff: vi.fn().mockResolvedValue(false),
@@ -143,10 +135,6 @@ describe('CampaignTcrComplianceController', () => {
         { provide: OrganizationMembershipService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
         { provide: PinoLogger, useValue: createMockLogger() },
-        {
-          provide: HubspotSingleSendService,
-          useValue: { sendSingleSend: mockSendSingleSend },
-        },
         {
           provide: Nightly10DlcReportService,
           useValue: mockNightlyReportService,
@@ -226,38 +214,6 @@ describe('CampaignTcrComplianceController', () => {
 
       expect(result).toEqual(mockTcrCompliance)
     })
-
-    describe('HubSpot single-send (ENG-11035)', () => {
-      it('does not call single-send when HUBSPOT_FORM_SUBMITTED_EMAIL_ID is unset', async () => {
-        await controller.createTcrCompliance(mockCampaign, tcrComplianceDto)
-
-        expect(mockSendSingleSend).not.toHaveBeenCalled()
-      })
-
-      it('sends to the triggering account email once configured', async () => {
-        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
-
-        await controller.createTcrCompliance(mockCampaign, tcrComplianceDto)
-
-        expect(mockSendSingleSend).toHaveBeenCalledWith({
-          emailId: 111222,
-          to: mockUser.email,
-          customProperties: { source: 'compliance_flow' },
-        })
-      })
-
-      it('still returns the result when single-send fails', async () => {
-        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
-        mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
-
-        const result = await controller.createTcrCompliance(
-          mockCampaign,
-          tcrComplianceDto,
-        )
-
-        expect(result).toEqual(mockTcrCompliance)
-      })
-    })
   })
 
   describe('createAgenticTcrCompliance', () => {
@@ -273,24 +229,6 @@ describe('CampaignTcrComplianceController', () => {
       placeId: 'place-123',
       formattedAddress: '123 Main St',
     }
-
-    it('delegates to service.createAgentic and returns the record', async () => {
-      const result = await controller.createAgenticTcrCompliance(
-        mockCampaign,
-        agenticDto,
-      )
-
-      expect(mockTcrService.createAgentic).toHaveBeenCalledTimes(1)
-      expect(mockTcrService.createAgentic).toHaveBeenCalledWith(
-        mockUser,
-        mockCampaign,
-        expect.objectContaining({
-          ein: agenticDto.ein,
-          committeeName: agenticDto.committeeName,
-        }),
-      )
-      expect(result).toEqual(mockTcrCompliance)
-    })
 
     it('accepts a payload with no websiteDomain', async () => {
       await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
@@ -334,50 +272,6 @@ describe('CampaignTcrComplianceController', () => {
       await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
 
       expect(mockAnalytics.track).not.toHaveBeenCalled()
-    })
-
-    describe('HubSpot single-send (ENG-11035)', () => {
-      it('does not call single-send when HUBSPOT_FORM_SUBMITTED_EMAIL_ID is unset', async () => {
-        await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
-
-        expect(mockSendSingleSend).not.toHaveBeenCalled()
-      })
-
-      it('sends to the triggering account email with the agentic source once configured', async () => {
-        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
-
-        await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
-
-        expect(mockSendSingleSend).toHaveBeenCalledWith({
-          emailId: 111222,
-          to: mockUser.email,
-          customProperties: { source: 'agentic_compliance_flow' },
-        })
-      })
-
-      it('does not call single-send on an idempotent re-call', async () => {
-        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
-        mockTcrService.createAgentic.mockResolvedValue({
-          record: mockTcrCompliance,
-          created: false,
-        })
-
-        await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
-
-        expect(mockSendSingleSend).not.toHaveBeenCalled()
-      })
-
-      it('still returns the record when single-send fails', async () => {
-        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
-        mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
-
-        const result = await controller.createAgenticTcrCompliance(
-          mockCampaign,
-          agenticDto,
-        )
-
-        expect(result).toEqual(mockTcrCompliance)
-      })
     })
 
     it('still returns the result when analytics tracking fails', async () => {
@@ -512,54 +406,6 @@ describe('CampaignTcrComplianceController', () => {
 
       expect(result).toEqual(expectedBrand)
     })
-
-    describe('HubSpot single-send (ENG-11035)', () => {
-      it('does not call single-send when HUBSPOT_PIN_SUBMITTED_EMAIL_ID is unset', async () => {
-        await controller.submitCampaignVerifyPIN(
-          mockTcrCompliance.id,
-          { pin: '123456' },
-          mockUser,
-          mockCampaign,
-        )
-
-        expect(mockSendSingleSend).not.toHaveBeenCalled()
-      })
-
-      it('sends to the triggering account email once configured', async () => {
-        vi.stubEnv('HUBSPOT_PIN_SUBMITTED_EMAIL_ID', '333444')
-
-        await controller.submitCampaignVerifyPIN(
-          mockTcrCompliance.id,
-          { pin: '123456' },
-          mockUser,
-          mockCampaign,
-        )
-
-        expect(mockSendSingleSend).toHaveBeenCalledWith({
-          emailId: 333444,
-          to: mockUser.email,
-          customProperties: { source: 'compliance_flow' },
-        })
-      })
-
-      it('still returns the result when single-send fails', async () => {
-        vi.stubEnv('HUBSPOT_PIN_SUBMITTED_EMAIL_ID', '333444')
-        mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
-        const expectedBrand = { brand: 'ok' }
-        mockTcrService.submitCampaignVerifyToken.mockResolvedValue(
-          expectedBrand,
-        )
-
-        const result = await controller.submitCampaignVerifyPIN(
-          mockTcrCompliance.id,
-          { pin: '123456' },
-          mockUser,
-          mockCampaign,
-        )
-
-        expect(result).toEqual(expectedBrand)
-      })
-    })
   })
 
   describe('submitToPeerly', () => {
@@ -600,31 +446,6 @@ describe('CampaignTcrComplianceController', () => {
       )
 
       expect(mockTcrService.submitToPeerlyForAgent).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('getMyComplianceState', () => {
-    it('delegates to ComplianceStateService with the campaign id', async () => {
-      const expectedState = {
-        stage: ComplianceStage.pending_website_live,
-        domain: {
-          name: 'example.org',
-          status: 'registered' as const,
-          registrantVerifiedAt: null,
-        },
-        websiteId: 42,
-        peerlyVerificationId: null,
-      }
-      mockComplianceStateService.findStateForCampaign.mockResolvedValue(
-        expectedState,
-      )
-
-      const result = await controller.getMyComplianceState(mockCampaign)
-
-      expect(
-        mockComplianceStateService.findStateForCampaign,
-      ).toHaveBeenCalledWith(mockCampaign.id)
-      expect(result).toEqual(expectedState)
     })
   })
 
@@ -706,7 +527,6 @@ describe('CampaignTcrComplianceController', () => {
 
       expect(mockCampaignsService.findUniqueOrThrow).toHaveBeenCalledWith({
         where: { id: mockCampaign.id },
-        include: { user: true },
       })
       expect(mockTcrService.resendCampaignVerifyPin).toHaveBeenCalledWith(
         mockCampaign,
@@ -848,46 +668,6 @@ describe('CampaignTcrComplianceController', () => {
         controller.overrideCvValidationForCampaign(12345),
       ).rejects.toThrow(NotFoundException)
       expect(mockTcrService.overrideCvValidation).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('updateFilingUrlForCampaign (admin)', () => {
-    const correctedUrl = 'https://sos.example.gov/filings/jane-doe'
-
-    it('is gated by AdminOrM2MGuard', () => {
-      expect(
-        getGuards('updateFilingUrlForCampaign').map(
-          (g: { name: string }) => g.name,
-        ),
-      ).toContain(AdminOrM2MGuard.name)
-    })
-
-    it('delegates to the service and returns the persisted URL', async () => {
-      mockTcrService.updateFilingUrl.mockResolvedValue({
-        ...mockTcrCompliance,
-        filingUrl: correctedUrl,
-      })
-
-      const result = await controller.updateFilingUrlForCampaign(
-        mockCampaign.id,
-        { filingUrl: correctedUrl },
-      )
-
-      expect(mockTcrService.updateFilingUrl).toHaveBeenCalledWith(
-        mockCampaign.id,
-        correctedUrl,
-      )
-      expect(result).toEqual({ filingUrl: correctedUrl })
-    })
-
-    it('propagates a service rejection without masking it', async () => {
-      mockTcrService.updateFilingUrl.mockRejectedValue(new NotFoundException())
-
-      await expect(
-        controller.updateFilingUrlForCampaign(12345, {
-          filingUrl: correctedUrl,
-        }),
-      ).rejects.toThrow(NotFoundException)
     })
   })
 })

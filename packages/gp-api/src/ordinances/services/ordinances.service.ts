@@ -132,6 +132,32 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     dto: UpdateOrdinanceRequest,
   ): Promise<OrdinanceResponse> {
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
+    // A PATCH carrying only the viewed step is a read-side signal, not an
+    // edit, so it must leave updatedAt alone: the list sorts on it and the
+    // quality loop fences on it. Prisma bumps @updatedAt unless given a
+    // value, so this writes the value just read, fenced on that same value.
+    // A concurrent edit fails the fence and the position is dropped; the
+    // next step view records it again.
+    if (
+      dto.lastViewedStep !== undefined &&
+      dto.status === undefined &&
+      dto.draftTitle === undefined &&
+      dto.draftBody === undefined &&
+      dto.draftSources === undefined
+    ) {
+      await this.model.updateMany({
+        where: { id: existing.id, updatedAt: existing.updatedAt },
+        data: {
+          lastViewedStep: dto.lastViewedStep,
+          updatedAt: existing.updatedAt,
+        },
+      })
+      return this.toResponse(
+        await this.model.findFirstOrThrow({
+          where: { id: existing.id, deletedAt: null },
+        }),
+      )
+    }
     // A user edit that changes the loop's graded inputs (or advances the
     // ordinance past draft) invalidates any running quality loop. Changed
     // means changed: a PATCH that resends the current text must not retire a

@@ -55,7 +55,7 @@ Order matters — each step assumes the ones before it.
    before steps 3-4: with no prod ClickUp key the handler 500s and the
    workflow's own guard fails every 15 minutes.
 7. **Prod flag serving migration**: migrate gp-api prod Amplitude flag
-   evaluation to the deployment-key path (prod deployment keys 13485/53792),
+   evaluation to the deployment-key path (prod gp-api deployment 239951),
    mirroring the dev migration of 2026-09-19; verify the 5 legacy flags stay
    attached. Without this, a pipeline flag "on" in the prod project may not
    actually serve.

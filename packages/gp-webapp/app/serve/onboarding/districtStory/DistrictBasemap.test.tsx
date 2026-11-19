@@ -14,6 +14,7 @@ import {
   buildAbstractDots,
   buildDistrictDots,
   type DistrictMapMode,
+  SQUARE_VIEW_HEIGHT,
 } from './districtDots'
 
 // maplibre needs WebGL, so the map is stood in for. What this protects is
@@ -69,7 +70,7 @@ const points = Array.from({ length: 2_000 }, (_, index) => ({
   lat: 35.58 + (index % 100) * 0.0004,
   lng: -82.56 + Math.floor(index / 100) * 0.0005,
 }))
-const model = buildDistrictDots(points)!
+const model = buildDistrictDots(points, SQUARE_VIEW_HEIGHT)!
 
 const WIDTH = 400
 const widthDescriptor = Object.getOwnPropertyDescriptor(
@@ -102,7 +103,7 @@ describe('the district basemap', () => {
     await waitFor(() => expect(created).toHaveLength(1))
     const options = created[0]!
     expect(options.style).toBe(
-      'https://maps.geoapify.com/v1/styles/positron/style.json?apiKey=test-key',
+      'https://maps.geoapify.com/v1/styles/osm-bright/style.json?apiKey=test-key',
     )
     expect(options.center).toEqual([
       model.camera!.center.lng,
@@ -203,7 +204,7 @@ describe('the district basemap', () => {
   it('leaves the stand-in district without tiles', () => {
     render(
       <DistrictStoryMap
-        model={buildAbstractDots()}
+        model={buildAbstractDots(SQUARE_VIEW_HEIGHT)}
         mode="all"
         animate={false}
         intro={false}

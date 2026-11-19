@@ -3,6 +3,7 @@ import { parsePriorityStatus } from '@goodparty_org/contracts'
 import {
   buildCampaignManagerOutreachProposalTool,
   buildPresentOutreachProposalTool,
+  checkFollowUpPart,
   checkPanelPart,
   checkProposalRefusal,
   OUTREACH_MESSAGE_RULES,
@@ -32,24 +33,6 @@ describe('checkProposalRefusal', () => {
 })
 
 describe('checkPanelPart', () => {
-  const panelSend = {
-    channel: 'text' as const,
-    civicPanelAsk: true,
-    panelSampleSize: 42,
-    sampleSize: 84,
-  }
-
-  it('lets a panel and fresh send through', () => {
-    expect(checkPanelPart(panelSend)).toBeNull()
-  })
-
-  // Its card would name who it asks and leave out who it skips.
-  it('refuses a panel send that also widens an earlier sample', () => {
-    expect(checkPanelPart({ ...panelSend, widensOutreachIds: [12] })).toContain(
-      'not both',
-    )
-  })
-
   // A text to the panel alone offers LEAVE, never the JOIN ask.
   it('refuses the join ask on a text to panel members alone', () => {
     expect(
@@ -68,6 +51,61 @@ describe('checkPanelPart', () => {
         channel: 'text',
         audienceFilters: { civicPanelMember: true, hasCellPhone: true },
       }),
+    ).toBeNull()
+  })
+})
+
+describe('checkFollowUpPart', () => {
+  const first = {
+    channel: 'text' as const,
+    sampleSize: 100,
+    roundTwoSize: 100,
+  }
+
+  it('lets the first text through with the split size_round_one made', () => {
+    expect(checkFollowUpPart(first)).toBeNull()
+    expect(checkFollowUpPart({ ...first, roundTwoSize: 99 })).toBeNull()
+  })
+
+  it('refuses a follow-up size that is not that split', () => {
+    expect(checkFollowUpPart({ ...first, roundTwoSize: 400 })).toContain(
+      'size_round_one',
+    )
+    expect(checkFollowUpPart({ ...first, roundTwoSize: 10 })).toContain(
+      'size_round_one',
+    )
+  })
+
+  it('refuses a follow-up size off a text, a widen or an unsized send', () => {
+    expect(checkFollowUpPart({ ...first, channel: 'phoneBanking' })).toContain(
+      'text only',
+    )
+    expect(checkFollowUpPart({ ...first, widensOutreachIds: [4] })).toContain(
+      'first text',
+    )
+    expect(checkFollowUpPart({ channel: 'text', roundTwoSize: 100 })).toContain(
+      'first text',
+    )
+  })
+
+  it('offers no other text while the follow-up is scheduled', () => {
+    const read = {
+      followUp: { scheduledLocalDate: '2026-11-20', texts: 120 },
+    }
+    expect(
+      checkFollowUpPart({ channel: 'text', sampleSize: 80 }, read),
+    ).toContain('already scheduled')
+    expect(
+      checkFollowUpPart({ channel: 'phoneBanking', sampleSize: 80 }, read),
+    ).toBeNull()
+  })
+
+  it('never offers a third text once the follow-up went out', () => {
+    expect(
+      checkFollowUpPart({ channel: 'text' }, { followUpSent: true }),
+    ).toContain('no third')
+    expect(
+      checkFollowUpPart({ channel: 'doorKnocking' }, { followUpSent: true }),
     ).toBeNull()
   })
 })

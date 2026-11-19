@@ -36,21 +36,18 @@ const build = (): {
 }
 
 describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
-  let originalEnv: NodeJS.ProcessEnv
-
   beforeEach(() => {
-    originalEnv = { ...process.env }
-    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
-    process.env.AI_MODELS = 'claude-sonnet-4-6'
-    delete process.env.TOGETHER_AI_KEY
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key')
+    vi.stubEnv('AI_MODELS', 'claude-sonnet-4-6')
+    vi.stubEnv('TOGETHER_AI_KEY', undefined)
   })
 
   afterEach(() => {
-    process.env = originalEnv
+    vi.unstubAllEnvs()
   })
 
   it('throws when ANTHROPIC_API_KEY is missing', () => {
-    delete process.env.ANTHROPIC_API_KEY
+    vi.stubEnv('ANTHROPIC_API_KEY', undefined)
     expect(() => build()).toThrow(/ANTHROPIC_API_KEY/)
   })
 

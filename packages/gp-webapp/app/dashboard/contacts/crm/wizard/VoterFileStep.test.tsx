@@ -209,6 +209,7 @@ describe('VoterFileStep — prototype filter order', () => {
       'Prior contacts made',
       'Support status',
       'Voter likelihood',
+      'Early vote likelihood',
       'Political party',
       'Age',
       'Marital status',
@@ -336,18 +337,18 @@ describe('VoterFileStep — civic panel history groups', () => {
       />,
     )
 
-  it('offers member, left and never invited, which select together', async () => {
+  it('offers member and left, which select together', async () => {
     const onFiltersChange = vi.fn()
     const user = userEvent.setup()
     renderServe({ civicPanelMember: true }, onFiltersChange)
 
-    await user.click(screen.getByText('Never invited'))
+    expect(screen.queryByText('Never invited')).toBeNull()
+    await user.click(screen.getByText('Left'))
 
     expect(onFiltersChange).toHaveBeenCalledWith(
       expect.objectContaining({
         civicPanelMember: true,
-        civicPanelLeft: false,
-        civicPanelNeverInvited: true,
+        civicPanelLeft: true,
       }),
     )
   })
@@ -929,5 +930,262 @@ describe('VoterFileStep — no stray text under filter groups', () => {
       )
       expect(strayText).toEqual([])
     }
+  })
+})
+
+describe('VoterFileStep — Voted in election', () => {
+  const precinctOptions = {
+    options: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }
+  const renderStep = (
+    props: Partial<Parameters<typeof VoterFileStep>[0]> = {},
+  ) =>
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={vi.fn()}
+        supportStatus={[]}
+        onSupportStatusChange={vi.fn()}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={precinctOptions}
+        isElectedOfficial={false}
+        {...props}
+      />,
+    )
+
+  it('renders directly below Support status when Create a list passes it', () => {
+    renderStep({ votedStatus: [], onVotedStatusChange: vi.fn() })
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+    expect(headings.indexOf('Voted in election')).toBe(
+      headings.indexOf('Support status') + 1,
+    )
+    const pills = screen.getByLabelText('Voted in election')
+    expect(within(pills).getByText('Yes')).toBeInTheDocument()
+    expect(within(pills).getByText('No/Unknown')).toBeInTheDocument()
+  })
+
+  it('stays off the surfaces that do not pass it', () => {
+    renderStep()
+
+    expect(screen.queryByText('Voted in election')).toBeNull()
+  })
+
+  it('stays off Serve', () => {
+    renderStep({
+      votedStatus: [],
+      onVotedStatusChange: vi.fn(),
+      isElectedOfficial: true,
+    })
+
+    expect(screen.queryByText('Voted in election')).toBeNull()
+  })
+
+  it('Select all picks both options', async () => {
+    const user = userEvent.setup()
+    const onVotedStatusChange = vi.fn()
+    renderStep({ votedStatus: [], onVotedStatusChange })
+
+    const group = screen.getByText('Voted in election').parentElement!
+    await user.click(within(group).getByRole('button', { name: 'Select all' }))
+
+    expect(onVotedStatusChange).toHaveBeenCalledWith([
+      'already_voted',
+      'unknown',
+    ])
+  })
+
+  it('reports a single pick', async () => {
+    const user = userEvent.setup()
+    const onVotedStatusChange = vi.fn()
+    renderStep({ votedStatus: [], onVotedStatusChange })
+
+    await user.click(
+      within(screen.getByLabelText('Voted in election')).getByText(
+        'No/Unknown',
+      ),
+    )
+
+    expect(onVotedStatusChange).toHaveBeenCalledWith(['unknown'])
+  })
+})
+
+describe('VoterFileStep — Source', () => {
+  const precinctOptions = {
+    options: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }
+  const renderStep = (
+    props: Partial<Parameters<typeof VoterFileStep>[0]> = {},
+  ) =>
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={vi.fn()}
+        supportStatus={[]}
+        onSupportStatusChange={vi.fn()}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={precinctOptions}
+        isElectedOfficial={false}
+        {...props}
+      />,
+    )
+
+  it('renders first, with Voter file and Imported, when Create a list passes it', () => {
+    renderStep({ source: [], onSourceChange: vi.fn() })
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+    expect(headings[0]).toBe('Source')
+    const pills = screen.getByLabelText('Source')
+    expect(within(pills).getByText('Voter file')).toBeInTheDocument()
+    expect(within(pills).getByText('Imported')).toBeInTheDocument()
+  })
+
+  it('stays off the surfaces that do not pass it', () => {
+    renderStep()
+
+    expect(screen.queryByText('Source')).toBeNull()
+  })
+
+  it('stays off Serve', () => {
+    renderStep({
+      source: [],
+      onSourceChange: vi.fn(),
+      isElectedOfficial: true,
+    })
+
+    expect(screen.queryByText('Source')).toBeNull()
+  })
+
+  it('reports a single pick', async () => {
+    const user = userEvent.setup()
+    const onSourceChange = vi.fn()
+    renderStep({ source: [], onSourceChange })
+
+    await user.click(
+      within(screen.getByLabelText('Source')).getByText('Imported'),
+    )
+
+    expect(onSourceChange).toHaveBeenCalledWith(['imported'])
+  })
+
+  it('counts as a selection for Clear filters, which clears it', async () => {
+    const user = userEvent.setup()
+    const onSourceChange = vi.fn()
+    renderStep({ source: ['imported'], onSourceChange })
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    expect(onSourceChange).toHaveBeenCalledWith([])
+  })
+})
+
+describe('VoterFileStep — Imported in', () => {
+  const precinctOptions = {
+    options: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }
+  const importedIn = {
+    options: [
+      { id: 'upload-1', name: 'Town hall sign-in' },
+      { id: 'upload-2', name: 'Newsletter list' },
+    ],
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }
+  const renderStep = (
+    props: Partial<Parameters<typeof VoterFileStep>[0]> = {},
+  ) =>
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={vi.fn()}
+        supportStatus={[]}
+        onSupportStatusChange={vi.fn()}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={precinctOptions}
+        isElectedOfficial
+        {...props}
+      />,
+    )
+
+  it('renders first on Serve, with each import by name', () => {
+    renderStep({
+      contactUploadIds: [],
+      onContactUploadIdsChange: vi.fn(),
+      importedIn,
+    })
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+    expect(headings[0]).toBe('Imported in')
+    const pills = screen.getByLabelText('Imported in')
+    expect(within(pills).getByText('Town hall sign-in')).toBeInTheDocument()
+    expect(within(pills).getByText('Newsletter list')).toBeInTheDocument()
+  })
+
+  it('renders right after Source on Win', () => {
+    renderStep({
+      isElectedOfficial: false,
+      source: [],
+      onSourceChange: vi.fn(),
+      contactUploadIds: [],
+      onContactUploadIdsChange: vi.fn(),
+      importedIn,
+    })
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+    expect(headings.slice(0, 2)).toEqual(['Source', 'Imported in'])
+  })
+
+  it('stays off the surfaces that do not pass it', () => {
+    renderStep()
+
+    expect(screen.queryByText('Imported in')).toBeNull()
+  })
+
+  it('stays off while the org has no import', () => {
+    renderStep({
+      contactUploadIds: [],
+      onContactUploadIdsChange: vi.fn(),
+      importedIn: { ...importedIn, options: [] },
+    })
+
+    expect(screen.queryByText('Imported in')).toBeNull()
+  })
+
+  it('counts as a selection for Clear filters, which clears it', async () => {
+    const user = userEvent.setup()
+    const onContactUploadIdsChange = vi.fn()
+    renderStep({
+      contactUploadIds: ['upload-1'],
+      onContactUploadIdsChange,
+      importedIn,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    expect(onContactUploadIdsChange).toHaveBeenCalledWith([])
   })
 })

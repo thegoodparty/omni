@@ -1,5 +1,5 @@
 import { formatInTimeZone } from 'date-fns-tz'
-import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 
 // Plain names for the zones the state table can answer with. Anything else
 // falls through to its tz-database name.

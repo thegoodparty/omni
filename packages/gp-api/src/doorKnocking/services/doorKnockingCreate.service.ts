@@ -76,7 +76,7 @@ const CREATE_TX_TIMEOUT_MS = 120_000
 // What one create cost, kept split by API until the metric records it that
 // way and totalled for everything else. The two rates have nothing in common,
 // so a single number here would be a number nobody could take apart again.
-type RouteCredits = Record<GeoapifyApi, number>
+type RouteCredits = Record<Exclude<GeoapifyApi, 'reverse_geocode'>, number>
 
 // Geoapify rejects a WALKING request whose locations span more than this, with
 // a 400 that our client would otherwise re-raise as a 502 — blaming the vendor

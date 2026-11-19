@@ -3,7 +3,7 @@ import type {
   AgentRunsListQuery,
   ExperimentRunStatus,
   PaginationMeta,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 import { DEFAULT_PER_PAGE } from '@/app/dashboard/users/types'
 
 export const SEARCH_PARAMS = {

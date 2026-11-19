@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
@@ -43,12 +43,19 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [mockCampaign, vi.fn()],
 }))
 
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
 const renderGrid = (
   overrides: Partial<{
     onCreateSocial: () => void
     onCreateSms: (preselect?: AudiencePreselect) => void
     onCreateRobocall: (preselect?: AudiencePreselect) => void
     onCreatePhoneBanking: (preselect?: AudiencePreselect) => void
+    onCreateEmail: () => void
     preselectedListId: number
     preselectedRecommendedVariant: RecommendedListVariant
   }> = {},
@@ -61,6 +68,7 @@ const renderGrid = (
       onCreateSms={overrides.onCreateSms ?? vi.fn()}
       onCreateRobocall={overrides.onCreateRobocall ?? vi.fn()}
       onCreatePhoneBanking={overrides.onCreatePhoneBanking ?? vi.fn()}
+      onCreateEmail={overrides.onCreateEmail}
     />,
   )
 
@@ -72,6 +80,19 @@ describe('ChannelTileGrid — social tile', () => {
     await userEvent.click(screen.getByText('Social media'))
 
     expect(onCreateSocial).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ChannelTileGrid — email tile', () => {
+  it('is absent without a handler and opens the email flow with one', async () => {
+    const { unmount } = renderGrid()
+    expect(screen.queryByText('Email')).not.toBeInTheDocument()
+    unmount()
+
+    const onCreateEmail = vi.fn()
+    renderGrid({ onCreateEmail })
+    await userEvent.click(screen.getByText('Email'))
+    expect(onCreateEmail).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -87,6 +108,30 @@ describe('ChannelTileGrid — robocall tile', () => {
     await userEvent.click(screen.getByText('Robocall'))
 
     expect(onCreateRobocall).toHaveBeenCalledTimes(1)
+  })
+
+  it('tags the tile only while the campaign has the free offer', () => {
+    renderGrid()
+    expect(screen.queryByText('Free offer')).not.toBeInTheDocument()
+
+    mockFreeOffer = { offer: { eligible: true } }
+    renderGrid()
+    expect(screen.getByText('Free offer')).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('button', { name: 'Robocall' }).at(-1),
+    ).toHaveAccessibleDescription('Free offer')
+    mockFreeOffer = { offer: null }
+  })
+
+  it('shows the free offer over the lock when both apply', () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockFreeOffer = { offer: { eligible: true } }
+    renderGrid()
+
+    expect(
+      screen.getByRole('button', { name: 'Robocall' }),
+    ).toHaveAccessibleDescription('Free offer')
+    mockFreeOffer = { offer: null }
   })
 })
 
@@ -128,12 +173,27 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
     renderGrid()
 
     expect(
-      screen.getByText('Verify to send SMS by Oct. 15'),
-    ).toBeInTheDocument()
+      screen.getByRole('button', { name: 'SMS' }),
+    ).toHaveAccessibleDescription('Verify by Oct. 15')
+  })
+
+  it('shows the countdown over the lock when both apply', () => {
+    mockCampaign = {
+      id: 9,
+      isPro: false,
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    renderGrid()
+
+    expect(
+      screen.getByRole('button', { name: 'SMS' }),
+    ).toHaveAccessibleDescription('Verify by Oct. 15')
   })
 
   it.each([[true], [false]])(
-    'explains the closed tile on hover and opens nothing (Pro %s)',
+    'explains the closed tile on hover and opens the cutoff notice on click (Pro %s)',
     async (isPro) => {
       const user = userEvent.setup()
       mockCampaign = {
@@ -159,12 +219,45 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
 
       await user.click(screen.getByText('SMS'))
 
-      expect(screen.queryByRole('dialog')).toBeNull()
+      const dialog = await screen.findByRole('dialog')
+      expect(
+        within(dialog).getByText('How else do you want to reach voters?'),
+      ).toBeVisible()
       expect(onCreateSms).not.toHaveBeenCalled()
       expect(mockRouterPush).not.toHaveBeenCalled()
-      expect(trackEvent).not.toHaveBeenCalled()
+      expect(trackEvent).toHaveBeenCalledTimes(1)
+      expect(trackEvent).toHaveBeenCalledWith(
+        'Outreach - SMS Cutoff Notice Viewed',
+        {
+          surface: 'text_tile',
+          cutoffDate: '2026-10-15',
+          generalElectionDate: '2026-11-03',
+        },
+      )
     },
   )
+
+  it('records the channel picked from the notice and closes it', async () => {
+    const user = userEvent.setup()
+    mockCampaign = {
+      id: 9,
+      isPro: true,
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    renderGrid()
+
+    await user.click(screen.getByText('SMS'))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByText('Robocalls'))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      'Outreach - SMS Cutoff Notice Completed',
+      { surface: 'text_tile', channel: 'robocall' },
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
 })
 
 // ENG-10920: tile handler matrix — pro / non-pro / electedOffice / pending
@@ -383,15 +476,15 @@ describe('ChannelTileGrid — the tiles open the gated flows', () => {
   it('leaves the text, robocall and phone-banking tiles unlocked for a free candidate', () => {
     renderGrid()
 
-    expect(screen.getByText('SMS').closest('button')).not.toHaveAttribute(
-      'data-locked',
-    )
-    expect(screen.getByText('Robocall').closest('button')).not.toHaveAttribute(
-      'data-locked',
-    )
+    expect(
+      screen.getByText('SMS').closest('button'),
+    ).not.toHaveAccessibleDescription('Pro')
+    expect(
+      screen.getByText('Robocall').closest('button'),
+    ).not.toHaveAccessibleDescription('Pro')
     expect(
       screen.getByText('Phone banking').closest('button'),
-    ).not.toHaveAttribute('data-locked')
+    ).not.toHaveAccessibleDescription('Pro')
   })
 
   it('opens the SMS flow for a free candidate instead of the Pro wizard', async () => {
@@ -445,7 +538,7 @@ describe('ChannelTileGrid — the tiles open the gated flows', () => {
 
     expect(
       screen.getByText('Door knocking').closest('button'),
-    ).not.toHaveAttribute('data-locked')
+    ).not.toHaveAccessibleDescription('Pro')
 
     await userEvent.click(screen.getByText('Door knocking'))
 

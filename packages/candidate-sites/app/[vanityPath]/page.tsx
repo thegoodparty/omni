@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { fetchHelper } from '@/helpers/fetchHelper'
+import { gpApiReadAuthHeaders } from '@/helpers/gpApiReadAuthHeaders'
 import WebsitePage from './components/WebsitePage'
 import { Website } from './types/website.type'
 import { getCandidateMetaData } from '../shared/utils/candidateMetaData'
@@ -18,7 +19,9 @@ async function getWebsite({
 }: {
   vanityPath: string
 }): Promise<Website | null> {
-  return await fetchHelper<Website>(`websites/${vanityPath}/view`)
+  return await fetchHelper<Website>(`websites/${vanityPath}/view`, {
+    headers: await gpApiReadAuthHeaders(),
+  })
 }
 
 export const revalidate = 3600

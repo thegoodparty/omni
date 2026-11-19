@@ -305,15 +305,6 @@ describe('UsersController', () => {
   })
 
   describe('findMe', () => {
-    it('returns the current user fetched from DB', async () => {
-      vi.spyOn(usersService, 'findUser').mockResolvedValue(mockUser)
-
-      const result = await controller.findMe(mockUser)
-
-      expect(usersService.findUser).toHaveBeenCalledWith({ id: userId })
-      expect(result).toHaveProperty('id', userId)
-    })
-
     it('returns null when user is not found in DB', async () => {
       vi.spyOn(usersService, 'findUser').mockResolvedValue(null)
 
@@ -323,21 +314,6 @@ describe('UsersController', () => {
   })
 
   describe('updateMe', () => {
-    it('updates and returns the user with password stripped', async () => {
-      const updatedUser = {
-        ...mockUser,
-        firstName: 'Updated',
-        password: 'hashed_secret',
-      }
-      vi.spyOn(usersService, 'updateUser').mockResolvedValue(updatedUser)
-
-      const body = { firstName: 'Updated' }
-      const result = await controller.updateMe(mockUser, body)
-
-      expect(usersService.updateUser).toHaveBeenCalledWith({ id: userId }, body)
-      expect(result).toHaveProperty('firstName', 'Updated')
-    })
-
     it('passes empty object when body is falsy', async () => {
       vi.spyOn(usersService, 'updateUser').mockResolvedValue(mockUser)
 

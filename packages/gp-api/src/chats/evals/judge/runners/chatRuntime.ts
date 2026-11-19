@@ -10,6 +10,7 @@ import {
   type CreateBriefingChatResponse,
 } from '@/chats/briefing-chats/schemas/CreateBriefingChat.schema'
 import { LlmService } from '@/llm/services/llm.service'
+import { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type { TestServiceContext } from '@/test-service'
 import {
   seedOptionsFor,
@@ -303,10 +304,26 @@ export const inProcessChatRuntime = (
 ): ChatArmRuntime => ({
   kind: 'inprocess',
 
-  // Refuses nothing. This runtime is the one every directive in the case
-  // schema was designed against, and a refusal here would be a regression
-  // rather than honesty.
-  assertCanDrive: () => undefined,
+  // Refuses one thing. This runtime is the one every directive in the case
+  // schema was designed against, but it cannot give priority_flow a district:
+  // useTestService pins getPositionById to null, so the constituent tools
+  // never register and the scope's outreach cases would measure an agent
+  // with no one to reach. A real-model priority_flow run needs a deployed
+  // arm. Dry runs replace the model, so the district changes nothing there.
+  assertCanDrive: (one) => {
+    if (
+      one.scope === ChatScope.priority_flow &&
+      one.realModel === true &&
+      one.accountState?.district !== false
+    ) {
+      throw new UnsupportedOnRuntimeError(
+        unsupportedText('inprocess', one, [
+          'priority_flow needs a district that resolves, and only a deployed ' +
+            'arm has one (JUDGE_ARM_RUNTIME=http)',
+        ]),
+      )
+    }
+  },
 
   stageCase: async (request) =>
     seedChatOrg(
@@ -429,10 +446,21 @@ export const inProcessChatRuntime = (
   },
 
   readAssistantText: async ({ assistantMessageId }) => {
-    const row = await service.prisma.chatMessage.findFirst({
-      where: { id: assistantMessageId, role: ChatMessageRole.assistant },
+    const store = service.app.get(ChatStoreService)
+    const keyRow = await service.prisma.agentMessage.findFirst({
+      where: { id: assistantMessageId },
+      select: { conversationId: true },
     })
-    return row?.content ?? null
+    if (!keyRow?.conversationId) return null
+    const messages = await store.listMessagesByConversation(
+      keyRow.conversationId,
+    )
+    return (
+      messages.find(
+        (m) =>
+          m.id === assistantMessageId && m.role === ChatMessageRole.assistant,
+      )?.content ?? null
+    )
   },
 
   // Both patches are process-global for as long as they are installed, and

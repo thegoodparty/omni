@@ -2,10 +2,7 @@
 
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { revalidatePath } from 'next/cache'
-import type {
-  PersonLookupResult,
-  PersonProfileRemoval,
-} from '@goodparty_org/sdk'
+import type { PersonLookupResult, PersonProfileRemoval } from '@/shared/gpApi'
 import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
 

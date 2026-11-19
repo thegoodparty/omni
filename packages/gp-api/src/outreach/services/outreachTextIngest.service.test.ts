@@ -59,7 +59,7 @@ const interactionFor = (personId: string) =>
 beforeEach(async () => {
   findPersonByPhone.mockReset().mockResolvedValue(null)
   resolveProAccess.mockReset().mockResolvedValue(true)
-  resolvePeopleDataset.mockReset().mockResolvedValue('constituents')
+  resolvePeopleDataset.mockReset().mockResolvedValue({ base: 'constituents' })
 
   await service.prisma.organization.create({
     data: { slug: ORG_SLUG, ownerId: service.user.id, positionId: 'pos-1' },
@@ -239,7 +239,7 @@ describe('OutreachTextIngestService.ingestReplies', () => {
       '3035559999',
       expect.objectContaining({ slug: ORG_SLUG }),
       true,
-      'constituents',
+      { base: 'constituents' },
     )
     const messages = await messagesForOutreach()
     expect(messages).toHaveLength(1)
@@ -765,6 +765,40 @@ describe('OutreachTextIngestService civic panel', () => {
         where: { organizationSlug: EO_SLUG, field: 'civic_panel' },
       }),
     ).toBe(1)
+  })
+
+  const members = () =>
+    service.prisma.contactCurrentStatus.count({
+      where: {
+        organizationSlug: EO_SLUG,
+        field: 'civic_panel',
+        value: 'member',
+      },
+    })
+
+  it('puts a texted contact who replies JOIN twice on the panel once', async () => {
+    await seedServeSend(true)
+
+    await upload([row(PERSON_1.phone, 'JOIN')])
+    await upload([
+      row(PERSON_1.phone, 'JOIN', new Date('2026-08-12T15:00:00Z')),
+    ])
+
+    expect(await panelStatus(PERSON_1.personId)).toBe('member')
+    expect(await members()).toBe(1)
+  })
+
+  it('ignores a JOIN from a number nobody holds', async () => {
+    await seedServeSend(true)
+
+    await upload([row('(303) 555-0199', 'JOIN')])
+
+    expect(await members()).toBe(0)
+    expect(
+      await service.prisma.contactStatusEvent.count({
+        where: { organizationSlug: EO_SLUG, field: 'civic_panel' },
+      }),
+    ).toBe(0)
   })
 
   const seedMember = (personId: string) =>

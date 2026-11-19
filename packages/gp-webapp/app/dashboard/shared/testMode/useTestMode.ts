@@ -4,7 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSetOrganizationSlug } from '@shared/organization-picker'
-import { clearElectionResultDismissed } from 'app/dashboard/election-result/dismissal'
+import {
+  clearElectionResultDismissed,
+  clearElectionResultShown,
+  clearElectionResultSnooze,
+} from 'app/dashboard/election-result/dismissal'
 import type {
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
@@ -63,6 +67,8 @@ export const useTestMode = () => {
     onSuccess: async () => {
       await queryClient.invalidateQueries()
       clearElectionResultDismissed()
+      clearElectionResultSnooze()
+      clearElectionResultShown()
       router.refresh()
     },
   })

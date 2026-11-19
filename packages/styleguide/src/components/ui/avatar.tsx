@@ -57,6 +57,14 @@ interface AvatarProps
     React.ComponentProps<typeof AvatarPrimitive.Root>,
     VariantProps<typeof avatarVariants> {}
 
+/**
+ * Put AvatarImage and AvatarFallback inside Avatar; the fallback shows while the
+ * image loads or if it fails. Use AvatarIcon to show an icon in place of a
+ * photo.
+ *
+ * @summary Use for a person's photo in a small circle or square, falling back to
+ * their initials or an icon.
+ */
 function Avatar({ className, size, shape, ...props }: AvatarProps) {
   return (
     <AvatarCtx.Provider

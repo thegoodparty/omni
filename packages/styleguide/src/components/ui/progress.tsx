@@ -3,6 +3,13 @@ import * as ProgressPrimitive from '@radix-ui/react-progress'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * value runs from 0 to 100, and the bar is hidden at 0. A submitting button uses
+ * Button's loading prop, not Progress.
+ *
+ * @summary Use for a bar showing how far along a known task or set of steps is.
+ * For a wait of unknown length use Spinner; for loading content, Skeleton.
+ */
 function Progress({
   className,
   value,

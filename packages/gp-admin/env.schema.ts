@@ -39,7 +39,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // that actually serves both environments; local dev never needs it.
   GP_API_PROTOCOL: { tier: 'required' },
   GP_DEV_API_DOMAIN: { tier: 'required' },
-  GP_DEV_MACHINE_SECRET: { tier: 'required' },
   GP_ORG_ID_DEV: { tier: 'required' },
 
   // --- Optional: everything else ---------------------------------------
@@ -51,17 +50,18 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   GP_API_PORT: { tier: 'optional' },
   GP_API_ROOT_PATH: { tier: 'optional' },
   GP_PROD_API_DOMAIN: { tier: 'optional' },
-  GP_PROD_MACHINE_SECRET: { tier: 'optional' },
   GP_ORG_ID_PROD: { tier: 'optional' },
+
+  // The token gp-admin sends to gp-api, read by @vercel/oidc rather than a
+  // literal `process.env.X`. Deployments get it per request from Vercel;
+  // locally `vercel env pull` writes it, and every gp-api call fails without
+  // it.
+  VERCEL_OIDC_TOKEN: { tier: 'optional' },
 
   // Impersonation-redirect targets, one per GP environment
   // (src/app/dashboard/users/actions.ts, .../briefings/actions.ts).
   NEXT_PUBLIC_GP_DEV_WEBAPP_URL: { tier: 'optional' },
   NEXT_PUBLIC_GP_WEBAPP_URL: { tier: 'optional' },
-
-  // Ships dark until set on the Vercel project (src/sentry.server.config.ts,
-  // src/instrumentation-client.ts).
-  NEXT_PUBLIC_SENTRY_DSN: { tier: 'optional' },
 
   // Opts the outreach-results dashboard into sample data while gp-api's
   // real endpoints don't exist yet.

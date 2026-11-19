@@ -64,8 +64,6 @@ export const CRMCompanyPropertiesSchema = z
     [HS_PROPS.last_portal_visit]: timestampSchema,
     [HS_PROPS.last_step]: z.string(),
     [HS_PROPS.last_step_date]: timestampSchema,
-    [HS_PROPS.campaign_assistant_chats]: intSchema,
-    [HS_PROPS.my_content_pieces_created]: intSchema,
     [HS_PROPS.product_sessions]: intSchema,
     [HS_PROPS.voter_files_created]: intSchema,
     [HS_PROPS.voter_data_adoption]: z.union([

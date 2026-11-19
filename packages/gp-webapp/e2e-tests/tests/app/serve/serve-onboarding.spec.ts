@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from 'src/fixtures/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   createServeLeadUser,
@@ -68,7 +68,7 @@ async function completeInOfficeStep(page: Page): Promise<void> {
   await expect(
     page.getByRole('heading', { level: 1, name: /already in office/i }),
   ).toBeVisible()
-  await page.getByRole('button', { name: /i'm an elected official/i }).click()
+  await page.getByRole('radio', { name: /i'm an elected official/i }).click()
   await clickContinue(page)
 }
 
@@ -88,13 +88,13 @@ async function completePartyStep(
   ).toBeVisible()
 
   if (assertMajorPartyBlock) {
-    await page.getByRole('button', { name: /serving as a democrat/i }).click()
+    await page.getByRole('radio', { name: /serving as a democrat/i }).click()
     await expect(page.getByText(MAJOR_PARTY_BLOCK_SUBSTRING)).toBeVisible()
     await expect(continueButton(page)).toBeDisabled()
   }
 
   await page
-    .getByRole('button', { name: /independent \/ non-major party/i })
+    .getByRole('radio', { name: /independent \/ non-major party/i })
     .click()
   await expect(page.getByText(MAJOR_PARTY_BLOCK_SUBSTRING)).toBeHidden()
   await clickContinue(page)
@@ -103,7 +103,10 @@ async function completePartyStep(
 async function completeOfficeStep(page: Page): Promise<void> {
   console.log('Serve step: office (net-new picker)')
   await expect(
-    page.getByRole('heading', { level: 1, name: /what office do you/i }),
+    page.getByRole('heading', {
+      level: 1,
+      name: /what office were you elected to/i,
+    }),
   ).toBeVisible()
 
   await page.getByLabel(/zip code/i).fill(OFFICE_ZIP)
@@ -168,7 +171,7 @@ async function completeTermDatesStep(page: Page): Promise<void> {
 async function completePledgeStep(page: Page): Promise<void> {
   console.log('Serve step: pledge')
   await expect(
-    page.getByRole('heading', { level: 1, name: /take our pledge/i }),
+    page.getByRole('heading', { level: 1, name: /people first pledge/i }),
   ).toBeVisible()
   const submit = page.getByRole('button', { name: /agree & continue/i })
   await expect(submit).toBeEnabled({ timeout: 15_000 })

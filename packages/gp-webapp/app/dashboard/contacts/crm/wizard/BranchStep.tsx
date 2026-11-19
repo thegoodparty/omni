@@ -30,7 +30,7 @@ export default function BranchStep({
   // instead of the default radio dot, and a semibold title over the muted
   // description.
   const branchCardClassName =
-    'p-5 has-[[data-state=checked]]:bg-primary/5 has-[[data-state=checked]]:ring-2 has-[[data-state=checked]]:ring-primary/20'
+    'p-5 data-[state=checked]:bg-primary/5 data-[state=checked]:ring-2 data-[state=checked]:ring-primary/20'
 
   return (
     <RadioGroup

@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -13,6 +14,10 @@ import {
 import { User } from '../../../generated/prisma'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
+import {
+  ChatStoreService,
+  USER_MESSAGE_ID_TAKEN,
+} from '@/chats/services/chatStore.prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -76,6 +81,7 @@ export class BriefingChatsController {
   constructor(
     private readonly chats: BriefingChatsService,
     private readonly chatCreate: BriefingChatCreateService,
+    private readonly chatStore: ChatStoreService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(BriefingChatsController.name)
@@ -104,6 +110,19 @@ export class BriefingChatsController {
   ): Promise<void> {
     await this.chats.assertBriefingChatAccessible(annotationId, user.id)
 
+    const messageId = body.id ?? body.clientMessageId
+    if (messageId) {
+      const { conversationId } = await this.chats.conversationIdFor(
+        annotationId,
+        user.id,
+      )
+      const available = await this.chatStore.userMessageIdIsAvailable({
+        conversationId,
+        id: messageId,
+      })
+      if (!available) throw new ConflictException(USER_MESSAGE_ID_TAKEN)
+    }
+
     const abortController = new AbortController()
     const onClose = () => abortController.abort()
     req.raw.once('close', onClose)
@@ -120,7 +139,7 @@ export class BriefingChatsController {
       userId: user.id,
       userMessage: body.content,
       signal: abortController.signal,
-      ...(body.clientMessageId && { clientMessageId: body.clientMessageId }),
+      ...(messageId && { userMessageId: messageId }),
     })
 
     let errored = false

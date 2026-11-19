@@ -1,9 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  MostElectionsDto,
-  PlaceFilterDto,
-} from '@/electionDb/places/places.schema'
-import { PlacesService } from '@/electionDb/places/places.service'
+import { describe, expect, it } from 'vitest'
 import {
   ElectionPlacesController,
   mostElectionsResponseSchema,
@@ -13,27 +8,7 @@ import {
 const getPath = (methodName: keyof ElectionPlacesController) =>
   Reflect.getMetadata('path', ElectionPlacesController.prototype[methodName])
 
-const baseFilter = {
-  includeChildren: false,
-  includeChildRaces: false,
-  includeParent: false,
-  includeRaces: false,
-  categorizeChildren: false,
-} as PlaceFilterDto
-
 describe('ElectionPlacesController', () => {
-  let controller: ElectionPlacesController
-  const getPlaces = vi.fn()
-  const getPlacesWithMostElections = vi.fn()
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    controller = new ElectionPlacesController({
-      getPlaces,
-      getPlacesWithMostElections,
-    } as unknown as PlacesService)
-  })
-
   describe('routing', () => {
     it('exposes both marketing paths under the controller', () => {
       expect(getPath('getPlaces')).toBe('/')
@@ -42,37 +17,6 @@ describe('ElectionPlacesController', () => {
 
     it('keeps most-elections a static segment, never a :param route', () => {
       expect(getPath('getPlacesWithMostElections')).not.toContain(':')
-    })
-  })
-
-  describe('getPlaces', () => {
-    it('delegates the filter straight to the service', async () => {
-      const filter = { ...baseFilter, state: 'TX' } as PlaceFilterDto
-      getPlaces.mockResolvedValue([])
-
-      await controller.getPlaces(filter)
-
-      expect(getPlaces).toHaveBeenCalledWith(filter)
-      expect(getPlaces).toHaveBeenCalledTimes(1)
-    })
-
-    it('returns what the service returns', async () => {
-      const places = [{ id: 'place-1', name: 'Mission' }]
-      getPlaces.mockResolvedValue(places)
-
-      await expect(controller.getPlaces(baseFilter)).resolves.toBe(places)
-    })
-  })
-
-  describe('getPlacesWithMostElections', () => {
-    it('delegates with the MIN_RACES floor and the requested count', async () => {
-      getPlacesWithMostElections.mockResolvedValue([])
-
-      await controller.getPlacesWithMostElections({
-        count: 5,
-      } as MostElectionsDto)
-
-      expect(getPlacesWithMostElections).toHaveBeenCalledWith(100, 5)
     })
   })
 

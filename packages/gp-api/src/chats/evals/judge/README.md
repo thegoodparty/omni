@@ -40,20 +40,46 @@ unticked for the plan.
 **Reading the result.** The verdict is in the run's summary: open **Actions →
 Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
-for the one at the time you posted. The PR thread says the sweep started but
-not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
-**CAN'T SAY**. Most are CAN'T SAY today, and that's expected: every list
-has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
-measured difference still shown beside it. The summary also lists what was
-excluded and why, and an agent that couldn't be compared is listed as
-refused, with the reason.
+for the one at the time you posted. When a live sweep ends, its report is
+posted on the PR (one comment, rewritten by each sweep), and the run summary has the same text. The
+per-case rulings quote agent output, so they stay in the private bucket and
+never reach the PR. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
+**CAN'T SAY**. There is no minimum number of cases. From 8 scored cases
+the verdict comes from the bootstrap interval; under 8 it comes from an
+exact sign test over the cases' preferences, which reads BETTER or WORSE
+only when the split is one chance cannot explain at p < 0.05 (5 of 5 one
+way is p = 1/32; 4 of 4 is 1/16 and never decides) and otherwise CAN'T SAY,
+saying "too few comparisons" and giving the count. A background agent reads
+5 cases a sweep, so a consistent regression shows. See
+[Where the interval takes over from the count](#where-the-interval-takes-over-from-the-count).
+The summary also lists what was excluded and why, and an agent that couldn't
+be compared is listed as refused, with the reason.
+
+**The condition-handling signal can decide the label on its own**
+(`regressionSignals.ts`, thresholds in `config.gates.handling`). The quality
+comparison cannot see an agent's own rules: a probe that cut `priority_flow`'s
+system prompt in half read CAN'T SAY there, at -0.06 [-0.28, 0.19]. The signal
+counts handled runs: how many of each arm's runs met their case's
+`handledWhen`. Runs are compared only within their own case, because a case's
+attempts share an input: a one-sided permutation test shuffles which arm each
+case's handled runs fell on, so a case that went from 3 of 3 to 0 of 3 weighs
+more than one that went to 2 of 3, and a case both arms always pass or always
+fail adds nothing. Below p = 0.05 it says WORSE or BETTER. One case going from
+3 of 3 to 0 of 3 is exactly 0.05, so a single case never decides the label. A
+probe where every tool failed auth (base 16 of 24 handled runs, candidate 9)
+reads p = 0.008, WORSE; three no-change sweeps read p = 0.09 or higher.
+
+The label is WORSE when the quality verdict or the handling signal says WORSE.
+It is BETTER when one says BETTER and neither says WORSE. Otherwise it is the
+quality label. When the handling signal moved the label, a bold line under the
+heading gives its numbers and says what quality alone said.
 
 A sweep of one chat agent takes about half an hour. The plan comment shows the
 estimate before anything runs, priced from what each agent cost in an earlier
-judge sweep, x1.5 and rounded up: about $10 for `chief_of_staff`, and $3 to $12
-for a measured background agent at the default 3 cases. An agent never
+judge sweep, x1.5 and rounded up: about $10 for `chief_of_staff`, and $7 to $26
+for a measured background agent at the default 5 cases. An agent never
 measured is priced at a worst case and marked "(unmeasured)": $0.52 a chat
-turn ($42.50 for 9 cases at 3 attempts), $8 a background run ($48 at 3 cases).
+turn ($42.50 for 9 cases at 3 attempts), $8 a background run ($80 at 5 cases).
 Each agent is priced at the highest of the PR's, the base ref's and the default
 branch's tables, so a PR cannot lower its own estimate, and a chat agent pays
 for both arms' case lists. The numbers and their evidence are in
@@ -137,6 +163,7 @@ naming it.
 | `JUDGE_FIXTURE_ORG_SLUG` / `JUDGE_FIXTURE_RACE_ID` / `JUDGE_FIXTURE_USER_EMAIL`          | 1, 2  | The identifiers six background case lists cannot carry, resolved ONCE by `judgeIdentifiers.ts` for both arms: a `judge-` slug from the sweep id, a BallotReady race id, a reserved address. The three agents that read gp-api use the fixed `judge-fixture` slug instead. Empty reads as "not resolved", and every background agent is then refused by name before anything is staged. See [Six background agents need identifiers a case list cannot carry](#six-background-agents-need-identifiers-a-case-list-cannot-carry).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `JUDGE_SELECTION`                                                                        | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `JUDGE_ANTHROPIC_API_KEY`                                                                | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `BRAVE_API_KEY`                                                                          | 1, 2  | Not a variable of the sweep: `braveKey.ts` READS it out of the dev app secret (`GP_API_DEV`) with the role credentials below, and installs it into the arm's environment under this name before any case runs. An arm's environment is `.env.test` and nothing else, and `.env.test` defines no `BRAVE_API_KEY`, so an agent whose tools search the web would otherwise answer `not_configured` on every call and the sweep would grade a searchless agent. Already set in the shell wins, so a local run can export its own; a read that fails (no role, no key in the blob) leaves it unset and the tool answers `not_configured`, which is what a run without a key does. The value is never logged, returned or written to a record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `JUDGE_AWS_ACCESS_KEY_ID` / `JUDGE_AWS_SECRET_ACCESS_KEY` / `JUDGE_AWS_SESSION_TOKEN`    | 1, 2  | The credentials for staging and dispatching a background agent, under these names for the same reason as the key above: `.env.test` stubs `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, so credentials exported under the SDK's own names arrive as a stub key, and AWS refuses it. `awsCredentials.ts` hands them to the judge's own S3 and SQS clients and nothing else; the app under test keeps the stubs. judge.yml passes the role's; locally, export these to run a background agent. Not needed for a chat-only sweep.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `JUDGE_CLERK_SECRET_KEY` / `JUDGE_CLERK_USER_ID` / `JUDGE_CLERK_TTL_SECONDS`             | mint  | The Clerk backend key, the judge user's `user_…` id, and how long the minted session token lives (default 4h, floor 10m, ceiling 12h). Read by `judgeClerkSession.ts` in a **step of its own, from a checkout of `main`**, and by nothing else. That key mints a session for ANY user in the dev instance, so it must never sit in a step that runs the pull request's own code — which is the whole reason this is a separate step rather than something an arm does. `JUDGE_CLERK_USER_ID` is optional: left unset, the step finds the judge's account by email and creates it if absent. See [A chat arm against a deployed gp-api signs in as a real Clerk user](#a-chat-arm-against-a-deployed-gp-api-signs-in-as-a-real-clerk-user).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `JUDGE_CLERK_SESSION_TOKEN` / `JUDGE_CLERK_SESSION_EXPIRES_AT`                           | 1, 2  | What the mint step hands the arms, and all an arm ever gets: a short-lived JWT and when it dies. An arm holds no Clerk secret, so a token that runs out there is a sentence naming the mint step and the TTL, not a re-mint. The token is registered with `::add-mask::` before it reaches `$GITHUB_OUTPUT`, and `scrubReason` redacts it by value and any JWT by shape, so it cannot ride a skip reason into a manifest or a public job summary.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -273,6 +300,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `sweep.eval.test.ts`                                   | Steps 1 and 2: the vitest shell that wires `sweepArm` to the real app.                                          |
 | `sweep.ts`                                             | Step 3: reads both arms, judges, scores, reports.                                                               |
 | `armGap.ts`                                            | The distance between the two captures.                                                                          |
+| `regressionSignals.ts`                                 | The condition-handling signal, and how it combines with the quality label.                                      |
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                                                      |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                                                              |
 
@@ -433,26 +461,81 @@ What the real id buys is that a credentialed run no longer fails HARDER than
 an uncredentialed one. A synthetic id 404s, and
 `src/elections/services/elections.service.ts` rethrows a 404 as
 `NotFoundException`, so the lookup propagated out of `loadContext` and failed
-the whole turn rather than quietly dropping two tools. What would register the
-pair now is letting the sweep arm's `getPositionById` reach election-api, with
-the Databricks credential alongside it. Until then the two integration tests
-prove the handler and the resolver wire up correctly when a position is
-supplied, not that any environment supplies one.
+the whole turn rather than quietly dropping two tools.
+
+**A deployed arm (`JUDGE_ARM_RUNTIME=http`) is where the district resolves.**
+The target's own gp-api asks its own election-api, and its own Databricks
+credential answers the constituent tools. The fixture route checks this
+rather than assuming it: after seeding, `JudgeChatFixtureService.setUp` runs
+`DistrictResolverService.resolveByOrgSlug` and answers 503, with the fixture
+removed, when the district does not resolve. The case is then an infraError
+before a turn is paid for, instead of a run that measured an agent with no
+district while recording one. The resolved district comes back on the
+response as `district`.
+
+**priority_flow is refused in process on a spending arm** (`assertCanDrive`
+in `runners/chatRuntime.ts`). Its outreach cases only mean something with a
+district, so a real-model run of it needs a deployed arm. A dry run, or a case
+with `accountState.district: false`, is still driven in process.
 
 A question that needs state nobody seeded produces "I don't have that" on
 **both** arms, which is a tie that measures nothing. Each chat list's `note`
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
-**Eight cases each, seven to ten on the ten real lists, and `gates.minCases`
-is 20.** So a corpus verdict over one of these lists resolves CAN'T SAY however
-the judge voted — the floor was set from measured agent non-determinism (three
-identical Chief of Staff turns gave 6, 4 and 2 tool steps) and a list this
-short measures that rather than the branch.
-Eight is one clean baseline plus seven single-axis variations, which is what
-one change can author honestly across twenty agents. **Whether to grow every
-list to 20 or to lower the floor is still open.** Do not read the shortfall as
-a decision either way.
+**There is no case minimum.** A short list is read with the test that fits
+it rather than refused, which is the section below: a floor throws away the
+evidence a short list does carry, and agents are not deterministic (three
+identical Chief of Staff turns gave 6, 4 and 2 tool steps), which is a reason
+to read a few cases carefully, not to read none. Eight cases a list is one
+clean baseline plus seven single-axis variations, which is what one change
+can author honestly across twenty agents.
+
+### Where the interval takes over from the count
+
+Two methods decide the quality verdict, and `gates.bootstrapMinCases` (8)
+says which one a comparison gets.
+
+**From 8 scored cases, the bootstrap interval.** Each case's pair scores are
+averaged, the cases are resampled 2,000 times, and the 95% interval of the
+resample means is read against zero and the practical margin: BETTER or
+WORSE when the whole interval clears zero and the delta clears the margin,
+SAME when the whole interval sits inside the margin, CAN'T SAY otherwise.
+This is unchanged.
+
+**Under 8 scored cases, an exact sign test** (`signTest.ts`). Each case
+votes by the sign of its mean pair score, so a case is one vote however many
+attempts it ran and a case that netted to a tie is no vote. The one-sided
+binomial tail of the count, in each direction, is read against
+`gates.sign.alpha` (0.05): WORSE when the cases for the base are a split
+chance explains under alpha and the delta clears the margin, BETTER the
+same way for the candidate, and otherwise CAN'T SAY with the note "too few
+comparisons to decide" and both counts and p-values. SAME is not reachable
+here: a handful of signs cannot show equivalence. The report's dimension
+table prints the count and its p in the interval's column.
+
+**Why 8.** On one-attempt data, which is every background sweep, each case
+score is a sign, so the interval and the count read the same split and the
+question is which over-calls. The interval does when the cases are few: 3 of
+3 for the base gives the interval [-1, -1], a point that "excludes zero"
+though 3 of 3 happens one time in eight by chance, 4 of 4 reads the same at
+one in sixteen, and at 7 cases 6 of 7 still reads WORSE at one in sixteen.
+From 8 cases on, the only splits the interval calls that the count refuses
+sit within a hundredth of alpha (8 of 10 at p = 0.055, 11 of 15 at 0.059),
+and only on some resampling seeds. `bootstrapCutover.test.ts` checks every
+split from 8 to 20 cases under five seeds, and that 6 of 7 over-calls on
+every seed; 8 is the lowest number from which the check holds. Above it the
+interval is kept because it carries what a count cannot: the size of the
+effect, the practical margin, and SAME. Chat lists carry 9 to 20 cases, so a
+chat sweep reads the interval as before unless exclusions cut it under 8.
+
+**What a background sweep can now say.** At `background.maxCases` 5 and one
+attempt, a sweep is five votes: 5 of 5 one way is p = 1/32 and reads BETTER
+or WORSE; 4 of 5 is p = 0.19 and reads CAN'T SAY, too few comparisons. The
+cap was 3, where 3 of 3 is p = 1/8 and nothing could ever decide. Five costs
+two more runs an arm per agent, and an arm's twelve in-flight slots now take
+two background agents a sweep rather than four. The handling signal is
+unchanged and still decides on its own test.
 
 A background case's `params` is what the dispatch Lambda is called with, and
 fourteen of the sixteen manifests set `additionalProperties: false`, so a
@@ -615,21 +698,18 @@ cost the route's whole 300s stream timeout per case and arrive as an infraError
 with no answer to compare.
 
 \*\*The mark covers a seeded transcript and not the other two conditions, which
-is a judgement rather than an omission. A forced tool failure already separates
-itself more strongly than a report line could: `isComparable()` is false for
-it on a chat run, so the pair never reaches a delta at all. And an account state is a state
+is a judgement rather than an omission. A forced tool failure is judged on the
+answer its user received, which is a real answer to a real failure, and its
+tool error is counted beside the verdict. And an account state is a state
 production really produces — a campaign without Pro, an organization without a
 position — seeded through the same rows the app writes, so a verdict under one
 is a verdict about a real account. Only the transcript is a context the harness
 authored and production would not have built.
 
-One consequence to read before authoring these:\*\* `isComparable()` is false
-for any chat run that hit a tool error, so a forced-failure pair resolves CAN'T SAY
-rather than entering the delta. Telling an injected failure from an incidental
-one needs a field `record.ts` does not have, and `record.ts` is the frozen
-cross-track contract — so that is a change to review, not a drive-by. Until
-then a forced-failure case buys the two arms' stored answers and traces side by
-side, not a scored delta.
+One consequence to read before authoring these:\*\* a forced-failure pair is
+judged on its output like any other pair, so it enters the delta. The judge
+compares what each arm's user got when the tool failed, which is the point of
+the case.
 
 **An account state is a closed set, and the set is read off the handlers.**
 Tool registration is the only thing about an account the model can see, so the
@@ -645,14 +725,12 @@ the briefing prompt renders differently. `.strict()` keeps it closed: an
 open bag of column overrides would let a case list seed a state no deployment
 can produce, and the verdict would be about an agent we do not ship.
 
-`district` is the one whose effect cannot be measured here. It gates only the
-constituent-data pair, and no run this harness makes resolves a district to
-gate on: the seeded `positionId` is real, but `useTestService()` pins
-`getPositionById` to null for the sweep arm, and `resolveByOrgSlug` therefore
-returns null. So the pair is unregistered whatever `positionId` says, and the
-digest is identical either way. The Databricks credential the provider factory
-returns null without is a second gate behind that one, never reached. What is
-ours is the row, and the runner asserts it.
+`district` is the one whose effect cannot be measured in process. It gates
+the constituent-data pair, and an in-process run never resolves a district to
+gate on: `useTestService()` pins `getPositionById` to null for the sweep arm,
+so the pair is unregistered whatever `positionId` says. A deployed arm does
+resolve it, and its fixture route refuses to stage a case when it does not
+(see above).
 
 **Every refusal happens before a turn is driven.** A chat turn costs real
 money, so: the schema refuses an undefined state or an unimplemented failure
@@ -736,8 +814,8 @@ case may carry up to four `dimensions` of its own:
 - **Scored on its own row.** Each name is aggregated over the cases that ask
   it and nowhere else: it is never part of a default dimension, `overall`,
   the regressions line or the label. The row names the cases that asked it,
-  and below `gates.minCases` it prints no interval, because one case
-  resampled is one number.
+  and under `gates.bootstrapMinCases` it prints the count and its p in
+  place of an interval, because one case resampled is one number.
 - **One name, one question.** A list that asks a name two different
   questions is refused, since the row would average two answers. The names
   `overall` and the default dimensions are refused too.
@@ -776,8 +854,9 @@ nothing else, so the agent never sees any of them.
   unsettled rather than a change. So a regression needs the candidate to fall
   short in every order it was read, and an improvement the same of the base.
   The
-  quotes go to the private rulings file only. The section does not move the
-  verdict label or any score. A pair whose every judgment came back ungraded
+  quotes go to the private rulings file only. The section moves the verdict
+  label only through the handling signal (see "Reading the result") and no
+  score. A pair whose every judgment came back ungraded
   is counted as asked but not graded, and a value read in only one of two
   orders is marked as such. A dry run (JUDGE_SPEND not true) prints no
   handling section, since no model read the runs.
@@ -792,7 +871,7 @@ nothing else, so the agent never sees any of them.
   input built to show no difference, that line shows how often and how
   strongly the judge calls a difference anyway. Read every other verdict in
   the section against it. A control still runs, so the plan still prices it,
-  and it does not count toward `gates.minCases`.
+  and it is not a vote or a resampled case in the verdict.
 
 **Every control is judged in both orders.** Two runs of unchanged code can
 only show the judge's noise and whether it prefers a slot, and one order
@@ -809,10 +888,11 @@ condition, not a sample, so one read of it is the whole evidence for that
 condition, and a judge call costs cents against a run's dollars. An order
 flip then shows as disagreement rather than as one confident wrong call.
 Chat keeps the one-in-five subsample (`orderSwap.fraction`). The
-position-consistency gate never fires for a background agent: CI walks at
-most `maxCases` (3) scored cases at up to 3 attempts, so at most 9 swapped
-pairs, under `minSwappedPairs` (10). The rate is reported with its
-denominator and gates nothing. Controls are swapped too but stay out of it.
+position-consistency gate fires for a background agent only when a list
+asks for more than one attempt: CI walks at most `maxCases` (5) scored
+cases, so at the default one attempt that is 5 swapped pairs, under
+`minSwappedPairs` (10), and the rate is reported with its denominator and
+gates nothing. Controls are swapped too but stay out of it.
 
 **A list may set its own attempts.** A background case list can carry
 `attemptsPerCase` in its header, up to `MAX_LIST_ATTEMPTS_PER_CASE` (3) in
@@ -895,15 +975,18 @@ checks per agent, written from the agent's own prompt or `instruction.md`, on
 existing cases with their inputs unchanged. Each covers the agent's main job,
 its top guardrail or a fallback path, and is gradeable from the final output
 alone. Checked cases come first, because a background list is walked only to
-`maxCases` (3), so a background list's first three cases are its CI checks. A
+`maxCases` (5), so a background list's first five cases are its CI checks. A
 check is only useful while the base passes it: one the current agent fails
 reads as a shared failure on every sweep and catches nothing. These
 conditions state a contract the input exercises rather than a mutation it
 planted. `opposition_research`'s roster opponents carry plain invented names
 rather than `Test` ones, because its instruction drops `Test` rows as junk and
-its checks would then have nothing to grade. Only its partisan-race check
-runs in CI: on unchanged code its three-way and head-to-head checks flipped
-between runs, which a live-search agent walked once per case can't avoid.
+its checks would then have nothing to grade. Its three-way and head-to-head
+checks were dropped: on unchanged code they flipped between runs, which a
+live-search agent walked once per case can't avoid. Its partisan-race and
+empty-roster checks are the two in the CI window; the empty-roster one
+entered it when the cap went from 3 to 5 and has not yet been read on a
+no-change sweep.
 
 ## A chat case can carry the same checks
 
@@ -989,7 +1072,10 @@ A case list carries a token and the sweep carries the value:
 `{judgeOrgSlug}`, `{judgeRaceId}`, `{judgeUserEmail}`. One step in the sweep
 job, before either arm, runs `judgeIdentifiers.ts` to make them: a `judge-`
 slug from the sweep id, the BallotReady race id of `JUDGE_FIXTURE_RACE` from
-gp-api's public races route, and the reserved `judge-sweep@example.com`.
+gp-api's public races route, and the reserved `judge-sweep@example.com`. The
+race resolves the way the test fixtures resolve their office
+(`src/testFixtures/util/fixtureRace.util.ts`): the next upcoming race, else the
+most recent past one, so the office's election passing never drops the id.
 `caseParams.ts` substitutes them at dispatch time, recursively, because
 `user_email` also has to land inside `campaign_strategy_context.candidates[]`
 for `is_user` to match. No credential is involved. A resolution that fails
@@ -1032,7 +1118,7 @@ comparison.
 The arms run over an hour apart, so a page an agent fetches can change in
 between, and the verdict would measure that along with the code. For the
 agents marked `replaysPages` in `agents.ts` (`opponent_research`,
-`race_opponent_collection` and `self_research`), the broker records every page
+`race_opponent_collection`, `self_research` and `trending_issues`), the broker records every page
 the base arm fetches through `/http/fetch` and `/http/head`, and serves the
 candidate the same responses.
 
@@ -1282,7 +1368,7 @@ create. Sharing the identity is safe because Clerk allows many simultaneous
 sessions per user and each sweep mints its own.
 
 The account also survives the reaper. `users.service.ts` sweeps e2e users
-after three hours and fixture users matching `qa-<uuid>@goodparty.org` after
+after three hours and fixture users matching `qa-<uuid>[+clerk_test]@goodparty.org` after
 twenty-four; this address matches neither.
 
 What sharing one identity does NOT isolate is the database, so the slug does
@@ -1350,6 +1436,38 @@ the note above the sweep job's `steps:` says. A grading-style job of its own
 that never checks out or installs the candidate is the real boundary, and
 this step is shaped to move into one unchanged — it reads two variables and
 writes two outputs.
+
+## A background agent on gp-api's own agents: the candidate runs in the arm
+
+An agent in `IN_PROCESS_AGENTS` (`runners/backgroundInProcess.ts`; today
+`trending_issues` and `top_community_issues`) has moved onto gp-api's own agents (`src/agents/`). Its
+candidate arm runs it inside the arm's app instead of dispatching to Fargate,
+so the comparison is the PMF Engine (base) against gp-api (candidate). The
+base arm is unchanged.
+
+- The arm boots with job workers on when the sweep names such an agent, and
+  starts each case through `AgentsService.run`. It polls the `AgentRun` and
+  builds the record from the run's `AgentMessage` rows: the last accepted
+  `submitOutput` (plus the fields gp-api adds, so the artifact has the PMF
+  Engine's shape), the assistant rows' token counts, one trace step per tool
+  call.
+- The agent's `onArtifact` is replaced for the arm, so a judge run writes
+  nothing to the product, as on the base arm. For a `readsGpApi` agent the
+  arm seeds the same `judge-fixture` rows the broker reads in dev
+  (`judgeFixtureSeed.ts`), so both arms read the same issue feed.
+- `installBraveKey` and `installPeopleDbxKeys` (`braveKey.ts`) copy
+  `BRAVE_API_KEY` and gp-api dev's own `PEOPLE_DATABRICKS_*` identity out of
+  `GP_API_DEV`, so `webSearch` searches and `queryDatabricks` reads what the
+  deployed agent can read.
+- Page replay: the candidate's replay ticket rides on the run, and
+  `fetchPage` and `checkLink` serve the base arm's recordings, read with the
+  `JUDGE_AWS_*` credentials, and leave the hit and miss markers the report
+  counts. Recording starts once a base ref that marks the agent
+  `replaysPages` is on main; until then the line reads as not active.
+- A case with `inputFiles` or `seedPages` is refused as an infraError: the
+  arm has no `/workspace` and plants no seeds.
+- Runs share the `agentRun` queue's two slots per task, so five cases run in
+  three waves.
 
 ## JUDGE_ARM_RUNTIME: in this process, or against a deployed gp-api
 
@@ -1591,8 +1709,9 @@ with each other more easily.
 A CI sweep keeps its records at
 `_judge/<sweepId>/records/<arm>/<agentId>/<caseId>-<attempt>.json` on the
 private `gp-agent-artifacts-dev` bucket, so a rubric change can re-grade them
-at no agent cost. The judge role's `KeepJudgeRecords` grant covers `_judge/`
-on that bucket and nothing else, and no real run's key can start with it.
+at no agent cost. The pull-request role's `KeepJudgeRecords` grant
+(thegoodparty/ops `githubActionsPullRequestJobs`) covers `_judge/` on that
+bucket and nothing else, and no real run's key can start with it.
 The sweep id carries the run id and attempt, so no two sweeps share a key.
 A bucket lifecycle rule (gp-ai's `modules/pmf-engine-control-plane`) deletes
 page recordings under `_judge/replay/` after 14 days and everything else under
@@ -1714,12 +1833,15 @@ change re-prices all of history for free, the same way a rubric change
 re-grades stored records without re-running an agent.
 
 Tokens are split by how they are billed, including `cacheRead` and
-`cacheWrite`. Both are zero in every record today because prompt caching is
-not enabled, which is exactly why the fields exist now. `priceUsd` throws
-rather than pricing a cache read at the full input rate, because doing so
-overstates it by roughly ten times and would silently invalidate every
-stored comparison. Switching caching on therefore fails loudly and needs
-rates added to `pricing.ts`.
+`cacheWrite`. `priceUsd` throws rather than pricing a cache read at the full
+input rate, because doing so overstates it by roughly ten times; a model
+needs its cache rates in `pricing.ts` before a cached run can be priced.
+
+Interactive chats cache their prompts (`llm.service.ts`
+`streamChatCompletion`). An in-process chat run reads the split from the AI
+SDK's usage and records `input` as uncached input only. An HTTP chat run
+reads `agent_message.input_tokens`, which folds cache tokens into input, so
+it records zero cache tokens and its cost is an upper bound.
 
 A background record's counts come from the `type: result` line of the run's
 `conversation.jsonl`, under `usage`: `input_tokens`, `output_tokens`,
@@ -1789,23 +1911,20 @@ this one the Actions run. They are named apart on purpose.
 
 ## Two rules that are easy to get wrong
 
-**For a chat agent, a tool failure is never a quality signal.** The
-Databricks client resolves lazily, so a broken credential does not fail a run —
-the agent answers with less information instead. Both arms degrade
-identically, and a judge shown two degraded outputs will confidently report a
-code regression. Use `isComparable()`; any chat case where either arm hit a
-tool error resolves to CAN'T SAY and leaves the delta.
-
-**For a background agent, a tool error does not exclude the pair.** What the
-judge scores is the final artifact. Live sweeps showed background agents
-routinely writing a Python snippet in Bash, hitting `exit code 1` or a
-`ValueError`, fixing it and carrying on: run 37355882821 excluded 7 of 9
+**A tool error does not exclude a pair, chat or background.** The judge
+compares what each arm's user received, never the trace. A chat tool that
+failed shows up in the answer (the Databricks client resolves lazily, so a
+broken credential leaves a worse-informed answer rather than a failed run),
+and a background run that hit a failing Bash snippet and recovered still
+published its artifact. Live sweeps showed background agents routinely
+writing a Python snippet in Bash, hitting `exit code 1` or a `ValueError`,
+fixing it and carrying on: run 37355882821 excluded 7 of 9
 `race_opponent_summary` pairs for `Bash — exit code 1`, and run 37352629792
 excluded all but one pair across the three gp-api agents. So `isComparable()`
-is true for a background record with tool errors, and its pair is judged. A
-background pair is still excluded for `infraError` (which is also how the
-runner records a missing or unparseable artifact, or a trace it could not
-read) and for an identical config, exactly as before. The base-arm cache does
+is false only for `infraError`, and a pair with tool errors is judged like
+any other. A pair is still excluded for `infraError` (which is also how the
+background runner records a missing or unparseable artifact, or a trace it
+could not read) and for an identical config. The base-arm cache does
 NOT follow this rule: `isCacheableBase()` caches a background base arm only
 when it is comparable and has zero tool errors, so a base arm captured during a
 credential or broker outage is scored that sweep but never becomes the cached
@@ -1848,12 +1967,10 @@ exception`, an unlisted code as `other error code`, and the rest as
   `other`. To name a new one, add it to the list in `toolErrorDetails.ts`.
 
 Causes are grouped by tool and class under the "Excluded pairs" line, with the
-pair count and the arms hit. That list covers every pair excluded for a tool
-error (only a chat pair is) and every pair excluded as identical config whose
-arms hit a tool error anyway, so a background pair that moved from one reason
-to the other still shows what failed. For a background agent, the causes on
-pairs the judge actually graded come after it under **Tool errors (scored, not
-excluded):**. A pair whose judge call failed is ungraded and is not listed
+pair count and the arms hit. That list covers every pair excluded as identical
+config whose arms hit a tool error, so a pair that moved from one reason to
+the other still shows what failed. The causes on pairs the judge actually
+graded come after it under **Tool errors (scored, not excluded):**. A pair whose judge call failed is ungraded and is not listed
 there. The two lists never mix, so a reader cannot take a scored pair for an
 excluded one. A record written before the field existed shows
 as `unknown`, `unrecorded`. Anything new that renders a tool error publicly must
@@ -1870,6 +1987,146 @@ string rather than in a structured `sql` tool argument, and only a structured
 one is collected — regexing SQL back out of a shell string would put something
 that is not the agent's verbatim query into a field whose entire value is being
 verbatim. The chat agents, which call a real SQL tool, do populate it.
+
+## The guard: judge-guard.yml and the picker
+
+`.github/workflows/judge-guard.yml` runs the judge automatically on an agent
+PR, without anyone asking for it, via `/judge`'s own `--live` path. It is
+entirely gated on the repository variable `JUDGE_GUARD_ENABLED` being exactly
+`true` — unset or any other value stops the workflow, and its concurrency
+group, before its path-matched floor, the picker, or any check post. Only a
+person flips that switch; no story building the guard sets it. This is the
+same note the workflow file's own header carries, duplicated here because the
+guard's code — the picker, its output validation, its failure handling —
+lives in `guard/` under this directory, not in the workflow file.
+
+**No AWS.** `judge-guard.yml` runs on `pull_request_target`, and the judge
+sweep role's trust condition is pinned to
+`job_workflow_ref=judge.yml@refs/heads/main` with a test
+(`judgeWorkflow.test.ts`) that forbids the word `pull_request` anywhere in
+it — a `pull_request_target` workflow can never assume that role, and
+widening its trust is a security question of its own this guard does not
+open. The workflow requests no `id-token: write` and no S3 client appears
+anywhere under `guard/`.
+
+**The picker** (`guard/picker.ts`, `guard/runPicker.ts`) is a model call, run
+from `main`'s own checkout with no tools, that reads the PR's diff and
+`guard/codeMap.ts` — a map from shared code paths to the agents a change
+there can reach — and adds agents the path-matched floor's exact-directory
+match would miss. It can only add to the floor, never remove from it. See the
+TDD's "Picking agents" and "When the picker fails" sections
+(`docs/adr/` has no record for this; the TDD itself, linked from the epic
+card, is the design of record) for the full failure-handling table
+`runPicker.ts` implements.
+
+`guard/codeMap.ts` is a reconstruction of the research team's
+`routines/surfaces.json`, not a copy of it — a headless run had no path to
+that private repo. `guard/codeMap.test.ts` fails if an agent in `agents.ts`'s
+`AGENTS` has no row anywhere in the map, so the map cannot go stale
+silently; replace its rows with the real file's content in place once someone
+can fetch it.
+
+**Agent directories reach only their own agent.** The picker prompt also
+lists `codeMap.ts`'s `AGENT_DIRECTORIES` (the chat half of
+`judge-path-floor.sh`'s table, plus `packages/runbooks/experiments/<agentId>/`)
+and tells the model that a changed file under one of them reaches only its
+own agent unless a code map row covers that file. Without it the picker added
+`chief_of_staff` to every Campaign Manager prompt change on PR #3737, because
+the map's other `chats/general/` rows name both assistants. Files one agent
+directory imports from another (Chief of Staff services that Priority Flow
+and the Campaign Manager use, the Priority Flow outreach service, the
+briefing district resolver) have their own rows. `codeMap.test.ts` fails if
+`AGENT_DIRECTORIES` drifts from the floor script, and if any direct import
+from one agent directory into another has no row naming both agents.
+
+**Agents the judge cannot sweep are dropped before pricing**
+(`guard/sweepable.ts`). An agent is sweepable only when the registry knows
+it, it is not blocked (`selectAgents` skips a blocked agent), and its case
+list loads (`loadCaseList` refuses one with none, which judge.yml's plan step
+prints as `NO CASE LIST YET` and never sweeps). `runPickerCli.ts` filters
+`final_agents`, and `priceAndCapCli.ts` filters again because the workflow
+falls back to the raw floor when the picker step left no output. Each dropped
+agent is named, with its reason, in the guard comment and the check summary.
+When nothing sweepable is left the check reads "No agent reached", the same
+as a diff that reached no agent, and an empty set says nothing about pricing.
+
+**A CAN'T SAY note gives a reason only when one applies.** The background
+budget (`DEFAULT_JUDGE_CONFIG.background`: 5 cases, 1 attempt) sits under
+`gates.bootstrapMinCases` (8), so a background agent's CAN'T SAY is common
+and the note names the background agents it applies to. A chat agent has no
+such reason, so a chat-only CAN'T SAY says only "not enough evidence".
+
+**Picker failures** (a timeout/error or an invalid response, after one retry)
+fall back to the path-matched floor. On an invalid-shape reply
+`judge-guard.yml` saves the raw text as a 7-day debugging artifact, a step
+that is `continue-on-error: true` so it cannot fail the guard run.
+`runPicker.ts` itself only classifies the failure.
+
+**Case-list-only PRs skip the sweep.** When every file a PR changes is under
+`cases/` (the case scout's nightly PR, or its flaky-case removals), both arms
+would run the same agent code, so a sweep could only report the judge's own
+noise. The floor step decides this with `.github/scripts/judge-cases-only.sh`
+(self-tested first, like the floor), and the workspace setup, the picker and
+the pricing all skip; the check posts "No agent reached" at no cost. It is a
+path rule rather than the picker's call because the picker's "when unsure,
+add it" would otherwise buy a sweep of two identical arms. A PR that changes
+a case list and agent code together is swept as usual, and its sweep runs the
+new case too.
+
+**The guard ledger and spend CLI (ENG-11593).** Every guard sweep — floor
+only, picker-expanded, capped, failed or cancelled — appends one line to
+`_judge/guard/<yyyy-mm>.jsonl` (`guard/guardLedger.ts`), written from
+`judge.yml`'s own sweep job: that is the one job in the judge trigger chain
+that holds the pull-request AWS role, so `judge-guard.yml` itself never writes
+it (same "No AWS" rule as the rest of this section). A completed run records
+its actual spend; a cancelled or failed run with no measured spend records
+its pre-sweep estimate and says so in `spendSource`. `guard/guardLedgerCli.ts`
+builds that line from the job's own env; the guard's own spend cap
+(`guard/priceAndCapCli.ts`) reads this PR's running total back through a
+GitHub Actions artifact relay, never S3, for the same no-AWS reason.
+Before it reads, a new push cancels any guard sweep the previous push left
+running and waits for it to finish, so that sweep's line is in the total the
+cap sees. A sweep a person started is left alone. If that lookup fails, the
+push reads the total anyway, without settling, so the cap never prices a PR
+at $0 because of it.
+
+`judge baseline <runId>` (`guard/guardBaselineCli.ts`) builds a per-agent
+main-vs-main baseline from a no-change sweep (both arms on `main`), stored at
+`_judge/guard/baselines/<agentId>.json` and replaced by the next baseline run
+for that agent. A WORSE on the guard check shows each moved case against that
+baseline, with flaky-on-main cases marked and the control-pair line included
+— `guard/guardVerdict.ts` finds that text already rendered into the sweep's
+report (under judge.yml's own AWS-holding step) and forwards it into the
+check's note; it never reads a baseline itself.
+
+`judge spend` (`guard/judgeSpendCli.ts`) sums this ledger alongside the case
+scout's own nightly spend (gp-api's `src/caseScout/`, from the scout's own
+bucket) and prints a month-to-date and a trailing
+12-month total for each. Both CLIs dispatch from this directory's own
+`cli.ts` (`judge baseline <runId>`, `judge spend`) or run standalone
+(`npx tsx guard/guardBaselineCli.ts <runId>`, `npx tsx
+guard/judgeSpendCli.ts`); `judge spend --help` when run standalone prints the
+full usage note.
+
+**Rulings (ENG-11594).** Every WORSE needs a reviewer ruling before the false-
+WORSE rate (section 8 of the Implementation Notes) means anything, so
+`judge-comment.yml` recognizes `/judge agree` and `/judge dispute <reason>`
+beside `/judge` itself — same write-access gate, extracted with it into
+`.github/scripts/judge-comment-parse.sh` and its self-test. Both are gated on
+`JUDGE_GUARD_ENABLED` the same way the rest of the guard is: off reads as "the
+guard is off, nothing recorded," never as "run it anyway."
+
+`judge-comment.yml` holds no AWS credentials (the "No AWS" rule above), so a
+ruling crosses into `judge.yml`'s own `ruling` job the same way a guard sweep
+crosses into `sweep` — the one difference being that `plan` skips itself for
+a ruling call (`inputs.ruling_kind != ''`) and takes `sweep`/`verdict` with
+it, since a ruling checks out no PR code and calls no model. `guard/
+guardLedger.ts`'s `applyRuling` does the actual mutation: a read-modify-write
+of the whole month object under the same optimistic lock `appendLedgerLine`
+uses, keyed on `(pr, headSha)` so a PR re-swept after a push is ruled on
+independently of its prior sweep. `guard/recordGuardRulingCli.ts` is the CLI
+`judge.yml`'s `ruling` job runs, mirroring `guard/guardLedgerCli.ts`'s own
+shape.
 
 ## Verify
 

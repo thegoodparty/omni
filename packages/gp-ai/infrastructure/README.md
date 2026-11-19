@@ -140,9 +140,10 @@ Application Load Balancer              S3 Notification
 
 ## CI guard: simulated apply-time IAM permissions
 
-`terraform plan` in CI runs with the same deploy role (`github-actions-pulumi-deploy`)
-apply uses, but `plan` never calls the mutating IAM/service APIs that `apply` does —
-so a missing permission only surfaces post-merge, on the release train's real
+`terraform plan` in CI runs on the pull-request role (`github-actions-preview-deploy`),
+not the deploy role (`github-actions-pulumi-deploy`) that apply uses, and `plan` never
+calls the mutating IAM/service APIs that `apply` does — so a missing permission only
+surfaces post-merge, on the release train's real
 `terraform apply`. `scripts/ci-simulate-apply-perms.sh` closes that gap: it reads
 every dev root's plan JSON (written by `ci-plan-root.sh` alongside the human-readable
 plan), maps each planned create/update/delete to the IAM actions and (predicted)
@@ -207,7 +208,7 @@ real workflow-command annotations in a CI job log.
 - AWS CLI configured with `work` profile
 - Terraform 1.0+ installed
 - Docker for building pipeline images
-- Node.js 22+ for Lambda builds
+- Node.js 24 for Lambda builds
 - Access to `goodparty.org` hosted zone and `*.goodparty.org` certificate
 - AWS Secrets Manager secrets: `AI_SECRETS_DEV`, `AI_SECRETS_PROD`
 
@@ -263,6 +264,10 @@ cd infrastructure/environments/dev/shared-infra
 # automatically. Do not hand-write terraform.tfvars here.
 
 AWS_PROFILE=work terraform init
+# The listener rules need SERVE_API_KEY, which the root takes as a variable
+# rather than reading AI_SECRETS_DEV itself. CI sets it in ci-apply-root.sh.
+export TF_VAR_serve_api_key=$(AWS_PROFILE=work aws secretsmanager get-secret-value \
+  --secret-id AI_SECRETS_DEV --query SecretString --output text | jq -r .SERVE_API_KEY)
 AWS_PROFILE=work terraform apply
 ```
 
@@ -400,7 +405,7 @@ AWS_PROFILE=work terraform apply  # Updates Lambda function
 ### Infrastructure Updates (Occasional ~5-10 minutes)
 ```bash
 cd infrastructure/environments/dev/shared-infra
-AWS_PROFILE=work terraform apply  # ALB/Route53/listener rules
+AWS_PROFILE=work terraform apply  # ALB/Route53/listener rules; needs TF_VAR_serve_api_key (Step 4)
 
 cd infrastructure/environments/dev/serve-analyze-fargate
 AWS_PROFILE=work terraform apply  # ECS cluster/S3/SNS/EventBridge

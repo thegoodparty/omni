@@ -2,6 +2,14 @@ import * as React from 'react'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * Borders, not shadows (learned.md rule 21). Card titles stay smaller than the
+ * page title (rule 20). For an empty state, use EmptyState, not a Card with one
+ * muted sentence.
+ *
+ * @summary Use for a bordered panel you lay out yourself. For a title, text and
+ * buttons, use ContentCard; for picking an outreach channel, ChannelCard.
+ */
 function Card({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div

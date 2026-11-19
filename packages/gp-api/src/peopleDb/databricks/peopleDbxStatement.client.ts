@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { Injectable } from '@nestjs/common'
+import { HttpException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api'
 import { z } from 'zod'
@@ -19,7 +19,7 @@ const STATEMENT_TIMEOUT_MS = 60_000
 // The API's hard ceiling on the statement field, measured against it directly:
 // a 20MB statement is rejected with "must not exceed a length of 16777216
 // bytes". Reachable because id sets are inlined rather than bound — the
-// contract permits 100k ids per set, and a request carrying `filters.id` plus
+// contract permits 200k ids per set, and a request carrying `filters.id` plus
 // both id-override pairs can exceed it.
 const MAX_STATEMENT_BYTES = 16_777_216
 
@@ -94,6 +94,12 @@ type StatementResponse = z.infer<typeof statementResponseSchema>
 // call sites to carry a diagnostic; this stays out of the shapes entirely.
 export const statementIdCollector = new AsyncLocalStorage<string[]>()
 
+// Aborted when the HTTP request running this read closes before its response
+// finishes (see app.ts). Carried the same way as the collector above, for the
+// same reason: no builder or service signature changes. Absent outside a
+// request (crons, queues), where nothing can abort.
+export const requestAbortSignal = new AsyncLocalStorage<AbortSignal>()
+
 // Recorded at SUBMIT, not on completion: a statement that times out or fails
 // throws before it ever settles, and those are the requests the join key
 // exists to chase. The id is assigned by the submit response, so it is already
@@ -125,6 +131,18 @@ export type PeopleDbxCsvExport = {
 export class PeopleDbxTimeoutError extends Error {
   constructor(elapsedMs: number) {
     super(`Databricks statement exceeded ${elapsedMs}ms`)
+  }
+}
+
+// The HTTP request that asked for this read closed before it finished: a
+// debounced wizard edit superseded it, or the tab went away. 499 is not a
+// server fault and sits below the route alert's >= 500 filter, which is the
+// point: the 17 voter-query 504s of 2026-10-21 14:07Z were a pile-up of
+// superseded count reads that kept the warehouse busy long after nobody was
+// waiting for them.
+export class PeopleDbxClientAbortedError extends HttpException {
+  constructor() {
+    super('Client closed request', 499)
   }
 }
 
@@ -191,22 +209,43 @@ export class PeopleDbxStatementClient {
 
   // Rows come back positionally as strings (or null) under JSON_ARRAY, which
   // is why callers coerce per column rather than trusting a driver's typing.
-  async query(statement: DbxStatement): Promise<PeopleDbxRows> {
+  //
+  // `signal` is for callers outside an HTTP request — a pg-boss worker — where
+  // requestAbortSignal has nothing to carry. Either one cancels the statement
+  // and stops the poll.
+  //
+  // `rowLimit` caps the statement at the warehouse. It bounds what the API will
+  // hand back, so it protects this process's memory, whereas cutting rows after
+  // the fact only protects the caller's context.
+  async query(
+    statement: DbxStatement,
+    options: { signal?: AbortSignal; rowLimit?: number } = {},
+  ): Promise<PeopleDbxRows> {
     const config = this.config()
     return this.statementSpan(config, 'INLINE', async (span) => {
       const startedAt = Date.now()
-      const first = await this.post(config, statement, {
-        statement: statement.sql,
-        catalog: PEOPLE_DBX_CATALOG,
-        schema: PEOPLE_DBX_SCHEMA,
-        format: 'JSON_ARRAY',
-        disposition: 'INLINE',
-        wait_timeout: '30s',
-        on_wait_timeout: 'CONTINUE',
-      })
+      const first = await this.post(
+        config,
+        statement,
+        {
+          statement: statement.sql,
+          catalog: PEOPLE_DBX_CATALOG,
+          schema: PEOPLE_DBX_SCHEMA,
+          format: 'JSON_ARRAY',
+          disposition: 'INLINE',
+          wait_timeout: '30s',
+          on_wait_timeout: 'CONTINUE',
+        },
+        options.rowLimit,
+      )
       recordStatementId(first.statement_id)
       this.markStatementId(span, first.statement_id)
-      const settled = await this.awaitCompletion(config, first, startedAt)
+      const settled = await this.awaitCompletion(
+        config,
+        first,
+        startedAt,
+        options.signal,
+      )
       const columns =
         settled.manifest?.schema?.columns.map((column) => column.name) ?? []
       const rows = [...(settled.result?.data_array ?? [])]
@@ -347,6 +386,7 @@ export class PeopleDbxStatementClient {
     config: PeopleDbxConfig,
     initial: StatementResponse,
     startedAt: number,
+    signal?: AbortSignal,
   ): Promise<StatementResponse> {
     let current = initial
     while (current.status.state !== SUCCEEDED) {
@@ -355,6 +395,10 @@ export class PeopleDbxStatementClient {
           `Databricks statement ${current.status.state}: ` +
             (current.status.error?.message ?? 'no error message'),
         )
+      }
+      if (signal?.aborted || requestAbortSignal.getStore()?.aborted) {
+        this.cancel(config, current.statement_id)
+        throw new PeopleDbxClientAbortedError()
       }
       const elapsed = Date.now() - startedAt
       if (elapsed > STATEMENT_TIMEOUT_MS) {
@@ -391,6 +435,7 @@ export class PeopleDbxStatementClient {
     config: PeopleDbxConfig,
     statement: DbxStatement,
     body: Record<string, string>,
+    rowLimit?: number,
   ): Promise<StatementResponse> {
     const bytes = Buffer.byteLength(body.statement ?? '', 'utf8')
     if (bytes > MAX_STATEMENT_BYTES) {
@@ -405,6 +450,7 @@ export class PeopleDbxStatementClient {
       'POST',
       body,
       statement.params,
+      rowLimit,
     )
     return statementResponseSchema.parse(await response.json())
   }
@@ -424,6 +470,7 @@ export class PeopleDbxStatementClient {
     method: 'GET' | 'POST',
     body?: Record<string, string>,
     params?: DbxParam[],
+    rowLimit?: number,
   ): Promise<Response> {
     const token = await this.accessToken(config)
     const response = await fetch(`https://${config.hostname}${path}`, {
@@ -437,6 +484,7 @@ export class PeopleDbxStatementClient {
             ...body,
             warehouse_id: config.warehouseId,
             ...(params && params.length > 0 ? { parameters: params } : {}),
+            ...(rowLimit !== undefined && { row_limit: rowLimit }),
           })
         : undefined,
     })

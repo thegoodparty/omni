@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { MessageSquareOff } from 'lucide-react'
 import {
+  CalendarIcon,
   ChannelCard,
+  GiftIcon,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -21,6 +23,9 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
+import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -34,6 +39,9 @@ interface ChannelTileGridProps {
   onCreateSms: (preselect?: AudiencePreselect) => void
   onCreateRobocall: (preselect?: AudiencePreselect) => void
   onCreatePhoneBanking: (preselect?: AudiencePreselect) => void
+  // Undefined while `win-email-outreach` is off or resolving, which keeps
+  // the tile out of the grid.
+  onCreateEmail?: () => void
 }
 
 const toPreselect = (
@@ -73,13 +81,16 @@ export const ChannelTileGrid = ({
   onCreateSms,
   onCreateRobocall,
   onCreatePhoneBanking,
+  onCreateEmail,
 }: ChannelTileGridProps) => {
   const router = useRouter()
   const queryClient = useQueryClient()
   // gp-api's texting window, read off the campaign: once it is closed the
-  // text tile only explains why, in a tooltip, and opens no flow.
+  // text tile opens the cutoff notice, never the flow.
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
+  const [showSmsCutoffNotice, setShowSmsCutoffNotice] = useState(false)
+  const { offer: freeOffer } = useRobocallFreeOffer()
   // The Pro/compliance gate lives inside the text, robocall and phone-banking
   // flows, so the tiles never refuse a click.
 
@@ -115,9 +126,12 @@ export const ChannelTileGrid = ({
   }
 
   const handleTileClick = (type: OutreachType) => {
-    // Not a create: the tooltip is the whole answer, and the carried
+    // Not a create: the notice fires its own events, and the carried
     // audience is left for the channel the candidate picks instead.
-    if (type === OUTREACH_TYPES.text && smsClosed) return
+    if (type === OUTREACH_TYPES.text && smsClosed) {
+      setShowSmsCutoffNotice(true)
+      return
+    }
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
 
     if (type === OUTREACH_TYPES.socialMedia) {
@@ -129,9 +143,14 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.phoneBanking) {
+      // Consumed on hand-off, like door knocking: PhoneBankingFlow is
+      // mounted by the hub, not here, so the audience travels through the
+      // open callback — and spending it now is what keeps a later SMS/robocall
+      // tile click from inheriting a list chosen for phone banking.
       onCreatePhoneBanking(spendPreselect())
       return
     }
+
     if (type === OUTREACH_TYPES.robocall) {
       onCreateRobocall(spendPreselect())
       return
@@ -189,36 +208,50 @@ export const ChannelTileGrid = ({
           Pick a channel to draft and send a new campaign.
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div
+        className={cn(
+          'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5',
+          onCreateEmail && 'xl:grid-cols-6',
+        )}
+      >
         {TILE_ORDER.map((type) => {
           const meta = CHANNEL_META[type]
           const isText = type === OUTREACH_TYPES.text
           const textClosed = isText && smsClosed
+          const smsCountdown =
+            isText && smsCompliance === 'closing' && smsCutoffDate
+              ? SMS_CUTOFF_COPY.countdownTag(formatSmsCutoffDate(smsCutoffDate))
+              : null
+          const hasFreeOffer = type === OUTREACH_TYPES.robocall && !!freeOffer
+          // One tag per tile.
+          const tag = smsCountdown ? (
+            <>
+              <CalendarIcon />
+              {smsCountdown}
+            </>
+          ) : hasFreeOffer ? (
+            <>
+              <GiftIcon />
+              {FREE_OFFER_BADGE}
+            </>
+          ) : undefined
           const card = (
             <ChannelCard
               key={type}
               icon={textClosed ? <MessageSquareOff /> : meta.icon}
               iconClassName={textClosed ? 'bg-grayscale-200' : meta.iconTint}
               label={meta.label}
-              subCopy={
-                textClosed
-                  ? SMS_TILE_CLOSED_COPY
-                  : isText && smsCompliance === 'closing' && smsCutoffDate
-                    ? SMS_CUTOFF_COPY.countdownChip(
-                        formatSmsCutoffDate(smsCutoffDate),
-                      )
-                    : undefined
-              }
-              aria-disabled={textClosed || undefined}
+              tag={tag}
+              tagTone={hasFreeOffer && !smsCountdown ? 'info' : 'muted'}
+              subCopy={textClosed ? SMS_TILE_CLOSED_COPY : undefined}
               className={cn(
-                textClosed &&
-                  'cursor-default bg-muted opacity-70 hover:border-border',
+                textClosed && 'bg-muted opacity-70 hover:border-border',
               )}
               onClick={() => handleTileClick(type)}
             />
           )
           return textClosed ? (
-            <Tooltip key={type} openOnClick>
+            <Tooltip key={type}>
               <TooltipTrigger asChild>{card}</TooltipTrigger>
               <TooltipContent>
                 {SMS_CUTOFF_COPY.closedReason(
@@ -230,7 +263,25 @@ export const ChannelTileGrid = ({
             card
           )
         })}
+        {onCreateEmail && (
+          <ChannelCard
+            icon={CHANNEL_META.email.icon}
+            iconClassName={CHANNEL_META.email.iconTint}
+            label={CHANNEL_META.email.label}
+            onClick={() => {
+              trackEvent(EVENTS.Outreach.ClickCreate, { type: 'email' })
+              onCreateEmail()
+            }}
+          />
+        )}
       </div>
+      {showSmsCutoffNotice && (
+        <SmsCutoffNoticeDialog
+          open
+          onOpenChange={setShowSmsCutoffNotice}
+          surface="text_tile"
+        />
+      )}
     </section>
   )
 }

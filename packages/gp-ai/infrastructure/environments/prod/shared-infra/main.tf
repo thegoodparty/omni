@@ -3,7 +3,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
   }
 
@@ -27,15 +27,6 @@ provider "aws" {
   }
 }
 
-data "aws_secretsmanager_secret_version" "ai_secrets" {
-  secret_id = "AI_SECRETS_${upper(var.environment)}"
-}
-
-locals {
-  ai_secrets = jsondecode(data.aws_secretsmanager_secret_version.ai_secrets.secret_string)
-  api_key    = local.ai_secrets["SERVE_API_KEY"]
-}
-
 module "alb" {
   source = "../../../modules/alb"
 
@@ -43,7 +34,7 @@ module "alb" {
   vpc_id            = var.vpc_id
   public_subnet_ids = var.public_subnet_ids
   certificate_arn   = var.certificate_arn
-  api_key           = local.api_key
+  api_key           = var.serve_api_key
 }
 
 module "route53" {
@@ -108,7 +99,7 @@ resource "aws_lb_listener_rule" "ddhq_matcher_valid" {
   condition {
     http_header {
       http_header_name = "x-api-key"
-      values          = [local.api_key]
+      values          = [var.serve_api_key]
     }
   }
 
@@ -143,62 +134,6 @@ resource "aws_lb_listener_rule" "ddhq_matcher_invalid" {
 
   tags = {
     Name        = "ddhq-matcher-invalid-${var.environment}"
-    Environment = var.environment
-  }
-}
-
-data "terraform_remote_state" "clickup_bot" {
-  backend = "s3"
-
-  config = {
-    bucket = "goodparty-terraform-state-us-west-2"
-    key    = "clickup-bot/prod/terraform.tfstate"
-    region = "us-west-2"
-  }
-}
-
-resource "aws_lb_target_group" "clickup_bot" {
-  name        = "clickup-bot-${var.environment}"
-  target_type = "lambda"
-
-  tags = {
-    Name        = "clickup-bot-${var.environment}"
-    Environment = var.environment
-    Purpose     = "ClickUp Webhook Handler"
-  }
-}
-
-resource "aws_lb_target_group_attachment" "clickup_bot" {
-  target_group_arn = aws_lb_target_group.clickup_bot.arn
-  target_id        = data.terraform_remote_state.clickup_bot.outputs.lambda_function_arn
-  depends_on       = [aws_lambda_permission.clickup_bot_alb_invoke]
-}
-
-resource "aws_lambda_permission" "clickup_bot_alb_invoke" {
-  statement_id  = "AllowExecutionFromALB"
-  action        = "lambda:InvokeFunction"
-  function_name = data.terraform_remote_state.clickup_bot.outputs.lambda_function_name
-  principal     = "elasticloadbalancing.amazonaws.com"
-  source_arn    = aws_lb_target_group.clickup_bot.arn
-}
-
-resource "aws_lb_listener_rule" "clickup_bot" {
-  listener_arn = module.alb.https_listener_arn
-  priority     = 20
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.clickup_bot.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/clickup/webhook"]
-    }
-  }
-
-  tags = {
-    Name        = "clickup-bot-${var.environment}"
     Environment = var.environment
   }
 }
@@ -272,4 +207,9 @@ resource "aws_lb_listener_rule" "alert_filter" {
     Name        = "alert-filter-${var.environment}"
     Environment = var.environment
   }
+}
+
+output "alb_dns_name" {
+  value       = module.alb.alb_dns_name
+  description = "DNS name of the shared ALB, which the Route53 records alias"
 }

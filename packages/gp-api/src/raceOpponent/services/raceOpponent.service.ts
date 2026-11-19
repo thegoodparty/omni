@@ -27,7 +27,7 @@ import {
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
-import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
+import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
@@ -76,7 +76,7 @@ const THREAT_TIER_RANK: Record<RaceOpponentThreatTier | 'none', number> = {
 export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
-    private readonly electionApi: ElectionApiService,
+    private readonly raceContextService: RaceContextService,
     private readonly campaignStrategy: CampaignStrategyService,
     private readonly districtResolver: DistrictResolverService,
   ) {
@@ -810,7 +810,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     }
 
     try {
-      const race = await this.electionApi.getRaceContext(raceId)
+      const race = await this.raceContextService.getRaceContext(raceId)
       return {
         city,
         election_date:

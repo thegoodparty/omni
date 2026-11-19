@@ -16,10 +16,6 @@ export const IS_LOCAL =
 export const API_ROOT =
   process.env.NEXT_PUBLIC_API_BASE || 'https://gp-api-dev.goodparty.org'
 
-export const ELECTION_API_ROOT =
-  process.env.NEXT_PUBLIC_ELECTION_API_BASE ||
-  'https://election-api-dev.goodparty.org'
-
 export const API_VERSION_PREFIX = '/v1'
 
 // Public/canonical base. In prod this is the MARKETING origin

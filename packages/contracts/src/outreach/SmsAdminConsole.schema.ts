@@ -46,6 +46,7 @@ export const SMS_STANDARDS_RULE_VALUES = [
   'paid_for_by',
   'length',
   'link_shortener',
+  'restricted_word',
 ] as const
 export const SmsStandardsRuleSchema = z.enum(SMS_STANDARDS_RULE_VALUES)
 export type SmsStandardsRule = z.infer<typeof SmsStandardsRuleSchema>
@@ -105,6 +106,29 @@ const LINK_SHORTENER_PATTERN = new RegExp(
   ).join('|')})(?![\\w-])(?!\\.[a-z])`,
   'i',
 )
+
+// Words the texting vendor refuses outright. Like the shortener hosts above,
+// the vendor checks this only at job creation, after the candidate has paid:
+// "Message cannot contain the content-restricted word(s): 'sexual'" put a
+// $192.61 hold on a candidate's card with nothing scheduled, and they paid
+// again to send the reworded text (2026-10-15, ENG-11310). The vendor does
+// not publish its list and has no endpoint to check a message before a job
+// exists, so this list holds only the words prod has seen it refuse, and the
+// vendor stays the backstop for the rest. "transfer" was refused the same
+// way on 2026-10-22 (ENG-11439).
+//
+// Whole words, case-insensitive, matched as `findWords` matches a name:
+// "(Stop2End)" is caught, "sexuality" is not, because nothing shows the vendor
+// refuses it.
+export const SMS_RESTRICTED_WORDS = ['sexual', 'stop2end', 'transfer'] as const
+
+// The restricted words a script contains, so a refusal can name them.
+export const findSmsRestrictedWords = (script: string): string[] =>
+  SMS_RESTRICTED_WORDS.filter((word) =>
+    new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, 'iu').test(
+      script,
+    ),
+  )
 
 // A name's words of 3+ letters, in their original case. Whole-word
 // matching (`findWords`) is already case-insensitive, and lowercasing first
@@ -169,6 +193,9 @@ export const checkSmsStandards = (
   }
   if (LINK_SHORTENER_PATTERN.test(script)) {
     failures.push('link_shortener')
+  }
+  if (findSmsRestrictedWords(script).length > 0) {
+    failures.push('restricted_word')
   }
 
   return { passed: failures.length === 0, failures }
@@ -433,9 +460,20 @@ export const SmsApprovalQueueItemSchema = z.object({
   canvassRequestedAt: zCoerceDate().nullable(),
   adminEditedAt: zCoerceDate().nullable(),
   adminEditedBy: z.string().nullable(),
+  // Set when the candidate edited the text themselves before approval.
+  candidateEditedAt: zCoerceDate().nullable(),
   canceledAt: zCoerceDate().nullable(),
   canceledBy: z.string().nullable(),
   canceledByAdmin: z.boolean(),
+  // Set when staff moved the send to a replacement vendor job (one the
+  // console made, or one made by hand at the vendor and linked); the old
+  // job's id is kept for lookups in the vendor's own console.
+  jobReplacedAt: zCoerceDate().nullable(),
+  jobReplacedBy: z.string().nullable(),
+  previousJobId: z.string().nullable(),
+  // The Peerly job the send follows now.
+  jobId: z.string().nullable(),
+  jobReplaceReason: z.string().nullable(),
   standards: SmsStandardsVerdictSchema.nullable(),
   // Live Peerly job readiness; null when the live read failed (the queue
   // must not 502 because one identity's vendor read did).
@@ -557,6 +595,78 @@ export type EditSmsOutreachDateRequest = z.infer<
   typeof EditSmsOutreachDateRequestSchema
 >
 
+// Why staff replaced a send's vendor job. The console offers these as
+// fixed choices; "other" carries the staff member's own words. The stored
+// reason is the label, or that text for "other".
+export const SMS_JOB_REPLACE_REASON_LABELS = {
+  bad_sending_number: 'Peerly flagged the sending number',
+  delivery_failure: 'Peerly delivery failure',
+  message_or_schedule_change: 'Message or schedule change',
+  other: 'Other',
+} as const
+export const SmsJobReplaceReasonSchema = z.enum(
+  Object.keys(SMS_JOB_REPLACE_REASON_LABELS) as [
+    keyof typeof SMS_JOB_REPLACE_REASON_LABELS,
+    ...(keyof typeof SMS_JOB_REPLACE_REASON_LABELS)[],
+  ],
+)
+export type SmsJobReplaceReason = z.infer<typeof SmsJobReplaceReasonSchema>
+
+const requireOtherReason = (
+  value: { reason: SmsJobReplaceReason; otherReason?: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (value.reason === 'other' && !value.otherReason) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['otherReason'],
+      message: 'Say why the job is being replaced',
+    })
+  }
+}
+
+// Staff replace a send's vendor job before it sends (e.g. the vendor flags
+// the sending number): the current job is canceled and a new one made from
+// the row's stored script, image, identity and list, on the day picked.
+// Same picker pair as the date edit.
+export const ReplaceSmsOutreachJobRequestSchema = z
+  .object({
+    sendAt: zCoerceDate(),
+    scheduledLocalDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use yyyy-MM-dd')
+      .refine(
+        (value) => !Number.isNaN(Date.parse(value)),
+        'Not a real calendar day',
+      ),
+    // The job the admin saw when they chose to replace it. A retry after
+    // the replacement landed names a job the send no longer has, and is
+    // refused instead of replacing the new job too.
+    currentJobId: z.string().min(1),
+    reason: SmsJobReplaceReasonSchema,
+    otherReason: z.string().trim().min(1).max(500).optional(),
+    replacedBy: z.string().min(1).max(255),
+  })
+  .superRefine(requireOtherReason)
+export type ReplaceSmsOutreachJobRequest = z.infer<
+  typeof ReplaceSmsOutreachJobRequestSchema
+>
+
+// Staff already made the replacement job by hand at the vendor: point the
+// send at that job instead of making another.
+export const LinkSmsOutreachJobRequestSchema = z
+  .object({
+    jobId: z.string().trim().min(1).max(64),
+    currentJobId: z.string().min(1),
+    reason: SmsJobReplaceReasonSchema,
+    otherReason: z.string().trim().min(1).max(500).optional(),
+    linkedBy: z.string().min(1).max(255),
+  })
+  .superRefine(requireOtherReason)
+export type LinkSmsOutreachJobRequest = z.infer<
+  typeof LinkSmsOutreachJobRequestSchema
+>
+
 export const SmsTestMessageRequestSchema = z.object({
   // E.164-ish: digits with optional leading +, 10-15 digits.
   phone: z
@@ -570,4 +680,21 @@ export const SmsTestMessageResponseSchema = z.object({
 })
 export type SmsTestMessageResponse = z.infer<
   typeof SmsTestMessageResponseSchema
+>
+
+// Staff queue the Win reply backfill: reads Peerly's reply reports for every
+// Win send in retention and writes the missing reply text. A dry run counts
+// only. The result lands in the logs, so the response is just the job id.
+export const SmsReplyBackfillRequestSchema = z.object({
+  dryRun: z.boolean(),
+})
+export type SmsReplyBackfillRequest = z.infer<
+  typeof SmsReplyBackfillRequestSchema
+>
+
+export const SmsReplyBackfillResponseSchema = z.object({
+  jobId: z.string(),
+})
+export type SmsReplyBackfillResponse = z.infer<
+  typeof SmsReplyBackfillResponseSchema
 >

@@ -154,21 +154,6 @@ export const OutreachProposalSchema = z.object({
    * whole audience.
    */
   sampleSize: z.number().int().positive().max(MAX_LIST_SAMPLE_SIZE).optional(),
-  /**
-   * Of `sampleSize`, how many are drawn from the official's civic panel.
-   * The rest are drawn from residents not on it, so one send asks the panel
-   * and invites new people to join. Absent, the sample ignores the panel.
-   */
-  panelSampleSize: z
-    .number()
-    .int()
-    .positive()
-    .max(MAX_LIST_SAMPLE_SIZE)
-    .optional()
-    .describe(
-      'Text only: how many of sampleSize are civic panel members. The ' +
-        'rest of sampleSize are residents not on the panel.',
-    ),
   /** The replies a text sample was sized to bring back. */
   targetResponses: z.number().int().positive().optional(),
   /** The reply rate it was sized with, as a fraction: 0.025 is 2.5%. */
@@ -193,6 +178,23 @@ export const OutreachProposalSchema = z.object({
       'Text only: the outreachId of the send this reports back on, from ' +
         'read_report_back. The card goes to everyone it reached who has not ' +
         'opted out since.',
+    ),
+  /**
+   * On a priority: the follow-up held from this text's own purchase. The
+   * card's sampleSize goes out first, at random; this many more go out
+   * FOLLOW_UP_BUSINESS_DAYS later, drawn shortly before toward the groups the
+   * answers so far say least about, leaving out everyone already reached.
+   */
+  roundTwoSize: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_LIST_SAMPLE_SIZE)
+    .optional()
+    .describe(
+      'Text only, on a priority: the follow-up texts held from the same ' +
+        'purchase, exactly as size_round_one returns them. sampleSize is ' +
+        'the first send.',
     ),
   /**
    * On a priority: keep the audience to the parts of the district its

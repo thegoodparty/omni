@@ -37,52 +37,32 @@ cd scripts/python && uv sync
 
 ```
 books/           Procedures and reference docs (markdown)
-books/INDEX.md   Start here — routing table to find the right procedure (covers books/ and commands/)
-scripts/         Reusable code that books and commands reference
-commands/        Procedures that also register as Claude Code slash commands via install.sh (see "Slash commands" below)
-install.sh       Installer that symlinks commands into Claude Code's commands dir
+books/INDEX.md   Start here — routing table to find the right procedure
+scripts/         Reusable code that books and the runbooks skills reference
+agents/          Subagents the runbooks skills dispatch by name
+install.sh       Installer that symlinks agents/ into Claude Code's agents dir
 CLAUDE.md        Rules and conventions for AI agents
 ```
 
-`books/` and `commands/` both hold markdown procedures with the same shape. The split is invocation surface, not content: anything in `commands/` is _also_ invokable as `/<name>` after running `install.sh`. Anything in `books/` is read-only-when-asked.
+## Skills
 
-## Slash commands
+The ClickUp and feature-QA procedures are omni skills in `.claude/skills/`, so Claude Code and gp-pi load them from the checkout with nothing to install. Their scripts and config stay in this package.
 
-The `commands/` directory holds procedures that double as Claude Code slash commands. Each file is the full procedure — the same content the agent reads either way; the slash-command install just makes it invokable as `/<name>` from any project.
+| Skill                  | What it does                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| `/clickup-epic-create` | Tech design + repo → ClickUp Epic with agent-ready subtasks                            |
+| `/clickup-epic-edit`   | Snapshot / diff / apply edits to an existing Epic; default-archive on removals         |
+| `/work-on-clickup`     | Pick up a task, scope-confirm, implement against AC, verify, optionally update ClickUp |
+| `/work-on-epic`        | Drive a whole Epic ticket by ticket through PR and merge, then a Playwright pass       |
+| `/validate-feature`    | QA a shipped feature against its epic in a real browser and file approved bugs         |
 
-### Available
-
-| Slash command          | File                              | What it does                                                                           |
-| ---------------------- | --------------------------------- | -------------------------------------------------------------------------------------- |
-| `/clickup-epic-create` | `commands/clickup-epic-create.md` | Tech design + repo → ClickUp Epic with agent-ready subtasks                            |
-| `/clickup-epic-edit`   | `commands/clickup-epic-edit.md`   | Snapshot / diff / apply edits to an existing Epic; default-archive on removals         |
-| `/work-on-clickup`     | `commands/work-on-clickup.md`     | Pick up a task, scope-confirm, implement against AC, verify, optionally update ClickUp |
-
-### Install
+`/work-on-clickup` and `/validate-feature` dispatch the subagents in `agents/`. Install them once and restart your Claude Code session:
 
 ```bash
-# From this repo:
-./install.sh                                  # symlink into ~/.claude/commands (honors $CLAUDE_CONFIG_DIR)
+./install.sh                                  # symlink into ~/.claude/agents (honors $CLAUDE_CONFIG_DIR)
 ./install.sh copy                             # copy instead of symlink
-./install.sh symlink project                  # ./.claude/commands (current project only)
-CLAUDE_CONFIG_DIR=~/.claude-gp ./install.sh   # for setups that run multiple Claude profiles
+./install.sh symlink project                  # ./.claude/agents (current project only)
 ```
-
-After install, restart your Claude Code session for the commands to register.
-
-### Configure once
-
-Slash commands run from arbitrary working directories, so they need to know where this package lives. Point `RUNBOOKS_DIR` at it inside your omni checkout. Add to your shell profile:
-
-```bash
-export RUNBOOKS_DIR="$HOME/path/to/omni/packages/runbooks"   # your omni checkout
-```
-
-Without this, the commands fall back to checking common locations and prompt if none match.
-
-### Skipping the slash commands
-
-You don't have to install. Each `commands/*.md` file is also readable as a procedure — just ask the agent "use `commands/clickup-epic-create.md` to break this design into an Epic." Same content; only the invocation surface differs.
 
 ## Contributing
 

@@ -39,10 +39,19 @@ export const SMS_COMPLIANCE_CUTOFF_ERROR_CODE = 'SMS_COMPLIANCE_CUTOFF'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// A candidate "made the cutoff" only once they filed AND paid, which is when
-// kickoffSentAt is stamped. A compliance record saved without payment does not
-// count, so that candidate gets the date-based window like anyone else.
-// Internal-testing approvals never kick off, so they count as made.
+// A candidate "made the cutoff" when any of three facts holds: they filed AND
+// paid (kickoffSentAt, stamped by the agentic claimAndEnqueueKickoff);
+// internal-testing approvals never kick off, so they count as made; OR Peerly
+// accepted their identity (peerlyIdentityId), which is self-evidence of
+// "filed, paid, and Peerly accepted it" since submitCampaignVerifyRequest's
+// idempotency guard requires both. The peerly check is what keeps legacy
+// candidates — approved via POST /campaigns/tcr-compliance before the
+// kickoffSentAt column shipped (2026-05-16, migration
+// 20260516013651_add_tcr_compliance_kickoff_sent_at), so kickoffSentAt is NULL
+// forever — from reading as "closed" at cutoff while they are actively
+// sending through their live Peerly brand. A compliance record saved without
+// payment and without a Peerly identity still does not count: that candidate
+// gets the date-based window like anyone else.
 export const smsComplianceWindow = ({
   electionDate,
   tcrCompliance,
@@ -52,6 +61,7 @@ export const smsComplianceWindow = ({
   tcrCompliance: {
     kickoffSentAt: Date | null
     internalTestingAt?: Date | null
+    peerlyIdentityId?: string | null
   } | null
   now: Date
 }): {
@@ -68,7 +78,11 @@ export const smsComplianceWindow = ({
       ) ?? null)
     : null
 
-  if (tcrCompliance?.kickoffSentAt || tcrCompliance?.internalTestingAt) {
+  if (
+    tcrCompliance?.kickoffSentAt ||
+    tcrCompliance?.internalTestingAt ||
+    tcrCompliance?.peerlyIdentityId
+  ) {
     return {
       smsCompliance: 'not_applicable',
       smsCutoffDate,

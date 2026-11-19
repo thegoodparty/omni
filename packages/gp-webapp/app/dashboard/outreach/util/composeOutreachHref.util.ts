@@ -16,6 +16,8 @@ export type ComposeSource =
   | 'campaign_tracker'
   // The voter data page's "Choose a channel" picker.
   | 'voter_data'
+  // The sidebar banner and mobile chip once texting is approved.
+  | 'navigation'
 
 // The compose link's own vocabulary predates this one and stays as it is on
 // `Outreach - Click Create`, so renaming it there would not split history.

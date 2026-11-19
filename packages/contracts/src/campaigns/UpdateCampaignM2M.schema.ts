@@ -7,6 +7,12 @@ export const UpdateCampaignM2MSchema = CampaignSchema.omit({
   updatedAt: true,
   userId: true,
   vendorTsData: true,
-}).partial()
+})
+  .partial()
+  .extend({
+    // Staff's answer when a new election date would clear the last
+    // election's result. Omitted, gp-api decides from the request.
+    resetElectionResults: z.boolean().optional(),
+  })
 
 export type UpdateCampaignM2MInput = z.infer<typeof UpdateCampaignM2MSchema>

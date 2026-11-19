@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { DistrictStoryMap } from './DistrictStoryMap'
-import { buildAbstractDots, type DistrictMapMode } from './districtDots'
+import {
+  buildAbstractDots,
+  type DistrictMapMode,
+  SQUARE_VIEW_HEIGHT,
+} from './districtDots'
 
-const model = buildAbstractDots()
+const model = buildAbstractDots(SQUARE_VIEW_HEIGHT)
+const SAMPLE = model.dots.filter((dot) => dot.sample).length
+const JOINED = Math.ceil(SAMPLE / 2)
 
 const dots = () =>
   [...screen.getByTestId('district-story-map').querySelectorAll('circle')]
@@ -39,15 +45,15 @@ describe('DistrictStoryMap', () => {
 
   it('brings out the sample', () => {
     renderMap('sample')
-    expect(count(dots(), 'fill-primary')).toBe(100)
+    expect(count(dots(), 'fill-primary')).toBe(SAMPLE)
     expect(screen.queryByTestId('district-story-halo')).not.toBeInTheDocument()
   })
 
   it('shows the sample as rings with some filled in', () => {
     renderMap('grow')
     const looks = dots()
-    expect(count(looks, 'fill-primary')).toBe(38)
-    expect(count(looks, 'ring')).toBe(62)
+    expect(count(looks, 'fill-primary')).toBe(JOINED)
+    expect(count(looks, 'ring')).toBe(SAMPLE - JOINED)
   })
 
   it('turns the sample to rings before some fill in', async () => {
@@ -55,8 +61,8 @@ describe('DistrictStoryMap', () => {
     rerender(
       <DistrictStoryMap model={model} mode="grow" animate intro={false} />,
     )
-    expect(count(dots(), 'ring')).toBe(100)
-    await waitFor(() => expect(count(dots(), 'fill-primary')).toBe(38))
+    expect(count(dots(), 'ring')).toBe(SAMPLE)
+    await waitFor(() => expect(count(dots(), 'fill-primary')).toBe(JOINED))
   })
 
   it('starts the intro hidden and keeps the same dots across modes', () => {
