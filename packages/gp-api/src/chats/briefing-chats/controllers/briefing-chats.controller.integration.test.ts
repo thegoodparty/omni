@@ -376,7 +376,7 @@ describe('BriefingChatsController (integration)', () => {
       expect(
         frames.find((f) => (f.parsed as { type?: string }).type === 'text'),
       ).toBeUndefined()
-      const otherMessages = await service.prisma.chatMessage.findMany({
+      const otherMessages = await service.prisma.agentMessage.findMany({
         where: { conversationId: otherFixtures.conversation.id },
       })
       expect(otherMessages).toHaveLength(0)
@@ -393,7 +393,7 @@ describe('BriefingChatsController (integration)', () => {
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST)
       expect(streamSpy).not.toHaveBeenCalled()
-      const messages = await service.prisma.chatMessage.findMany({
+      const messages = await service.prisma.agentMessage.findMany({
         where: { conversationId: fixtures.conversation.id },
       })
       expect(messages).toHaveLength(0)
@@ -410,7 +410,7 @@ describe('BriefingChatsController (integration)', () => {
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST)
       expect(streamSpy).not.toHaveBeenCalled()
-      const messages = await service.prisma.chatMessage.findMany({
+      const messages = await service.prisma.agentMessage.findMany({
         where: { conversationId: fixtures.conversation.id },
       })
       expect(messages).toHaveLength(0)
@@ -427,7 +427,7 @@ describe('BriefingChatsController (integration)', () => {
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST)
       expect(streamSpy).not.toHaveBeenCalled()
-      const messages = await service.prisma.chatMessage.findMany({
+      const messages = await service.prisma.agentMessage.findMany({
         where: { conversationId: fixtures.conversation.id },
       })
       expect(messages).toHaveLength(0)
@@ -605,7 +605,7 @@ describe('BriefingChatsController (integration)', () => {
       })
       expect(row?.deletedAt).toBeNull()
       expect(
-        await service.prisma.chatMessage.count({ where: { conversationId } }),
+        await service.prisma.agentMessage.count({ where: { conversationId } }),
       ).toBe(0)
     }
 

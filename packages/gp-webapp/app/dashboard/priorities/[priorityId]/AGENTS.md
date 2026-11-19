@@ -672,9 +672,9 @@ Two cards are about people, and they are not interchangeable:
 
 - `constituents` (`present_constituents`) — contact ids from the office's own
   CRM, resolved live. `present_contacts` is the name it shipped under; the
-  tool name is persisted on `chat_message_segment.tool_name`, so
-  `cardWidgets.tsx` registers both, forever. The card `kind` is derived client-side
-  and never stored, so it can be renamed freely.
+  tool name is persisted as the tool call's `toolName` in the turn's
+  `AgentMessage` parts, so `cardWidgets.tsx` registers both, forever. The card
+  `kind` is derived client-side and never stored, so it can be renamed freely.
 - `outside_contact` (`present_outside_contact`) — one person or office outside our data, built
   from what the agent researched. Nothing resolves, so it is a snapshot. The
   mailto carries the script as its body, so the email opens written.

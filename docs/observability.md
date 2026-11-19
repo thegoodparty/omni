@@ -202,7 +202,7 @@ Prompt and reply text are **not** recorded (`recordInputs` and `recordOutputs`
 are off in `llm.service.ts`), because prompts here carry voter and campaign
 data. A span shows the model, the token counts, the finish reason and the tool
 names — never a message body, tool arguments or a tool result. Don't turn those
-on to debug a prompt; use the Braintrust trace or the stored `ChatMessage` rows.
+on to debug a prompt; use the Braintrust trace or the stored `AgentMessage` rows.
 
 Grafana Cloud must have Agent Observability enabled on the stack before
 data appears. If the Conversations view is empty but Tempo has the spans, check

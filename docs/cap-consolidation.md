@@ -74,14 +74,12 @@ successful production traffic, not a merged PR.
    Dev's value landed with #3871, prod's with #3875, and preview stays unset.
    Done when prod runs complete, land on the dashboard, never re-dispatch,
    never dead-letter, and show in Grafana Agent Observability.
-2. **Every chat agent on `AgentMessage` in prod.** Chat wrote both tables
-   behind the `chat-agent-message` flag, with a backfill and a parity check,
-   until every reader and writer was on `AgentMessage`; that flag, the
-   backfill and the reads of `ChatMessage` are now gone, with the client
-   supplying each user message's id (a UUID, so a retry is caught by the
-   primary key). `ChatMessage` and `ChatMessageSegment` are dropped in a later
-   deploy. Done when all five scopes serve prod traffic from `AgentMessage`,
-   checked in Grafana and by one judge run.
+2. **Every chat agent on `AgentMessage` in prod.** ✅ Every chat scope reads
+   and writes only `AgentMessage`: the client supplies each user message's id
+   (a UUID, so a retry is caught by the primary key), and a rating names the
+   `AgentMessage` turn it was left on. Nothing uses `ChatMessage` or
+   `ChatMessageSegment`; dropping the two tables is the next deploy, staged
+   separately so no task serving during that rollout is still reading them.
 3. **The remaining background agents, in waves.** Each agent is one PR: its
    definition, its readers moved from `ExperimentRun` to `AgentRun`, its judge
    in-process arm, and its `qa/` manifest deleted. Its switch flips only after

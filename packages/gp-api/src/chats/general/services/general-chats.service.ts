@@ -2,7 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   AgentMessageRole,
   ChatFeedbackKind,
-  ChatMessageFeedback,
   ChatMessageRole,
   ChatScope,
 } from '../../../generated/prisma'
@@ -11,7 +10,10 @@ import {
   START_MANAGED_CIVIC_PANEL_MESSAGE,
   type ChatMessageFeedback as ChatMessageFeedbackDTO,
 } from '@goodparty_org/contracts'
-import { ChatMessageFeedbackService } from '@/chats/services/chatMessageFeedback.prisma'
+import {
+  type RatedFeedback,
+  ChatMessageFeedbackService,
+} from '@/chats/services/chatMessageFeedback.prisma'
 import { cannedReplyId } from '@/chats/services/chatAgentMessages.util'
 import {
   ChatMessageWithSegments,
@@ -46,7 +48,7 @@ export interface LoadedConversation {
   title: string | null
   messages: ChatMessageWithSegments[]
   // The caller's own ratings on this thread, keyed by message id.
-  feedbackByMessageId: Map<string, ChatMessageFeedback>
+  feedbackByMessageId: Map<string, RatedFeedback>
 }
 
 export interface MessageFeedbackScope {
