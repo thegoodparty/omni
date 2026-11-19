@@ -1,4 +1,4 @@
-import { ROOT_CONTEXT, trace } from '@opentelemetry/api'
+import { ROOT_CONTEXT, SpanStatusCode, trace } from '@opentelemetry/api'
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
@@ -179,34 +179,30 @@ describe('a tool span reports whether the tool worked', () => {
     trace.disable()
   })
 
-  it('marks a success ok with no reason', async () => {
+  it('leaves a success with no error type and an unset status', async () => {
     await run({ ok: true, rows: [] })
 
     expect(toolSpan().attributes).toMatchObject({
       'gen_ai.tool.name': 'queryDatabricks',
-      'gen_ai.tool.ok': true,
     })
-    expect(toolSpan().attributes).not.toHaveProperty('gen_ai.tool.reason')
+    expect(toolSpan().attributes).not.toHaveProperty('error.type')
+    expect(toolSpan().status.code).toBe(SpanStatusCode.UNSET)
   })
 
-  it("records the tool's own reason code when it reports a failure", async () => {
+  it("records the tool's own reason code as the error type when it reports a failure", async () => {
     await run({ ok: false, reason: 'timeout', detail: 'the query passed' })
 
-    expect(toolSpan().attributes).toMatchObject({
-      'gen_ai.tool.ok': false,
-      'gen_ai.tool.reason': 'timeout',
-    })
+    expect(toolSpan().attributes).toMatchObject({ 'error.type': 'timeout' })
+    expect(toolSpan().status.code).toBe(SpanStatusCode.ERROR)
   })
 
-  it('marks a thrown tool failed, with reason thrown', async () => {
+  it('marks a thrown tool failed, with error type thrown', async () => {
     await run(async () => {
       throw new Error('the warehouse is down')
     })
 
-    expect(toolSpan().attributes).toMatchObject({
-      'gen_ai.tool.ok': false,
-      'gen_ai.tool.reason': 'thrown',
-    })
+    expect(toolSpan().attributes).toMatchObject({ 'error.type': 'thrown' })
+    expect(toolSpan().status.code).toBe(SpanStatusCode.ERROR)
   })
 
   it("names submitOutput's refusal by its code, never its message", async () => {
@@ -218,13 +214,11 @@ describe('a tool span reports whether the tool worked', () => {
       },
     ).catch(() => undefined)
 
-    expect(toolSpan().attributes).toMatchObject({
-      'gen_ai.tool.ok': false,
-      'gen_ai.tool.reason': 'schema',
-    })
+    expect(toolSpan().attributes).toMatchObject({ 'error.type': 'schema' })
+    expect(toolSpan().status.code).toBe(SpanStatusCode.ERROR)
   })
 
-  it('keeps no URL, SQL or page text, and no reason over 40 characters', async () => {
+  it('keeps no URL, SQL or page text in the error type', async () => {
     await run({
       ok: false,
       reason: 'https://example.com/ward-2?x=1',
@@ -235,23 +229,23 @@ describe('a tool span reports whether the tool worked', () => {
       content: 'the councillor said the drainage bond would pass in May',
     })
 
-    const attributes = Object.values(toolSpan().attributes)
-    for (const value of attributes) {
+    for (const value of Object.values(toolSpan().attributes)) {
       if (typeof value !== 'string') continue
       expect(value.length).toBeLessThanOrEqual(40)
       expect(value).not.toContain('://')
       expect(value).not.toMatch(/SELECT|FROM|WHERE/i)
     }
-    expect(toolSpan().attributes).toMatchObject({ 'gen_ai.tool.ok': false })
-    expect(toolSpan().attributes).not.toHaveProperty('gen_ai.tool.reason')
+    expect(toolSpan().attributes).toMatchObject({ 'error.type': '_OTHER' })
+    expect(toolSpan().status.code).toBe(SpanStatusCode.ERROR)
   })
 
-  it('caps an over-long code rather than clipping it into a reason', async () => {
+  it('falls back to _OTHER rather than clipping an over-long code', async () => {
     await run({
       ok: false,
       reason: 'a_reason_code_that_is_far_too_long_to_be_a_code',
     })
 
-    expect(toolSpan().attributes).not.toHaveProperty('gen_ai.tool.reason')
+    expect(toolSpan().attributes).toMatchObject({ 'error.type': '_OTHER' })
+    expect(toolSpan().status.code).toBe(SpanStatusCode.ERROR)
   })
 })
