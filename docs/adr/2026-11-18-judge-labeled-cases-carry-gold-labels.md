@@ -3,7 +3,7 @@ title: The Universal Judge scores typed-label agents against written expected la
 status: active
 decided_by: [dealvz]
 date: 2026-11-18
-code: ['#PR_NUMBER']
+code: ['#3908']
 scope:
   - packages/gp-api/src/chats/evals/judge/labeled/**
   - packages/gp-api/src/chats/evals/judge/cases/reply_intent.json
