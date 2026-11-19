@@ -1457,6 +1457,12 @@ export default defineExpectedResultEvalSuite('case_scout_deidentifier', {
           return await model.draftCase(system, transcript, callSignal)
         } catch (err) {
           callFailed = true
+          // DraftingError drops the cause, and a rate limit and a timeout
+          // call for different fixes.
+          await ctx.annotate(
+            `drafting call failed: ${err instanceof Error ? err.message : String(err)}`,
+            'drafting-error',
+          )
           throw err
         }
       },
