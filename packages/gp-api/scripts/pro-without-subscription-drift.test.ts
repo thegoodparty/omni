@@ -404,7 +404,7 @@ describe('plan drift classification', () => {
       ProDriftClass.PaidPlanNotPro,
       ProDriftClass.UnsettledCreditReservation,
     ])
-    expect(findings[2].outreachId).toBe(3)
+    expect(findings[2]?.outreachId).toBe(3)
   })
 })
 
