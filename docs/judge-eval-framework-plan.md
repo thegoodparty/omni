@@ -151,7 +151,7 @@ The old runner stays for chat until the follow-ups below.
 
 ## Follow-ups, not scheduled
 
-- **Chat suites on the framework.** Convert the seven chat case lists. A chat
+- **Chat suites on the framework.** Convert the five chat case lists. A chat
   case's input is `{ turns: string[] }` through the public chat routes.
   Simulated tool failures and seeded transcripts go away. Coordinate with
   Danny first: the case scout's publisher appends to `cases/<agent>.json`,
