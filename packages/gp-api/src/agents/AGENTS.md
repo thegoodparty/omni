@@ -112,8 +112,8 @@ back. The final URL is checked
 again. The page is cut at 10 MB and the render ends at 60 seconds or on
 `ctx.signal`. A judge run reads the recorded page first, as `fetchPage`
 does. Failures are values (`blocked_host`, `render_limit`, `timeout`,
-`browser_unavailable`, `http_error`, `no_text`, ...). Its `execute_tool`
-span carries `gp.tool.ok` and `gp.tool.reason`, never the page. The task
+`browser_unavailable`, `http_error`, `no_text`, ...), and each one is the
+`error.type` of its `execute_tool` span like any other tool's. The task
 role's grant is in `deploy/index.ts`. `renderPage.live.test.ts` renders real
 pages under `gp-engineer` when `RENDER_PAGE_LIVE=1`.
 
@@ -310,11 +310,16 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
 ## Observability
 
 Each attempt runs under an `invoke_agent <name>` span; each tool under
-`execute_tool <name>`, carrying `gen_ai.tool.ok` and, when the tool failed,
-`gen_ai.tool.reason` — its own `reason` when that is a short code
-(`rejected`, `timeout`, `http_error`), `schema` or `no_data` for a refused
-`submitOutput`, `thrown` for a throw. Neither ever carries a URL, SQL, page text or message;
-a reason that is not already a `[a-z0-9_]` code is dropped. `agentRunSpanProcessor` stamps
+`execute_tool <name>`, following the OTel GenAI `gen_ai.execute_tool` span's
+[Recording Errors](https://github.com/open-telemetry/semantic-conventions/blob/v1.45.0/docs/general/recording-errors.md)
+rule: a tool that failed — returned `ok:false` or threw — sets status `ERROR`
+and `error.type` to its code (`rejected`, `timeout`, `http_error`, ...),
+`schema` or `no_data` for a refused `submitOutput`, `thrown` for a throw, and
+`_OTHER` (that attribute's documented fallback) when there is no clean code.
+A tool that worked sets neither, so its span reads `UNSET`. `error.type` is a
+code and nothing else: a tool's reason field can be a URL, SQL or a message,
+so a value that is not already a `[a-z0-9_]` code becomes `_OTHER`.
+`agentRunSpanProcessor` stamps
 `gen_ai.conversation.id` (the run id), `gen_ai.agent.name`,
 `gen_ai.agent.version` (the shape hash) and `agento11y.record=true` on
 every span inside the run, the AI SDK's model-call spans included, for

@@ -1,4 +1,3 @@
-import { trace } from '@opentelemetry/api'
 import { z } from 'zod'
 import {
   AgentBrowserService,
@@ -59,16 +58,8 @@ const rendered = async (url: string, ctx: ToolContext) => {
   return result
 }
 
-// The span gets the outcome and never the page.
 export const renderPage = defineTool({
   description: `Open a web page in a real browser, run its JavaScript, and read it as markdown with links: up to ${PAGE_CHARS} characters, the final URL, the status and the page's own published date. Slow and limited to ${MAX_RENDERS_PER_RUN} calls a run: use it only on a page fetchPage could not read.`,
   input: renderPageInput,
-  execute: async ({ url }, ctx) => {
-    const result = await rendered(url, ctx)
-    trace.getActiveSpan()?.setAttributes({
-      'gp.tool.ok': result.ok,
-      ...(!result.ok && { 'gp.tool.reason': result.reason }),
-    })
-    return result
-  },
+  execute: ({ url }, ctx) => rendered(url, ctx),
 })

@@ -1,6 +1,6 @@
 import { simulateReadableStream } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
-import { trace } from '@opentelemetry/api'
+import { SpanStatusCode, trace } from '@opentelemetry/api'
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
@@ -598,12 +598,12 @@ describe('the trace of a run', () => {
     const submits = exporter
       .getFinishedSpans()
       .filter((s) => s.attributes['gen_ai.tool.name'] === SUBMIT_TOOL)
-    expect(submits.map((s) => s.attributes['gen_ai.tool.ok'])).toEqual([
-      false,
-      true,
+    expect(submits.map((s) => s.status.code)).toEqual([
+      SpanStatusCode.ERROR,
+      SpanStatusCode.UNSET,
     ])
-    expect(submits[0]?.attributes['gen_ai.tool.reason']).toBe('schema')
-    expect(submits[1]?.attributes).not.toHaveProperty('gen_ai.tool.reason')
+    expect(submits[0]?.attributes['error.type']).toBe('schema')
+    expect(submits[1]?.attributes).not.toHaveProperty('error.type')
     // The message is the fix-it instruction the model reads; the span carries
     // the code and never the text.
     expect(JSON.stringify(submits[0]?.attributes)).not.toContain('minutes')
@@ -645,8 +645,8 @@ describe('the trace of a run', () => {
     )
 
     expect(toolSpan('queryDatabricks').attributes).toMatchObject({
-      'gen_ai.tool.ok': false,
-      'gen_ai.tool.reason': 'rejected',
+      'error.type': 'rejected',
     })
+    expect(toolSpan('queryDatabricks').status.code).toBe(SpanStatusCode.ERROR)
   })
 })

@@ -1,5 +1,21 @@
-import { describe, expect, it, type Mock, vi } from 'vitest'
+import { SpanStatusCode, trace } from '@opentelemetry/api'
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  type ReadableSpan,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  vi,
+} from 'vitest'
 import type { PinoLogger } from 'nestjs-pino'
+import { instrumentTool } from '@/agents/agentRunSpans'
 import {
   AgentBrowserService,
   type BrowserSession,
@@ -324,5 +340,58 @@ describe('renderPage', () => {
     ).toMatchObject({ ok: true })
     expect(lookupFetch).toHaveBeenCalledTimes(2)
     expect(fake.open).toHaveBeenCalledTimes(1)
+  })
+
+  describe('its execute_tool span', () => {
+    let exporter: InMemorySpanExporter
+
+    beforeEach(() => {
+      exporter = new InMemorySpanExporter()
+      trace.setGlobalTracerProvider(
+        new BasicTracerProvider({
+          spanProcessors: [new SimpleSpanProcessor(exporter)],
+        }),
+      )
+    })
+
+    afterEach(() => {
+      trace.disable()
+    })
+
+    const runTool = async (
+      navigate: Parameters<typeof browserWith>[0],
+    ): Promise<void> => {
+      const { browser } = browserWith(navigate)
+      try {
+        await instrumentTool('renderPage', renderPage).execute(
+          { url: 'https://news.example.com/a' },
+          ctxWith({ browser }),
+        )
+      } catch {
+        // the span is what these assert
+      }
+    }
+
+    const span = (): ReadableSpan => {
+      const spans = exporter
+        .getFinishedSpans()
+        .filter((s) => s.attributes['gen_ai.operation.name'] === 'execute_tool')
+      expect(spans).toHaveLength(1)
+      return spans[0] as ReadableSpan
+    }
+
+    it('reports a refused render as ERROR with the reason as error.type', async () => {
+      await runTool(async () => ({ blocked: true }))
+
+      expect(span().attributes).toMatchObject({ 'error.type': 'blocked_host' })
+      expect(span().status.code).toBe(SpanStatusCode.ERROR)
+    })
+
+    it('leaves a rendered page with no error.type and an unset status', async () => {
+      await runTool(page('https://news.example.com/a'))
+
+      expect(span().attributes).not.toHaveProperty('error.type')
+      expect(span().status.code).toBe(SpanStatusCode.UNSET)
+    })
   })
 })
