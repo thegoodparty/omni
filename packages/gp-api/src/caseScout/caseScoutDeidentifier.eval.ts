@@ -20,7 +20,7 @@ import {
   type SecondReadCall,
 } from './util/gate.util'
 import type { Message, Session } from './util/sessions.util'
-import { sessionDenylist, sessionUserMessages } from './util/transcript.util'
+import { sessionDenylist, sessionSourceTexts } from './util/transcript.util'
 
 // The de-identifier: the whole exit path a real chat takes on its way to a
 // public repository. An invented source session goes through the real
@@ -168,10 +168,42 @@ const wordRuns = (text: string): string[] => {
     .map((_, i) => words.slice(i, i + COPIED_TEXT_RUN_LENGTH).join(' '))
 }
 
-// Every role and every tool input, unlike the gate's own copy check, which
-// reads the user's messages only.
+const SENTENCE_BREAK = /[.!?\n]/u
+
+// A word can identify when it holds a digit or is capitalized mid-sentence.
+// An apostrophe splits a contraction, so "I'm" reads as "I" and "m".
+const sourceWords = (
+  text: string,
+): Array<{ word: string; identifying: boolean }> =>
+  [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((match, i, all) => {
+    const token = match[0]
+    const prev = all[i - 1]
+    const sentenceStart =
+      prev === undefined ||
+      SENTENCE_BREAK.test(text.slice(prev.index + prev[0].length, match.index))
+    return {
+      word: token.toLowerCase(),
+      identifying:
+        /\p{N}/u.test(token) ||
+        (/^\p{Lu}/u.test(token) && !sentenceStart && token !== 'I'),
+    }
+  })
+
+const identifyingRuns = (text: string): string[] => {
+  const words = sourceWords(text)
+  return words
+    .slice(0, Math.max(0, words.length - COPIED_TEXT_RUN_LENGTH + 1))
+    .map((_, i) => words.slice(i, i + COPIED_TEXT_RUN_LENGTH))
+    .filter((run) => run.some(({ identifying }) => identifying))
+    .map((run) => run.map(({ word }) => word).join(' '))
+}
+
+// An 8-word run from any role or tool input counts only when the source, as
+// written, carries a name, a place or a number in it. A generic question
+// repeated word for word identifies no one. The gate's own copy check stays
+// stricter and blocks any run.
 const copiedSource = (outbound: string[], sources: string[]): boolean => {
-  const sourceRuns = new Set(sources.flatMap(wordRuns))
+  const sourceRuns = new Set(sources.flatMap(identifyingRuns))
   return outbound.some((text) =>
     wordRuns(text).some((run) => sourceRuns.has(run)),
   )
@@ -1492,21 +1524,16 @@ export default defineExpectedResultEvalSuite('case_scout_deidentifier', {
 
     const secondRead: SecondReadCall = (text) => model.secondRead(text, signal)
     const denylist = sessionDenylist(session)
-    const userMessages = sessionUserMessages(session)
+    const sources = sessionSourceTexts(session)
     let outbound: string[]
     let gate: GateResult
     if (result.outcome === 'newCase') {
       const draftedCase = buildDraftedCase(result.case)
       outbound = outboundStrings({ case: draftedCase })
-      gate = await gateDraft(draftedCase, denylist, userMessages, secondRead)
+      gate = await gateDraft(draftedCase, denylist, sources, secondRead)
     } else {
       outbound = outboundStrings({ needsSetup: result.what })
-      gate = await gateNeedsSetup(
-        result.what,
-        denylist,
-        userMessages,
-        secondRead,
-      )
+      gate = await gateNeedsSetup(result.what, denylist, sources, secondRead)
     }
     await ctx.annotate(
       `drafter: ${result.outcome}; gate: ` +

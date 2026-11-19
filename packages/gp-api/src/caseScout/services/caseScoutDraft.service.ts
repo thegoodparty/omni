@@ -54,7 +54,7 @@ import {
   sessionsSafeToMarkProcessed,
   type Session,
 } from '../util/sessions.util'
-import { sessionDenylist, sessionUserMessages } from '../util/transcript.util'
+import { sessionDenylist, sessionSourceTexts } from '../util/transcript.util'
 import { CaseScoutBucketService } from './caseScoutBucket.service'
 import {
   CaseScoutCaseListsService,
@@ -326,7 +326,7 @@ export class CaseScoutDraftService {
         const gate = await gateNeedsSetup(
           result.what,
           sessionDenylist(session),
-          sessionUserMessages(session),
+          sessionSourceTexts(session),
           secondRead,
         )
         spend.gate += ESTIMATED_COST_PER_CALL_USD
@@ -391,7 +391,7 @@ export class CaseScoutDraftService {
       const gate = await gateDraft(
         draftedCase,
         sessionDenylist(session),
-        sessionUserMessages(session),
+        sessionSourceTexts(session),
         secondRead,
       )
       spend.gate += ESTIMATED_COST_PER_CALL_USD

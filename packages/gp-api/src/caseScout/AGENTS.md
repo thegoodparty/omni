@@ -27,14 +27,14 @@ Covered scopes are `chief_of_staff` and `campaign_assistant`
 (`COVERED_SCOPES` in `caseScout.config.ts`). Other sessions count toward the
 session cap and the marker but are never sent to a model.
 
-| File                                    | Holds                                                                                                                        |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                              |
-| `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist |
-| `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                       |
-| `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy, contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
-| `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                  |
-| `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                     |
+| File                                    | Holds                                                                                                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                                                              |
+| `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist                                 |
+| `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                                                       |
+| `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy (from every role and tool input), contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
+| `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                                                  |
+| `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                                                     |
 
 ## Bucket (`case-scout-<env>`)
 
@@ -104,12 +104,13 @@ The de-identifier suite runs the job's own drafter (`draftCandidate`), the
 gate with its live second read, and `outboundStrings`, the one list of
 drafter-written strings that can leave prod. `draft` grades the drafter's raw
 output; `released` is the same result, kept only when the gate let it through.
-`leaksPlanted` and `copiesSource` are code (an 8-word run from any role or tool
-input, not just the user's); `revealsSensitiveFact` is one `judgeModel` call,
-counted only when its quoted span is in the text. The drafter's outcome and the
-gate rule are annotations, never the judgment. The gate suite expects today's
-misses to be caught (a seven-digit phone, a draft with no name that still
-identifies a place), so its red cases are the gate's work list.
+`leaksPlanted` and `copiesSource` are code (`copiesSource`: an 8-word run
+copied from any role or tool input that carries a name, place or number);
+`revealsSensitiveFact` is one `judgeModel` call, counted only when its quoted
+span is in the text. The drafter's outcome and the gate rule are annotations,
+never the judgment. The gate suite expects today's misses to be caught (a
+seven-digit phone, a draft with no name that still identifies a place), so its
+red cases are the gate's work list.
 
 ```bash
 JUDGE_MODEL=anthropic/claude-sonnet-5-5 npm run eval -w packages/gp-api

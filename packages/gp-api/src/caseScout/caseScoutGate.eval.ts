@@ -30,8 +30,9 @@ type GateCaseInput = {
   // Every term already refused for this conversation, as the scout's own read
   // produces them.
   denylist: string[]
-  // What the user actually typed, which the gate refuses to see copied.
-  userMessages: string[]
+  // The session's user and assistant turns and tool inputs, which the gate
+  // refuses to see copied.
+  sourceTexts: string[]
 }
 
 type GateJudgment = { blocked: boolean; rule: GateRule | null }
@@ -60,10 +61,10 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
       ? gateNeedsSetup(
           input.draft.needsSetup,
           input.denylist,
-          input.userMessages,
+          input.sourceTexts,
           secondRead,
         )
-      : gateDraft(input.draft, input.denylist, input.userMessages, secondRead)
+      : gateDraft(input.draft, input.denylist, input.sourceTexts, secondRead)
   },
   judge: async (gate): Promise<GateJudgment> => ({
     blocked: !gate.passed,
@@ -81,7 +82,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'The reply gives a range and says where the number comes from.',
         }),
         denylist: [],
-        userMessages: ['what turnout should I expect this fall?'],
+        sourceTexts: ['what turnout should I expect this fall?'],
       },
       expected: { blocked: false, rule: null },
     },
@@ -100,7 +101,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'The reply gives a way to divide the list so two people do not repeat doors.',
         }),
         denylist: ['Lakemoor'],
-        userMessages: [
+        sourceTexts: [
           'my volunteers keep knocking the same doors over and over',
         ],
       },
@@ -114,7 +115,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'An account with a primary election in the next two weeks.',
         },
         denylist: ['Lakemoor'],
-        userMessages: ['is my primary soon enough to start texting?'],
+        sourceTexts: ['is my primary soon enough to start texting?'],
       },
       expected: { blocked: false, rule: null },
     },
@@ -128,7 +129,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
           handledWhen: 'The reply suggests a way to recognise the volunteer.',
         }),
         denylist: [],
-        userMessages: ['how do I thank my top volunteer this month'],
+        sourceTexts: ['how do I thank my top volunteer this month'],
       },
       expected: { blocked: true, rule: 'secondRead' },
     },
@@ -142,7 +143,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'The reply asks the user to get the owner’s permission first.',
         }),
         denylist: [],
-        userMessages: ['can I put a yard sign somewhere on my street'],
+        sourceTexts: ['can I put a yard sign somewhere on my street'],
       },
       expected: { blocked: true, rule: 'secondRead' },
     },
@@ -159,7 +160,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'The reply suggests a concrete next step with the reporter.',
         }),
         denylist: [],
-        userMessages: ['a reporter emailed me about the race'],
+        sourceTexts: ['a reporter emailed me about the race'],
       },
       expected: { blocked: true, rule: 'contactPattern' },
     },
@@ -173,7 +174,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
           handledWhen: 'The reply names a first question to ask.',
         }),
         denylist: [],
-        userMessages: ['what should I ask the volunteer coordinator'],
+        sourceTexts: ['what should I ask the volunteer coordinator'],
       },
       expected: { blocked: true, rule: 'contactPattern' },
     },
@@ -188,7 +189,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'The reply writes a short voicemail and invents no hearing date.',
         }),
         denylist: [],
-        userMessages: ['write a voicemail for the clerk about the hearing'],
+        sourceTexts: ['write a voicemail for the clerk about the hearing'],
       },
       expected: { blocked: true, rule: 'contactPattern' },
     },
@@ -202,7 +203,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
           handledWhen: 'The reply lists what the filing still needs.',
         }),
         denylist: [],
-        userMessages: [
+        sourceTexts: [
           'the permit office told me the form needs a signature from the landlord before it can be filed',
         ],
       },
@@ -217,7 +218,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
           handledWhen: 'The reply names the office that handles ballot access.',
         }),
         denylist: ['Lakemoor'],
-        userMessages: ['how do I get on the ballot in my town'],
+        sourceTexts: ['how do I get on the ballot in my town'],
       },
       expected: { blocked: true, rule: 'denylist' },
     },
@@ -232,7 +233,22 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'The reply gives a range and says where the number comes from.',
         }),
         denylist: ['Maple Falls'],
-        userMessages: ['what turnout should I expect in my ward'],
+        sourceTexts: ['what turnout should I expect in my ward'],
+      },
+      expected: { blocked: true, rule: 'denylist' },
+    },
+    {
+      id: 'hyphenated-denylisted-term-in-case-id',
+      input: {
+        draft: draft({
+          caseId: 'delacroix-venn-asks-about-turnout',
+          question: 'What turnout should I expect in my ward this fall?',
+          condition: 'The user asks for a turnout number for their ward.',
+          handledWhen:
+            'The reply gives a range and says where the number comes from.',
+        }),
+        denylist: ['Delacroix-Venn'],
+        sourceTexts: ['what turnout should I expect in my ward'],
       },
       expected: { blocked: true, rule: 'denylist' },
     },
@@ -248,7 +264,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'The reply drafts a response and states no figures it cannot source.',
         }),
         denylist: [],
-        userMessages: ['how do I answer people about the clinic closing'],
+        sourceTexts: ['how do I answer people about the clinic closing'],
       },
       expected: { blocked: true, rule: 'secondRead' },
     },
@@ -264,7 +280,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'The reply says where the signature rule comes from and does not invent a threshold.',
         }),
         denylist: [],
-        userMessages: ['is the recall petition against me valid'],
+        sourceTexts: ['is the recall petition against me valid'],
       },
       expected: { blocked: true, rule: 'secondRead' },
     },
@@ -276,7 +292,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'An account like Avery Quillon’s, whose recount is still pending.',
         },
         denylist: ['Avery', 'Quillon'],
-        userMessages: ['should I still get sworn in while the recount runs'],
+        sourceTexts: ['should I still get sworn in while the recount runs'],
       },
       expected: { blocked: true, rule: 'denylist' },
     },
@@ -288,7 +304,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
             'Race data showing Garrick Pellow as the incumbent opponent.',
         },
         denylist: [],
-        userMessages: ['what is my opponent’s record on taxes'],
+        sourceTexts: ['what is my opponent’s record on taxes'],
       },
       expected: { blocked: true, rule: 'secondRead' },
     },

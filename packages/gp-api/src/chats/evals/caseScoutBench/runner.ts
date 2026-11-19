@@ -60,7 +60,7 @@ import {
 import {
   renderSessionTranscript,
   sessionDenylist,
-  sessionUserMessages,
+  sessionSourceTexts,
 } from '@/caseScout/util/transcript.util'
 import {
   CASES_DIR,
@@ -465,7 +465,7 @@ export const runBench = async ({
       const gate = await gateNeedsSetup(
         result.what,
         sessionDenylist(session),
-        sessionUserMessages(session),
+        sessionSourceTexts(session),
         recordingSecondRead(session),
       )
       decide({
@@ -522,7 +522,7 @@ export const runBench = async ({
     const gate = await gateDraft(
       draftedCase,
       sessionDenylist(session),
-      sessionUserMessages(session),
+      sessionSourceTexts(session),
       recordingSecondRead(session),
     )
     if (!gate.passed) {

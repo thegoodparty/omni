@@ -44,13 +44,19 @@ export const renderSessionTranscript = (session: Session): string => {
   return lines.join('\n')
 }
 
-export const sessionUserMessages = (session: Session): string[] =>
-  session.messages
-    .filter(
-      (message) =>
-        message.role === ChatMessageRole.user && message.content.trim() !== '',
-    )
-    .map((message) => message.content)
+// Everything the drafter reads that a draft could copy: user and assistant
+// turns, and each tool call's input as the transcript shows it.
+export const sessionSourceTexts = (session: Session): string[] =>
+  session.messages.flatMap((message) => [
+    ...((message.role === ChatMessageRole.user ||
+      message.role === ChatMessageRole.assistant) &&
+    message.content.trim() !== ''
+      ? [message.content]
+      : []),
+    ...message.toolCalls.flatMap((call) =>
+      call.input && call.input.trim() !== '' ? [call.input] : [],
+    ),
+  ])
 
 export const sessionDenylist = (session: Session): string[] => [
   ...new Set(session.messages.flatMap((message) => message.denylist)),

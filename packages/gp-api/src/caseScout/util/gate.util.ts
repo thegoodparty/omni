@@ -66,8 +66,8 @@ export type OutboundDraft = { case: CaseText } | { needsSetup: string }
 // the ledger alike.
 export const WITHHELD_NEEDS_SETUP = '(withheld: the line failed the PII gate)'
 
-// A denylist term matches across spaces only, so "Maple Falls" would miss
-// maple-falls-ward-2 in its slug form.
+// Hyphens and underscores become spaces, so a spaced denylist term such as
+// "Maple Falls" can match maple-falls-ward-2.
 const deslug = (caseId: string): string => caseId.replace(/[-_]+/gu, ' ').trim()
 
 // Every drafter-written string that can leave prod, as the gate reads it. The
@@ -98,9 +98,13 @@ export const checkDenylist = (
   fields: string[],
   denylist: string[],
 ): string | undefined => {
+  // Each term also tries its punctuation as one space, so "Delacroix-Venn"
+  // still matches the de-slugged caseId "delacroix venn asks about turnout".
   const terms = [
     ...new Set(
-      denylist.filter((term) => term.length >= MIN_DENYLIST_TERM_LENGTH),
+      denylist
+        .flatMap((term) => [term, term.replace(/[^\p{L}\p{N}]+/gu, ' ').trim()])
+        .filter((term) => term.length >= MIN_DENYLIST_TERM_LENGTH),
     ),
   ].sort((a, b) => b.length - a.length)
   if (terms.length === 0) return undefined
@@ -126,13 +130,13 @@ const shingles = (text: string): Set<string> => {
 
 export const checkCopiedText = (
   fields: string[],
-  userMessages: string[],
+  sourceTexts: string[],
 ): string | undefined => {
-  const source = shingles(normalize(userMessages.join(' ')))
+  const source = shingles(normalize(sourceTexts.join(' ')))
   if (source.size === 0) return undefined
   const draft = shingles(normalize(fields.join(' ')))
   return [...draft].some((run) => source.has(run))
-    ? "an 8-word run copied from the user's messages appeared in the draft"
+    ? 'an 8-word run copied from the session appeared in the draft'
     : undefined
 }
 
@@ -194,13 +198,13 @@ export const validateAgainstSchema = (
 const gateStrings = async (
   fields: string[],
   denylist: string[],
-  userMessages: string[],
+  sourceTexts: string[],
   secondRead: SecondReadCall,
   schema?: () => string | undefined,
 ): Promise<GateResult> => {
   const layers: Array<[GateRule, () => Promise<string | undefined>]> = [
     ['denylist', async () => checkDenylist(fields, denylist)],
-    ['copiedText', async () => checkCopiedText(fields, userMessages)],
+    ['copiedText', async () => checkCopiedText(fields, sourceTexts)],
     ['contactPattern', async () => checkContactPatterns(fields)],
     ['secondRead', () => runSecondRead(fields, secondRead)],
   ]
@@ -215,13 +219,13 @@ const gateStrings = async (
 export const gateDraft = (
   draft: CaseCandidate,
   denylist: string[],
-  userMessages: string[],
+  sourceTexts: string[],
   secondRead: SecondReadCall,
 ): Promise<GateResult> =>
   gateStrings(
     outboundStrings({ case: draft }),
     denylist,
-    userMessages,
+    sourceTexts,
     secondRead,
     () => validateAgainstSchema(draft),
   )
@@ -230,12 +234,12 @@ export const gateDraft = (
 export const gateNeedsSetup = (
   what: string,
   denylist: string[],
-  userMessages: string[],
+  sourceTexts: string[],
   secondRead: SecondReadCall,
 ): Promise<GateResult> =>
   gateStrings(
     outboundStrings({ needsSetup: what }),
     denylist,
-    userMessages,
+    sourceTexts,
     secondRead,
   )
