@@ -12,6 +12,8 @@ import {
   CompactCardUnavailable,
 } from './cardShell'
 import { proposalOutreachQueryOptions } from './cardQueries'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
+import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 import {
   PROPOSAL_CTA,
@@ -64,6 +66,8 @@ const ProposalChip = ({
 }: OutreachProposalCardProps) => {
   const flows = useProposalFlows()
   const mode = flows?.mode ?? 'serve'
+  const planPitch = usePlanPitch()
+  const { plan } = usePlan()
   const {
     data: sent,
     isPending,
@@ -133,6 +137,15 @@ const ProposalChip = ({
     )
   }
 
+  // Free stays on the card: the press opens the plan pitch (the Pro gate in
+  // the flows), and the draft is still here after it closes. Social and door
+  // knocking have no "send" to join for.
+  const joinToSend =
+    mode === 'win' &&
+    planPitch.enabled &&
+    plan === 'free' &&
+    (proposal.channel === 'text' || proposal.channel === 'phoneBanking')
+
   return (
     <CompactCardStatic
       title={proposal.audience}
@@ -154,7 +167,9 @@ const ProposalChip = ({
           }
           onClick={() => flows?.open(proposal, priorityId, launchSource)}
         >
-          {PROPOSAL_CTA[mode][proposal.channel]}
+          {joinToSend
+            ? `Join ${planPitch.name} to send`
+            : PROPOSAL_CTA[mode][proposal.channel]}
         </Button>
       }
     />

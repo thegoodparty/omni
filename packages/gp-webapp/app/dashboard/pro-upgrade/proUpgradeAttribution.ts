@@ -54,13 +54,21 @@ export type ProUpgradeAttribution = {
 // The CTA is free text off the URL, so it is capped rather than allowlisted.
 const CTA_MAX_LENGTH = 80
 
-export const proUpgradeHref = ({
-  source,
-  channel,
-  cta,
-}: ProUpgradeAttribution): string => {
+// Which plan the wizard opens on and where its success step returns to; the
+// wizard's own allowlist decides whether `returnTo` is followed.
+export interface ProUpgradeEntryCarry {
+  plan?: 'pro' | 'team'
+  returnTo?: string
+}
+
+export const proUpgradeHref = (
+  { source, channel, cta }: ProUpgradeAttribution,
+  carry: ProUpgradeEntryCarry = {},
+): string => {
   const params = new URLSearchParams({ source, channel })
   if (cta) params.set('cta', cta)
+  if (carry.plan) params.set('plan', carry.plan)
+  if (carry.returnTo) params.set('returnTo', carry.returnTo)
   return `${PRO_UPGRADE_ENTRY_PATH}?${params.toString()}`
 }
 
