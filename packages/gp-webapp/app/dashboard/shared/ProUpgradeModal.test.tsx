@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
 import type { Campaign } from 'helpers/types'
@@ -11,9 +12,35 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+const mockPricingFlag = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: mockPricingFlag.enabled,
+  }),
+}))
+
 describe('ProUpgradeModal', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockPricingFlag.enabled = false
+  })
+
+  it('dismisses the auto-popup when See all plans is followed', async () => {
+    mockPricingFlag.enabled = true
+    const onUpgradeLinkClick = vi.fn()
+    render(
+      <ProUpgradeModal
+        open
+        variant="First"
+        onClose={vi.fn()}
+        onUpgradeLinkClick={onUpgradeLinkClick}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('link', { name: 'See all plans' }))
+
+    expect(onUpgradeLinkClick).toHaveBeenCalledTimes(1)
   })
 
   it('points the upgrade CTA at the Pro upgrade wizard', () => {
