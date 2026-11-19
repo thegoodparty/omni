@@ -54,10 +54,18 @@ export const extendCampaignPlan = (
     client.campaigns.extendPlan(campaignId, input)
   )
 
-export const refundCampaignPlan = (
+const ADMIN_ROLE = 'org:admin'
+
+// A refund moves money, so it is admin-only, unlike the other plan actions.
+export const refundCampaignPlan = async (
   campaignId: number,
   userId: number
-): Promise<PlanActionResult<AdminRefundPlanResponse>> =>
-  runPlanAction(userId, "Couldn't refund the plan", (client) =>
+): Promise<PlanActionResult<AdminRefundPlanResponse>> => {
+  const { has } = await auth()
+  if (!has?.({ role: ADMIN_ROLE })) {
+    return { data: null, error: 'Only admins can refund a plan' }
+  }
+  return runPlanAction(userId, "Couldn't refund the plan", (client) =>
     client.campaigns.refundPlan(campaignId)
   )
+}

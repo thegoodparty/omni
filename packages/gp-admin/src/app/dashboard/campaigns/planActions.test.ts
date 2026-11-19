@@ -43,6 +43,21 @@ describe('plan actions', () => {
     expect(result).toEqual({ data: { plan: 'pro' }, error: null })
   })
 
+  it('refuses a refund from a non-admin with write_campaigns', async () => {
+    mockHas.mockImplementation(
+      (check: { permission?: string; role?: string }) =>
+        check.permission === 'write_campaigns'
+    )
+
+    const result = await refundCampaignPlan(1, 2)
+
+    expect(result).toEqual({
+      data: null,
+      error: 'Only admins can refund a plan',
+    })
+    expect(mockRefund).not.toHaveBeenCalled()
+  })
+
   it("returns gp-api's 409 message instead of throwing", async () => {
     mockRefund.mockRejectedValue(
       new SdkError(409, 'Conflict', undefined, {
