@@ -8,6 +8,16 @@ export const UpdateCampaignM2MSchema = CampaignSchema.omit({
   userId: true,
   isPro: true,
   vendorTsData: true,
+  // Plan and credit state change only through setIsPro and the admin plan
+  // routes, which hold the row lock and fire the analytics.
+  plan: true,
+  planPricingModel: true,
+  planPaidAt: true,
+  planEndsAt: true,
+  planEndedAt: true,
+  outreachCreditCents: true,
+  hasFreeTextsOffer: true,
+  freeTextsOfferRedeemedAt: true,
 })
   .partial()
   .extend({
