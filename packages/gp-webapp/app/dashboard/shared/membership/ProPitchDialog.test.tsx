@@ -31,6 +31,23 @@ beforeEach(() => {
 })
 
 describe('ProPitchDialog', () => {
+  it('closes when See all plans navigates away', async () => {
+    mockPlanFlag.enabled = true
+    const onOpenChange = vi.fn()
+    render(
+      <ProPitchDialog
+        source="navigation"
+        channel="generic"
+        open
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('link', { name: 'See all plans' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   it('renders the title, the price pill and every tile title when open', () => {
     render(
       <ProPitchDialog
