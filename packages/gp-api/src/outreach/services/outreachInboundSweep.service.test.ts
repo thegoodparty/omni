@@ -29,6 +29,7 @@ import {
 import {
   INBOUND_SWEEP_AGED_HOUR_INTERVAL,
   INBOUND_SWEEP_FRESH_WINDOW_DAYS,
+  OPT_OUT_FINAL_READ_AFTER_DAYS,
   OPT_OUT_RECONCILE_BUDGET_MS,
   OPT_OUT_RECONCILE_CONCURRENCY,
   OPT_OUT_RECONCILE_INTERVAL_HOURS,
@@ -860,6 +861,31 @@ describe('outreachOptOutReconcile', () => {
     }
   })
 
+  it('applies only a flag that plainly means yes, and fails the read on one it does not know', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchQuestionResponseRows.mockResolvedValue([
+      optOutRow('3035550101', 'True'),
+      optOutRow('3035550102', 'None'),
+    ])
+
+    const { deadLetters } = await service.jobs.runSchedule(
+      'outreachOptOutReconcile',
+      { allowDeadLetters: true },
+    )
+
+    expect(deadLetters).toHaveLength(1)
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(3)
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.optedOutAt).not.toBeNull()
+    const person2 = await findInteraction(outreach.id, 'person-2')
+    expect(person2.optedOutAt).toBeNull()
+    expect(
+      await service.prisma.outreachOptOutReconcile.findUnique({
+        where: { outreachId: outreach.id },
+      }),
+    ).toBeNull()
+  })
+
   it('skips a flag already recorded from the reply text', async () => {
     const outreach = await createSweepableOutreach()
     // person-2 already replied, so the STOP reply cannot claim the row's one
@@ -1042,7 +1068,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(2)
   })
 
-  it('stamps a failed job and one with no captured list, so neither is retried before the interval', async () => {
+  it('stamps a job with no captured list, and retries a failed one until it dead-letters', async () => {
     const failing = await createJob('job-failing', 1111)
     await setOutreachDate(failing.id, subHours(NOW, 1))
     const uncaptured = await createSweepableOutreach({
@@ -1056,22 +1082,55 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     )
     const logSpy = loggerInfoSpy()
 
-    await service.jobs.runSchedule('outreachOptOutReconcile')
+    const { deadLetters } = await service.jobs.runSchedule(
+      'outreachOptOutReconcile',
+      { allowDeadLetters: true },
+    )
 
-    expect(calledJobIds()).toEqual(['job-failing'])
-    expect(logSpy).toHaveBeenLastCalledWith(
+    expect(deadLetters).toHaveLength(1)
+    expect(calledJobIds()).toEqual([
+      'job-failing',
+      'job-failing',
+      'job-failing',
+    ])
+    expect(logSpy).toHaveBeenCalledWith(
       expect.objectContaining({ jobsFailed: 1, jobsWithoutCapture: 1 }),
       expect.any(String),
     )
-    const stamps = await service.prisma.outreachOptOutReconcile.findMany({
-      orderBy: { outreachId: 'asc' },
-    })
-    expect(stamps).toEqual([
-      { outreachId: failing.id, attemptedAt: NOW },
-      { outreachId: uncaptured.id, attemptedAt: NOW },
-    ])
+    // Unstamped, so the next hour's pass reads the failed job again.
+    const stamps = await service.prisma.outreachOptOutReconcile.findMany()
+    expect(stamps).toEqual([{ outreachId: uncaptured.id, attemptedAt: NOW }])
+  })
 
-    vi.setSystemTime(addHours(NOW, 1))
+  it('reads a send once more on its final day, and not in between', async () => {
+    const between = await createJob('job-between', 1111)
+    await setOutreachDate(between.id, subDays(NOW, 5))
+    await setOutreachUpdatedAt(between.id, subDays(NOW, 5))
+    const pastSweep = await createJob('job-past-sweep', 2222)
+    await setOutreachDate(pastSweep.id, subDays(NOW, 15))
+    await setOutreachUpdatedAt(pastSweep.id, subDays(NOW, 15))
+    const logSpy = loggerInfoSpy()
+
+    await service.jobs.runSchedule('outreachOptOutReconcile')
+    expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsDue: 0, jobsAwaitingFinalRead: 1 }),
+      expect.any(String),
+    )
+
+    const finalDay = addHours(
+      addDays(subDays(NOW, 5), OPT_OUT_FINAL_READ_AFTER_DAYS),
+      1,
+    )
+    vi.setSystemTime(finalDay)
+    await service.jobs.runSchedule('outreachOptOutReconcile')
+    expect(calledJobIds()).toEqual(['job-between'])
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ finalReadsDue: 1 }),
+      expect.any(String),
+    )
+
+    vi.setSystemTime(addHours(finalDay, OPT_OUT_RECONCILE_INTERVAL_HOURS))
     await service.jobs.runSchedule('outreachOptOutReconcile')
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
   })
