@@ -117,6 +117,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 - **Never** commit env files. `.env.example` only.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.
+- **A WebGL map is optional, and one browser that cannot draw it must cost the map and not the page.** Build the instance through `createMap` (`app/dashboard/shared/mapCanvas.ts`), which answers null instead of throwing, and render `MAP_UNAVAILABLE_MESSAGE` in its place. Where the browser refuses a WebGL context (a GPU path that is off or sandboxed), a bare `new maplibregl.Map()` started from an effect throws in React's commit phase and the route's error boundary replaces the whole page: that is how the civic panel list went down (ENG-11720). The serve onboarding basemap is the one surface that loads maplibre dynamically instead, so it keeps its construction inside a promise it catches.
 - **Deploys** are automatic via Vercel on push to `main` (dev); prod is reached only via the release train (`release.yml`). There is no manual deploy command.
 - **Never** add a tracker, analytics call or third-party script that runs on `/email/*`. `app/layout.tsx` renders those pages without them because their URLs carry a token that holds the recipient's address (`docs/adr/2026-10-29-email-public-pages-render-without-trackers.md`).
 

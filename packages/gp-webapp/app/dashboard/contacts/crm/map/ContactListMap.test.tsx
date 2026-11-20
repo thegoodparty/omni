@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import type { Person } from '../shared/contacts-types'
 import ContactListMap from './ContactListMap'
 
@@ -13,9 +13,14 @@ const overlaySetProps = vi.fn()
 const pickObject = vi.fn()
 const dragPan = { enable: vi.fn(), disable: vi.fn() }
 const fitBounds = vi.fn()
+// What a browser with no WebGL does to maplibre: the constructor throws.
+const construction = vi.hoisted(() => ({ failure: null as Error | null }))
 
 vi.mock('maplibre-gl', () => {
   class FakeMap {
+    constructor() {
+      if (construction.failure) throw construction.failure
+    }
     on(event: string, handler: (payload: unknown) => void) {
       mapHandlers.set(event, handler)
     }
@@ -87,6 +92,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mapHandlers.clear()
   pickObject.mockReturnValue(null)
+  construction.failure = null
 })
 
 describe('ContactListMap with draw mode off', () => {
@@ -230,5 +236,21 @@ describe('ContactListMap with a boundary', () => {
 
     expect(dragPan.enable).toHaveBeenCalled()
     expect(onDrawRingChange).not.toHaveBeenCalled()
+  })
+})
+
+describe('ContactListMap where the browser cannot draw one', () => {
+  // A GPU path that is off or sandboxed throws out of maplibre's constructor.
+  // From an effect, React handed that to the dashboard error boundary, which
+  // replaced the whole list page (ENG-11720). The map has to cost the map.
+  it("shows why in the map's place instead of throwing out of the effect", () => {
+    construction.failure = new Error('Failed to initialize WebGL')
+
+    render(<ContactListMap people={PEOPLE} onSelectPerson={vi.fn()} />)
+
+    expect(
+      screen.getByText(/could not be drawn on this device/),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('contact-map')).not.toBeInTheDocument()
   })
 })

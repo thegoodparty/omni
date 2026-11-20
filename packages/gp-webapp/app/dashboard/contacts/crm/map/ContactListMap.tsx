@@ -9,6 +9,10 @@ import {
   ringInsertIndex,
   type PolygonRing,
 } from 'app/dashboard/shared/ringGeometry'
+import {
+  createMap,
+  MAP_UNAVAILABLE_MESSAGE,
+} from 'app/dashboard/shared/mapCanvas'
 import type { Person } from '../shared/contacts-types'
 import {
   boundsOf,
@@ -177,6 +181,7 @@ export default function ContactListMap({
   // selects its person directly and never lands here.
   const [openPoint, setOpenPoint] = useState<ContactPoint | null>(null)
   const [basemapBlocked, setBasemapBlocked] = useState(false)
+  const [mapUnavailable, setMapUnavailable] = useState(false)
 
   // The map instance is built once and outlives every prop, so the handlers
   // registered on it read the current ring and writer through refs rather
@@ -211,13 +216,20 @@ export default function ContactListMap({
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !hasTilesKey) return
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: STYLE_URL,
-      center: [-98, 39],
-      zoom: 3,
-      attributionControl: false,
-    })
+    const map = createMap(
+      {
+        container: containerRef.current,
+        style: STYLE_URL,
+        center: [-98, 39],
+        zoom: 3,
+        attributionControl: false,
+      },
+      'contact-list-map',
+    )
+    if (!map) {
+      setMapUnavailable(true)
+      return
+    }
     // A present-but-rejected key fails differently from a missing one, and
     // far more confusingly: the deck.gl overlay is independent of the
     // basemap, so the dots draw normally over blank white and the surface
@@ -484,6 +496,14 @@ export default function ContactListMap({
       <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
         Set NEXT_PUBLIC_GEOAPIFY_TILES_KEY (a domain-restricted Geoapify tiles
         key) to render the map.
+      </div>
+    )
+  }
+
+  if (mapUnavailable) {
+    return (
+      <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
+        {MAP_UNAVAILABLE_MESSAGE}
       </div>
     )
   }
