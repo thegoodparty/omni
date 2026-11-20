@@ -1,24 +1,11 @@
-import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common'
-import { ChatScope } from '../../../generated/prisma'
-import {
-  ChatMessageWithSegments,
-  ChatStoreService,
-} from '@/chats/services/chatStore.prisma'
-import {
-  ChatStreamChunk,
-  ChatStreamService,
-} from '@/chats/services/chatStream.service'
+import { Inject, Injectable, Optional } from '@nestjs/common'
+import { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
-import {
-  type ChatScopeHandler,
-  hasFinalizeAssistantText,
-} from '@/chats/general/types/chatScopeHandler'
 import {
   BriefingAnnotationHandler,
   requireConversationId,
 } from '../briefingAnnotation.handler'
-import type { BriefingChatContext } from '../briefingAnnotation.handler'
 import { BriefingContextService } from './briefingContext.service'
 import { BriefingNotesService } from './briefingNotes.service'
 import { DistrictResolverService } from './districtResolver.service'
@@ -26,29 +13,16 @@ import { DistrictResolverService } from './districtResolver.service'
 export const BRIEFING_CHATS_DATABRICKS_PROVIDER =
   'BRIEFING_CHATS_DATABRICKS_PROVIDER'
 
-export interface SendMessageArgs {
-  annotationId: string
-  userId: number
-  userMessage: string
-  signal?: AbortSignal
-  userMessageId?: string
-}
-
-export interface LoadConversationResult {
-  conversationId: string
-  messages: ChatMessageWithSegments[]
-}
-
 @Injectable()
 export class BriefingChatsService {
   // The one BriefingAnnotationHandler instance. briefing-chats.module
-  // republishes it so the scope registry shares it with this send path.
+  // republishes it as the briefing_annotation scope, so the handler a turn runs
+  // through is this module's own.
   readonly handler: BriefingAnnotationHandler
 
   constructor(
     private readonly briefingContext: BriefingContextService,
     private readonly chatStore: ChatStoreService,
-    private readonly chatStream: ChatStreamService,
     notesService: BriefingNotesService,
     @Optional()
     @Inject(BRIEFING_CHATS_DATABRICKS_PROVIDER)
@@ -67,91 +41,11 @@ export class BriefingChatsService {
     )
   }
 
-  // The turn itself is the shared one: context, prompt and tools all come from
-  // the registered handler. Only the annotation-keyed entry is briefing's own.
-  sendMessage(args: SendMessageArgs): AsyncIterable<ChatStreamChunk> {
-    const run = async function* (
-      self: BriefingChatsService,
-    ): AsyncGenerator<ChatStreamChunk, void, void> {
-      const ctx = await self.handler.loadContextForAnnotation(
-        args.annotationId,
-        args.userId,
-      )
-
-      // The registry route forwards finalizeAssistantText through
-      // general-chats.service; this route calls the stream directly, so it
-      // forwards the same hook itself, or the two routes drift.
-      const scopeHandler: ChatScopeHandler<BriefingChatContext> = self.handler
-      const finalizing = hasFinalizeAssistantText(scopeHandler)
-        ? scopeHandler
-        : null
-      const inner = self.chatStream.stream({
-        conversationId: ctx.conversationId,
-        ownerUserId: args.userId,
-        systemPrompt: self.handler.buildSystemPrompt(ctx),
-        tools: self.handler.buildTools(ctx),
-        userMessage: args.userMessage,
-        models: self.handler.models,
-        traceName: self.handler.traceName,
-        agentName: ChatScope.briefing_annotation,
-        ...(args.signal && { signal: args.signal }),
-        ...(args.userMessageId && { userMessageId: args.userMessageId }),
-        ...(finalizing && {
-          finalizeText: (text, turn) =>
-            finalizing.finalizeAssistantText(text, turn, ctx),
-        }),
-      })
-
-      for await (const chunk of inner) yield chunk
-    }
-    return {
-      [Symbol.asyncIterator]: () => run(this),
-    }
-  }
-
-  // The conversation an annotation's chat lives on, after the same ownership
-  // check every other route does.
-  async conversationIdFor(
-    annotationId: string,
-    userId: number,
-  ): Promise<{ conversationId: string }> {
-    const { annotation } = await this.briefingContext.loadContext(
-      annotationId,
-      userId,
-    )
-    return {
-      conversationId: requireConversationId(annotation.chatConversationId),
-    }
-  }
-
-  async assertBriefingChatAccessible(
-    annotationId: string,
-    userId: number,
-  ): Promise<void> {
-    await this.briefingContext.loadContext(annotationId, userId)
-  }
-
-  async loadConversation(
-    annotationId: string,
-    userId: number,
-  ): Promise<LoadConversationResult> {
-    const { annotation } = await this.briefingContext.loadContext(
-      annotationId,
-      userId,
-    )
-    const conversationId = requireConversationId(annotation.chatConversationId)
-    const conversation = await this.chatStore.findConversationByIdAndOwner(
-      conversationId,
-      userId,
-    )
-    if (!conversation) {
-      throw new NotFoundException('Conversation not found')
-    }
-    const messages =
-      await this.chatStore.listMessagesByConversation(conversationId)
-    return { conversationId, messages }
-  }
-
+  // The annotation-keyed half of a briefing chat's lifecycle, which is all this
+  // module still owns: the conversation is created with its annotation
+  // (POST /v1/briefing-chats) and deleted by that annotation, because the
+  // briefing UI deletes the chat row it renders. Turns and history are keyed by
+  // conversation and shared with every other scope on /v1/chats.
   async deleteConversation(
     annotationId: string,
     userId: number,

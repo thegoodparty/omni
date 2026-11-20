@@ -115,12 +115,16 @@ The daily cron (the `meetingBriefingsDaily` pg-boss schedule, `0 7 * * *` UTC, `
 
 ### `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `/v1/briefing-chats/*`
 
-| Method | Path                      | Notes                                                                                                                                                       |
-| ------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/`                       | Find-or-create the chat conversation for a `(meetingDate, anchor)` pair. Idempotent. Creates an `Annotation` of `kind=chat` linked to a `ChatConversation`. |
-| POST   | `/:annotationId/messages` | SSE stream. Calls `BriefingChatsService.sendMessage()`. Streams Claude output as `data: {...}\n\n` chunks. 5-minute server timeout.                         |
-| GET    | `/:annotationId`          | Replay the persisted conversation.                                                                                                                          |
-| DELETE | `/:annotationId`          | 204. Soft-deletes the `ChatConversation` (`deletedAt` set, messages preserved).                                                                             |
+| Method | Path             | Notes                                                                                                                                                       |
+| ------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/`              | Find-or-create the chat conversation for a `(meetingDate, anchor)` pair. Idempotent. Creates an `Annotation` of `kind=chat` linked to a `ChatConversation`. |
+| DELETE | `/:annotationId` | 204. Soft-deletes the `ChatConversation` (`deletedAt` set, messages preserved) and the annotation that pointed at it.                                        |
+
+Turns and history are conversation-keyed and shared with every other scope:
+`POST`/`GET /v1/chats/:conversationId[/messages]?scope=briefing_annotation`,
+answered by `BriefingAnnotationHandler`. This controller owns only the two
+annotation-keyed halves — the create that writes the pair in one transaction,
+and the delete the briefing UI makes on the chat row it renders.
 
 ## Notes, dictation, and transcription
 
@@ -138,14 +142,18 @@ The frontend uploads asynchronously and polls the attachment until `ocrStatus` i
 
 ## AI chat assistant
 
-`BriefingChatsService.sendMessage()` runs a streaming LLM call via `ChatStreamService` against Claude. The system prompt is composed by `systemPromptBuilder.ts`. Models attempted in order:
+A briefing turn is the shared one: `/v1/chats/:conversationId/messages` picks up
+`BriefingAnnotationHandler` from `ChatScopeRegistry` and runs a streaming LLM
+call via `ChatStreamService` against Claude. The system prompt is composed by
+`systemPromptBuilder.ts`, called from the handler's `buildSystemPrompt`. Models
+attempted in order:
 
 - `claude-sonnet-4-6` (default)
 - `claude-opus-4-7` (fallback)
 
 ### Tools
 
-Built per request in `buildToolsForUser()`. Availability depends on env vars and resolved context:
+Built per turn in `BriefingAnnotationHandler.assembleTools()`. Availability depends on env vars and resolved context:
 
 | Tool                   | Provider                                | Available when                                                                                                                                                                                                                                                                                                    |
 | ---------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -157,7 +165,7 @@ Built per request in `buildToolsForUser()`. Availability depends on env vars and
 
 ### Lazy notes provider pattern
 
-The count is cheap and decides whether to expose the tool at all (and whether the system prompt mentions "the user has N notes"). The full load — including `extractHighlight` against the artifact for each note — is wrapped in a promise that only fires when the LLM calls the tool. On failure the cache is invalidated so a retry can succeed. See `LazyNotesProvider` in `briefing-chats.service.ts`.
+The count is cheap and decides whether to expose the tool at all (and whether the system prompt mentions "the user has N notes"). The full load — including `extractHighlight` against the artifact for each note — is wrapped in a promise that only fires when the LLM calls the tool. On failure the cache is invalidated so a retry can succeed. See `LazyNotesProvider` in `briefingAnnotation.handler.ts`.
 
 ### System prompt guardrails (`systemPromptBuilder.ts`)
 

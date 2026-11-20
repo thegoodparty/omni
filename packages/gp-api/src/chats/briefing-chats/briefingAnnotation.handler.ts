@@ -142,14 +142,14 @@ export interface BriefingChatContext {
 
 // Not @Injectable: BriefingChatsService constructs the single instance from the
 // deps it already holds, and briefing-chats.module republishes that instance
-// under this class token. One wiring feeds both the live send path and the
-// scope registry, so the two cannot drift apart.
+// under this class token, which is how briefing chat registers as a scope.
 export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatContext> {
   readonly scope = ChatScope.briefing_annotation
   readonly isSensitive = true
   readonly models = [...BRIEFING_CHAT_MODELS]
   readonly traceName = BRIEFING_CHAT_TRACE_NAME
-  // The briefing route never titled a conversation; /v1/chats must not either.
+  // A briefing chat is named by its annotation; it must not be titled from the
+  // first user message on the shared route.
   readonly setsTitle = false
 
   constructor(
@@ -179,19 +179,6 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
         conversationId,
         userId,
       ),
-      userId,
-    )
-  }
-
-  // The annotation-keyed entry the briefing routes use. The interface hands
-  // loadContext a conversationId, which resolves back to the same context via
-  // the unique Annotation.chatConversationId.
-  async loadContextForAnnotation(
-    annotationId: string,
-    userId: number,
-  ): Promise<BriefingChatContext> {
-    return this.toContext(
-      await this.briefingContext.loadContext(annotationId, userId),
       userId,
     )
   }

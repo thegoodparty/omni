@@ -32,9 +32,10 @@ conversation and the assistant row are all in scope together. It is
 fire-and-forget: a failed telemetry write must never cost a user their turn.
 
 `GeneralChatsService.sendMessage` decides whether a turn is a judge turn, from
-the organization slug already on the conversation row it loaded.
-`BriefingChatsService` does not: its context carries no organization slug, so
-briefing turns record nothing.
+the organization slug already on the conversation row it loaded. Every scope
+with a `ChatScopeHandler` runs through it, briefing chat included, so a
+briefing conversation the seeder slugged under `judge-` records its turns like
+any other.
 
 ## Two columns that mean something other than their name
 

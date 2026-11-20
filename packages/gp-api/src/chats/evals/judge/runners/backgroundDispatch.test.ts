@@ -1660,8 +1660,8 @@ describe('withRuntimeRefusals', () => {
   })
 
   // briefing_annotation is the agent the HTTP runtime cannot drive at all:
-  // BriefingChatsService writes no telemetry row, so there is nothing to
-  // read a turn back from.
+  // its artifact and its "Today is" line are served by an in-process patch, so
+  // no arm could read the same briefing on the same day.
   it('refuses the agent the HTTP runtime cannot drive, and only it', () => {
     spendingArm()
     const env = withRuntimeRefusals(armEnvOf({ agentIds: ids }), httpRuntime())
@@ -1669,7 +1669,7 @@ describe('withRuntimeRefusals', () => {
       'briefing_annotation',
     ])
     expect(env.chatRuntimeRefused?.get('briefing_annotation')).toMatch(
-      /records no judge telemetry/,
+      /in-process patch, so no arm could read the same briefing/,
     )
   })
 

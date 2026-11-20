@@ -367,15 +367,14 @@ export const inProcessChatRuntime = (
 
   // THE CONVERSATION, OPENED THE WAY THE PRODUCT OPENS IT.
   //
-  // Every registry scope is created through POST /v1/chats. A briefing chat
-  // is not: the webapp creates it with POST /v1/briefing-chats, which writes
-  // the conversation and its annotation in one transaction, and posts its
-  // turns to /v1/briefing-chats/:annotationId/messages. The registry's create
-  // path refuses briefing_annotation on purpose, because a conversation with
-  // no annotation is one the briefing context cannot load. So this drives
-  // the briefing routes — production code untouched, and the turn the judge
-  // measures is the one users take, through the same handler the registry
-  // holds.
+  // Every registry scope is created through POST /v1/chats except a briefing
+  // chat: the webapp creates that one with POST /v1/briefing-chats, which
+  // writes the conversation and its annotation in one transaction. The
+  // registry's create path refuses briefing_annotation on purpose, because a
+  // conversation with no annotation is one the briefing context cannot load.
+  // Its TURNS, though, go to the shared conversation-keyed route like every
+  // other scope. So this drives the briefing create and then hands back the
+  // same messagesPath shape every scope uses.
   openConversation: async (request) => {
     const headers = {
       headers: { 'X-Organization-Slug': request.organizationSlug },
@@ -396,11 +395,12 @@ export const inProcessChatRuntime = (
       if (created.status !== HTTP_CREATED) {
         throw new Error(`POST /v1/briefing-chats returned ${created.status}`)
       }
-      const { annotationId, conversationId } =
-        createBriefingChatResponseSchema.parse(created.data)
+      const { conversationId } = createBriefingChatResponseSchema.parse(
+        created.data,
+      )
       return {
         conversationId,
-        messagesPath: `/v1/briefing-chats/${annotationId}/messages`,
+        messagesPath: `/v1/chats/${conversationId}/messages?scope=${request.scope}`,
       }
     }
 

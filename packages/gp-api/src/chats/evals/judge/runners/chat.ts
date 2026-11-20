@@ -107,7 +107,7 @@ export interface ChatRunRequest {
   variant: { ref: string; commit: string; model: string }
   organizationSlug: string
   anchor?: ChatAnchor
-  // briefing_annotation only, and required there: the briefing route opens
+  // briefing_annotation only, and required there: the briefing create opens
   // the conversation on a meeting and a place in its briefing, not on a scope.
   briefing?: BriefingChatTarget
   // The canned model. Omitting it means the real, paid model answers, which

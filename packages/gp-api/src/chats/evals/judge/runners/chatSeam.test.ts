@@ -1289,16 +1289,13 @@ describe('installBriefingFixture', () => {
     }
   })
 
-  it('pins today on a judge briefing, through both context entries', async () => {
+  it('pins today on a judge briefing', async () => {
     // Unreachable as a test of the pin if the real date happened to equal it.
     expect(realToday).not.toBe(FIXTURE.today)
     const handler = handlerOver(JUDGE_BUCKET)
     const seam = installBriefingFixture(FIXTURE)
     try {
       expect((await handler.loadContext('conv', 42)).today).toBe(FIXTURE.today)
-      expect((await handler.loadContextForAnnotation('ann', 42)).today).toBe(
-        FIXTURE.today,
-      )
     } finally {
       seam.restore()
     }
@@ -1323,9 +1320,6 @@ describe('installBriefingFixture', () => {
     expect(await cache.get(JUDGE_BUCKET, 'k')).toBe('s3 body')
     expect(s3Reads).toEqual([`${JUDGE_BUCKET}/k`])
     expect((await handler.loadContext('conv', 42)).today).toBe(realToday)
-    expect((await handler.loadContextForAnnotation('ann', 42)).today).toBe(
-      realToday,
-    )
   })
 
   // Restore releases the claim, so the next case of the sweep can install.

@@ -742,7 +742,6 @@ export const installBriefingFixture = (
   return claim(cache, 'installBriefingFixture', () => {
     const originalGet = cache.get
     const originalLoad = handler.loadContext
-    const originalLoadForAnnotation = handler.loadContextForAnnotation
     const pinned = (ctx: BriefingChatContext): BriefingChatContext =>
       ctx.briefing.artifactBucket === fixture.bucket
         ? { ...ctx, today: fixture.today }
@@ -775,17 +774,6 @@ export const installBriefingFixture = (
           originalLoad.bind(this)
         return pinned(await unpatched(conversationId, userId))
       },
-      async loadContextForAnnotation(
-        this: BriefingAnnotationHandler,
-        annotationId: string,
-        userId: number,
-      ): Promise<BriefingChatContext> {
-        // .bind() returns any — TypeScript cannot infer the bound signature
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const unpatched: BriefingAnnotationHandler['loadContextForAnnotation'] =
-          originalLoadForAnnotation.bind(this)
-        return pinned(await unpatched(annotationId, userId))
-      },
     })
     return {
       // The originals put back rather than the properties deleted, for the
@@ -793,10 +781,7 @@ export const installBriefingFixture = (
       // deleting them would leave every instance with none.
       restore: () => {
         Object.assign(cache, { get: originalGet })
-        Object.assign(handler, {
-          loadContext: originalLoad,
-          loadContextForAnnotation: originalLoadForAnnotation,
-        })
+        Object.assign(handler, { loadContext: originalLoad })
         installedOn.delete(cache)
       },
     }
