@@ -3,7 +3,7 @@ title: Legacy Pro subscribers get their plan columns from a manual backfill scri
 status: active
 decided_by: [agent]
 date: 2026-11-20
-code: ['#PR']
+code: ['#3959']
 scope:
   - packages/gp-api/scripts/backfill-subscription-plan-columns.ts
   - packages/gp-api/src/campaigns/plans/campaignPlanPurchase.service.ts
