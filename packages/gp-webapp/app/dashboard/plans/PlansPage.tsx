@@ -16,7 +16,9 @@ interface PlansPageProps {
 }
 
 const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
-  const { plan: currentPlan, onSubscription } = usePlan()
+  const { plan: currentPlan, onSubscription, recommendTeam } = usePlan()
+  const leadWithTeam =
+    highlightTeam || (currentPlan === 'free' && recommendTeam)
   const offerFor = (plan: PlanKey): { href: string | null } | null => {
     const column = planColumnsFor(currentPlan, onSubscription).find(
       (c) => c.plan === plan,
@@ -58,7 +60,7 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
             <PlanCards
               currentPlan={currentPlan}
               onSubscription={onSubscription}
-              highlightTeam={highlightTeam}
+              highlightTeam={leadWithTeam}
               offerFor={offerFor}
             />
           </div>

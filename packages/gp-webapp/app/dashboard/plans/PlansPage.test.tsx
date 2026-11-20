@@ -6,6 +6,7 @@ import PlansPage from './PlansPage'
 const mockPlan = vi.hoisted(() => ({
   current: 'free' as string,
   onSubscription: false,
+  recommendTeam: false,
 }))
 
 vi.mock('@shared/experiments/FeatureFlagGuard', () => ({
@@ -20,6 +21,7 @@ vi.mock('../shared/membership/deriveMembershipState', () => ({
   usePlan: () => ({
     plan: mockPlan.current,
     onSubscription: mockPlan.onSubscription,
+    recommendTeam: mockPlan.recommendTeam,
   }),
 }))
 
@@ -27,6 +29,18 @@ describe('PlansPage', () => {
   beforeEach(() => {
     mockPlan.current = 'free'
     mockPlan.onSubscription = false
+    mockPlan.recommendTeam = false
+  })
+
+  it('leads with Team on a Free campaign in a large race', () => {
+    mockPlan.recommendTeam = true
+    render(<PlansPage highlightTeam={false} />)
+    expect(screen.getByTestId('plan-card-team')).toHaveClass('-order-1')
+  })
+
+  it('leads with the table order when Team is not recommended', () => {
+    render(<PlansPage highlightTeam={false} />)
+    expect(screen.getByTestId('plan-card-team')).not.toHaveClass('-order-1')
   })
 
   it('shows the three plans with prices and credit from PLAN_PRICING', () => {

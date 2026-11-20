@@ -41,6 +41,13 @@ vi.mock('./layouts/navigation/HeaderLogo', () => ({
   HeaderLogo: () => <div data-testid="header-logo" />,
 }))
 
+const { mockBadgePlan } = vi.hoisted(() => ({
+  mockBadgePlan: { current: 'free' as string },
+}))
+vi.mock('app/dashboard/shared/plan/useBadgePlan', () => ({
+  useBadgePlan: () => mockBadgePlan.current,
+}))
+
 const mockSetCookie = vi.fn<(name: string, value: string) => void>()
 const mockGetCookie = vi.fn<(name: string) => string | false>(() => false)
 vi.mock('helpers/cookieHelper', () => ({
@@ -421,6 +428,22 @@ describe('OrganizationPicker', () => {
     testQueryClient.setDefaultOptions({
       queries: { staleTime: 1000 * 60 * 5, retry: 2 },
     })
+  })
+
+  it('badges the switcher by plan: TEAM on Team, PRO on Pro, none on Free', () => {
+    mockBadgePlan.current = 'team'
+    const { unmount } = renderPicker()
+    expect(screen.getByText('TEAM')).toBeInTheDocument()
+    unmount()
+
+    mockBadgePlan.current = 'pro'
+    const pro = renderPicker()
+    expect(screen.queryByText('TEAM')).toBeNull()
+    pro.unmount()
+
+    mockBadgePlan.current = 'free'
+    renderPicker()
+    expect(screen.queryByText('TEAM')).toBeNull()
   })
 
   it('renders past organizations grayed with a "Past" label', async () => {

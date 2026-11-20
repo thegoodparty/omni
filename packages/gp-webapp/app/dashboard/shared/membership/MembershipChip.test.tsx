@@ -236,14 +236,15 @@ describe('MembershipChip plan copy', () => {
     expect(screen.queryByText(MEMBERSHIP_COPY.chip.joinTail)).toBeNull()
   })
 
-  it('shows the Team name instead of the Pro badge when Team is recommended', () => {
+  it('shows the TEAM pill instead of the Pro badge when Team is recommended', () => {
     mockPlanFlag.enabled = true
     setup({
       state: membership({ tier: 'free' }),
       registeredVoters: PLAN_PRICING.teamRecommendVoterThreshold + 1,
     })
 
-    expect(screen.getByText('Team')).toBeInTheDocument()
+    expect(screen.getByText('TEAM')).toBeInTheDocument()
+    expect(screen.queryByAltText(/pro/i)).toBeNull()
     expect(
       screen.getByText(
         membershipPlanCopy(buildPlanPitch(true, true, true)).chipJoinTail,

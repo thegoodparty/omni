@@ -1,12 +1,11 @@
 'use client'
 import Link from 'next/link'
 import Image from 'next/image'
-import { useCampaign } from '@shared/hooks/useCampaign'
+import { useBadgePlan } from 'app/dashboard/shared/plan/useBadgePlan'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { usePathname } from 'next/navigation'
-import { Campaign } from 'helpers/types'
 
-const ProBadge = (): React.JSX.Element => (
+const PlanLabel = ({ label }: { label: string }): React.JSX.Element => (
   <div
     className="
       pro-label
@@ -21,15 +20,13 @@ const ProBadge = (): React.JSX.Element => (
       p-1
     "
   >
-    PRO
+    {label}
   </div>
 )
 
 export const HeaderLogo = (): React.JSX.Element => {
-  const [campaign] = useCampaign()
+  const badgePlan = useBadgePlan()
   const pathname = usePathname()
-
-  const { isPro } = (campaign as Campaign | null) || {}
 
   return (
     <>
@@ -49,7 +46,8 @@ export const HeaderLogo = (): React.JSX.Element => {
           alt="GoodParty.org"
           priority
         />
-        {isPro && <ProBadge />}
+        {badgePlan === 'pro' && <PlanLabel label="PRO" />}
+        {badgePlan === 'team' && <PlanLabel label="TEAM" />}
       </Link>
     </>
   )
