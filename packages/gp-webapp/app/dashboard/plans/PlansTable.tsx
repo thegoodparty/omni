@@ -19,12 +19,14 @@ import {
 
 interface PlansTableProps {
   currentPlan: PlanKey
+  onSubscription?: boolean
   offerFor: (plan: PlanKey) => { href: string | null } | null
 }
 
 // Design: GpdPlansDesk. The phone design swaps this for stacked cards.
 export const PlansTable = ({
   currentPlan,
+  onSubscription,
   offerFor,
 }: PlansTableProps): React.JSX.Element => (
   <Table>
@@ -35,7 +37,7 @@ export const PlansTable = ({
             {PLANS_COPY.compare}
           </span>
         </TableHead>
-        {planColumnsFor(currentPlan).map((column) => (
+        {planColumnsFor(currentPlan, onSubscription).map((column) => (
           <TableHead key={column.plan} className="text-center align-top">
             <div className="flex flex-col items-center gap-1 py-2">
               <PlanName plan={column.plan} name={column.name} />
@@ -66,7 +68,7 @@ export const PlansTable = ({
               </span>
             </div>
           </TableCell>
-          {planColumnsFor(currentPlan).map((column) => {
+          {planColumnsFor(currentPlan, onSubscription).map((column) => {
             const included = planIncludes(column.plan, feature)
             return (
               <TableCell key={column.plan} className="text-center">

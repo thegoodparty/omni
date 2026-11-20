@@ -12,6 +12,7 @@ import {
 
 interface PlanCardsProps {
   currentPlan: PlanKey
+  onSubscription?: boolean
   highlightTeam: boolean
   offerFor: (plan: PlanKey) => { href: string | null } | null
 }
@@ -20,11 +21,12 @@ interface PlanCardsProps {
 // list; Team moves to the top when the visitor came from a Team pitch.
 export const PlanCards = ({
   currentPlan,
+  onSubscription,
   highlightTeam,
   offerFor,
 }: PlanCardsProps): React.JSX.Element => (
   <div className="flex flex-col gap-4">
-    {planColumnsFor(currentPlan).map((column) => (
+    {planColumnsFor(currentPlan, onSubscription).map((column) => (
       <Card
         key={column.plan}
         data-testid={`plan-card-${column.plan}`}

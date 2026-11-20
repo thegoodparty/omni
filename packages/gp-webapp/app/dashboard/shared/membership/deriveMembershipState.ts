@@ -86,6 +86,8 @@ export const deriveMembershipState = ({
 export interface PlanState {
   plan: CampaignPlanName
   isPaid: boolean
+  // The $10/month Stripe subscription: never offered a plan purchase.
+  onSubscription: boolean
   planEndsAt: Date | null
   creditCents: number
   // True above the race-size threshold, where Team is the pitched plan. Stays
@@ -110,6 +112,7 @@ export const usePlan = (): PlanState => {
   return {
     plan,
     isPaid: plan !== 'free',
+    onSubscription: campaign?.planPricingModel === 'subscription',
     planEndsAt: campaign?.planEndsAt ? new Date(campaign.planEndsAt) : null,
     creditCents: campaign?.outreachCreditCents ?? 0,
     recommendTeam:

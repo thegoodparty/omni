@@ -15,6 +15,7 @@ import {
   type PlanRow,
 } from './pro-without-subscription-drift'
 import { useTestService } from '../src/test-service'
+import { run as backfillSubscribers } from './backfill-subscription-plan-columns'
 
 // The fixtures below carry the real prod ids and timestamps of the incident
 // this report was written for, so the suite reads as the worked example.
@@ -416,6 +417,7 @@ describe('plan drift SQL against the database', () => {
     isPro: boolean
     plan: 'free' | 'pro' | 'team'
     planEndedAt?: Date
+    details?: { subscriptionId: string }
   }): Promise<{ id: number; slug: string }> => {
     const user = await service.prisma.user.create({
       data: {
@@ -458,6 +460,27 @@ describe('plan drift SQL against the database', () => {
     expect(found.get(paidNotPro.id)).toBe(ProDriftClass.PaidPlanNotPro)
     expect(found.has(ended.id)).toBe(false)
     expect(found.has(consistent.id)).toBe(false)
+  })
+
+  it('reports a legacy subscriber until the backfill, and nothing after it', async () => {
+    const subscriber = await insertCampaign({
+      isPro: true,
+      plan: 'free',
+      details: { subscriptionId: 'sub_legacy' },
+    })
+    const idsFound = async () =>
+      (await planFindingIds()).map((f) => f?.campaignId)
+    expect(await idsFound()).toContain(subscriber.id)
+
+    await backfillSubscribers(
+      {
+        query: <T>(sql: string, params: unknown[]) =>
+          service.prisma.$queryRawUnsafe<T[]>(sql, ...params),
+      },
+      { apply: true },
+    )
+
+    expect(await idsFound()).not.toContain(subscriber.id)
   })
 
   it('reports an unsettled reservation only after the 7 day window', async () => {
