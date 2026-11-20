@@ -45,7 +45,7 @@ export function PlanCard({ campaign }: { campaign: EnrichedCampaign }) {
       <Flex gap="2" mt="3" wrap="wrap">
         <SetPlanDialog {...dialogProps} currentPlan={plan} />
         <ExtendPlanDialog {...dialogProps} />
-        <RefundPlanDialog {...dialogProps} planPaidAt={campaign.planPaidAt} />
+        <RefundPlanDialog {...dialogProps} />
       </Flex>
     </InfoCard>
   )

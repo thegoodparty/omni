@@ -38,12 +38,23 @@ export const AdminExtendPlanSchema = z.object({
 })
 export type AdminExtendPlan = z.infer<typeof AdminExtendPlanSchema>
 
+export const AdminPlanRefundEligibilitySchema = z.object({
+  refundable: z.boolean(),
+  reason: z.enum(['NO_REFUNDABLE_PURCHASE', 'ACTIVE_SUBSCRIPTION']).nullable(),
+  purchaseId: z.number().int().nullable(),
+  kind: z.enum(['plan', 'team_upgrade']).nullable(),
+  amountCents: z.number().int().nullable(),
+  purchasedAt: z.string().nullable(),
+  daysSincePurchase: z.number().int().nullable(),
+  outreachSent: z.boolean().nullable(),
+})
+export type AdminPlanRefundEligibility = z.infer<
+  typeof AdminPlanRefundEligibilitySchema
+>
+
 export const AdminRefundPlanResponseSchema = z.object({
   refundedCents: z.number().int(),
-  eligibility: z.object({
-    daysSincePurchase: z.number().int(),
-    outreachSent: z.boolean(),
-  }),
+  eligibility: AdminPlanRefundEligibilitySchema,
 })
 export type AdminRefundPlanResponse = z.infer<
   typeof AdminRefundPlanResponseSchema

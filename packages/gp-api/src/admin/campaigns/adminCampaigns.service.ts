@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import {
   AdminExtendPlan,
+  AdminPlanRefundEligibility,
   AdminRefundPlanResponse,
   AdminSetPlan,
   CampaignPlanState,
@@ -168,38 +169,20 @@ export class AdminCampaignsService {
   // transaction with the purchase row; the row is marked last for that reason.
   async refundPlan(id: number): Promise<AdminRefundPlanResponse> {
     const campaign = await this.campaigns.findUniqueOrThrow({ where: { id } })
-    const purchase = await this.campaigns.client.campaignPlanPurchase.findFirst(
-      {
-        where: { campaignId: id, status: CampaignPlanPurchaseStatus.paid },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      },
-    )
+    const { purchase, eligibility } = await this.assessRefund(campaign)
     if (!purchase) {
       throw new ConflictException({
         message: 'This campaign has no paid plan purchase to refund',
         errorCode: 'NO_REFUNDABLE_PURCHASE',
       })
     }
-
-    const backToPro = purchase.kind === CampaignPlanPurchaseKind.team_upgrade
-    if (!backToPro && campaign.details?.subscriptionId) {
+    if (eligibility.reason === 'ACTIVE_SUBSCRIPTION') {
       throw new ConflictException({
         message: 'Cancel the Stripe subscription before refunding this plan',
         errorCode: 'ACTIVE_SUBSCRIPTION',
       })
     }
-
-    const outreachSent =
-      (await this.campaigns.client.outreach.count({
-        where: {
-          campaignId: id,
-          createdAt: { gte: purchase.createdAt },
-          status: {
-            in: [OutreachStatus.in_progress, OutreachStatus.completed],
-          },
-        },
-      })) > 0
-    const daysSincePurchase = differenceInDays(new Date(), purchase.createdAt)
+    const backToPro = purchase.kind === CampaignPlanPurchaseKind.team_upgrade
 
     let refundedCents = 0
     if (purchase.stripePaymentIntentId) {
@@ -240,10 +223,63 @@ export class AdminCampaignsService {
       change: 'refunded',
       reason: 'admin_refund',
     })
-    return {
-      refundedCents,
-      eligibility: { daysSincePurchase, outreachSent },
+    return { refundedCents, eligibility }
+  }
+
+  async getRefundEligibility(id: number): Promise<AdminPlanRefundEligibility> {
+    const campaign = await this.campaigns.findUniqueOrThrow({ where: { id } })
+    return (await this.assessRefund(campaign)).eligibility
+  }
+
+  // The one computation behind both the refund and the read staff see before
+  // confirming it, so the dialog and the refund cannot disagree.
+  private async assessRefund(campaign: Campaign) {
+    const purchase = await this.campaigns.client.campaignPlanPurchase.findFirst(
+      {
+        where: {
+          campaignId: campaign.id,
+          status: CampaignPlanPurchaseStatus.paid,
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      },
+    )
+    if (!purchase) {
+      const eligibility: AdminPlanRefundEligibility = {
+        refundable: false,
+        reason: 'NO_REFUNDABLE_PURCHASE',
+        purchaseId: null,
+        kind: null,
+        amountCents: null,
+        purchasedAt: null,
+        daysSincePurchase: null,
+        outreachSent: null,
+      }
+      return { purchase: null, eligibility }
     }
+
+    const backToPro = purchase.kind === CampaignPlanPurchaseKind.team_upgrade
+    const blocked = !backToPro && Boolean(campaign.details?.subscriptionId)
+    const outreachSent =
+      (await this.campaigns.client.outreach.count({
+        where: {
+          campaignId: campaign.id,
+          createdAt: { gte: purchase.createdAt },
+          status: {
+            in: [OutreachStatus.in_progress, OutreachStatus.completed],
+          },
+        },
+      })) > 0
+    const eligibility: AdminPlanRefundEligibility = {
+      refundable: !blocked,
+      reason: blocked ? 'ACTIVE_SUBSCRIPTION' : null,
+      purchaseId: purchase.id,
+      kind: purchase.kind,
+      amountCents: purchase.amountCents,
+      purchasedAt: purchase.createdAt.toISOString(),
+      daysSincePurchase: differenceInDays(new Date(), purchase.createdAt),
+      outreachSent,
+    }
+    return { purchase, eligibility }
   }
 
   private async track(

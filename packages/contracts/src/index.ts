@@ -621,12 +621,14 @@ export {
   CampaignPlanStateSchema,
   AdminSetPlanSchema,
   AdminExtendPlanSchema,
+  AdminPlanRefundEligibilitySchema,
   AdminRefundPlanResponseSchema,
   type CampaignPlanName,
   type PlanPurchaseMetadata,
   type CampaignPlanState,
   type AdminSetPlan,
   type AdminExtendPlan,
+  type AdminPlanRefundEligibility,
   type AdminRefundPlanResponse,
 } from './payments/PlanPurchase.schema'
 

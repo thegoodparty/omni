@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -11,6 +12,7 @@ import {
 } from '@nestjs/common'
 import {
   AdminExtendPlanSchema,
+  AdminPlanRefundEligibilitySchema,
   AdminRefundPlanResponseSchema,
   AdminSetPlanSchema,
   CampaignPlanStateSchema,
@@ -49,6 +51,12 @@ export class AdminCampaignPlanController {
     @Body() body: AdminExtendPlanDto,
   ) {
     return this.adminCampaigns.extendPlan(id, body)
+  }
+
+  @Get(':id/plan/refund-eligibility')
+  @ResponseSchema(AdminPlanRefundEligibilitySchema)
+  getRefundEligibility(@Param('id', ParseIntPipe) id: number) {
+    return this.adminCampaigns.getRefundEligibility(id)
   }
 
   @Post(':id/plan/refund')
