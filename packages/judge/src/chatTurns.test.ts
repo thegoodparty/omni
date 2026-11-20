@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  briefingChatTurns,
-  chatTurns,
-  type BriefingChatTurnsInput,
-  type ChatTurnsInput,
-} from './chatTurns'
+import { chatTurns, type ChatTurnsInput } from './chatTurns'
 import type { EvalApi, EvalContext } from './suite'
 
 // A fake arm: the chat routes over an in-memory counter, and the SSE body built
@@ -190,15 +185,15 @@ describe('chatTurns', () => {
   })
 })
 
-describe('briefingChatTurns', () => {
-  it('opens on the annotation routes and posts every turn to its id', async () => {
+describe('chatTurns for briefing_annotation', () => {
+  it('opens on the briefing route and posts every turn to the shared route', async () => {
     const arm = fakeArm(['a briefing reply'])
-    const input: BriefingChatTurnsInput = {
+    const output = await chatTurns(arm.ctx, {
+      scope: 'briefing_annotation',
       meetingDate: '2026-05-19',
       anchor: { jsonPath: null, start: null, end: null },
       turns: ['what is this meeting about'],
-    }
-    const output = await briefingChatTurns(arm.ctx, input)
+    })
 
     expect(output).toBe(
       'User: what is this meeting about\nAssistant: a briefing reply',

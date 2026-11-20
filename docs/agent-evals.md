@@ -7,7 +7,7 @@
 | Does one version give a known right answer? Examples: a PII gate, classifier, or guardrail. | Expected-result suite | Runs in process, without a deployment. Needs a judge model only if `judge` calls `judgeModel`. |
 | Did a prompt change, model swap, or engine migration make the agent better or worse than main? | Pairwise suite (the universal judge) | Two running gp-api instances, normally deployed dev and a PR preview. |
 | Is deterministic code correct without a model? | Plain unit test, not an eval | See [testing](testing.md). |
-| Did a change make a chat agent better or worse than main? | Pairwise suite that drives the chat routes (`chatTurns`, `briefingChatTurns`) | Two running instances, as for any pairwise suite. See [Chat suites](#chat-suites). |
+| Did a change make a chat agent better or worse than main? | Pairwise suite that drives the chat routes (`chatTurns`) | Two running instances, as for any pairwise suite. See [Chat suites](#chat-suites). |
 | Does a chat prompt meet a behavioral contract against a real LLM? | [Chat prompt evals](../packages/gp-api/src/chats/evals/README.md) | Opt-in Vitest tests for existing chat contracts. |
 | Is the Chief of Staff meeting an existing golden benchmark? | [Chief of Staff golden bench](../packages/gp-api/src/chats/general/chief-of-staff/evals/README.md) | Use its curated conversation cases and rubric for that benchmark. |
 | Are you evaluating completed PMF experiment runs or working on the Python AI sandbox? | [PMF experiment evals](../packages/runbooks/experiment-evals/AGENTS.md) or [Braintrust sandbox](../packages/gp-ai/braintrust_eval_sandbox/README.md) | Use the experiment's rubric for stored runs, or the sandbox for Python AI experiments. |
@@ -53,15 +53,15 @@ A chat agent has no run route to poll. The turn streams and the reply is the SSE
 body, so a chat suite posts each turn to the conversation it opened as the case's
 own test user and returns the transcript.
 
-`chatTurns(ctx, { scope, turns, anchor? })` opens `POST /v1/chats` and posts each
-turn to `POST /v1/chats/:conversationId/messages`. `briefingChatTurns(ctx,
-{ meetingDate, anchor, turns })` is the exception: a briefing conversation is
-created together with the annotation it hangs off, so it opens with `POST
-/v1/briefing-chats`. Its turns go to the shared `POST
-/v1/chats/:conversationId/messages` route like every other scope.
-`POST /v1/chats` refuses the `briefing_annotation` scope on purpose.
+`chatTurns(ctx, { scope, turns, ... })` drives every chat scope. It opens the
+conversation, then posts each turn to `POST /v1/chats/:conversationId/messages`.
+The input is typed by scope: `ordinance_flow` and `priority_flow` need an
+`anchor`, and `briefing_annotation` needs a `meetingDate` and a briefing
+`anchor`. A briefing chat opens on `POST /v1/briefing-chats`, because its
+conversation is created together with the annotation it hangs off; every other
+scope opens on `POST /v1/chats`.
 
-Both return the turns as `User: …\nAssistant: …` blocks, which is the text the
+It returns the turns as `User: …\nAssistant: …` blocks, which is the text the
 grader reads, and annotate each turn so a failed attempt shows the replies. A
 turn that streamed an `error` frame, or that ended without its `done` frame,
 throws rather than returning the text so far: a truncated answer is not a
@@ -139,10 +139,8 @@ For CAN'T JUDGE, inspect the failed attempts and arm reachability. Check preview
 | `JudgeModel` | [judgeModel.ts](../packages/judge/src/judgeModel.ts) | Type a schema-based model judgment call. |
 | `definePairwiseAgentEvalSuite` | [pairwise.ts](../packages/judge/src/pairwise.ts) | Define and register a comparison suite. |
 | `chatTurns` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Drive a scoped chat conversation and return its transcript. |
-| `ChatTurnsInput` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Type a scoped chat suite's case input. |
-| `ChatScope` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | The scopes `POST /v1/chats` accepts. |
-| `briefingChatTurns` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Drive a briefing chat, which opens on its annotation's own routes. |
-| `BriefingChatTurnsInput` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Type a briefing chat suite's case input. |
+| `ChatTurnsInput` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Type a chat suite's input; each scope requires its own fields. |
+| `ChatScope` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Every chat scope `chatTurns` drives. |
 | `BriefingChatAnchor` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Point a briefing chat at a passage, or at all nulls for the whole briefing. |
 | `PairwiseAgentEvalSuiteDefinition` | [suite.ts](../packages/judge/src/suite.ts) | Type a pairwise definition before registration. |
 | `PairwiseAgentEvalSuite` | [suite.ts](../packages/judge/src/suite.ts) | Type a defined pairwise suite. |
