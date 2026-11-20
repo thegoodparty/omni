@@ -35,6 +35,7 @@ identity today; annotations say `not reported` when it is missing.
 | `src/suite.ts`                    | Suite definition types and validation                          |
 | `src/arm.ts` and `src/apiRoot.ts` | Test-user context, API-root discovery, and run-route preflight |
 | `src/runAgent.ts`                 | Agent run and polling routes                                   |
+| `src/chatTurns.ts`                | Chat turns: opens the conversation, posts each turn, reads SSE |
 | `src/grade.ts` and `src/stats.ts` | Grading, exact sign test, and handledWhen regression test      |
 | `src/reporter.ts`                 | Markdown verdict table                                         |
 
@@ -85,6 +86,18 @@ suite before a single agent run or grading call is spent.
 the org through the API before anything else. `CLERK_SECRET_KEY` is the dev Clerk
 instance secret; Clerk's Backend API budget is 100 requests per 10 seconds per
 instance, shared with the e2e suite and gp-api's own lookups, so use Vitest's worker and concurrency limits when sharing that budget.
+
+## Chat agents
+
+A chat agent has no run route, so `ctx.runAgent` does not reach it. `chatTurns`
+posts the case's turns to the conversation it opened as the case's own test user
+and returns the transcript; `briefingChatTurns` does the same for
+`briefing_annotation`, whose conversation is created with the annotation it
+hangs off. The turn's reply is the SSE body, so `ctx.postEventStream` reads it as
+text: through `ctx.api.post` axios would try the whole body as JSON and hand back
+an object for any single frame that happened to parse. A reply that streamed an
+`error` frame or ended without `done` is a thrown turn, not a subject for
+grading.
 
 ## Tests
 

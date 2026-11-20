@@ -7,6 +7,7 @@
 | Does one version give a known right answer? Examples: a PII gate, classifier, or guardrail. | Expected-result suite | Runs in process, without a deployment. Needs a judge model only if `judge` calls `judgeModel`. |
 | Did a prompt change, model swap, or engine migration make the agent better or worse than main? | Pairwise suite (the universal judge) | Two running gp-api instances, normally deployed dev and a PR preview. |
 | Is deterministic code correct without a model? | Plain unit test, not an eval | See [testing](testing.md). |
+| Did a change make a chat agent better or worse than main? | Pairwise suite that drives the chat routes (`chatTurns`, `briefingChatTurns`) | Two running instances, as for any pairwise suite. See [Chat suites](#chat-suites). |
 | Does a chat prompt meet a behavioral contract against a real LLM? | [Chat prompt evals](../packages/gp-api/src/chats/evals/README.md) | Opt-in Vitest tests for existing chat contracts. |
 | Is the Chief of Staff meeting an existing golden benchmark? | [Chief of Staff golden bench](../packages/gp-api/src/chats/general/chief-of-staff/evals/README.md) | Use its curated conversation cases and rubric for that benchmark. |
 | Are you comparing chats through the existing `/judge` workflow? | [Universal judge for chats](../packages/gp-api/src/chats/evals/judge/README.md) | Use it to reproduce its existing chat comparisons. Use the universal judge for new deployed agent comparisons. |
@@ -46,6 +47,42 @@ Use `ctx.runAgent(name, input)` for background agents. It starts a run and polls
 The grader cannot verify that a cited source is real. Use `handledWhen` for grounding rules the grader can check against the material it sees. Use independent verification when you need to establish that a source exists.
 
 The judge compares blinded outputs in both orders for each of three attempts per case. The suite looks for a meaningful difference in wins or a regression in `handledWhen`. Only **WORSE** and **CAN'T JUDGE** fail the suite. See [the trending issues suite](../packages/gp-api/src/communityIssues/trendingIssuesAgent/trending_issues.eval.ts).
+
+### Chat suites
+
+A chat agent has no run route to poll. The turn streams and the reply is the SSE
+body, so a chat suite posts each turn to the conversation it opened as the case's
+own test user and returns the transcript.
+
+`chatTurns(ctx, { scope, turns, anchor? })` opens `POST /v1/chats` and posts each
+turn to `POST /v1/chats/:conversationId/messages`. `briefingChatTurns(ctx,
+{ meetingDate, anchor, turns })` is the exception: a briefing conversation is
+created together with the annotation it hangs off, so it opens `POST
+/v1/briefing-chats` and posts to `/v1/briefing-chats/:annotationId/messages`.
+`POST /v1/chats` refuses the `briefing_annotation` scope on purpose.
+
+Both return the turns as `User: …\nAssistant: …` blocks, which is the text the
+grader reads, and annotate each turn so a failed attempt shows the replies. A
+turn that streamed an `error` frame, or that ended without its `done` frame,
+throws rather than returning the text so far: a truncated answer is not a
+comparable output. `tool_call`, `tool_result` and `ping` frames are ignored.
+
+`ordinance_flow` and `priority_flow` refuse a conversation with no anchor, so a
+suite creates the resource through the product's own route in `setup` and passes
+its anchor. Those suites also set the office through `profile`, because the
+constituent-data tools resolve the district from it.
+
+The five chat suites are
+[campaign_assistant](../packages/gp-api/src/chats/general/campaign-manager/campaign_assistant.eval.ts),
+[chief_of_staff](../packages/gp-api/src/chats/general/chief-of-staff/chief_of_staff.eval.ts),
+[ordinance_flow](../packages/gp-api/src/chats/general/ordinance-flow/ordinance_flow.eval.ts),
+[priority_flow](../packages/gp-api/src/chats/general/priority-flow/priority_flow.eval.ts),
+and
+[briefing_annotation](../packages/gp-api/src/chats/briefing-chats/briefing_annotation.eval.ts).
+They replaced the old judge's chat case lists, case for case: an old list's
+`question` is the suite's one turn, `caseId` is the case `id`, and a case the old
+list marked `scored: false` is a normal case whose `condition` starts with
+`Control:`. Run one with `/judge-eval <file stem>`.
 
 ## Run evals
 
@@ -96,6 +133,12 @@ For CAN'T JUDGE, inspect the failed attempts and arm reachability. Check preview
 | `Annotate` | [annotation.ts](../packages/judge/src/annotation.ts) | Type an annotation callback. |
 | `JudgeModel` | [judgeModel.ts](../packages/judge/src/judgeModel.ts) | Type a schema-based model judgment call. |
 | `definePairwiseAgentEvalSuite` | [pairwise.ts](../packages/judge/src/pairwise.ts) | Define and register a comparison suite. |
+| `chatTurns` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Drive a scoped chat conversation and return its transcript. |
+| `ChatTurnsInput` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Type a scoped chat suite's case input. |
+| `ChatScope` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | The scopes `POST /v1/chats` accepts. |
+| `briefingChatTurns` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Drive a briefing chat, which opens on its annotation's own routes. |
+| `BriefingChatTurnsInput` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Type a briefing chat suite's case input. |
+| `BriefingChatAnchor` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Point a briefing chat at a passage, or at all nulls for the whole briefing. |
 | `PairwiseAgentEvalSuiteDefinition` | [suite.ts](../packages/judge/src/suite.ts) | Type a pairwise definition before registration. |
 | `PairwiseAgentEvalSuite` | [suite.ts](../packages/judge/src/suite.ts) | Type a defined pairwise suite. |
 | `isPairwiseAgentEvalSuite` | [suite.ts](../packages/judge/src/suite.ts) | Identify a pairwise suite export. |

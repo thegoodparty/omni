@@ -6,6 +6,7 @@ import {
 import axios from 'axios'
 import { randomUUID } from 'node:crypto'
 import { probeTimeoutMs, resolveApiRoot } from './apiRoot'
+import type { Annotate } from './annotation'
 import type {
   EvalApi,
   EvalContext,
@@ -34,6 +35,9 @@ export type CreateArmContextOptions = {
   provisionUser?: typeof createTestUser
   // How an agent is driven. Swapped in tests.
   runAgent?: typeof runAgentThroughRoutes
+  // Where a chat turn's evidence goes. Swapped in tests, and absent when the
+  // caller has no running test to annotate.
+  annotate?: Annotate
   pollIntervalMs?: number
   timeoutMs?: number
 }
@@ -104,6 +108,25 @@ export const createArmContext = async (
 
   const ctx: EvalContext = {
     api: toEvalApi(user),
+    // `responseType: 'text'` and the identity transform: axios' default would
+    // try the whole body as JSON, and a single SSE frame that happens to parse
+    // would reach the parser as an object rather than as the stream text.
+    postEventStream: async (path, body) => {
+      const { data } = await user.client.post<string>(path, body, {
+        responseType: 'text',
+        transformResponse: [(raw: string) => raw],
+        headers: { Accept: 'text/event-stream' },
+        // A turn streams for minutes; the arm's own budget bounds the run, not
+        // a socket timeout under it.
+        timeout: 15 * 60 * 1_000,
+      })
+      return data
+    },
+    annotate:
+      options.annotate ??
+      (async () => {
+        // No test to write to. A suite still runs: the evidence is only lost.
+      }),
     baseUrl,
     org: { slug: user.orgSlug },
     runAgent: (name, input) =>
