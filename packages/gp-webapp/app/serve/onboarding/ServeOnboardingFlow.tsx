@@ -512,15 +512,20 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // The queued search answers before it runs, so the step's first read lands
   // before any starter issues exist. While it is still out, an empty list means
   // "still looking": the step stays in its loading state and does not record
-  // the search as having found nothing.
+  // the search as having found nothing. The window counts from entering the
+  // step, not from the start request: the start fires as soon as the office is
+  // saved, and the story and term-date steps in between can take longer than
+  // the window itself.
   useEffect(() => {
-    if (!starterIssuesPending) return
+    if (!starterIssuesPending || step !== 'priorities') return
+    const enteredAt = prioritiesEnteredAtRef.current ?? Date.now()
+    const remaining = enteredAt + STARTER_ISSUES_PENDING_MS - Date.now()
     const timer = setTimeout(
       () => setStarterIssuesPending(false),
-      STARTER_ISSUES_PENDING_MS,
+      Math.max(0, remaining),
     )
     return () => clearTimeout(timer)
-  }, [starterIssuesPending])
+  }, [starterIssuesPending, step])
   const waitingForStarterIssues =
     starterIssuesPending &&
     step === 'priorities' &&

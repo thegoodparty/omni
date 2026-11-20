@@ -1000,6 +1000,44 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     }
   })
 
+  it('runs the searching window from entering the step, not from the start request', async () => {
+    // The start is queued as soon as the office is saved, which on this route is
+    // several steps before priorities. A window measured from the request would
+    // be spent, or already over, by the time the official arrives.
+    resumedAt('story-grow')
+    api.mock('GET /v1/priorities/onboarding', {
+      status: 200,
+      data: { options: [] },
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({
+        skipHover: true,
+        advanceTimers: vi.advanceTimersByTime,
+      })
+      renderFlow()
+
+      await findStoryHeading(storyHeading.grow)
+      // Longer than the window itself, spent before the step is reached.
+      await act(() => vi.advanceTimersByTimeAsync(120_000))
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/We couldn’t find issues for your area yet/),
+      ).not.toBeInTheDocument()
+      expect(eventProps(PRIORITIES_ERRORED)).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('lets the official skip the step when there are no issues to pick', async () => {
     resumedAt('priorities')
     let saves = 0
