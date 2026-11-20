@@ -53,6 +53,14 @@ describe('usePlan', () => {
       planFor({ plan: 'pro', isPro: true, planPricingModel: 'subscription' }),
     ).toMatchObject({ plan: 'pro', isPaid: true, onSubscription: true })
     expect(
+      planFor({
+        plan: 'free',
+        isPro: false,
+        planPricingModel: 'subscription',
+        planEndedAt: '2026-11-01T00:00:00.000Z',
+      }).onSubscription,
+    ).toBe(false)
+    expect(
       planFor({ plan: 'pro', isPro: true, planPricingModel: 'one_time' })
         .onSubscription,
     ).toBe(false)

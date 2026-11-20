@@ -294,6 +294,23 @@ describe('PLAN checkout creation', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it('lets a campaign whose subscription ended buy a plan', async () => {
+    const campaign = await seedCampaign({
+      isPro: false,
+      plan: CampaignPlanLevel.free,
+      planPricingModel: PlanPricingModel.subscription,
+      planEndedAt: new Date(),
+    })
+    spyOnSessionCreate()
+
+    const res = await createCheckout(
+      campaign.organizationSlug,
+      CampaignPlanLevel.pro,
+    )
+
+    expect(res.status).toBe(201)
+  })
+
   it('still lets a one-time Pro holder with a stray subscription upgrade to Team', async () => {
     const campaign = await seedCampaign({
       isPro: true,

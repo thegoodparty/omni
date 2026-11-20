@@ -112,7 +112,11 @@ export const usePlan = (): PlanState => {
   return {
     plan,
     isPaid: plan !== 'free',
-    onSubscription: campaign?.planPricingModel === 'subscription',
+    // A cancelled subscription keeps its pricing model but has ended.
+    onSubscription:
+      campaign?.planPricingModel === 'subscription' &&
+      !campaign.planEndedAt &&
+      Boolean(campaign.isPro),
     planEndsAt: campaign?.planEndsAt ? new Date(campaign.planEndsAt) : null,
     creditCents: campaign?.outreachCreditCents ?? 0,
     recommendTeam:
