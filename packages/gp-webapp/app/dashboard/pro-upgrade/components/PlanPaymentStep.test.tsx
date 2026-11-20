@@ -96,6 +96,7 @@ const setup = ({
   vi.mocked(usePlan).mockReturnValue({
     plan: held,
     isPaid: held !== 'free',
+    onSubscription: false,
     planEndsAt: null,
     creditCents: 0,
     recommendTeam: false,
