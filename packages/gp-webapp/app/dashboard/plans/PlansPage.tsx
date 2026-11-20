@@ -16,11 +16,16 @@ interface PlansPageProps {
 }
 
 const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
-  const { plan: currentPlan } = usePlan()
+  const { plan: currentPlan, onSubscription, recommendTeam } = usePlan()
+  const leadWithTeam =
+    highlightTeam || (currentPlan === 'free' && recommendTeam)
   const offerFor = (plan: PlanKey): { href: string | null } | null => {
-    const column = planColumnsFor(currentPlan).find((c) => c.plan === plan)
+    const column = planColumnsFor(currentPlan, onSubscription).find(
+      (c) => c.plan === plan,
+    )
     if (plan === 'free' || !column?.cta) return null
     if (planRank(plan) <= planRank(currentPlan)) return null
+    if (onSubscription) return { href: null }
     return { href: planCheckoutHref(plan, column.cta) }
   }
 
@@ -41,14 +46,21 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
             </Link>
             <h1 className="text-base font-semibold">{PLANS_COPY.title}</h1>
           </div>
-          <p className="text-sm">{PLANS_COPY.intro}</p>
+          <p className="text-sm">
+            {onSubscription ? PLANS_COPY.subscriptionNote : PLANS_COPY.intro}
+          </p>
           <div className="hidden md:block">
-            <PlansTable currentPlan={currentPlan} offerFor={offerFor} />
+            <PlansTable
+              currentPlan={currentPlan}
+              onSubscription={onSubscription}
+              offerFor={offerFor}
+            />
           </div>
           <div className="md:hidden">
             <PlanCards
               currentPlan={currentPlan}
-              highlightTeam={highlightTeam}
+              onSubscription={onSubscription}
+              highlightTeam={leadWithTeam}
               offerFor={offerFor}
             />
           </div>

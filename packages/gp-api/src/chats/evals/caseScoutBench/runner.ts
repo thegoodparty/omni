@@ -32,14 +32,20 @@ import {
   type CaseScoutModelService,
 } from '@/caseScout/services/caseScoutModel.service'
 import {
-  assignSplit,
+  buildDraftedCase,
   buildDraftingPrompt,
-  parseDraftResponse,
+  draftCandidate,
+  DraftingError,
+  type Drafter,
 } from '@/caseScout/util/drafting.util'
 import {
   gateDraft,
+  gateNeedsSetup,
   validateAgainstSchema,
+  WITHHELD_NEEDS_SETUP,
+  type GateResult,
   type GateRule,
+  type SecondReadCall,
 } from '@/caseScout/util/gate.util'
 import {
   findDuplicate,
@@ -54,7 +60,7 @@ import {
 import {
   renderSessionTranscript,
   sessionDenylist,
-  sessionUserMessages,
+  sessionSourceTexts,
 } from '@/caseScout/util/transcript.util'
 import { CASES_DIR, CaseListError, parseCaseList } from '../judge/cases'
 import {
@@ -172,7 +178,6 @@ const DRAFTED_OUTCOMES: ReadonlySet<DraftOutcomeValue> = new Set([
 ])
 
 const SCORE_PARSE_ATTEMPTS = 2
-const DRAFT_PARSE_ATTEMPTS = 2
 
 // Reads the judge's case list from this checkout rather than GitHub main, so
 // a run sees the conditions on the branch under test and makes no network
@@ -271,8 +276,6 @@ const summarizeDraft = (result: DraftResponse): DraftResponseSummary => ({
   needsSetup: result.outcome === 'needsSetup' ? result.what : null,
 })
 
-class DraftingError extends Error {}
-
 // Runs the fixtures through gp-api's own scoring, drafting and PII-gate code
 // the way caseScoutScore.service.ts and caseScoutDraft.service.ts call it,
 // in one night. Two things differ on purpose: there is no spend cap or
@@ -361,44 +364,46 @@ export const runBench = async ({
   const working: LedgerEntry[] = []
   const proposedIds = new Set<string>()
 
-  const draftCandidate = async (
-    session: Session,
-    system: string,
-  ): Promise<DraftResponse> => {
-    const transcript = renderSessionTranscript(session)
-    let lastError = 'unknown'
-    for (let attempt = 0; attempt < DRAFT_PARSE_ATTEMPTS; attempt++) {
-      let text: string
+  // Records each drafting call by wrapping the model the shared drafter is
+  // handed, so the bench drafts through exactly the job's code.
+  const recordingDrafter = (session: Session): Drafter => ({
+    draftCase: async (system, transcript, callSignal) => {
+      let text = ''
       try {
-        text = await model.draftCase(system, transcript, signal)
-      } catch {
+        text = await model.draftCase(system, transcript, callSignal)
+        return text
+      } finally {
         calls.push({
           stage: 'draft',
           sessionId: session.sessionId,
           inputChars: system.length + transcript.length,
-          outputChars: 0,
+          outputChars: text.length,
         })
-        throw new DraftingError(
-          `session ${session.sessionId}: drafting call failed`,
-        )
       }
-      calls.push({
-        stage: 'draft',
-        sessionId: session.sessionId,
-        inputChars: system.length + transcript.length,
-        outputChars: text.length,
-      })
+    },
+  })
+
+  const recordingSecondRead =
+    (session: Session): SecondReadCall =>
+    async (draftText) => {
+      let output = ''
       try {
-        return parseDraftResponse(text)
-      } catch (err) {
-        lastError = err instanceof Error ? err.message : lastError
+        output = await model.secondRead(draftText, signal)
+        return output
+      } finally {
+        calls.push({
+          stage: 'gate',
+          sessionId: session.sessionId,
+          inputChars: SECOND_READ_PROMPT.length + draftText.length,
+          outputChars: output.length,
+        })
       }
     }
-    throw new DraftingError(
-      `session ${session.sessionId}: drafting response could not be parsed ` +
-        `after retry (${lastError})`,
-    )
-  }
+
+  const gateSummary = (gate: GateResult): GateSummary =>
+    gate.passed
+      ? { passed: true, rule: null, reason: null }
+      : { passed: false, rule: gate.rule, reason: gate.reason }
 
   for (const { session } of candidates) {
     const agentId = session.scope
@@ -420,6 +425,7 @@ export const runBench = async ({
     let result: DraftResponse
     try {
       result = await draftCandidate(
+        recordingDrafter(session),
         session,
         buildDraftingPrompt({
           agentId,
@@ -427,6 +433,7 @@ export const runBench = async ({
           currentConditions: caseList.conditions,
           recentProposals: recentProposalsForAgent(working, agentId, now),
         }),
+        signal,
       )
     } catch (err) {
       if (!(err instanceof DraftingError)) throw err
@@ -449,9 +456,16 @@ export const runBench = async ({
       continue
     }
     if (result.outcome === 'needsSetup') {
+      const gate = await gateNeedsSetup(
+        result.what,
+        sessionDenylist(session),
+        sessionSourceTexts(session),
+        recordingSecondRead(session),
+      )
       decide({
         outcome: DraftOutcome.needsSetup,
-        needsSetup: result.what,
+        needsSetup: gate.passed ? result.what : WITHHELD_NEEDS_SETUP,
+        gate: gateSummary(gate),
         draftResponse,
         failureSummary,
       })
@@ -484,16 +498,7 @@ export const runBench = async ({
       continue
     }
 
-    const draftedCase: DraftedCase = {
-      caseId: result.case.caseId,
-      condition: result.case.condition,
-      handledWhen: result.case.handledWhen,
-      source: 'production',
-      split: assignSplit(result.case.caseId),
-      ...(result.case.question !== undefined
-        ? { question: result.case.question }
-        : { turns: result.case.turns }),
-    }
+    const draftedCase = buildDraftedCase(result.case)
     if (
       caseList.caseIds.has(draftedCase.caseId) ||
       proposedIds.has(draftedCase.caseId)
@@ -511,33 +516,20 @@ export const runBench = async ({
     const gate = await gateDraft(
       draftedCase,
       sessionDenylist(session),
-      sessionUserMessages(session),
-      async (draftText) => {
-        let output = ''
-        try {
-          output = await model.secondRead(draftText, signal)
-          return output
-        } finally {
-          calls.push({
-            stage: 'gate',
-            sessionId: session.sessionId,
-            inputChars: SECOND_READ_PROMPT.length + draftText.length,
-            outputChars: output.length,
-          })
-        }
-      },
+      sessionSourceTexts(session),
+      recordingSecondRead(session),
     )
     if (!gate.passed) {
       decide({
         outcome: DraftOutcome.gated,
-        gate: { passed: false, rule: gate.rule, reason: gate.reason },
+        gate: gateSummary(gate),
         draftResponse,
         failureSummary: gate.reason,
       })
       continue
     }
 
-    const passedGate = { passed: true, rule: null, reason: null }
+    const passedGate = gateSummary(gate)
     if (caseList.caseCount >= LIST_SOFT_CAP) {
       decide({
         outcome: DraftOutcome.listFull,

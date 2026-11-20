@@ -29,13 +29,15 @@ export class OutreachP2pSmsFreeTextsService extends createPrismaBase(
   // send's offer), false when this send never consumed the offer so there is
   // nothing to hand back.
   async restore(outreachId: number): Promise<boolean> {
-    // Credit reserved for this send goes back with the offer, even when the
-    // offer restore throws; a no-op for a send that reserved none or already
-    // settled.
+    // Credit goes back with the offer, even when the offer restore throws:
+    // the reserve of a send that never billed, or the credit a captured send
+    // used when its card portion was refunded. Each is a no-op for a send the
+    // other case describes.
     try {
       return await this.restoreOffer(outreachId)
     } finally {
       await this.credits.release(outreachId)
+      await this.credits.refundUsed(outreachId)
     }
   }
 

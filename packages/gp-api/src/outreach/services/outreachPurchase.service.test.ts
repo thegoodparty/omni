@@ -19,6 +19,7 @@ import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneL
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
@@ -78,6 +79,15 @@ const mockCredits = {
   release: vi.fn(),
 } as unknown as OutreachCreditsService
 
+// A hold checkout by default: the paid immediate-charge cap reads the session
+// only to tell the two apart, and holds are exempt from it.
+const mockStripe = {
+  retrieveCheckoutSession: vi.fn(),
+} as unknown as StripeService
+vi.mocked(mockStripe.retrieveCheckoutSession).mockResolvedValue({
+  metadata: { winSmsHoldBilling: 'true' },
+} as never)
+
 const mockLogger = createMockLogger()
 
 const service = new OutreachPurchaseHandlerService(
@@ -91,6 +101,7 @@ const service = new OutreachPurchaseHandlerService(
   mockP2pSmsHold,
   mockP2pSmsCapture,
   mockCredits,
+  mockStripe,
   mockLogger,
 )
 
@@ -1977,6 +1988,71 @@ describe('OutreachPurchaseHandlerService', () => {
         maxTextsForAmountInCents(4000),
       )
       vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockReset()
+    })
+
+    describe('paid immediate checkout whose reserve came up short', () => {
+      const arrange = (reservedCents: number, subtotalCents: number) => {
+        withCredit(CREDIT_CENTS)
+        vi.mocked(mockCredits.reserve).mockResolvedValueOnce(reservedCents)
+        vi.mocked(
+          mockOutreachService.finalizeOutreachPurchase,
+        ).mockResolvedValueOnce('finalized')
+        vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue(
+          CAPTURED_LIST_FIXTURE,
+        )
+        vi.mocked(mockP2pSmsHold.recordHold).mockResolvedValueOnce(false)
+        vi.mocked(mockStripe.retrieveCheckoutSession).mockResolvedValueOnce({
+          metadata: {},
+          amount_subtotal: subtotalCents,
+        } as never)
+        mockServerLeadsLoaded(2400)
+      }
+
+      it('caps the send to the texts credit plus card pay for', async () => {
+        // Estimate 8400: the card paid 4400 against a balance of 4000 at
+        // session time, but only 1000 of it was still there at the webhook.
+        arrange(1000, 4400)
+
+        await service.executePostPurchase('cs_short_1', purchaseMetadata)
+
+        expect(mockPeerlyPhoneListCapture.persistSendCap).toHaveBeenCalledWith(
+          CAPTURED_LIST_FIXTURE.id,
+          maxTextsForAmountInCents(5400),
+        )
+        vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockReset()
+      })
+
+      it('leaves the send uncapped when credit plus card cover it', async () => {
+        arrange(4000, 4400)
+
+        await service.executePostPurchase('cs_short_2', purchaseMetadata)
+
+        expect(mockPeerlyPhoneListCapture.persistSendCap).not.toHaveBeenCalled()
+        vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockReset()
+      })
+
+      it('lets a shortfall under the 50 cent minimum through', async () => {
+        arrange(4000 - 49, 4400)
+
+        await service.executePostPurchase('cs_short_3', purchaseMetadata)
+
+        expect(mockPeerlyPhoneListCapture.persistSendCap).not.toHaveBeenCalled()
+        vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockReset()
+      })
+
+      it('never caps a hold checkout, which bills the difference at capture', async () => {
+        arrange(1000, 8400)
+        vi.mocked(mockStripe.retrieveCheckoutSession).mockReset()
+        vi.mocked(mockStripe.retrieveCheckoutSession).mockResolvedValue({
+          metadata: { winSmsHoldBilling: 'true' },
+          amount_subtotal: 8400,
+        } as never)
+
+        await service.executePostPurchase('cs_short_4', purchaseMetadata)
+
+        expect(mockPeerlyPhoneListCapture.persistSendCap).not.toHaveBeenCalled()
+        vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockReset()
+      })
     })
 
     it('reserves nothing for a campaign holding the free-texts offer', async () => {

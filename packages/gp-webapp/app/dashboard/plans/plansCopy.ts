@@ -36,10 +36,14 @@ export const PLAN_COLUMNS: PlanColumn[] = [
   },
 ]
 
-// A Pro campaign pays only the difference to move to Team.
-export const planColumnsFor = (currentPlan: PlanKey): PlanColumn[] =>
+// A Pro campaign pays only the difference to move to Team. A monthly
+// subscriber can't buy Team, so their Team column keeps the full price.
+export const planColumnsFor = (
+  currentPlan: PlanKey,
+  onSubscription = false,
+): PlanColumn[] =>
   PLAN_COLUMNS.map((column) =>
-    column.plan === 'team' && currentPlan === 'pro'
+    column.plan === 'team' && currentPlan === 'pro' && !onSubscription
       ? {
           ...column,
           cta: `Join Team for ${formatPlanCents(
@@ -111,6 +115,8 @@ export const PLANS_COPY = {
     'Pay once, good for your whole campaign. Start with Pro and move to Team later by paying the difference.',
   compare: 'Compare plans',
   currentBadge: 'Current plan',
+  subscriptionNote:
+    "You're on Pro at $10 a month. Team isn't available on a monthly plan.",
   included: 'Included',
   notIncluded: 'Not included',
 } as const

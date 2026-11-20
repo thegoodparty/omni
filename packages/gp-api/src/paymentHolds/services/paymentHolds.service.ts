@@ -9,6 +9,7 @@ import {
   Type,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
+import { EMAIL_MIN_CHARGE_CENTS } from '@goodparty_org/contracts'
 import { addDays, addHours, isAfter, subMinutes } from 'date-fns'
 import Stripe from 'stripe'
 import {
@@ -878,7 +879,10 @@ export class PaymentHoldsService
         outreachId,
         report.amountCents,
       )
-      cardDueCents = cardCents
+      // Confirm forgives a card remainder under the minimum charge, so settle
+      // does too: a send that sent fewer than planned can leave 1 to 49 cents
+      // that Stripe would refuse to capture.
+      cardDueCents = cardCents < EMAIL_MIN_CHARGE_CENTS ? 0 : cardCents
     }
 
     const amountCents = Math.min(cardDueCents, authorizedCents)

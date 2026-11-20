@@ -19,7 +19,13 @@ interface EmailSummaryProps {
   priceCents: number | null
   // The credit this send runs on: what it takes off the price, and the
   // balance that stays. Review states it as applied, the status page as used.
-  credit?: { label: string; cents: number; leftCents?: number }
+  credit?: {
+    label: string
+    cents: number
+    leftCents?: number
+    // The card is held, not charged, at confirm, so this reads $0.00.
+    chargedTodayCents?: number
+  }
   when: string
   children?: ReactNode
 }
@@ -125,6 +131,14 @@ export const EmailSummary = ({
             <p className="text-xs text-muted-foreground">
               {creditLeftNote(credit.leftCents)}
             </p>
+          )}
+          {credit?.chargedTodayCents !== undefined && (
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-foreground">Charged today</span>
+              <span className="font-semibold text-foreground">
+                {formatDollars(credit.chargedTodayCents)}
+              </span>
+            </div>
           )}
           <p className="text-xs text-muted-foreground">
             You are charged only for emails that go out.

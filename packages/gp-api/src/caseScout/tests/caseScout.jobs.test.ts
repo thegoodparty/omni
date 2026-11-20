@@ -27,7 +27,7 @@ import {
   ScoreParseError,
 } from '../services/caseScoutModel.service'
 import { CaseScoutPublisherService } from '../services/caseScoutPublisher.service'
-import { SecondReadCallError } from '../util/gate.util'
+import { SecondReadCallError, WITHHELD_NEEDS_SETUP } from '../util/gate.util'
 import { fakeS3 } from './caseScoutTestBucket'
 
 // Drives the real caseScoutNightly schedule and lets the real score and
@@ -686,6 +686,33 @@ describe('caseScoutDraft', () => {
       ['gated', ['secondRead'], 'the second read call failed'],
     ])
     expect(bundle().drafts).toEqual([])
+  })
+
+  it('gates a needs-setup line and withholds one that fails', async () => {
+    await seedSessions([3, 3])
+    const needsSetup = (what: string) =>
+      JSON.stringify({ outcome: 'needsSetup', failureSummary: 'f', what })
+    draftFor = (sessionId) =>
+      sessionId.startsWith('conv-sev-0')
+        ? needsSetup("An account like Robin Vale's, with a recount pending.")
+        : needsSetup('An account with a recount pending.')
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    expect(
+      ledgerLines().map((l) => [l.outcome, l.gateFailures, l.needsSetup]),
+    ).toEqual([
+      ['needsSetup', ['denylist'], WITHHELD_NEEDS_SETUP],
+      ['needsSetup', [], 'An account with a recount pending.'],
+    ])
+    expect(bundle().needsSetup.map((n) => n.what)).toEqual([
+      WITHHELD_NEEDS_SETUP,
+      'An account with a recount pending.',
+    ])
+    expect(
+      service.app.get(CaseScoutModelService).secondRead,
+    ).toHaveBeenCalledTimes(1)
+    expect(record().spendUsd.gate).toBe(2 * 0.75)
   })
 
   it('stops spending once the night passes the spend cap', async () => {

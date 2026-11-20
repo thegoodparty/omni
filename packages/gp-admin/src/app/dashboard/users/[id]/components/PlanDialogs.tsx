@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Button,
@@ -13,12 +13,16 @@ import {
   TextField,
 } from '@radix-ui/themes'
 import { PLAN_PRICING } from '@goodparty_org/contracts'
-import type { CampaignPlanName } from '@/shared/gpApi'
+import type {
+  AdminPlanRefundEligibility,
+  CampaignPlanName,
+} from '@/shared/gpApi'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { useToast } from '@/components/Toast'
 import { describeActionFailure } from '@/shared/util/actionFailure.util'
 import {
   extendCampaignPlan,
+  getRefundEligibility,
   refundCampaignPlan,
   setCampaignPlan,
   type PlanActionResult,
@@ -34,13 +38,6 @@ interface PlanDialogProps {
   campaignId: number
   userId: number
 }
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000
-
-export const daysSince = (value: Date | string | null | undefined) =>
-  value
-    ? Math.floor((Date.now() - new Date(value).getTime()) / MS_PER_DAY)
-    : null
 
 const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`
 
@@ -286,18 +283,44 @@ export function ExtendPlanDialog({ campaignId, userId }: PlanDialogProps) {
   )
 }
 
-export function RefundPlanDialog({
-  campaignId,
-  userId,
-  planPaidAt,
-}: PlanDialogProps & { planPaidAt: Date | string | null | undefined }) {
+const REFUND_BLOCKED_MESSAGES = {
+  NO_REFUNDABLE_PURCHASE: 'This campaign has no paid plan purchase to refund.',
+  ACTIVE_SUBSCRIPTION: 'Cancel the Stripe subscription before refunding.',
+} as const
+
+export function RefundPlanDialog({ campaignId, userId }: PlanDialogProps) {
   const router = useRouter()
   const { showToast } = useToast()
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
-  const days = daysSince(planPaidAt)
+  const [eligibility, setEligibility] =
+    useState<AdminPlanRefundEligibility | null>(null)
+  const [eligibilityError, setEligibilityError] = useState<string | null>(null)
+  const days = eligibility?.daysSincePurchase ?? null
   const outsideWindow = days !== null && days > PLAN_PRICING.refundWindowDays
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setEligibility(null)
+    setEligibilityError(null)
+    getRefundEligibility(campaignId)
+      .then((result) => {
+        if (cancelled) return
+        if (result.error !== null) setEligibilityError(result.error)
+        else setEligibility(result.data)
+      })
+      .catch((failure) => {
+        if (cancelled) return
+        setEligibilityError(
+          describeActionFailure(failure, "Couldn't check refund eligibility")
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, campaignId])
 
   const handleConfirm = async () => {
     setIsBusy(true)
@@ -344,17 +367,44 @@ export function RefundPlanDialog({
         title="Refund this plan?"
         confirmLabel="Refund"
         loading={isBusy}
+        confirmDisabled={eligibility === null || !eligibility.refundable}
         description={
           <Flex direction="column" gap="3">
             <Text size="2">
               This refunds their last plan payment and returns them to Free, or
               to Pro if it was a Team upgrade. Their outreach credit goes to $0.
             </Text>
-            <Text size="2">
-              {days === null
-                ? 'We have no purchase date for this plan.'
-                : `Bought ${days} ${days === 1 ? 'day' : 'days'} ago. The refund window is ${PLAN_PRICING.refundWindowDays} days.`}
-            </Text>
+            {eligibility === null && !eligibilityError && (
+              <Text size="2">Checking the purchase...</Text>
+            )}
+            {eligibilityError && (
+              <Callout.Root color="red">
+                <Callout.Text>{eligibilityError}</Callout.Text>
+              </Callout.Root>
+            )}
+            {eligibility?.reason && (
+              <Callout.Root color="red">
+                <Callout.Text>
+                  {REFUND_BLOCKED_MESSAGES[eligibility.reason]}
+                </Callout.Text>
+              </Callout.Root>
+            )}
+            {days !== null && (
+              <Text size="2">
+                Bought {days} {days === 1 ? 'day' : 'days'} ago. The refund
+                window is {PLAN_PRICING.refundWindowDays} days.
+              </Text>
+            )}
+            {eligibility?.outreachSent === true && (
+              <Callout.Root color="amber">
+                <Callout.Text>
+                  Outreach was sent after this plan was bought.
+                </Callout.Text>
+              </Callout.Root>
+            )}
+            {eligibility?.outreachSent === false && (
+              <Text size="2">No outreach sent since this plan was bought.</Text>
+            )}
             {outsideWindow && (
               <Callout.Root color="amber">
                 <Callout.Text>

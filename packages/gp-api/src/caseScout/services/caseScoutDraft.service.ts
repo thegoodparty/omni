@@ -28,14 +28,19 @@ import {
   MAX_FAILURE_SUMMARY_LENGTH,
   type DraftResponse,
 } from '../schemas/caseScoutModel.schema'
-import type { DraftedCase } from '../schemas/draftedCase.schema'
 import { nightlyCapForMergeShare, trailingMergeShare } from '../util/cap.util'
 import {
-  assignSplit,
+  buildDraftedCase,
   buildDraftingPrompt,
-  parseDraftResponse,
+  draftCandidate,
+  DraftingError,
 } from '../util/drafting.util'
-import { gateDraft, type SecondReadCall } from '../util/gate.util'
+import {
+  gateDraft,
+  gateNeedsSetup,
+  WITHHELD_NEEDS_SETUP,
+  type SecondReadCall,
+} from '../util/gate.util'
 import {
   findDuplicate,
   findRejection,
@@ -49,11 +54,7 @@ import {
   sessionsSafeToMarkProcessed,
   type Session,
 } from '../util/sessions.util'
-import {
-  renderSessionTranscript,
-  sessionDenylist,
-  sessionUserMessages,
-} from '../util/transcript.util'
+import { sessionDenylist, sessionSourceTexts } from '../util/transcript.util'
 import { CaseScoutBucketService } from './caseScoutBucket.service'
 import {
   CaseScoutCaseListsService,
@@ -65,8 +66,6 @@ import { CaseScoutMessagesService } from './caseScoutMessages.service'
 import { CaseScoutModelService } from './caseScoutModel.service'
 import { CaseScoutPublisherService } from './caseScoutPublisher.service'
 
-const DRAFT_PARSE_ATTEMPTS = 2
-
 // The chat agents the scout may draft for, checked for noisy cases.
 const CHAT_AGENT_IDS: ChatScope[] = [
   ChatScope.chief_of_staff,
@@ -75,8 +74,6 @@ const CHAT_AGENT_IDS: ChatScope[] = [
   ChatScope.priority_flow,
   ChatScope.briefing_annotation,
 ]
-
-class DraftingError extends Error {}
 
 export type DraftNightJob = { runId: string }
 
@@ -293,7 +290,8 @@ export class CaseScoutDraftService {
 
       let result: DraftResponse
       try {
-        result = await this.draftCandidate(
+        result = await draftCandidate(
+          this.model,
           session,
           buildDraftingPrompt({
             agentId,
@@ -324,14 +322,19 @@ export class CaseScoutDraftService {
         continue
       }
       if (result.outcome === 'needsSetup') {
-        needsSetup.push({
-          agentId,
-          severity: candidate.severity,
-          what: result.what,
-        })
+        const gate = await gateNeedsSetup(
+          result.what,
+          sessionDenylist(session),
+          sessionSourceTexts(session),
+          secondRead,
+        )
+        spend.gate += ESTIMATED_COST_PER_CALL_USD
+        const what = gate.passed ? result.what : WITHHELD_NEEDS_SETUP
+        needsSetup.push({ agentId, severity: candidate.severity, what })
         line(candidate, DraftOutcome.needsSetup, {
-          needsSetup: result.what,
+          needsSetup: what,
           failureSummary,
+          gateFailures: gate.passed ? [] : [gate.rule],
         })
         continue
       }
@@ -366,16 +369,7 @@ export class CaseScoutDraftService {
         continue
       }
 
-      const draftedCase: DraftedCase = {
-        caseId: result.case.caseId,
-        condition: result.case.condition,
-        handledWhen: result.case.handledWhen,
-        source: 'production',
-        split: assignSplit(result.case.caseId),
-        ...(result.case.question !== undefined
-          ? { question: result.case.question }
-          : { turns: result.case.turns }),
-      }
+      const draftedCase = buildDraftedCase(result.case)
 
       // The prompt never shows the model the raw caseId list, so a collision
       // with main or with tonight's earlier draft is caught here.
@@ -396,7 +390,7 @@ export class CaseScoutDraftService {
       const gate = await gateDraft(
         draftedCase,
         sessionDenylist(session),
-        sessionUserMessages(session),
+        sessionSourceTexts(session),
         secondRead,
       )
       spend.gate += ESTIMATED_COST_PER_CALL_USD
@@ -490,37 +484,6 @@ export class CaseScoutDraftService {
         newMarker,
       },
     }
-  }
-
-  // One Opus call, retried once when the reply cannot be read. A failed call
-  // is not retried here, as in the Python reader.
-  private async draftCandidate(
-    session: Session,
-    system: string,
-    signal: AbortSignal,
-  ): Promise<DraftResponse> {
-    const transcript = renderSessionTranscript(session)
-    let lastError = 'unknown'
-    for (let attempt = 0; attempt < DRAFT_PARSE_ATTEMPTS; attempt++) {
-      let text: string
-      try {
-        text = await this.model.draftCase(system, transcript, signal)
-      } catch (err) {
-        if (signal.aborted) throw err
-        throw new DraftingError(
-          `session ${session.sessionId}: drafting call failed`,
-        )
-      }
-      try {
-        return parseDraftResponse(text)
-      } catch (err) {
-        lastError = err instanceof Error ? err.message : lastError
-      }
-    }
-    throw new DraftingError(
-      `session ${session.sessionId}: drafting response could not be parsed ` +
-        `after retry (${lastError})`,
-    )
   }
 
   // Advisory and beside tonight's drafts, never in front of them: a failure

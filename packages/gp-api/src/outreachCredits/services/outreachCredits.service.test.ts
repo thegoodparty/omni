@@ -219,3 +219,131 @@ describe('release', () => {
     expect(await balance()).toBe(17500)
   })
 })
+
+describe('unreserve', () => {
+  it('returns the reserve without closing the send, so a later reserve works', async () => {
+    await setup(17500)
+    const id = await createOutreach()
+    await reserve(id, 10000)
+
+    expect(await credits.unreserve(id)).toBe(10000)
+    expect(await balance()).toBe(17500)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id },
+    })
+    expect(row.creditReservedCents).toBe(0)
+    expect(row.creditSettledAt).toBeNull()
+    expect(await reserve(id, 6000)).toBe(6000)
+    expect(await balance()).toBe(11500)
+  })
+
+  it('returns the reserve once when called twice', async () => {
+    await setup(17500)
+    const id = await createOutreach()
+    await reserve(id, 10000)
+
+    await Promise.all([credits.unreserve(id), credits.unreserve(id)])
+    expect(await balance()).toBe(17500)
+  })
+
+  it('moves nothing for a send that already settled or was released', async () => {
+    await setup(17500)
+    const settled = await createOutreach()
+    await reserve(settled, 10000)
+    await credits.settle(settled, 4000)
+    const released = await createOutreach()
+    await reserve(released, 2000)
+    await credits.release(released)
+
+    expect(await credits.unreserve(settled)).toBe(0)
+    expect(await credits.unreserve(released)).toBe(0)
+    expect(await balance()).toBe(13500)
+  })
+
+  it('drops the reserve when the plan has ended', async () => {
+    await setup(17500)
+    const id = await createOutreach()
+    await reserve(id, 10000)
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { planEndedAt: new Date() },
+    })
+
+    await credits.unreserve(id)
+    expect(await balance()).toBe(7500)
+  })
+})
+
+describe('refundUsed', () => {
+  it('gives back the credit a settled send used, once', async () => {
+    await setup(17500)
+    const id = await createOutreach()
+    await reserve(id, 10000)
+    await credits.settle(id, 8000)
+    expect(await balance()).toBe(9500)
+
+    expect(await credits.refundUsed(id)).toBe(8000)
+    expect(await credits.refundUsed(id)).toBe(0)
+    await Promise.all([credits.refundUsed(id), credits.refundUsed(id)])
+    expect(await balance()).toBe(17500)
+  })
+
+  it('returns what the send used, not the reserve it started with', async () => {
+    await setup(17500)
+    const id = await createOutreach()
+    await reserve(id, 10000)
+    await credits.settle(id, 3000)
+
+    await credits.refundUsed(id)
+    expect(await balance()).toBe(17500)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id },
+    })
+    expect(row.creditUsedCents).toBe(3000)
+  })
+
+  it('gives nothing back for a send that was never settled or was released', async () => {
+    await setup(17500)
+    const reserved = await createOutreach()
+    await reserve(reserved, 10000)
+    const released = await createOutreach()
+    await reserve(released, 2000)
+    await credits.release(released)
+
+    expect(await credits.refundUsed(reserved)).toBe(0)
+    expect(await credits.refundUsed(released)).toBe(0)
+    expect(await balance()).toBe(17500 - 10000)
+  })
+
+  it('drops the credit when the plan has ended', async () => {
+    await setup(17500)
+    const id = await createOutreach()
+    await reserve(id, 10000)
+    await credits.settle(id, 8000)
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { planEndedAt: new Date() },
+    })
+
+    await credits.refundUsed(id)
+    expect(await balance()).toBe(9500)
+  })
+
+  it('rolls the claim back with the caller transaction', async () => {
+    await setup(17500)
+    const id = await createOutreach()
+    await reserve(id, 10000)
+    await credits.settle(id, 8000)
+
+    await expect(
+      service.prisma.$transaction(async (tx) => {
+        await credits.refundUsed(id, tx)
+        throw new Error('later step failed')
+      }),
+    ).rejects.toThrow('later step failed')
+
+    expect(await balance()).toBe(9500)
+    expect(await credits.refundUsed(id)).toBe(8000)
+    expect(await balance()).toBe(17500)
+  })
+})

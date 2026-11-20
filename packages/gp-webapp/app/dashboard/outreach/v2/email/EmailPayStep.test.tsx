@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { EmailPayStep } from './EmailPayStep'
 import { WIN_EMAIL_SURFACE } from './emailSurface'
 
@@ -105,6 +105,34 @@ describe('EmailPayStep', () => {
     await waitFor(() => expect(onPaid).toHaveBeenCalledTimes(1))
     expect(bodies).toEqual([{ paymentMethodId: 'pm_new' }])
     expect(onConfirmAttempted).toHaveBeenCalled()
+  })
+
+  it('refetches the campaign so the credit balance matches the server', async () => {
+    api.mock('POST /v1/outreach/email/:id/confirm', {
+      status: 200,
+      data: {
+        outcome: 'held',
+        email: { ...send, status: 'pending', estimate: null },
+      },
+    })
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    const onPaid = vi.fn()
+    render(
+      <EmailPayStep
+        surface={WIN_EMAIL_SURFACE}
+        draftId={11}
+        scheduled={false}
+        onPaid={onPaid}
+        onFixBlock={vi.fn()}
+        onConfirmAttempted={vi.fn()}
+      />,
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Pay and send' }),
+    )
+
+    await waitFor(() => expect(onPaid).toHaveBeenCalledTimes(1))
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['campaign'] })
   })
 
   it('says Pay and schedule for a send with a later date', async () => {

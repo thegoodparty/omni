@@ -18,6 +18,7 @@ describe('usePlan', () => {
     expect(planFor({ plan: 'free', isPro: false })).toEqual({
       plan: 'free',
       isPaid: false,
+      onSubscription: false,
       planEndsAt: null,
       creditCents: 0,
       recommendTeam: false,
@@ -42,6 +43,27 @@ describe('usePlan', () => {
       plan: 'pro',
       isPaid: true,
     })
+  })
+
+  it('reads a legacy subscriber as pro, and as a subscriber once stamped', () => {
+    expect(
+      planFor({ plan: 'free', isPro: true, planPricingModel: null }),
+    ).toMatchObject({ plan: 'pro', isPaid: true, onSubscription: false })
+    expect(
+      planFor({ plan: 'pro', isPro: true, planPricingModel: 'subscription' }),
+    ).toMatchObject({ plan: 'pro', isPaid: true, onSubscription: true })
+    expect(
+      planFor({
+        plan: 'free',
+        isPro: false,
+        planPricingModel: 'subscription',
+        planEndedAt: '2026-11-01T00:00:00.000Z',
+      }).onSubscription,
+    ).toBe(false)
+    expect(
+      planFor({ plan: 'pro', isPro: true, planPricingModel: 'one_time' })
+        .onSubscription,
+    ).toBe(false)
   })
 
   it('has no plan state without a campaign', () => {
