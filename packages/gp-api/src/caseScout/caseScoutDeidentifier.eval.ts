@@ -200,8 +200,9 @@ const identifyingRuns = (text: string): string[] => {
 
 // An 8-word run from any role or tool input counts only when the source, as
 // written, carries a name, a place or a number in it. A generic question
-// repeated word for word identifies no one. The gate's own copy check stays
-// stricter and blocks any run.
+// repeated word for word identifies no one. The gate's copy check applies the
+// same test with its own code, so this measures the gate rather than echoing
+// it.
 const copiedSource = (outbound: string[], sources: string[]): boolean => {
   const sourceRuns = new Set(sources.flatMap(identifyingRuns))
   return outbound.some((text) =>

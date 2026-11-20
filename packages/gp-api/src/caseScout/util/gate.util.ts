@@ -84,13 +84,6 @@ export const outboundStrings = (draft: OutboundDraft): string[] =>
         deslug(draft.case.caseId),
       ]
 
-const normalize = (text: string): string =>
-  text
-    .toLowerCase()
-    .replace(new RegExp(String.raw`[^\p{L}\p{N}_\s]`, 'gu'), ' ')
-    .replace(/\s+/gu, ' ')
-    .trim()
-
 const escapeRegExp = (term: string): string =>
   term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -119,24 +112,55 @@ export const checkDenylist = (
     : undefined
 }
 
-const shingles = (text: string): Set<string> => {
-  const words = text.split(/\s+/u).filter((word) => word !== '')
-  const runs = new Set<string>()
-  for (let i = 0; i + COPIED_TEXT_RUN_LENGTH <= words.length; i++) {
-    runs.add(words.slice(i, i + COPIED_TEXT_RUN_LENGTH).join(' '))
-  }
-  return runs
+const SENTENCE_BREAK = /[.!?\n]/u
+
+const runsOf = <T>(words: T[]): T[][] =>
+  words
+    .slice(0, Math.max(0, words.length - COPIED_TEXT_RUN_LENGTH + 1))
+    .map((_, i) => words.slice(i, i + COPIED_TEXT_RUN_LENGTH))
+
+// Copying a conversation is fine; copying who was in it is not. A source run
+// counts only when, as written, it holds a digit or a word capitalized
+// mid-sentence ("I" aside). An apostrophe splits a contraction, so "I'm" reads
+// as "I" and "m". caseScoutDeidentifier.eval.ts applies the same test with its
+// own code, so the eval measures this gate rather than echoing it.
+const identifyingSourceRuns = (text: string): string[] => {
+  const words = [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((match, i, all) => {
+    const token = match[0]
+    const prev = all[i - 1]
+    const sentenceStart =
+      prev === undefined ||
+      SENTENCE_BREAK.test(text.slice(prev.index + prev[0].length, match.index))
+    return {
+      word: token.toLowerCase(),
+      identifying:
+        /\p{N}/u.test(token) ||
+        (/^\p{Lu}/u.test(token) && !sentenceStart && token !== 'I'),
+    }
+  })
+  return runsOf(words)
+    .filter((run) => run.some(({ identifying }) => identifying))
+    .map((run) => run.map(({ word }) => word).join(' '))
 }
+
+const draftRuns = (text: string): string[] =>
+  runsOf(
+    text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .split(' ')
+      .filter(Boolean),
+  ).map((run) => run.join(' '))
 
 export const checkCopiedText = (
   fields: string[],
   sourceTexts: string[],
 ): string | undefined => {
-  const source = shingles(normalize(sourceTexts.join(' ')))
+  const source = new Set(sourceTexts.flatMap(identifyingSourceRuns))
   if (source.size === 0) return undefined
-  const draft = shingles(normalize(fields.join(' ')))
-  return [...draft].some((run) => source.has(run))
-    ? 'an 8-word run copied from the session appeared in the draft'
+  return fields.some((field) => draftRuns(field).some((run) => source.has(run)))
+    ? 'an 8-word run copied from the session, with a number or a ' +
+        'mid-sentence capital in it, appeared in the draft'
     : undefined
 }
 
