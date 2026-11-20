@@ -76,6 +76,37 @@ describe('PairwiseReporter', () => {
     }
   })
 
+  it("keeps the verdict table when a suite's not-judged list is unreadable", () => {
+    vi.stubEnv('GITHUB_STEP_SUMMARY', undefined)
+    const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+    const [suite] = [...modules[0]!.children.allSuites()] as unknown as {
+      fullName: string
+      meta: () => object
+    }[]
+    const broken = [
+      {
+        children: {
+          allSuites: () => [
+            {
+              fullName: suite!.fullName,
+              meta: () => ({
+                ...suite!.meta(),
+                pairwiseNotJudged: {
+                  type: 'pairwise-not-judged',
+                  message: '{',
+                },
+              }),
+            },
+          ],
+        },
+      },
+    ] as unknown as TestModule[]
+    new PairwiseReporter().onTestRunEnd(broken, [], 'failed')
+    const table = String(write.mock.calls[0]?.[0])
+    expect(table).toContain('| suite &#124; name | WORSE |')
+    expect(table).toContain('unreadable: SyntaxError')
+  })
+
   it('writes to stdout locally and stays quiet without verdicts', () => {
     vi.stubEnv('GITHUB_STEP_SUMMARY', undefined)
     const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)

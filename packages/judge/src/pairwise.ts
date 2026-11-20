@@ -279,7 +279,14 @@ export const registerPairwiseSuite = <Input>(
       })
       Object.assign(task.meta, {
         pairwiseVerdict: suiteVerdictAnnotation(verdict),
-        pairwiseNotJudged: suiteVerdictAnnotation(notJudged),
+        // Redacted per string, not after stringify: the broad pattern would eat
+        // the `n` of an escaped newline and leave invalid JSON.
+        pairwiseNotJudged: {
+          type: 'pairwise-not-judged',
+          message: JSON.stringify(notJudged, (_key, value) =>
+            typeof value === 'string' ? redactSecrets(value) : value,
+          ),
+        },
       })
       if (!attempted) return
       if (verdict.label === 'WORSE' || verdict.label === "CAN'T JUDGE") {

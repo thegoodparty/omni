@@ -26,9 +26,14 @@ export const renderPairwiseVerdicts = (
         pairwiseNotJudged?: ReturnType<typeof suiteVerdictAnnotation>
       }
       if (pairwiseNotJudged) {
-        const attempts = JSON.parse(
-          pairwiseNotJudged.message,
-        ) as NotJudgedAttempt[]
+        let attempts: NotJudgedAttempt[] = []
+        try {
+          attempts = JSON.parse(pairwiseNotJudged.message)
+        } catch (error) {
+          notJudgedRows.push(
+            `${escapeCell(suite.fullName)} | | | | | unreadable: ${escapeCell(String(error))}`,
+          )
+        }
         for (const { caseId, attempt, side, runs, error } of attempts)
           notJudgedRows.push(
             [
