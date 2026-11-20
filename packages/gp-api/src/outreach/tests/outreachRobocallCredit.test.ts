@@ -10,6 +10,7 @@ import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.se
 import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
 import { OutreachRobocallCancelService } from '@/outreach/services/outreachRobocallCancel.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
+import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
 import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 import { WIN_PER_CAMPAIGN_PRICING_FLAG } from '@/shared/util/winPerCampaignPricingFlag.util'
@@ -383,28 +384,54 @@ describe('robocall hold that fails on infrastructure', () => {
       type: 'api_error',
     })
 
-  it('returns the reserve to the balance so an abandoned draft keeps none', async () => {
+  const sweepAbandoned = (hoursIdle: number) =>
+    service.app
+      .get(OutreachRobocallDeferredHoldService)
+      .releaseAbandonedReserves(addHours(new Date(), hoursIdle))
+
+  it('keeps the reserve so the retry holds the same amount under the same key', async () => {
     billableCount = LARGE_COUNT
+    const estimate = calcRobocallTotalInCents(LARGE_COUNT)
     const outreachId = await createDraft()
     paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
 
     const failed = await authorize(outreachId)
 
     expect(failed.status).toBe(502)
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(17500)
+    expect(await balance()).toBe(0)
+
+    const retried = await authorize(outreachId)
+
+    expect(retried.data).toMatchObject({
+      status: 'authorized',
+      authorizedAmountInCents: estimate - 17500,
+    })
+    expect(await balance()).toBe(0)
+  })
+
+  it('returns the reserve of a draft nobody retried once the key has expired', async () => {
+    billableCount = LARGE_COUNT
+    const outreachId = await createDraft()
+    paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
+    await authorize(outreachId)
+
+    await sweepAbandoned(24)
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(17500)
+
+    await sweepAbandoned(26)
     expect((await readSpine(outreachId)).creditReservedCents).toBe(0)
     expect((await readSpine(outreachId)).creditSettledAt).toBeNull()
     expect(await balance()).toBe(17500)
-    expect((await readSatellite(outreachId)).settleState).toBe(
-      RobocallSettleState.pending_payment,
-    )
   })
 
-  it('still gives a retry its credit', async () => {
+  it('still gives a late retry its credit after the sweep returned it', async () => {
     billableCount = LARGE_COUNT
     const estimate = calcRobocallTotalInCents(LARGE_COUNT)
     const outreachId = await createDraft()
     paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
     await authorize(outreachId)
+    await sweepAbandoned(26)
 
     const retried = await authorize(outreachId)
 
@@ -416,20 +443,7 @@ describe('robocall hold that fails on infrastructure', () => {
     expect(await balance()).toBe(0)
   })
 
-  it('lets another send use the credit while the draft waits for a retry', async () => {
-    billableCount = LARGE_COUNT
-    const first = await createDraft()
-    paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
-    await authorize(first)
-    const second = await createDraft()
-
-    await authorize(second)
-
-    expect((await readSpine(second)).creditReservedCents).toBe(17500)
-    expect(await balance()).toBe(0)
-  })
-
-  it('keeps the reserve on a card decline, which the card-update retry resumes', async () => {
+  it('leaves a declined draft alone, which the card-update retry resumes', async () => {
     billableCount = LARGE_COUNT
     const outreachId = await createDraft()
     paymentIntentsCreate.mockRejectedValueOnce(
@@ -439,8 +453,9 @@ describe('robocall hold that fails on infrastructure', () => {
         code: 'card_declined',
       }),
     )
-
     await authorize(outreachId)
+
+    await sweepAbandoned(48)
 
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.hold_failed,

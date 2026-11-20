@@ -441,16 +441,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       // Infra failure (502): no confirmed hold to void. Release the claim
       // WITHOUT bumping payAttempt — a retry reuses the same idempotency key so
       // Stripe replays (recovering a PI that may in fact be live) instead of
-      // stacking a second hold. The credit reserve goes back too, so a draft
-      // the user never retries does not keep it; a retry reserves afresh.
-      try {
-        await this.credits.unreserve(outreachId)
-      } catch (unreserveErr) {
-        this.logger.error(
-          { err: unreserveErr, outreachId },
-          'robocall: failed to return the credit reserve after a hold failure',
-        )
-      }
+      // stacking a second hold. The credit reserve stays too: the retry's
+      // amount must match the replayed key. The deferred-hold sweep returns
+      // the reserve of a draft nobody retries once that key has expired.
       await this.revertClaim(outreachId)
       throw err
     }
