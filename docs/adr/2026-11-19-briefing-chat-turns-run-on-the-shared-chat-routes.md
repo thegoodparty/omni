@@ -3,7 +3,7 @@ title: A briefing chat keeps only its annotation-keyed create and delete; its tu
 status: active
 decided_by: [agent]
 date: 2026-11-19
-code: []
+code: ['#3952']
 scope:
   - packages/gp-api/src/chats/briefing-chats/**
   - packages/gp-api/src/chats/general/**
