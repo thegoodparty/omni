@@ -51,8 +51,19 @@ const requiredEnv = (name: string): string => {
 export const caseScoutBucketName = (): string =>
   requiredEnv('CASE_SCOUT_BUCKET')
 
-export const publisherFunctionName = (): string =>
-  requiredEnv('CASE_SCOUT_LAMBDA_FUNCTION_NAME')
+// Off, the night's handoff is held in the bucket for a person to read and
+// nothing leaves. Anything but exactly "true" holds.
+export const sendsToDelegate = (): boolean =>
+  process.env.CASE_SCOUT_SEND_TO_DELEGATE === 'true'
+
+export const delegateWebhookUrl = (): string =>
+  requiredEnv('CASE_SCOUT_DELEGATE_WEBHOOK_URL')
+
+export const delegateWebhookSecret = (): string =>
+  requiredEnv('CASE_SCOUT_DELEGATE_WEBHOOK_SECRET')
+
+export const handoffEnvironment = (): 'dev' | 'prod' =>
+  process.env.OTEL_SERVICE_ENVIRONMENT === 'prod' ? 'prod' : 'dev'
 
 export const judgeRecordsBucketName = (): string | undefined =>
   process.env.CASE_SCOUT_JUDGE_RECORDS_BUCKET || undefined

@@ -11,18 +11,15 @@ import { z } from 'zod'
 // ENG-11593: `judge spend` needs the case scout's own nightly spend
 // alongside the guard ledger's, so it can print one total per the TDD's
 // "Jeff wants eval spend reported on its own line per piece (scout, guard,
-// climb)". The scout keeps its own bucket (`case-scout-<env>`, a separate
-// bucket and a separate IAM role from the judge's — see
-// packages/gp-ai/case_scout/bucket.py's own header) and writes one
-// `runs/<runId>/record.json` per night with a `spendUsd.total` field
-// (src/caseScout/services/caseScoutDraft.service.ts). This module is a minimal,
-// read-only TypeScript mirror of exactly the two bucket.py methods `judge
-// spend` needs — `list_run_ids_for_month` and `read_run_record` — not a
-// general scout client.
+// climb)". The scout keeps its own bucket (`case-scout-<env>`, separate
+// from the judge's) and writes one `runs/<runId>/record.json` per night with
+// a `spendUsd.total` field (src/caseScout/services/caseScoutDraft.service.ts).
+// This module reads exactly that: a month's run ids and each run's record,
+// not a general scout client.
 //
 // Run ids are calendar dates (`YYYY-MM-DD`, set by the scout's nightly
-// job), so a prefix listing on
-// `runs/<yyyymm>` finds exactly that month's runs, same as the Python side.
+// job), so a prefix listing on `runs/<yyyymm>` finds exactly that month's
+// runs.
 export interface ScoutRunRecord {
   readonly spendUsd?: { readonly total?: number }
 }

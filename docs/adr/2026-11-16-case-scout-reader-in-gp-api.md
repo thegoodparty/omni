@@ -1,6 +1,6 @@
 ---
 title: The case scout reader runs as gp-api pg-boss jobs; the publisher stays outside gp-api, so no process holds both a transcript and the GitHub key
-status: active
+status: superseded
 decided_by: [dealvz]
 date: 2026-11-16
 code: ['#3849']
@@ -8,7 +8,7 @@ scope:
   - packages/gp-api/src/caseScout/**
   - packages/gp-ai/case_scout/**
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-19-case-scout-hands-off-to-delegate.md
 ---
 
 # The case scout reader runs as gp-api pg-boss jobs; the publisher stays outside gp-api, so no process holds both a transcript and the GitHub key

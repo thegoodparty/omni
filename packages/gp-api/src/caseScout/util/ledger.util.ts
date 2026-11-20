@@ -3,9 +3,9 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
 
 // Lookups over ledger/<yyyy-mm>.jsonl history (Implementation Notes 2.2,
-// 10.4 and § 7). The publisher writes "merged", "rejected" and
-// "prClosedStale" lines beside the reader's own
-// (packages/gp-ai/case_scout/publisher.py).
+// 10.4 and § 7). Besides the draft job's own lines, the ledger may hold PR
+// outcome lines ("merged", "rejected", "prClosedStale"), read here when
+// present.
 
 export const DUPLICATE_WINDOW_DAYS = 30
 export const REJECTION_SUPPRESSION_WINDOW_DAYS = 30
@@ -30,8 +30,8 @@ const timestamp = (value: string | undefined): Date | undefined => {
 
 const optionalString = z.string().optional().catch(undefined)
 
-// Every field optional and tolerant: a malformed historical line, or one the
-// publisher wrote without an agent, is skipped rather than failing tonight.
+// Every field optional and tolerant: a malformed historical line, or an
+// outcome line without an agent, is skipped rather than failing tonight.
 const RawLedgerLineSchema = z.object({
   runId: optionalString,
   conversationId: optionalString,

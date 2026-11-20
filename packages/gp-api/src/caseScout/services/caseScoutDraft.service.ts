@@ -61,10 +61,10 @@ import {
   LIST_SOFT_CAP,
   type CaseListInfo,
 } from './caseScoutCaseLists.service'
+import { CaseScoutHandoffService } from './caseScoutHandoff.service'
 import { CaseScoutJudgeRecordsService } from './caseScoutJudgeRecords.service'
 import { CaseScoutMessagesService } from './caseScoutMessages.service'
 import { CaseScoutModelService } from './caseScoutModel.service'
-import { CaseScoutPublisherService } from './caseScoutPublisher.service'
 
 // The judge's chat agents (CHAT_AGENT_IDS in src/chats/evals/judge/agents.ts,
 // which the production build leaves out), checked for noisy cases.
@@ -93,15 +93,14 @@ const totalOf = (spend: Spend): number => spend.score + spend.draft + spend.gate
 
 // The caseScoutDraft job: picks the night's worst sessions, drafts and gates
 // them one at a time (a night's drafts must not duplicate each other), writes
-// the night's files and hands them to the publisher.
+// the night's files and hands them off (CaseScoutHandoffService).
 //
 // Safe to run twice. bundle.json is written last, so its presence means the
 // night's sources, ledger lines and record are all written; a retry then only
-// re-invokes the publisher, and not even that once the marker names this run.
-// The publisher is idempotent for a run (an existing PR is reused, the marker
-// moves once), except that it posts its Slack note again. A retry before
-// bundle.json exists drafts from scratch: nothing it wrote is read back, and
-// its ledger lines replace the earlier attempt's.
+// repeats the handoff, and not even that once the marker names this run. The
+// handoff never sends a night twice, though it posts its Slack note again. A
+// retry before bundle.json exists drafts from scratch: nothing it wrote is
+// read back, and its ledger lines replace the earlier attempt's.
 @Injectable()
 export class CaseScoutDraftService {
   constructor(
@@ -110,7 +109,7 @@ export class CaseScoutDraftService {
     private readonly model: CaseScoutModelService,
     private readonly caseLists: CaseScoutCaseListsService,
     private readonly judgeRecords: CaseScoutJudgeRecordsService,
-    private readonly publisher: CaseScoutPublisherService,
+    private readonly handoff: CaseScoutHandoffService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(CaseScoutDraftService.name)
@@ -123,10 +122,10 @@ export class CaseScoutDraftService {
     if (await this.bucket.readBundle(runId)) {
       const marker = await this.bucket.readMarker()
       if (marker.updatedByRun === runId) {
-        this.logger.info({ runId }, 'Case scout night already published')
+        this.logger.info({ runId }, 'Case scout night already handed off')
         return
       }
-      await this.publisher.publish(runId)
+      await this.handoff.handOff(runId, job.signal)
       return
     }
 
@@ -153,7 +152,7 @@ export class CaseScoutDraftService {
       { runId, counts: night.record.counts },
       'Case scout night drafted',
     )
-    await this.publisher.publish(runId)
+    await this.handoff.handOff(runId, job.signal)
   }
 
   private async draft(

@@ -101,6 +101,10 @@ const SHARED = [
 
 const DEV = [
   ...SHARED,
+  // The case scout's Delegate webhook (src/caseScout/AGENTS.md § Config).
+  // Prod gets them when its case scout is turned on.
+  'CASE_SCOUT_DELEGATE_WEBHOOK_SECRET',
+  'CASE_SCOUT_DELEGATE_WEBHOOK_URL',
   'CLERK_WEBHOOK_SECRET',
   'PEERLY_TEST_ENVIRONMENT',
   'ROBOCALL_TEST_OVERRIDE_NUMBER',

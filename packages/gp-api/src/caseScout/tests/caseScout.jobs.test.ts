@@ -1,7 +1,18 @@
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
-import { addMinutes, parseISO } from 'date-fns'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createHmac } from 'node:crypto'
+import { createServer, type IncomingHttpHeaders, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { addMinutes, getUnixTime, parseISO } from 'date-fns'
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
+import { CaseScoutHandoffSchema } from '@goodparty_org/contracts'
 import {
   AgentMessageRole,
   ChatMessageRole,
@@ -9,15 +20,18 @@ import {
 } from '@/generated/prisma'
 import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
+import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { ChatCaseSchema } from '@/chats/evals/judge/cases'
 import { SCORING_MODEL } from '../caseScout.prompts'
 import {
   BundleSchema,
+  DeliverySchema,
   LedgerLineSchema,
   ManifestSchema,
+  MarkerSchema,
   RecordSchema,
   SessionScoreSchema,
-  SourcesSchema,
 } from '../schemas/caseScoutBucket.schema'
 import type { ScoreResponse } from '../schemas/caseScoutModel.schema'
 import { CaseScoutBucketService } from '../services/caseScoutBucket.service'
@@ -26,27 +40,62 @@ import {
   CaseScoutModelService,
   ScoreParseError,
 } from '../services/caseScoutModel.service'
-import { CaseScoutPublisherService } from '../services/caseScoutPublisher.service'
 import { SecondReadCallError, WITHHELD_NEEDS_SETUP } from '../util/gate.util'
 import { fakeS3 } from './caseScoutTestBucket'
 
 // Drives the real caseScoutNightly schedule and lets the real score and
 // draft workers run (src/jobs/AGENTS.md § Tests). Only the edges are
-// stubbed: S3, the three model calls, the GitHub case-list read and the
-// publisher Lambda.
+// stubbed: S3, the three model calls, the GitHub case-list read and Slack.
+// The Delegate webhook is a real HTTP server on localhost.
 const service = useTestService({ jobs: true })
 
 const BUCKET = 'case-scout-test'
 const RUN_ID = '2026-11-16'
 const NOW = parseISO('2026-11-16T09:17:00.000Z')
-const FIXTURES = path.join(__dirname, '../fixtures/publisherContract')
+const WEBHOOK_KEY = Buffer.from('a-test-key-for-the-handoff-only!')
+const WEBHOOK_SECRET = `whsec_${WEBHOOK_KEY.toString('base64')}`
 
 let objects: Map<string, string>
 let scoreFor: (sessionId: string) => ScoreResponse | Error
 let draftFor: (sessionId: string) => string | Error
 let secondReadAnswer: () => Promise<string>
-let publishCalls: string[]
 let transcripts: string[]
+let notes: { text: string; channel: SlackChannel }[]
+let slackAnswer: () => string | undefined
+
+type WebhookRequest = { headers: IncomingHttpHeaders; body: string }
+let webhook: Server
+let webhookUrl: string
+let requests: WebhookRequest[]
+let webhookStatus: () => number
+
+beforeAll(async () => {
+  webhook = createServer((req, res) => {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('end', () => {
+      requests.push({
+        headers: req.headers,
+        body: Buffer.concat(chunks).toString('utf8'),
+      })
+      res.statusCode = webhookStatus()
+      res.end()
+    })
+  })
+  await new Promise<void>((resolve) => webhook.listen(0, '127.0.0.1', resolve))
+  const { port } = webhook.address() as AddressInfo
+  webhookUrl = `http://127.0.0.1:${port}/hooks/case-scout`
+})
+
+afterAll(async () => {
+  await new Promise((resolve) => webhook.close(resolve))
+})
+
+const sendToDelegate = () => {
+  vi.stubEnv('CASE_SCOUT_SEND_TO_DELEGATE', 'true')
+  vi.stubEnv('CASE_SCOUT_DELEGATE_WEBHOOK_URL', webhookUrl)
+  vi.stubEnv('CASE_SCOUT_DELEGATE_WEBHOOK_SECRET', WEBHOOK_SECRET)
+}
 
 const bucketJson = (key: string): string | undefined =>
   objects.get(`${BUCKET}/${key}`)
@@ -76,6 +125,20 @@ const bundle = () =>
   readObject(`runs/${RUN_ID}/bundle.json`, (text) =>
     BundleSchema.parse(JSON.parse(text)),
   )
+
+const marker = () =>
+  MarkerSchema.parse(JSON.parse(bucketJson('marker.json') ?? '{}'))
+
+const manifestIds = () => {
+  const { sessions } = ManifestSchema.parse(
+    JSON.parse(bucketJson(`runs/${RUN_ID}/manifest.json`) ?? '{}'),
+  )
+  return sessions.flatMap((s) => [
+    s.sessionId,
+    s.conversationId,
+    ...s.messageIds,
+  ])
+}
 
 const sessionIdIn = (transcript: string): string =>
   /^# session (\S+)$/m.exec(transcript)?.[1] ?? ''
@@ -274,7 +337,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'], now: NOW })
   vi.stubEnv('CASE_SCOUT_ENABLED', 'true')
   vi.stubEnv('CASE_SCOUT_BUCKET', BUCKET)
-  vi.stubEnv('CASE_SCOUT_LAMBDA_FUNCTION_NAME', 'case-scout-test')
+  vi.stubEnv('CASE_SCOUT_SEND_TO_DELEGATE', '')
   vi.stubEnv('CASE_SCOUT_SPEND_CAP_USD', '')
   vi.stubEnv('CASE_SCOUT_SESSION_CAP', '')
   vi.stubEnv('CASE_SCOUT_JUDGE_RECORDS_BUCKET', '')
@@ -282,7 +345,10 @@ beforeEach(() => {
 
   objects = fakeS3(service.app.get(CaseScoutBucketService))
   transcripts = []
-  publishCalls = []
+  notes = []
+  requests = []
+  slackAnswer = () => 'ok'
+  webhookStatus = () => 204
   scoreFor = () => scored(0)
   draftFor = () => new Error('no draft scripted')
   secondReadAnswer = async () => '[]'
@@ -312,25 +378,12 @@ beforeEach(() => {
     fixtureDescription: 'The fixture account.',
   }))
 
-  // Stands in for the publisher Lambda, which advances the marker on success.
-  vi.spyOn(
-    service.app.get(CaseScoutPublisherService),
-    'invoke',
-  ).mockImplementation(async (runId) => {
-    publishCalls.push(runId)
-    const recordText = bucketJson(`runs/${runId}/record.json`) ?? '{}'
-    const { newMarker } = RecordSchema.parse(JSON.parse(recordText))
-    objects.set(
-      `${BUCKET}/marker.json`,
-      JSON.stringify({ ...newMarker, updatedByRun: runId }),
-    )
-    return {
-      payload: JSON.stringify({
-        statusCode: 200,
-        body: JSON.stringify({ status: 'dry_run', runId, prUrl: null }),
-      }),
-    }
-  })
+  vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
+    async (message, channel) => {
+      notes.push({ text: message.text ?? '', channel })
+      return slackAnswer()
+    },
+  )
 })
 
 afterEach(() => {
@@ -346,10 +399,10 @@ describe('caseScoutNightly', () => {
 
     expect(objects.size).toBe(0)
     expect(transcripts).toEqual([])
-    expect(publishCalls).toEqual([])
+    expect(notes).toEqual([])
   })
 
-  it('writes the files the publisher reads, as the shared fixtures pin', async () => {
+  it('holds the night in the bucket, posts the note and moves the marker', async () => {
     await seedGoldenNight()
     scoreFor = (sessionId) =>
       ({
@@ -368,22 +421,55 @@ describe('caseScoutNightly', () => {
 
     await service.jobs.runSchedule('caseScoutNightly')
 
-    const fixture = (name: string) =>
-      readFileSync(path.join(FIXTURES, name), 'utf8')
-    expect(bundle()).toEqual(JSON.parse(fixture('bundle.json')))
     expect(
-      readObject(`runs/${RUN_ID}/sources.json`, (t) =>
-        SourcesSchema.parse(JSON.parse(t)),
+      CaseScoutHandoffSchema.parse(
+        JSON.parse(bucketJson(`runs/${RUN_ID}/handoff.json`) ?? '{}'),
       ),
-    ).toEqual(JSON.parse(fixture('sources.json')))
-    expect(record()).toEqual(JSON.parse(fixture('record.json')))
-    expect(ledgerLines()).toEqual(
-      fixture('ledger.jsonl')
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line)),
+    ).toEqual({
+      version: 1,
+      runId: RUN_ID,
+      environment: 'dev',
+      cases: [
+        {
+          suite: 'chief_of_staff',
+          id: 'turnout-figure-without-source',
+          turns: ['What turnout should I expect in my race this fall?'],
+          grading: {
+            condition:
+              'Turnout numbers must come with their source or a caveat.',
+            handledWhen:
+              'The reply names where a turnout number comes from, or says ' +
+              'it has none; a failing reply states a bare figure.',
+          },
+          severity: 3,
+        },
+      ],
+      needsSetup: [],
+    })
+    expect(requests).toEqual([])
+    expect(bucketJson(`runs/${RUN_ID}/delivery.json`)).toBeUndefined()
+    expect(marker()).toEqual({
+      lastSessionStart: '2026-11-15T16:00:00.000Z',
+      processedSessionIds: [
+        'conv-golden-b:msg-b1',
+        'conv-golden-c:msg-c1',
+        'conv-golden-a:msg-a3',
+      ],
+      updatedByRun: RUN_ID,
+    })
+    expect(notes).toHaveLength(1)
+    expect(notes[0]?.channel).toBe(SlackChannel.botDev)
+    expect(notes[0]?.text).toContain(
+      `Handoff: held at ${BUCKET}/runs/${RUN_ID}/handoff.json`,
     )
-    expect(publishCalls).toEqual([RUN_ID])
+    expect(notes[0]?.text).toContain(
+      '`turnout-figure-without-source` (chief_of_staff, severity 3), ' +
+        'conversation `conv-golden-a`',
+    )
+    expect(notes[0]?.text).toContain(
+      'FROM gp_api_pg_dev.public.agent_message WHERE conversation_id IN ' +
+        "('conv-golden-a')",
+    )
 
     expect(bucketJson(`claims/${RUN_ID}`)).toBeDefined()
     // The out-of-scope ordinance session is never sent to the model.
@@ -532,29 +618,29 @@ describe('caseScoutNightly', () => {
   })
 })
 
-describe('caseScoutDraft', () => {
-  const seedSessions = async (severities: number[]) => {
-    for (const [index, severity] of severities.entries()) {
-      const id = `conv-sev-${index}-${severity}`
-      await seedConversation({ id, scope: ChatScope.chief_of_staff })
-      await seedMessage(
-        id,
-        `msg-sev-${index}`,
-        ChatMessageRole.user,
-        addMinutes(parseISO('2026-11-15T10:00:00.000Z'), index).toISOString(),
-        'A question.',
-      )
-    }
-    scoreFor = (sessionId) => {
-      const severity = Number(/-(\d):/.exec(sessionId)?.[1])
-      return scored(severity === 3 ? 3 : severity === 2 ? 2 : 0)
-    }
+const seedSessions = async (severities: number[]) => {
+  for (const [index, severity] of severities.entries()) {
+    const id = `conv-sev-${index}-${severity}`
+    await seedConversation({ id, scope: ChatScope.chief_of_staff })
+    await seedMessage(
+      id,
+      `msg-sev-${index}`,
+      ChatMessageRole.user,
+      addMinutes(parseISO('2026-11-15T10:00:00.000Z'), index).toISOString(),
+      'A question.',
+    )
   }
+  scoreFor = (sessionId) => {
+    const severity = Number(/-(\d):/.exec(sessionId)?.[1])
+    return scored(severity === 3 ? 3 : severity === 2 ? 2 : 0)
+  }
+}
 
+describe('caseScoutDraft', () => {
   it('drafts severity 2 and 3, worst first, up to the nightly cap', async () => {
     await seedSessions([2, 3, 0, 3, 2, 3])
     draftFor = (sessionId) =>
-      newCase(`case-${sessionId.split(':')[1]}`, `failure ${sessionId}`)
+      newCase(`case-${sessionId.slice(-1)}`, `failure ${sessionId}`)
 
     await service.jobs.runSchedule('caseScoutNightly')
 
@@ -593,7 +679,7 @@ describe('caseScoutDraft', () => {
         lines.map((line) => JSON.stringify(line)).join('\n') + '\n',
       )
       draftFor = (sessionId) =>
-        newCase(`case-${sessionId.split(':')[1]}`, `failure ${sessionId}`)
+        newCase(`case-${sessionId.slice(-1)}`, `failure ${sessionId}`)
 
       await service.jobs.runSchedule('caseScoutNightly')
 
@@ -740,7 +826,7 @@ describe('caseScoutDraft', () => {
     for (const score of capped) {
       expect(run.newMarker.processedSessionIds).not.toContain(score.sessionId)
     }
-    expect(publishCalls).toEqual([RUN_ID])
+    expect(notes).toHaveLength(1)
   })
 
   it('drafts the night even when a score job dead-letters', async () => {
@@ -760,7 +846,7 @@ describe('caseScoutDraft', () => {
       'session conv-sev-0-3:msg-sev-0: scoring call failed',
     ])
     expect(bundle().drafts.map((d) => d.case.caseId)).toEqual(['survivor'])
-    expect(publishCalls).toEqual([RUN_ID])
+    expect(marker().updatedByRun).toBe(RUN_ID)
   })
 
   it('records a reply that never parses as a scoring error, not a retry', async () => {
@@ -775,10 +861,131 @@ describe('caseScoutDraft', () => {
     expect(record().errors[0]).toContain('could not be parsed after retry')
     expect(record().model).toBe(SCORING_MODEL)
   })
+})
 
-  it('re-running after a publish neither redrafts nor republishes', async () => {
-    await seedSessions([3])
-    draftFor = () => newCase('once-only', 'one failure')
+describe('the handoff to Delegate', () => {
+  const draftOne = async (caseId = 'once-only') => {
+    await seedConversation({ id: 'conv-ho', scope: ChatScope.chief_of_staff })
+    await seedMessage(
+      'conv-ho',
+      'msg-ho',
+      ChatMessageRole.user,
+      '2026-11-15T10:00:00.000Z',
+      'A question.',
+    )
+    scoreFor = () => scored(3)
+    draftFor = () => newCase(caseId, 'one failure')
+  }
+
+  it('signs and posts exactly the held payload, once', async () => {
+    sendToDelegate()
+    await draftOne()
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    expect(requests).toHaveLength(1)
+    const [{ headers, body }] = requests as [WebhookRequest]
+    expect(body).toBe(bucketJson(`runs/${RUN_ID}/handoff.json`))
+    expect(CaseScoutHandoffSchema.parse(JSON.parse(body)).cases).toHaveLength(1)
+    expect(headers['content-type']).toBe('application/json')
+    expect(headers['webhook-id']).toBe(`case-scout-dev-${RUN_ID}`)
+    expect(headers['webhook-timestamp']).toBe(String(getUnixTime(NOW)))
+    // Standard Webhooks: base64 HMAC-SHA256 of "id.timestamp.body", keyed by
+    // the secret's base64 part.
+    const expected = createHmac('sha256', WEBHOOK_KEY)
+      .update(
+        `${headers['webhook-id']}.${headers['webhook-timestamp']}.${body}`,
+      )
+      .digest('base64')
+    expect(headers['webhook-signature']).toBe(`v1,${expected}`)
+
+    expect(
+      DeliverySchema.parse(
+        JSON.parse(bucketJson(`runs/${RUN_ID}/delivery.json`) ?? '{}'),
+      ),
+    ).toMatchObject({ webhookId: `case-scout-dev-${RUN_ID}`, status: 204 })
+    expect(marker().updatedByRun).toBe(RUN_ID)
+    expect(notes[0]?.text).toContain(
+      `Handoff: sent to Delegate (webhook-id case-scout-dev-${RUN_ID})`,
+    )
+  })
+
+  it('fails the job on a refused post and leaves the marker', async () => {
+    sendToDelegate()
+    await draftOne()
+    webhookStatus = () => 500
+
+    const { deadLetters } = await service.jobs.runSchedule('caseScoutNightly', {
+      allowDeadLetters: true,
+    })
+
+    expect(deadLetters).toEqual([
+      expect.objectContaining({
+        name: 'caseScoutDraft',
+        error: expect.stringContaining('HTTP 500'),
+      }),
+    ])
+    expect(requests.length).toBeGreaterThan(1)
+    expect(bucketJson(`runs/${RUN_ID}/delivery.json`)).toBeUndefined()
+    expect(bucketJson('marker.json')).toBeUndefined()
+    expect(notes).toEqual([])
+    // Every attempt after the first reuses the drafted night.
+    expect(
+      vi.mocked(service.app.get(CaseScoutModelService).draftCase),
+    ).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails the job when the webhook cannot be reached', async () => {
+    sendToDelegate()
+    vi.stubEnv('CASE_SCOUT_DELEGATE_WEBHOOK_URL', 'http://127.0.0.1:1/hook')
+    await draftOne()
+
+    const { deadLetters } = await service.jobs.runSchedule('caseScoutNightly', {
+      allowDeadLetters: true,
+    })
+
+    expect(deadLetters.map((d) => d.name)).toEqual(['caseScoutDraft'])
+    expect(deadLetters[0]?.error).toContain('could not reach')
+    expect(deadLetters[0]?.error).not.toContain('127.0.0.1')
+    expect(bucketJson('marker.json')).toBeUndefined()
+  })
+
+  it('posts again after a refused post, without redrafting', async () => {
+    sendToDelegate()
+    await draftOne()
+    const statuses = [503, 200]
+    webhookStatus = () => statuses.shift() ?? 200
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    expect(requests.map((r) => r.headers['webhook-id'])).toEqual([
+      `case-scout-dev-${RUN_ID}`,
+      `case-scout-dev-${RUN_ID}`,
+    ])
+    expect(requests[0]?.body).toBe(requests[1]?.body)
+    expect(
+      vi.mocked(service.app.get(CaseScoutModelService).draftCase),
+    ).toHaveBeenCalledTimes(1)
+    expect(ledgerLines()).toHaveLength(1)
+    expect(marker().updatedByRun).toBe(RUN_ID)
+  })
+
+  it('never sends a night twice when a later step fails', async () => {
+    sendToDelegate()
+    await draftOne()
+    const answers = [undefined, 'ok']
+    slackAnswer = () => answers.shift()
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    expect(requests).toHaveLength(1)
+    expect(notes).toHaveLength(2)
+    expect(marker().updatedByRun).toBe(RUN_ID)
+  })
+
+  it('does nothing more once the marker names the night', async () => {
+    sendToDelegate()
+    await draftOne()
     await service.jobs.runSchedule('caseScoutNightly')
     const draftCalls = vi.mocked(
       service.app.get(CaseScoutModelService).draftCase,
@@ -789,27 +996,66 @@ describe('caseScoutDraft', () => {
       .sendMany('caseScoutDraft', [{ data: { runId: RUN_ID }, key: RUN_ID }])
     await service.jobs.settle()
 
-    expect(publishCalls).toEqual([RUN_ID])
+    expect(requests).toHaveLength(1)
+    expect(notes).toHaveLength(1)
     expect(
       vi.mocked(service.app.get(CaseScoutModelService).draftCase).mock.calls,
     ).toHaveLength(draftCalls)
   })
 
-  it('republishes, without redrafting, when the last publish failed', async () => {
-    await seedSessions([3])
-    draftFor = () => newCase('retry-publish', 'one failure')
-    const publisher = service.app.get(CaseScoutPublisherService)
-    vi.mocked(publisher.invoke).mockResolvedValueOnce({
-      functionError: 'Unhandled',
-      payload: '{"errorMessage":"GitHub down"}',
-    })
+  it('carries no source id and none of the ungated fields', async () => {
+    sendToDelegate()
+    await seedSessions([3, 3])
+    draftFor = (sessionId) =>
+      sessionId.startsWith('conv-sev-0')
+        ? newCase('clean-case', `the drafter named ${sessionId}`)
+        : JSON.stringify({
+            outcome: 'needsSetup',
+            failureSummary: `needs setup, from ${sessionId}`,
+            what: 'An account with a recount pending.',
+          })
 
     await service.jobs.runSchedule('caseScoutNightly')
 
-    expect(
-      vi.mocked(service.app.get(CaseScoutModelService).draftCase),
-    ).toHaveBeenCalledTimes(1)
-    expect(publishCalls).toEqual([RUN_ID])
-    expect(ledgerLines()).toHaveLength(1)
+    const [{ body }] = requests as [WebhookRequest]
+    // The planted ids are in the night's own files, never in the payload.
+    expect(bucketJson(`ledger/${RUN_ID.slice(0, 7)}.jsonl`)).toContain(
+      'the drafter named conv-sev-0-3:msg-sev-0',
+    )
+    for (const id of manifestIds()) expect(body).not.toContain(id)
+    expect(body).not.toContain('the drafter named')
+    expect(body).not.toContain('needs setup, from')
+    expect(Object.keys(JSON.parse(body)).sort()).toEqual([
+      'cases',
+      'environment',
+      'needsSetup',
+      'runId',
+      'version',
+    ])
+  })
+
+  it('refuses a night whose draft names its source conversation', async () => {
+    sendToDelegate()
+    await draftOne()
+    draftFor = () =>
+      JSON.stringify({
+        outcome: 'newCase',
+        failureSummary: 'f',
+        case: {
+          caseId: 'names-its-source',
+          question: 'What did we say in conv-ho yesterday?',
+          condition: 'A condition.',
+          handledWhen: 'A handled-when.',
+        },
+      })
+
+    const { deadLetters } = await service.jobs.runSchedule('caseScoutNightly', {
+      allowDeadLetters: true,
+    })
+
+    expect(deadLetters[0]?.error).toContain('names a source id')
+    expect(bucketJson(`runs/${RUN_ID}/handoff.json`)).toBeUndefined()
+    expect(requests).toEqual([])
+    expect(bucketJson('marker.json')).toBeUndefined()
   })
 })
