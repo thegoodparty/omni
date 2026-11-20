@@ -3,11 +3,11 @@ import {
   Annotation,
   AnnotationKind,
   AnnotationResourceType,
+  ChatScope,
   MeetingBriefing,
 } from '../../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
-import { ChatScope } from '../../../generated/prisma'
 import type { BriefingContextService } from './briefingContext.service'
 import type { BriefingNotesService } from './briefingNotes.service'
 import { BriefingChatsService } from './briefing-chats.service'

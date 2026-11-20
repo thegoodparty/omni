@@ -122,11 +122,12 @@ export class BriefingChatCreateService extends createPrismaBase(
     anchor: BriefingChatAnchor,
   ): Promise<FindOrCreateResult> {
     return this.client.$transaction(async (tx) => {
-      // scope and organizationSlug are written so the conversation is also
-      // reachable through the scope registry's routes, which check ownership
-      // by (owner, scope, organizationSlug). The /v1/briefing-chats routes key
-      // on the annotation and read neither, so rows created before this (slug
-      // NULL) keep working there.
+      // scope and organizationSlug are written because every turn and history
+      // read goes through /v1/chats/:conversationId, which checks ownership by
+      // (owner, scope, organizationSlug). Rows created before this carry the
+      // scope by column default and a NULL slug; the migration
+      // 20261120100000_backfill_briefing_chat_organization_slug fills those in
+      // from the annotation's briefing office.
       const conversation = await tx.chatConversation.create({
         data: {
           ownerUserId: userId,

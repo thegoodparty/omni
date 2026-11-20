@@ -7,6 +7,8 @@ code: []
 scope:
   - packages/gp-api/src/chats/briefing-chats/**
   - packages/gp-api/src/chats/general/**
+  - packages/gp-webapp/app/shared/briefings/**
+  - packages/gp-webapp/app/dashboard/briefings/**
 supersedes: []
 superseded_by:
 ---
@@ -59,7 +61,12 @@ verbatim.
 
 `POST /v1/briefing-chats` also already wrote `scope` and `organizationSlug` onto
 every conversation it created, for exactly this reason, so conversations created
-from then on were already reachable through the shared routes.
+from then on were already reachable through the shared routes. Conversations
+created before #2464 (which added the `scope` column) carry it by column default
+and a NULL slug, so this change backfills the slug from the annotation's
+briefing office (`20261120100000_backfill_briefing_chat_organization_slug`) —
+without it, moving turns onto the shared routes would take every existing
+briefing thread away from the people who wrote them.
 
 ## Alternatives rejected
 
