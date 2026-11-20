@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { EmailSend } from '@goodparty_org/contracts'
@@ -6,6 +6,20 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
 import { EmailStatus, emailStatusCopy } from './EmailStatus'
 import { SERVE_EMAIL_SURFACE, WIN_EMAIL_SURFACE } from './emailSurface'
+
+const credit = vi.hoisted(() => ({ cents: 0 }))
+
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: true }),
+}))
+
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [{ hasFreeTextsOffer: false }],
+}))
+
+vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
+  usePlan: () => ({ creditCents: credit.cents }),
+}))
 
 vi.mock('@stripe/stripe-js', () => ({
   loadStripe: vi.fn(() => Promise.resolve(null)),
@@ -371,5 +385,52 @@ describe('EmailStatus', () => {
 
     await screen.findByTestId('email-summary')
     expect(screen.queryByTestId('email-results')).not.toBeInTheDocument()
+  })
+})
+
+describe('EmailStatus outreach credit', () => {
+  const mockReserved = (creditReservedCents: number) =>
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { id: 11, creditReservedCents } as never,
+    })
+
+  beforeEach(() => {
+    credit.cents = 0
+    api.mock('GET /v1/outreach/email/:id', { status: 200, data: send() })
+    api.mock('POST /v1/outreach/email/preview', {
+      status: 200,
+      data: { html: '<p>Hi</p>' },
+    })
+  })
+
+  it('shows the credit used, what is left and a $0.00 charge when credit covers part', async () => {
+    credit.cents = 4000
+    mockReserved(600)
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} justPaid />)
+
+    expect(await screen.findByText('Outreach credit used')).toBeInTheDocument()
+    expect(screen.getByText('\u2212$6.00')).toBeInTheDocument()
+    expect(
+      screen.getByText('$40.00 outreach credit left after it sends.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Charged today')).toBeInTheDocument()
+    expect(screen.getByText('$0.00')).toBeInTheDocument()
+  })
+
+  it('leaves the rows off when the send used no credit', async () => {
+    mockReserved(0)
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} justPaid />)
+
+    expect(await screen.findByTestId('email-success')).toBeInTheDocument()
+    expect(screen.queryByText('Charged today')).not.toBeInTheDocument()
+  })
+
+  it('does not call it charged on the status page after the send', async () => {
+    mockReserved(600)
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    expect(await screen.findByText('Outreach credit used')).toBeInTheDocument()
+    expect(screen.queryByText('Charged today')).not.toBeInTheDocument()
   })
 })

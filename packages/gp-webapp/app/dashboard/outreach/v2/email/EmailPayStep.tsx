@@ -6,6 +6,7 @@ import {
   type EmailSend,
   type PaymentHoldCardResponse,
 } from '@goodparty_org/contracts'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { PaymentHoldCard } from 'app/dashboard/shared/payment-hold/PaymentHoldCard'
 import { Intro } from '../social/Intro'
 import {
@@ -91,9 +92,12 @@ export const EmailPayStep = ({
     }
   }
 
-  const paid = () => {
+  const paid = async () => {
     const confirmed = confirmedRef.current
     if (!confirmed) return
+    // Awaited so the success screen's credit left reads the server's balance,
+    // not the one from before the confirm reserved against it.
+    await queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
     queryClient.setQueryData(
       emailSendQueryKey(surface.isServe, draftId),
       confirmed,
@@ -126,7 +130,7 @@ export const EmailPayStep = ({
         outreachId={draftId}
         submitLabel={scheduled ? 'Pay and schedule' : 'Pay and send'}
         savePaymentMethod={savePaymentMethod}
-        onOutcome={paid}
+        onOutcome={() => void paid()}
       />
     </div>
   )

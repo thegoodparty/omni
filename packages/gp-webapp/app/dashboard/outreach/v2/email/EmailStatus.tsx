@@ -329,7 +329,16 @@ export const EmailStatus = ({
         priceCents={send.priceCents ?? send.estimate?.priceCents ?? null}
         credit={
           creditUsedCents > 0
-            ? { label: 'Outreach credit used', cents: creditUsedCents }
+            ? {
+                label: 'Outreach credit used',
+                cents: creditUsedCents,
+                ...(justPaid
+                  ? {
+                      leftCents: outreachCredit.balanceCents,
+                      chargedTodayCents: 0,
+                    }
+                  : {}),
+              }
             : undefined
         }
         when={
