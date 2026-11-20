@@ -117,9 +117,12 @@ processed, so a later night reads it.
 `CASE_SCOUT_BUCKET`, `CASE_SCOUT_SPEND_CAP_USD`, `CASE_SCOUT_SESSION_CAP`,
 `CASE_SCOUT_JUDGE_RECORDS_BUCKET` (dev only: noisy-case proposals read the
 judge's sweep records; unset skips them). Set in `deploy/index.ts`, with the
-task role's grants on the bucket. The webhook URL and signing secret are
-secrets in `GP_API_DEV` (`deploy/gp-api-secret-keys.ts`), read only when
-sending; prod declares them when its case scout is turned on. Only prod drops
+task role's grants on the bucket. The webhook URL and signing secret
+(`CASE_SCOUT_DELEGATE_WEBHOOK_URL`, `CASE_SCOUT_DELEGATE_WEBHOOK_SECRET`) are
+read only when sending, so no environment declares them yet: the change that
+turns sending on adds them to `deploy/gp-api-secret-keys.ts`, after their
+values are in that environment's secret, since a deploy stops on a declared key
+the secret lacks (`docs/secrets.md`). Only prod drops
 staff and test accounts and labels its handoff `prod`
 (`OTEL_SERVICE_ENVIRONMENT`).
 
