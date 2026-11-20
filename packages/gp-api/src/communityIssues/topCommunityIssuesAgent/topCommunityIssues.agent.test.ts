@@ -48,6 +48,7 @@ const SERVE_CONTEXT = {
 }
 
 const VOTERS_TABLE = peopleTable({ base: 'voters' })
+const CONSTITUENTS_TABLE = peopleTable({ base: 'constituents' })
 
 // The mart the model's lean query must name, read off the tool description it
 // is given: the run's own input no longer carries a table, so this is the
@@ -648,25 +649,37 @@ describe('topCommunityIssuesDatabricksScope', () => {
 
   // The table the tool may read is the org's own people mart, resolved at
   // query time by PeopleDatasetService — the same choice every other people
-  // read makes. A Win org reads voters; a Serve org with the consumer-data
-  // flag reads constituents. Either way the tool resolves exactly one name.
-  it("resolves the org's PeopleDatasetService mart, and accepts only it", async () => {
-    const run = await seedRun({
-      organizationSlug: orgSlug,
-      state: 'NC',
-      office: 'City Council Member',
-      districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
-      today: '2026-11-18',
-    })
+  // read makes. A Win org reads voters; a Serve org whose owner carries the
+  // consumer-data flag reads constituents. Each case pins a literal table, and
+  // pins the resolve that produces it, so a tool that always returned voters
+  // fails the constituents case.
+  it.each([
+    ['voters', 'voters', VOTERS_TABLE],
+    ['constituents', 'constituents', CONSTITUENTS_TABLE],
+  ] as const)(
+    "resolves the org's %s mart, and accepts only it",
+    async (_name, base, expected) => {
+      spies.push(
+        vi
+          .spyOn(service.app.get(PeopleDatasetService), 'resolve')
+          .mockResolvedValue({ base }),
+      )
+      const run = await seedRun({
+        organizationSlug: orgSlug,
+        state: 'NC',
+        office: 'City Council Member',
+        districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
+        today: '2026-11-18',
+      })
 
-    const expected = await orgMart()
-    expect(TopCommunityIssuesInputSchema.parse(run.input)).not.toHaveProperty(
-      'peopleTable',
-    )
-    await expect(
-      topCommunityIssuesDatabricksTables(toolContext(run.id)),
-    ).resolves.toEqual([expected])
-  })
+      expect(TopCommunityIssuesInputSchema.parse(run.input)).not.toHaveProperty(
+        'peopleTable',
+      )
+      await expect(
+        topCommunityIssuesDatabricksTables(toolContext(run.id)),
+      ).resolves.toEqual([expected])
+    },
+  )
 
   it('names no table for an org that no longer exists', async () => {
     const run = await seedRun({ organizationSlug: orgSlug, state: 'NC' })
