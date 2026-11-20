@@ -964,10 +964,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     isPro: boolean = true,
     trackCampaign: boolean = true,
     // A function is decided against the locked row; returning null leaves
-    // that row's Pro state as it is.
+    // that row's Pro state as it is. It may be async, and runs inside the
+    // transaction, so a rejection rolls the write back.
     data:
       | SetIsProData
-      | ((locked: LockedCampaignState) => SetIsProData | null) = {},
+      | ((
+          locked: LockedCampaignState,
+        ) => SetIsProData | null | Promise<SetIsProData | null>) = {},
   ): Promise<{ becamePro: boolean; campaign: Campaign }> {
     // Read outside the transaction: a flag evaluation is a network call and
     // must not run while the row lock is held. Only a Pro grant can offer
@@ -1021,7 +1024,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         })
 
         const resolvedData =
-          typeof data === 'function' ? data(existingCampaign) : data
+          typeof data === 'function' ? await data(existingCampaign) : data
         const nextIsPro = resolvedData === null ? existingCampaign.isPro : isPro
         const isBecomingProFirstTime =
           !existingCampaign.isPro && nextIsPro === true
