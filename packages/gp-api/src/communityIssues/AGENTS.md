@@ -159,10 +159,10 @@ accepted.
   `mart_gp_api.gp_api_voters` or `gp_api_constituents`: gp-api's Databricks
   principal reads `mart_gp_api` only, and which of the two a run may read is
   `PeopleDatasetService`'s choice for its org, exactly as for every other people
-  read. The dispatcher resolves it and puts it in the run's input as
-  `peopleTable`; `topCommunityIssuesDatabricksTables` reads it back by run id
-  and the tool accepts no other table. The model writes the state and L2
-  district clauses itself, and the tool proves them against
+  read. `topCommunityIssuesDatabricksTables` resolves it when the query runs,
+  from the run's own organization, and the tool accepts no other table, so no
+  field in a run's input decides what it may read. The model writes the state
+  and L2 district clauses itself, and the tool proves them against
   `topCommunityIssuesDatabricksScope`: the run's stored `AgentRun.input`, read
   by run id. The dispatcher builds that input from `resolveServeContext`, so in
   production it equals
@@ -177,8 +177,8 @@ accepted.
   names is narrower than a city, and is the scope the instruction already
   asked the broker for in its own WHERE.
 - The input carries `l2DistrictType` and `l2DistrictName` only as a pair, as
-  `buildDispatchParams` does for the PMF Engine, plus the `peopleTable` its
-  queries read. Signup's `HIGH` priority is not carried over.
+  `buildDispatchParams` does for the PMF Engine. Signup's `HIGH` priority is
+  not carried over.
 - `onArtifact` is the same `ingestAgentArtifact` path: the upsert with
   archive-by-omission, carried `existing_issue_id`s (so a priority made from
   an issue stays on it), task cards on a refresh, and the Segment events below,
