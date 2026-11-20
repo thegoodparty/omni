@@ -117,43 +117,46 @@ export class PlanExpiryService extends createPrismaBase(MODELS.Campaign) {
     const { campaignId } = job.data
     const now = new Date()
 
-    // The event goes out before the commit, from this read, so a Segment
-    // failure fails the job while the plan is still due and the retry redoes
-    // it. After the commit a retry returns at the lock-time check and nothing
-    // could resend it. The messageId dedups a retry that sent it already.
+    // Cheap early exit; the decision is made again under the row lock below.
     const campaign = await this.client.campaign.findUnique({
       where: { id: campaignId },
       select: {
         userId: true,
-        plan: true,
         isPro: true,
         planPricingModel: true,
         planEndedAt: true,
         planEndsAtOverride: true,
         details: true,
-        outreachCreditCents: true,
       },
     })
     if (!campaign || !this.isEndable(campaign, now)) {
       this.logger.info({ campaignId }, 'Plan not due; left as is')
       return
     }
-    await this.analytics.track(
-      campaign.userId,
-      EVENTS.Account.PaidPlanUpdated,
-      {
-        plan: campaign.plan,
-        change: 'ended',
-        reason: 'election_passed',
-        creditExpiredCents: campaign.outreachCreditCents,
-      },
-      undefined,
-      `plan-ended:${campaignId}`,
-    )
 
     try {
-      await this.campaigns.setIsPro(campaignId, false, true, (locked) => {
+      await this.campaigns.setIsPro(campaignId, false, true, async (locked) => {
         if (!this.isEndable(locked, now)) throw new NotDueError()
+        // Sent from the locked row, before the commit, so an admin extend
+        // that landed after the read above means no event, and a Segment
+        // failure throws, rolls the write back and fails the job while the
+        // plan is still due. After a commit a retry would return at the
+        // check above and nothing could resend it. The messageId dedups a
+        // retry that sent it already. The cost is one Segment call while
+        // this campaign row is locked, which only blocks other writers to
+        // that row.
+        await this.analytics.track(
+          campaign.userId,
+          EVENTS.Account.PaidPlanUpdated,
+          {
+            plan: locked.plan,
+            change: 'ended',
+            reason: 'election_passed',
+            creditExpiredCents: locked.outreachCreditCents,
+          },
+          undefined,
+          `plan-ended:${campaignId}`,
+        )
         return { planEndedAt: now, outreachCreditCents: 0 }
       })
     } catch (error) {

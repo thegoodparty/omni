@@ -1,5 +1,5 @@
 import { addMinutes, subMinutes } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_RESULTS_PER_PAGE,
   type PeopleListResponse,
@@ -39,6 +39,10 @@ beforeEach(async () => {
     service.app.get(EmailDomainCheckService),
     'findUndeliverableDomains',
   ).mockResolvedValue(new Set<string>())
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 const personId = (index: number) => `p${String(index).padStart(7, '0')}`
@@ -165,6 +169,11 @@ const prepare = async (outreachEmailId: number) => {
   await service.jobs.settle()
 }
 
+// One full page plus a short one: the least that takes a second delivery.
+// Every row is a write, and the single prepare worker holds up the next test
+// while it works.
+const AUDIENCE_PAST_ONE_PAGE = MAX_RESULTS_PER_PAGE + 500
+
 describe('prepare resolves the audience', () => {
   it('reads only the pages the cap needs from a very large list', async () => {
     const { spy, pages } = stubAudience(300_000)
@@ -200,7 +209,7 @@ describe('prepare resolves the audience', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const start = new Date()
     vi.setSystemTime(start)
-    const { pages } = stubAudience(25_000)
+    const { pages } = stubAudience(AUDIENCE_PAST_ONE_PAGE)
     vi.spyOn(
       service.app.get(ContactsService),
       'findContactsForFilter',
@@ -216,7 +225,7 @@ describe('prepare resolves the audience', () => {
     })
     const send = vi.spyOn(service.app.get(JobsService), 'send')
     const { outreachEmailId } = await pendingSend({
-      recipientCap: 25_000,
+      recipientCap: AUDIENCE_PAST_ONE_PAGE,
       warmingStep: 2,
     })
 
@@ -226,18 +235,16 @@ describe('prepare resolves the audience', () => {
     expect(
       send.mock.calls.filter(([name]) => name === 'emailSendPrepare'),
     ).toHaveLength(2)
-    expect(pages.map((p) => p.afterId)).toEqual([
-      undefined,
-      personId(9_999),
-      personId(19_999),
-    ])
+    expect(pages.map((p) => p.afterId)).toEqual([undefined, personId(9_999)])
     expect(Math.max(...pages.map((p) => p.length))).toBe(MAX_RESULTS_PER_PAGE)
     const row = await service.prisma.outreachEmail.findUniqueOrThrow({
       where: { id: outreachEmailId },
     })
-    expect(row.audienceCursor).toBe(personId(24_999))
+    expect(row.audienceCursor).toBe(personId(AUDIENCE_PAST_ONE_PAGE - 1))
     expect(row.preparedAt).not.toBeNull()
-    expect(await recipientsOf(outreachEmailId)).toHaveLength(25_000)
+    expect(await recipientsOf(outreachEmailId)).toHaveLength(
+      AUDIENCE_PAST_ONE_PAGE,
+    )
   })
 
   it('dedupes, skips unsubscribes and people with no email, never-emailed first', async () => {
