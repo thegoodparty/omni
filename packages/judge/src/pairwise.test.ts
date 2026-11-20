@@ -34,7 +34,10 @@ const definition = {
 const collect = (env: NodeJS.ProcessEnv) => {
   const tests: { id: string; run: (context: TestContext) => Promise<void> }[] =
     []
-  const meta: { pairwiseVerdict?: { message: string } } = {}
+  const meta: {
+    pairwiseVerdict?: { message: string }
+    pairwiseNotJudged?: { message: string }
+  } = {}
   const hooks: { before?: () => Promise<void>; after?: () => Promise<void> } =
     {}
   const describe = vi.fn((_name: string, body: () => void) => body())
@@ -187,10 +190,57 @@ describe('definePairwiseAgentEvalSuite', () => {
         else await expect(hooks.after?.()).resolves.toBeUndefined()
         const verdict = meta.pairwiseVerdict?.message
         expect(JSON.parse(String(verdict))).toMatchObject({ label })
+        const notJudged = JSON.parse(String(meta.pairwiseNotJudged?.message))
+        expect(notJudged).toHaveLength(winner === 'failure' ? 12 : 0)
+        if (winner === 'failure')
+          expect(notJudged[0]).toMatchObject({
+            side: expect.stringMatching(/^(base|candidate)$/),
+            runs: [{ runId: expect.stringMatching(/^run-/), status: 'failed' }],
+            error: 'run failed',
+          })
       } finally {
         axios.defaults.adapter = adapter
         axios.defaults.env = axiosEnv
       }
     },
   )
+
+  it('keeps the not-judged list valid JSON when an error has a newline before a run ID', async () => {
+    const runId = 'b5474767-7a55-4029-8b43-e720f85e53b8'
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const request = new Request(input)
+      const { pathname } = new URL(request.url)
+      if (pathname === '/v1/version') return Response.json({})
+      if (request.method === 'POST') return Response.json({ runId })
+      if (!request.headers.has('x-organization-slug'))
+        return Response.json({ message: 'Unauthorized' }, { status: 401 })
+      return Response.json({
+        status: 'failed',
+        error: `Agent run failed\n${'a'.repeat(31)}\n${runId}`,
+      })
+    })
+    const adapter = axios.defaults.adapter
+    const axiosEnv = axios.defaults.env
+    axios.defaults.adapter = 'fetch'
+    axios.defaults.env = { ...axiosEnv, fetch }
+    try {
+      provision.mockImplementation(
+        async ({ apiRoot }: { apiRoot: string }) => ({
+          client: axios.create({ baseURL: apiRoot }),
+          clerkUserId: 'user',
+          orgSlug: 'org',
+        }),
+      )
+      const { hooks, tests, meta } = collect(env)
+      await hooks.before?.()
+      const context = { annotate: vi.fn<Annotate>() } as unknown as TestContext
+      await Promise.allSettled(tests.map(({ run }) => run(context)))
+      await hooks.after?.().catch(() => {})
+      const notJudged = JSON.parse(String(meta.pairwiseNotJudged?.message))
+      expect(notJudged[0].error).toContain(`\n${'a'.repeat(31)}\n${runId}`)
+    } finally {
+      axios.defaults.adapter = adapter
+      axios.defaults.env = axiosEnv
+    }
+  })
 })
