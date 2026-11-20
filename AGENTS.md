@@ -49,6 +49,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Understanding the system / service map | `docs/architecture.md`                        |
 | Our AI agent platform (CAP) — overview | `docs/cap.md`                                 |
 | Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
+| Writing or running an agent eval (pairwise judge or expected-result) | `docs/agent-evals.md` |
 | Judging an agent change (pairwise eval) | `packages/judge/AGENTS.md`                   |
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
 | Moving agents into gp-api (the plan)   | `docs/cap-consolidation.md`                   |
