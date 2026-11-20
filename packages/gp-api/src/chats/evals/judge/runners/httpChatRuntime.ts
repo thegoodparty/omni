@@ -219,9 +219,9 @@ export const httpChatRuntime = ({
             'fire-and-forget inside ChatStreamService, so it never fails a ' +
             'turn and never reaches this arm when it throws: look for ' +
             '"failed to write judge turn telemetry" in the target\'s logs. ' +
-            'A briefing chat records nothing at all — BriefingChatsService ' +
-            'passes no sweep id — so this is also what driving one over ' +
-            'HTTP looks like.',
+            'A scope whose conversations carry no `judge-` organization slug ' +
+            'passes no sweep id, so this is also what driving one over HTTP ' +
+            'looks like.',
         )
       }
       await sleepFor(pollMs)
@@ -482,11 +482,10 @@ export const unsupportedReasons = (one: DriveableCase): string[] => {
   }
   if (one.scope === ChatScope.briefing_annotation) {
     reasons.push(
-      'briefing_annotation records no judge telemetry at all — ' +
-        'BriefingChatsService carries no organization slug and so passes no ' +
-        'sweep id — and its artifact and its "Today is" line are served by ' +
-        'an in-process patch, so neither arm could read the same briefing ' +
-        'on the same day',
+      'briefing_annotation reads its artifact from S3 and its "Today is" ' +
+        'line from the meeting timezone, and both are served by an ' +
+        'in-process patch, so no arm could read the same briefing on the ' +
+        'same day',
     )
   }
   if (one.priorTranscript !== undefined) {

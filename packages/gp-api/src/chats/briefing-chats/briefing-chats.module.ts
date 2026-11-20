@@ -55,8 +55,8 @@ const databricksProviderFactory = (): DatabricksProvider | null => {
     },
     {
       // Republishes the instance BriefingChatsService already built from these
-      // same deps, so the scope registry and the live send path share one
-      // handler instead of two separately wired ones.
+      // same deps, so briefing chat registers as a scope on the one handler
+      // this module wires.
       provide: BriefingAnnotationHandler,
       useFactory: (chats: BriefingChatsService) => chats.handler,
       inject: [BriefingChatsService],

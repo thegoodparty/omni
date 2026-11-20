@@ -225,18 +225,10 @@ export type CreateAnnotationInput =
     }
 
 // ---------------------------------------------------------------------------
-// Chat (owned by Collin's team; mirrored here for stub during dev)
+// Chat (owned by Collin's team; mirrored here for the dev stub). Turns and
+// history use the shared agent-chat `ChatMessageDto`; these are only what the
+// annotation-keyed half — create and delete — needs.
 // ---------------------------------------------------------------------------
-
-export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
-
-export interface ChatMessage {
-  id: string
-  conversationId: string
-  role: ChatMessageRole
-  content: string
-  createdAt: string
-}
 
 export interface ChatConversation {
   id: string

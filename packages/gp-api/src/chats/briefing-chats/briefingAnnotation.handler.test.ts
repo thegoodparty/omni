@@ -142,6 +142,9 @@ describe('BriefingAnnotationHandler', () => {
     expect(handler.models.every((m) => m.startsWith('claude'))).toBe(true)
     // Braintrust filters key on this; the registry default would rename it.
     expect(handler.traceName).toBe('briefing-chat-stream')
+    // A briefing chat is named by its annotation, and never was titled from
+    // the first user message.
+    expect(handler.setsTitle).toBe(false)
   })
 
   describe('finalizeAssistantText', () => {
@@ -253,19 +256,8 @@ describe('BriefingAnnotationHandler', () => {
     expect(ctx.districtFilters).toBeNull()
   })
 
-  it('loads the same context from an annotation id', async () => {
-    const handler = buildHandler()
-    const ctx = await handler.loadContextForAnnotation('ann-hville-1', USER_ID)
-
-    expect(briefingContext.loadContext).toHaveBeenCalledWith(
-      'ann-hville-1',
-      USER_ID,
-    )
-    expect(ctx.conversationId).toBe(CONVERSATION_ID)
-  })
-
   it('rejects an annotation with no conversation', async () => {
-    briefingContext.loadContext.mockResolvedValueOnce({
+    briefingContext.loadContextByConversation.mockResolvedValueOnce({
       ...loadedContext(),
       annotation: {
         ...HENDERSONVILLE_FIXTURE.annotation,
@@ -274,7 +266,7 @@ describe('BriefingAnnotationHandler', () => {
     } as BriefingContextResult)
 
     await expect(
-      handlerLoad(buildHandler(), 'ann-hville-1'),
+      buildHandler().loadContext(CONVERSATION_ID, USER_ID),
     ).rejects.toBeInstanceOf(NotFoundException)
   })
 
@@ -422,9 +414,3 @@ describe('BriefingAnnotationHandler', () => {
     )
   })
 })
-
-const handlerLoad = (
-  handler: BriefingAnnotationHandler,
-  annotationId: string,
-): Promise<BriefingChatContext> =>
-  handler.loadContextForAnnotation(annotationId, USER_ID)

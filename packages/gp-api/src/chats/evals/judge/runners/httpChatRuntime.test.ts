@@ -598,7 +598,7 @@ describe('what an HTTP arm refuses, and why', () => {
     [
       'a briefing chat',
       { scope: ChatScope.briefing_annotation },
-      /briefing_annotation records no judge telemetry/,
+      /in-process patch, so no arm could read the same briefing/,
     ],
     [
       'a prior transcript',

@@ -17,13 +17,13 @@ vi.mock('./AskAiChatBody', () => ({
   __esModule: true,
   default: vi.fn(
     ({
-      annotationIdOverride,
+      conversationIdOverride,
       active,
       anchor,
       onSendingChange,
       onAnnotationIdReady,
     }: {
-      annotationIdOverride?: string
+      conversationIdOverride?: string
       active?: boolean
       anchor?: { jsonPath: string | null }
       onSendingChange?: (sending: boolean) => void
@@ -36,7 +36,7 @@ vi.mock('./AskAiChatBody', () => ({
       return (
         <div
           data-testid="chat-body"
-          data-annotation-id={annotationIdOverride ?? 'none'}
+          data-conversation-id={conversationIdOverride ?? 'none'}
           data-active={String(active)}
           data-json-path={String(anchor?.jsonPath ?? 'null')}
         />
@@ -150,7 +150,7 @@ describe('<BriefingAssistantSurface>', () => {
   })
 
   describe('empty state', () => {
-    it('renders AskAiChatBody (composer-ready) with no annotationIdOverride when there are no chats', () => {
+    it('renders AskAiChatBody (composer-ready) with no conversationIdOverride when there are no chats', () => {
       render(
         <BriefingAssistantSurface
           open={true}
@@ -162,7 +162,7 @@ describe('<BriefingAssistantSurface>', () => {
       )
 
       const body = screen.getByTestId('chat-body')
-      expect(body.getAttribute('data-annotation-id')).toBe('none')
+      expect(body.getAttribute('data-conversation-id')).toBe('none')
       expect(body.getAttribute('data-json-path')).toBe('null')
     })
   })
@@ -181,7 +181,7 @@ describe('<BriefingAssistantSurface>', () => {
 
       const body = screen.getByTestId('chat-body')
       expect(body).toBeInTheDocument()
-      expect(body.getAttribute('data-annotation-id')).toBe('ann_anchored')
+      expect(body.getAttribute('data-conversation-id')).toBe('chat_1')
       expect(body.getAttribute('data-active')).toBe('true')
       expect(body.getAttribute('data-json-path')).toBe('agenda.0.title')
     })
@@ -337,7 +337,7 @@ describe('<BriefingAssistantSurface>', () => {
       )
 
       const body = screen.getByTestId('chat-body')
-      expect(body.getAttribute('data-annotation-id')).toBe('ann_page')
+      expect(body.getAttribute('data-conversation-id')).toBe('chat_2')
       expect(body.getAttribute('data-active')).toBe('true')
       expect(body.getAttribute('data-json-path')).toBe('null')
     })

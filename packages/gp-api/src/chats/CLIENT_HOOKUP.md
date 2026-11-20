@@ -4,20 +4,29 @@ How to wire a frontend (gp-webapp, or any other client) to the chat surface. The
 
 ## Routes
 
-### Briefing chats — annotation-keyed
+### Briefing chats — annotation-keyed create and delete
 
 ```
-POST   /v1/briefing-chats/:annotationId/messages   # SSE, sends a user message
-GET    /v1/briefing-chats/:annotationId            # conversation + history
-DELETE /v1/briefing-chats/:annotationId            # 204 soft-delete
+POST   /v1/briefing-chats        # creates the Annotation and its ChatConversation
+DELETE /v1/briefing-chats/:annotationId   # 204 soft-delete
 ```
 
-`annotationId` is the cuid of an `Annotation` row with `kind=chat` and `resourceType=briefing`. The annotation must be created (and its `chatConversationId` set) by the annotation owner's API before any chat traffic is possible. Our endpoints never lazy-create a `ChatConversation` — if the FK isn't set, you get `404 Conversation not initialized for this annotation`.
+A briefing conversation is created with its `Annotation` in one transaction:
+`POST /v1/briefing-chats {meetingDate, anchor}` returns `{ annotationId,
+conversationId }` and finds-or-creates the top-level pair for that briefing.
+`/v1/chats` refuses the `briefing_annotation` scope on purpose, because a
+conversation no annotation points at is one the briefing context cannot load.
+`DELETE` stays annotation-keyed because the briefing UI deletes the chat row it
+renders, and that row is the annotation.
 
-### General chats — scope-keyed (Chief of Staff)
+Turns and history are **conversation-keyed**, the same routes every other scope
+uses — pass the `conversationId` the create returned with
+`scope=briefing_annotation`.
+
+### Chats — scope-keyed
 
 ```
-POST   /v1/chats                                  # find-or-create a conversation for a scope
+POST   /v1/chats                                  # create a conversation for a scope
 GET    /v1/chats?scope=chief_of_staff             # history list (conversations + titles)
 POST   /v1/chats/:conversationId/messages?scope=… # SSE, sends a user message
 GET    /v1/chats/:conversationId?scope=…          # conversation + history (replay)
@@ -27,21 +36,23 @@ PUT    /v1/chats/:conversationId/messages/:messageId/feedback?scope=…  # rate 
 DELETE /v1/chats/:conversationId/messages/:messageId/feedback?scope=…  # 204 retract
 ```
 
-Scope-generic surface. v1 registers one scope: `chief_of_staff`. All routes
-require the `X-Organization-Slug` header (resolves the caller's elected office
-via `@UseElectedOffice`). The SSE chunk shapes and error codes are identical to
-the briefing chat (see below). `scope` is a required query param on every route
-except `POST /v1/chats`, where it is in the body. `POST /v1/chats` is
-find-or-create: it returns `{ conversationId, created }` for the
-`(owner, organizationSlug, scope)` key. The first user message auto-titles the
-conversation (truncated to 80 chars). CoS runs Anthropic-only (sensitive scope);
-the chain is `claude-sonnet-4-6` → `claude-opus-4-7`, fail-closed.
+Scope-generic surface. Registered scopes: `chief_of_staff`,
+`campaign_assistant`, `ordinance_flow`, `priority_flow` and
+`briefing_annotation`. Every route requires the `X-Organization-Slug` header,
+and ownership is checked by `(owner, scope, organizationSlug)`. `scope` is a
+required query param on every route except `POST /v1/chats`, where it is in the
+body. `POST /v1/chats` creates a NEW conversation on every call and returns
+`{ conversationId, created }`; resuming a past thread is opening it by id.
+The first user message auto-titles the conversation (truncated to 80 chars),
+except in a scope that declares `setsTitle === false` — briefing chat keeps the
+name its annotation gives it. The SSE chunk shapes and error codes are
+identical for every scope (see below).
 
 ## Authentication
 
 All routes use the standard gp-api session guard. Pass the session cookie (JWT) the way the rest of the app does. For server-to-server / testing, a Clerk M2M token works (`Authorization: Bearer mt_...`).
 
-## POST `:annotationId/messages` — sending a message
+## POST `:conversationId/messages` — sending a message
 
 Request body:
 
@@ -74,7 +85,7 @@ Always handle `done` and `error` as terminal — close the stream and stop readi
 
 | `code`                   | `retryable` | When                                                               | Suggested UI                                             |
 | ------------------------ | ----------- | ------------------------------------------------------------------ | -------------------------------------------------------- |
-| `conversation_not_found` | false       | Annotation isn't a chat / chatConversationId is null / wrong owner | "This chat is unavailable. Refresh the briefing."        |
+| `conversation_not_found` | false       | No conversation for that id under the caller's owner + scope + org | "This chat is unavailable. Refresh the briefing."        |
 | `upstream_unavailable`   | true        | LLM provider 5xx / network failure                                 | "Chat is temporarily unavailable. Retry?" + retry button |
 | `rate_limited`           | true        | LLM provider 429                                                   | "Too many requests. Try again in a moment." + retry      |
 | `aborted`                | false       | Client closed connection or server cancelled                       | Show nothing (user did it themselves).                   |
@@ -117,13 +128,15 @@ If you omit `id` you get the old non-idempotent behavior. Use it.
 
 Pass a fetch `AbortSignal` to your request. Closing the connection (`controller.abort()`, navigating away, closing the tab) is detected server-side: the SSE generator stops, the LLM stream is cancelled, partial text is persisted, and a final `done` chunk is yielded with `code: 'aborted'` if you're still listening (you usually aren't, since you aborted).
 
-There's also a **90-second server-side timeout** per stream. If the LLM hangs, the server forces abort on its side.
+There's also a **300-second server-side timeout** per stream. If the LLM hangs, the server forces abort on its side.
 
-## GET `:annotationId` — load history
+## GET `:conversationId` — load history
 
 ```json
 {
   "conversationId": "ckg...",
+  "scope": "briefing_annotation",
+  "title": null,
   "messages": [
     {
       "id": "...",
@@ -167,14 +180,19 @@ Thumbs up / thumbs down on one assistant reply, plus the optional note explainin
 
 Both 404 on a `messageId` that isn't an **assistant** turn of that conversation, so a user turn and a message borrowed from another thread are both rejected rather than writing an orphan row. `scope` is required on both, same as the other routes.
 
-## DELETE `:annotationId` — soft-delete
+## DELETE — soft-delete
 
-Returns 204 No Content. Soft-deletes the underlying `ChatConversation` (sets `deletedAt`). After deletion:
+`DELETE /v1/chats/:conversationId?scope=…` and
+`DELETE /v1/briefing-chats/:annotationId` both return 204 No Content and
+soft-delete the underlying `ChatConversation` (set `deletedAt`). After deletion:
 
 - `GET` returns 404
 - `POST` returns `conversation_not_found` over SSE
 
-Soft-delete is **not reversible** through our API. If a user wants to start a fresh chat on the same highlight, the annotation owner's flow needs to delete + recreate the annotation (which mints a fresh `ChatConversation`).
+A briefing's delete also removes the annotation that pointed at the
+conversation. Soft-delete is **not reversible** through our API. If a user wants
+to start a fresh chat on the same highlight, the flow needs to delete and
+re-create (which mints a fresh `ChatConversation`).
 
 ## Models
 
@@ -186,12 +204,18 @@ The model fallback chain is `claude-sonnet-4-6` → `claude-opus-4-7`. Hardcoded
 const messageId = crypto.randomUUID()
 const controller = new AbortController()
 
-const res = await fetch(`/api/v1/briefing-chats/${annotationId}/messages`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ content, id: messageId }),
-  signal: controller.signal,
-})
+const res = await fetch(
+  `/api/v1/chats/${conversationId}/messages?scope=briefing_annotation`,
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Organization-Slug': orgSlug,
+    },
+    body: JSON.stringify({ content, id: messageId }),
+    signal: controller.signal,
+  },
+)
 
 if (!res.ok) {
   // 4xx/5xx before stream starts — read JSON body for error

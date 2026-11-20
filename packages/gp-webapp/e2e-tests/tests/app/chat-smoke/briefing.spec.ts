@@ -10,7 +10,9 @@ import {
 } from 'src/helpers/chatSmoke.helper'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 
-// Briefing chat rides the `briefing_annotation` scope (POST /v1/briefing-chats).
+// Briefing chat rides the `briefing_annotation` scope: its conversation is
+// created with its annotation by POST /v1/briefing-chats, and its turns run on
+// the shared /v1/chats/:conversationId route like every other scope's.
 // briefings.spec.ts covers notes only and ordinance/briefing pages have no turn
 // tested at all, so this is the first spec to send one — and, with chat moving
 // its storage to AgentMessage behind `chat-agent-message`, the first to read one
@@ -95,7 +97,7 @@ test.describe('Briefing chat', () => {
 
     // The Assistant button reopens the same anchored thread (openCardLevelChat
     // focuses the chat already anchored to the active card's title) and the body
-    // loads its transcript by annotation id.
+    // loads its transcript by the conversation id the annotation carries.
     await page.reload({ waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
     await WaitHelper.waitForPageReady(page)

@@ -8,17 +8,17 @@ vi.mock('./AskAiChatBody', () => ({
   __esModule: true,
   default: vi.fn(
     ({
-      annotationIdOverride,
+      conversationIdOverride,
       active,
       anchor,
     }: {
-      annotationIdOverride?: string
+      conversationIdOverride?: string
       active?: boolean
       anchor?: { jsonPath: string | null }
     }) => (
       <div
         data-testid="chat-body"
-        data-annotation-id={annotationIdOverride ?? 'none'}
+        data-conversation-id={conversationIdOverride ?? 'none'}
         data-active={String(active)}
         data-json-path={String(anchor?.jsonPath ?? 'null')}
       />
@@ -74,9 +74,9 @@ describe('<BriefingAssistantSurface> — pendingAnchor takes precedence', () => 
     // The composer must use the selection's anchor, not fall back to the
     // existing page-level chat at position 1 of N.
     expect(body.getAttribute('data-json-path')).toBe('/items/3/title')
-    // No annotationIdOverride — this is a NEW chat that hasn't been minted
+    // No conversationIdOverride — this is a NEW chat that hasn't been minted
     // yet. The existing page-level chat (ann_page) must NOT be focused.
-    expect(body.getAttribute('data-annotation-id')).toBe('none')
+    expect(body.getAttribute('data-conversation-id')).toBe('none')
   })
 
   it('still preempts when pendingAnchor is set and annotations is empty', () => {
@@ -97,7 +97,7 @@ describe('<BriefingAssistantSurface> — pendingAnchor takes precedence', () => 
 
     const body = screen.getByTestId('chat-body')
     expect(body.getAttribute('data-json-path')).toBe('/items/3/title')
-    expect(body.getAttribute('data-annotation-id')).toBe('none')
+    expect(body.getAttribute('data-conversation-id')).toBe('none')
   })
 
   it('shows the section label and quoted text above the empty-state composer when starting from a selection', () => {
@@ -144,7 +144,7 @@ describe('<BriefingAssistantSurface> — pendingAnchor takes precedence', () => 
     // Without a pendingAnchor, the existing page-level chat at position 1
     // is the one rendered — the cycler is in normal view mode.
     const body = screen.getByTestId('chat-body')
-    expect(body.getAttribute('data-annotation-id')).toBe('ann_page')
+    expect(body.getAttribute('data-conversation-id')).toBe('chat_1')
     expect(body.getAttribute('data-json-path')).toBe('null')
   })
 })

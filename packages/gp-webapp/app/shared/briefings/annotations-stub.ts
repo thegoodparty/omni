@@ -117,16 +117,14 @@ async function createChat(
   briefingId: string,
   input: Extract<CreateAnnotationInput, { kind: 'chat' }>,
 ): Promise<Annotation> {
-  const conversation = await chatStub.create({
-    initialMessage: input.payload.firstMessage ?? null,
-  })
+  const conversation = await chatStub.create()
   const chat: AnnotationChatData = {
     id: conversation.id,
     createdAt: conversation.createdAt,
   }
   const annotation = finalize(briefingId, 'chat', input, { chat })
-  // Record the annotation->conversation mapping so chatStub.softDelete and
-  // listMessages can resolve the conversation from the annotation id.
+  // Record the annotation->conversation mapping so chatStub.softDelete can
+  // resolve the conversation from the annotation id.
   chatStub.recordAnnotationConversation(annotation.id, conversation.id)
   return annotation
 }

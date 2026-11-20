@@ -402,13 +402,14 @@ rather than colliding. Details in `src/testFixtures/AGENTS.md`.
 
 **Briefing chat is opened the way the webapp opens it.** Its conversation is
 created with its annotation, in one transaction, by `POST /v1/briefing-chats
-{meetingDate, anchor}`, and each turn goes to
-`/v1/briefing-chats/:annotationId/messages`. The registry's `POST /v1/chats`
-refuses the scope on purpose, so the runner uses the briefing routes rather
-than teaching the registry a second way in; the handler that answers is the
-same instance the registry holds. Two inputs of that turn cannot come from the
-database, and `installBriefingFixture` in `runners/chatSeam.ts` supplies both
-for the seeded bucket only, refusing outside a test process:
+{meetingDate, anchor}`; its turns then go to the same conversation-keyed route
+every other scope uses, `/v1/chats/:conversationId/messages?scope=…`. The
+registry's `POST /v1/chats` refuses the scope on purpose, because a briefing
+conversation no annotation points at is one the briefing context cannot load.
+The handler that answers is the same instance the registry holds. Two inputs
+of that turn cannot come from the database, and `installBriefingFixture` in
+`runners/chatSeam.ts` supplies both for the seeded bucket only, refusing
+outside a test process:
 
 - **The artifact.** Production reads it from S3 by the bucket and key on the
   `MeetingBriefing` row. The seam serves `runners/briefingFixture.ts` instead:
@@ -1525,7 +1526,7 @@ is faked, and none runs in a weaker form.
 | Refused                                             | Because                                                                                                                                                                                                                                               |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | a dry run (`script`)                                | the canned model is a patch on this process's `LlmService`                                                                                                                                                                                            |
-| `briefing_annotation`                               | `BriefingChatsService` writes no telemetry row at all — its context carries no organization slug, so no sweep id reaches `ChatStreamService` — and the briefing's artifact and its "Today is" line are served by `installBriefingFixture`, in process |
+| `briefing_annotation`                               | its artifact and its "Today is" line are served by `installBriefingFixture`, in process, so no HTTP arm could read the same briefing on the same day                                                                                                  |
 | `priorTranscript`                                   | no route writes an assistant message; the row is a side effect of a turn                                                                                                                                                                              |
 | `toolFailure`                                       | a forced failure is honoured at the tool's `execute` hook, inside the agent process                                                                                                                                                                   |
 | `dataVersion`                                       | the pin is a `VERSION AS OF` rewrite in `DatabricksSqlProvider.query`, inside the agent process. A deployed gp-api neither pins nor reports one, and recording a version that was never applied is the failure the field exists to catch              |

@@ -1083,15 +1083,16 @@ describe('runChatCase', () => {
 })
 
 // BRIEFING CHAT, through the routes the webapp uses. Its conversation is
-// created with its annotation by POST /v1/briefing-chats, and its turns go to
-// /v1/briefing-chats/:annotationId/messages — the registry's create path
-// refuses the scope. Everything below is the real app; the S3 read and the
-// prompt's date are the two things the briefing seam answers.
+// created with its annotation by POST /v1/briefing-chats — the registry's
+// create path refuses the scope — and its turns then go to the shared
+// /v1/chats/:conversationId/messages?scope=briefing_annotation. Everything
+// below is the real app; the S3 read and the prompt's date are the two things
+// the briefing seam answers.
 describe('runChatCase on briefing chat', () => {
   // The system prompt each turn handed the stream. Read off the stream
   // service rather than the LLM seam, which the runner owns: this is the same
-  // argument both briefing routes pass, so it is what the model would read.
-  // Read before the spy is restored, which clears what it recorded.
+  // argument the route passes, so it is what the model would read. Read before
+  // the spy is restored, which clears what it recorded.
   const capturePrompts = () => {
     const spy = vi.spyOn(service.app.get(ChatStreamService), 'stream')
     let prompts: string[] = []
