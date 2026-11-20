@@ -57,7 +57,7 @@ const TEXT_CSV_HEADER = [
 ]
 
 // One page of recipients per read, so a large send is never held as one
-// unbounded findMany or one unbounded people-api id list (docs/scale.md).
+// unbounded findMany or one unbounded people-api id list.
 const RECIPIENT_PAGE_SIZE = 1000
 
 // Every cell is quoted, embedded quotes doubled (RFC 4180), the same rule
