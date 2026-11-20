@@ -10,7 +10,6 @@
 | Did a change make a chat agent better or worse than main? | Pairwise suite that drives the chat routes (`chatTurns`, `briefingChatTurns`) | Two running instances, as for any pairwise suite. See [Chat suites](#chat-suites). |
 | Does a chat prompt meet a behavioral contract against a real LLM? | [Chat prompt evals](../packages/gp-api/src/chats/evals/README.md) | Opt-in Vitest tests for existing chat contracts. |
 | Is the Chief of Staff meeting an existing golden benchmark? | [Chief of Staff golden bench](../packages/gp-api/src/chats/general/chief-of-staff/evals/README.md) | Use its curated conversation cases and rubric for that benchmark. |
-| Are you comparing chats through the existing `/judge` workflow? | [Universal judge for chats](../packages/gp-api/src/chats/evals/judge/README.md) | Use it to reproduce its existing chat comparisons. Use the universal judge for new deployed agent comparisons. |
 | Are you evaluating completed PMF experiment runs or working on the Python AI sandbox? | [PMF experiment evals](../packages/runbooks/experiment-evals/AGENTS.md) or [Braintrust sandbox](../packages/gp-ai/braintrust_eval_sandbox/README.md) | Use the experiment's rubric for stored runs, or the sandbox for Python AI experiments. |
 
 ## Expected-result suites
@@ -83,6 +82,11 @@ They replaced the old judge's chat case lists, case for case: an old list's
 `question` is the suite's one turn, `caseId` is the case `id`, and a case the old
 list marked `scored: false` is a normal case whose `condition` starts with
 `Control:`. Run one with `/judge-eval <file stem>`.
+
+The five `cases/<agent>.json` files those lists were are still in
+`packages/gp-api/src/chats/evals/judge/cases/`, but nothing judges them: they
+are the case scout's inbox, which its publisher appends to, and the scout's
+bench reads them back. A change to one changes no verdict.
 
 ## Run evals
 

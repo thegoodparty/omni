@@ -100,7 +100,7 @@ Each phase is one PR, driven to delegate approval with every check green.
 - One runner process, one shared pool: for every case and attempt, base and
   candidate at once, each pair graded as soon as both sides land.
 - A new `judge-eval.yml` of about 200 lines: wait for the preview, run the
-  command, post `results.md`. `/judge` and `judge.yml` keep working.
+  command, post `results.md`.
 - The old grader is not kept. The grader below is new and smaller, not
   `judge.ts`, `score.ts` and `report.ts` moved; the whole framework targets
   600 to 1,000 lines.
@@ -152,23 +152,23 @@ scores in the people marts, so its switch stays off everywhere until those
 exist (`cap-consolidation.md`).
 
 Background suites are judged only by the new framework once their wave lands.
-The old runner stays for chat until the follow-ups below.
 
 **Stop here.** At this point every background migration PR is judged by
 `/judge-eval <suites>` in one run of about the length of one agent run.
 
 ## Follow-ups, not scheduled
 
-- **Chat suites on the framework.** Convert the five chat case lists. A chat
-  case's input is `{ turns: string[] }` through the public chat routes.
-  Simulated tool failures and seeded transcripts go away. Coordinate with
-  Danny first: the case scout's publisher appends to `cases/<agent>.json`,
-  and the guard's picker and pricing read the old layout.
+- **Chat suites on the framework.** Done: the five chat case lists are suites
+  in `packages/gp-api/src/chats/`. A chat case's input is `{ turns: string[] }`
+  through the public chat routes. Coordinate with Danny on the case scout:
+  its publisher still appends to `cases/<agent>.json`, which is now the
+  scout's inbox and nothing else's input.
 - **Briefing chat into the chats controller.** `briefing-chats` is the only
   chat with its own controller. Fold it into `chats` as a scope, so chat suites
   need one helper and every chat agent has one interface.
-- **Delete the old judge.** Once chat suites land: the runners, arm worktrees,
-  arm budgeting, page replay, `dataVersion.ts`, and the old `judge.yml`.
+- **Delete the old judge.** Done: the runners, arm worktrees, arm budgeting,
+  page replay and the old `judge*.yml` workflows are deleted, keeping only the
+  five `cases/<agent>.json` files the case scout's publisher appends to.
 - **Simulated users.** Feasible: add a model to `EvalContext` to play the
   user. Not planned until a scripted conversation cannot catch a real problem.
 

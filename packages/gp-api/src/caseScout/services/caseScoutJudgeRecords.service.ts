@@ -8,7 +8,7 @@ import {
 import { CaseScoutBucketService } from './caseScoutBucket.service'
 import type { CaseListInfo } from './caseScoutCaseLists.service'
 
-// recordKey in src/chats/evals/judge/records.ts. A caseId may hold hyphens,
+// The key the deleted sweep's record store wrote. A caseId may hold hyphens,
 // so the attempt number is split off the end.
 const RECORD_KEY =
   /^_judge\/(?<sweepId>[^/]+)\/records\/(?<arm>[^/]+)\/(?<agentId>[^/]+)\/(?<caseId>.+)-(?<attempt>\d+)\.json$/

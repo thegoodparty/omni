@@ -24,7 +24,6 @@ import {
 } from './agentBrowser.service'
 import { AgentWebService } from './agentWeb.service'
 import { fetchPage } from './fetchPage'
-import type { AgentPageReplayService, AgentRunReplay } from './judgeReplay'
 import { renderPage } from './renderPage'
 import type { ToolContext } from './tool'
 
@@ -91,22 +90,19 @@ const page =
     return { blocked: false, status, finalUrl, html }
   }
 
-const ctxWith = (
-  services: { browser: AgentBrowserService; web?: AgentWebService },
-  replay?: Partial<AgentPageReplayService>,
-  extra: Partial<ToolContext> = {},
-): ToolContext => ({
+const ctxWith = (services: {
+  browser: AgentBrowserService
+  web?: AgentWebService
+}): ToolContext => ({
   runId: 'run-1',
   stepKey: '0:renderPage:0',
   organizationSlug: 'org',
   signal: new AbortController().signal,
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-  get: ((token: unknown) => {
-    if (token === AgentBrowserService) return services.browser
-    if (token === AgentWebService) return services.web
-    return replay
-  }) as unknown as ToolContext['get'],
-  ...extra,
+  get: ((token: unknown) =>
+    token === AgentBrowserService
+      ? services.browser
+      : services.web) as unknown as ToolContext['get'],
 })
 
 describe('renderPage', () => {
@@ -130,8 +126,7 @@ describe('renderPage', () => {
   })
 
   it('reads a page fetchPage was refused with a 403', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const web = new AgentWebService({} as AgentPageReplayService)
+    const web = new AgentWebService()
     vi.spyOn(web, 'request').mockResolvedValue({
       status: 403,
       contentType: 'text/html',
@@ -306,40 +301,6 @@ describe('renderPage', () => {
     ])
     expect(most).toBe(1)
     expect(fake.stopped).toHaveLength(3)
-  })
-
-  it('serves a judge run the recorded page before opening a browser', async () => {
-    const { browser, fake } = browserWith(page('https://news.example.com/a'))
-    const judgeReplay: AgentRunReplay = {
-      replay: { mode: 'replay', key: 'k' },
-      judgeRunId: 'judge-1',
-      issuedAt: 1,
-    }
-    const lookupFetch = vi.fn(async (_run: AgentRunReplay, url: string) =>
-      url.endsWith('/recorded')
-        ? {
-            status: 200,
-            contentType: 'text/html',
-            finalUrl: url,
-            body: Buffer.from('Recorded visible text'),
-          }
-        : undefined,
-    )
-    const ctx = ctxWith({ browser }, { lookupFetch }, { judgeReplay })
-
-    expect(
-      await renderPage.execute(
-        { url: 'https://news.example.com/recorded' },
-        ctx,
-      ),
-    ).toMatchObject({ ok: true, content: 'Recorded visible text' })
-    expect(fake.open).not.toHaveBeenCalled()
-
-    expect(
-      await renderPage.execute({ url: 'https://news.example.com/live' }, ctx),
-    ).toMatchObject({ ok: true })
-    expect(lookupFetch).toHaveBeenCalledTimes(2)
-    expect(fake.open).toHaveBeenCalledTimes(1)
   })
 
   describe('its execute_tool span', () => {

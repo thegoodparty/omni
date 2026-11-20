@@ -67,8 +67,7 @@ import { CaseScoutPublisherService } from './caseScoutPublisher.service'
 
 const DRAFT_PARSE_ATTEMPTS = 2
 
-// The judge's chat agents (CHAT_AGENT_IDS in src/chats/evals/judge/agents.ts,
-// which the production build leaves out), checked for noisy cases.
+// The chat agents the scout may draft for, checked for noisy cases.
 const CHAT_AGENT_IDS: ChatScope[] = [
   ChatScope.chief_of_staff,
   ChatScope.campaign_assistant,

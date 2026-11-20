@@ -5,7 +5,6 @@ import axios from 'axios'
 import sanitizeHtml from 'sanitize-html'
 import TurndownService from 'turndown'
 import { isPublicAddress, ssrfSafeLookup } from '@/websites/util/ssrf.util'
-import { AgentPageReplayService } from './judgeReplay'
 import type { ToolContext } from './tool'
 
 const TIMEOUT_MS = 30_000
@@ -32,7 +31,7 @@ export type WebFailure = {
 
 export type WebResponse = {
   ok: true
-  via: 'http' | 'replay'
+  via: 'http'
   status: number
   contentType: string
   finalUrl: string
@@ -41,7 +40,7 @@ export type WebResponse = {
 
 export type WebHead = {
   ok: true
-  via: 'http' | 'replay'
+  via: 'http'
   status: number
   finalUrl: string
 }
@@ -118,8 +117,7 @@ export const markdownFromHtml = (html: string): string =>
     )
     .trim()
 
-// The public web as agent tools see it: the judge's recording of the page
-// when the run carries a replay ticket, else plain HTTP. Every hop of a
+// The public web as agent tools see it. Every hop of a
 // redirect chain is checked before it is requested: its URL here, and the
 // address its hostname resolves to by ssrfSafeLookup when the connection
 // opens (Node skips that lookup for an IP literal, which is why the literal
@@ -127,15 +125,9 @@ export const markdownFromHtml = (html: string): string =>
 // one bad URL does not end a run.
 @Injectable()
 export class AgentWebService {
-  constructor(private readonly replay: AgentPageReplayService) {}
-
   async get(ctx: ToolContext, url: string): Promise<WebResponse | WebFailure> {
     const refused = urlRefusal(url)
     if (refused) return refused
-    const replayed = ctx.judgeReplay
-      ? await this.replay.lookupFetch(ctx.judgeReplay, url)
-      : undefined
-    if (replayed) return { ok: true, via: 'replay', ...replayed }
     const response = await this.follow('GET', url, ctx.signal)
     if (!response.ok) return response
     return { ...response, via: 'http' }
@@ -144,10 +136,6 @@ export class AgentWebService {
   async head(ctx: ToolContext, url: string): Promise<WebHead | WebFailure> {
     const refused = urlRefusal(url)
     if (refused) return refused
-    const replayed = ctx.judgeReplay
-      ? await this.replay.lookupHead(ctx.judgeReplay, url)
-      : undefined
-    if (replayed) return { ok: true, via: 'replay', ...replayed }
     const response = await this.follow('HEAD', url, ctx.signal)
     if (!response.ok) return response
     return {

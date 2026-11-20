@@ -8,7 +8,6 @@ import {
 } from './agentWeb.service'
 import { checkLink } from './checkLink'
 import { fetchPage } from './fetchPage'
-import type { AgentPageReplayService, AgentRunReplay } from './judgeReplay'
 import type { ToolContext } from './tool'
 
 const hop = (status: number, extra: Partial<WebHop> = {}): WebHop => ({
@@ -18,19 +17,9 @@ const hop = (status: number, extra: Partial<WebHop> = {}): WebHop => ({
   ...extra,
 })
 
-const replayStub = (
-  pages: Partial<
-    Pick<AgentPageReplayService, 'lookupFetch' | 'lookupHead'>
-  > = {},
-) => ({
-  lookupFetch: vi.fn(pages.lookupFetch ?? (async () => undefined)),
-  lookupHead: vi.fn(pages.lookupHead ?? (async () => undefined)),
-})
-
 // A site whose redirects are scripted by URL.
-const webWith = (hops: Record<string, WebHop>, replay = replayStub()) => {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-  const web = new AgentWebService(replay as unknown as AgentPageReplayService)
+const webWith = (hops: Record<string, WebHop>) => {
+  const web = new AgentWebService()
   const requested: string[] = []
   vi.spyOn(web, 'request').mockImplementation(async (_method, url) => {
     requested.push(url)
@@ -46,7 +35,7 @@ const webWith = (hops: Record<string, WebHop>, replay = replayStub()) => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     get: (() => web) as unknown as ToolContext['get'],
   }
-  return { web, requested, ctx, replay }
+  return { web, requested, ctx }
 }
 
 describe('AgentWebService redirects', () => {
@@ -114,8 +103,7 @@ describe('AgentWebService redirects', () => {
     const address = server.address()
     const port = typeof address === 'object' && address ? address.port : 0
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      const web = new AgentWebService({} as AgentPageReplayService)
+      const web = new AgentWebService()
       await expect(
         web.request(
           'GET',
@@ -145,8 +133,7 @@ describe('AgentWebService deadline', () => {
         }),
     )
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      const web = new AgentWebService({} as AgentPageReplayService)
+      const web = new AgentWebService()
       await expect(
         web.request(
           'GET',
@@ -240,40 +227,6 @@ describe('fetchPage', () => {
     expect(await fetchPage.execute({ url: 'https://a.gov/gone' }, ctx)).toEqual(
       { ok: false, reason: 'http_error', status: 404 },
     )
-  })
-
-  it('serves a judge run the recorded page before going to the web', async () => {
-    const judgeReplay: AgentRunReplay = {
-      replay: {
-        mode: 'replay',
-        key: '_judge/replay/sweep/s1/trending_issues/a1-baseline-1',
-      },
-      judgeRunId: '_judge-abc',
-      issuedAt: 1_800_000_000,
-    }
-    const replay = replayStub({
-      lookupFetch: async () => ({
-        status: 200,
-        contentType: 'text/html',
-        finalUrl: 'https://a.gov/news/',
-        body: Buffer.from('Recorded visible text'),
-      }),
-    })
-    const { ctx, requested } = webWith({}, replay)
-    const page = await fetchPage.execute(
-      { url: 'https://a.gov/news' },
-      { ...ctx, judgeReplay },
-    )
-    expect(page).toMatchObject({
-      ok: true,
-      finalUrl: 'https://a.gov/news/',
-      content: 'Recorded visible text',
-    })
-    expect(replay.lookupFetch).toHaveBeenCalledWith(
-      judgeReplay,
-      'https://a.gov/news',
-    )
-    expect(requested).toEqual([])
   })
 })
 

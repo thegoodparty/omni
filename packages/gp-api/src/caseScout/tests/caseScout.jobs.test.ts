@@ -9,7 +9,6 @@ import {
 } from '@/generated/prisma'
 import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
-import { ChatCaseSchema } from '@/chats/evals/judge/cases'
 import { SCORING_MODEL } from '../caseScout.prompts'
 import {
   BundleSchema,
@@ -19,6 +18,7 @@ import {
   SessionScoreSchema,
   SourcesSchema,
 } from '../schemas/caseScoutBucket.schema'
+import { DraftedCaseSchema } from '../schemas/draftedCase.schema'
 import type { ScoreResponse } from '../schemas/caseScoutModel.schema'
 import { CaseScoutBucketService } from '../services/caseScoutBucket.service'
 import { CaseScoutCaseListsService } from '../services/caseScoutCaseLists.service'
@@ -393,7 +393,7 @@ describe('caseScoutNightly', () => {
       'conv-golden-b:msg-b1',
     ])
     for (const draft of bundle().drafts) {
-      expect(ChatCaseSchema.safeParse(draft.case).success).toBe(true)
+      expect(DraftedCaseSchema.safeParse(draft.case).success).toBe(true)
     }
   })
 

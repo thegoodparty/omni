@@ -81,7 +81,6 @@ import { CaseScoutDraftService } from '@/caseScout/services/caseScoutDraft.servi
 import { CaseScoutNightlyService } from '@/caseScout/services/caseScoutNightly.service'
 import { CaseScoutScoreService } from '@/caseScout/services/caseScoutScore.service'
 import { AgentsService } from '@/agents/agents.service'
-import { AgentRunReplaySchema } from '@/agents/tools/judgeReplay'
 
 // Every agent shares the agentRun queue, and a run is a paid model loop, so
 // one cap fleet-wide is its only throttle. 100 is what the PMF Engine the
@@ -331,7 +330,6 @@ export const JOBS = {
   agentRun: defineJob({
     schema: z.object({
       runId: z.string().min(1),
-      judgeReplay: AgentRunReplaySchema.optional(),
     }),
     worker: (job, context) => context.get(AgentsService).execute(job, context),
     alertAfterWaitingMinutes: 60,

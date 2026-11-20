@@ -23,7 +23,6 @@ import {
   ChatStreamChunk,
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
-import { judgeSweepIdFromOrgSlug } from '@/judge/judgeTelemetry.util'
 import { ChatScopeRegistry } from './chatScopeRegistry.service'
 import { GeneralChatStoreService } from './generalChatStore.prisma'
 import {
@@ -353,11 +352,6 @@ export class GeneralChatsService {
       const tools = handler.buildTools(ctx)
 
       const finalizing = hasFinalizeAssistantText(handler) ? handler : null
-      // Null for every conversation a real official owns, and on a prod
-      // deploy without reading the slug at all.
-      const judgeSweepId = judgeSweepIdFromOrgSlug(
-        conversation.organizationSlug,
-      )
       const inner = self.chatStream.stream({
         conversationId: args.conversationId,
         ownerUserId: args.userId,
@@ -371,7 +365,6 @@ export class GeneralChatsService {
         ...(args.signal && { signal: args.signal }),
         ...(args.userMessageId && { userMessageId: args.userMessageId }),
         ...(args.attachmentIds && { attachmentIds: args.attachmentIds }),
-        ...(judgeSweepId !== null && { judgeSweepId }),
         ...(handler.onTurnUsage && {
           onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
         }),

@@ -23,7 +23,6 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 | `tools/renderPage.ts`           | Last resort: a page in an AgentCore managed browser, as markdown (10,000 characters), five a run                 |
 | `tools/agentBrowser.service.ts` | One AgentCore Browser session per render, stopped every time; one at a time and five a run                       |
 | `tools/agentWeb.service.ts`     | Plain HTTP behind the private-address guard, on every redirect hop                                               |
-| `tools/judgeReplay.ts`          | Serves the judge's recorded pages to a judge run                                                                 |
 | `tools/queryDatabricks.ts`      | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
 | `agentRunRoutes.controller.ts`  | `POST /v1/agents/:name/runs`, `GET /v1/agents/runs/:runId` — the judge's door, dev and previews only            |
 
@@ -298,9 +297,6 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   `superseded` and a fresh run with the same input starts. Prompts, tools and
   models change freely.
 - The step budget is 120 steps per run across all attempts.
-- `run(name, input, { judgeReplay })` is for the judge's candidate arm only.
-  The ticket rides on the `agentRun` job (and onto a superseding run's), and
-  reaches tools as `ctx.judgeReplay`.
 - Ending: `completed` after `onArtifact`, or `failed` with `error` on the last
   attempt. A failure is surfaced by the `agentRun` queue's dead-letter and
   backed-up alerts; there is no separate output-failure metric.
