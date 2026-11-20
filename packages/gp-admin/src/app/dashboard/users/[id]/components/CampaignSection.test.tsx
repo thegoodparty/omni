@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { CampaignSection } from './CampaignSection'
 import {
@@ -9,6 +9,11 @@ import {
   CampaignTier,
 } from '@/shared/gpApi'
 import type { CampaignWithLiveContext } from '@/shared/gpApi'
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock('@/components/Toast', () => ({
+  useToast: () => ({ showToast: vi.fn() }),
+}))
 
 const mockCampaign: CampaignWithLiveContext = {
   id: 1,
@@ -64,13 +69,19 @@ const mockCampaign: CampaignWithLiveContext = {
 }
 
 describe('CampaignSection', () => {
+  it('renders the plan card', () => {
+    render(<CampaignSection campaign={{ ...mockCampaign, plan: 'pro' }} />)
+
+    expect(screen.getByText('Good through')).toBeInTheDocument()
+    expect(screen.getByText('Pro')).toBeInTheDocument()
+  })
+
   it('renders campaign status card with flags', () => {
     render(<CampaignSection campaign={mockCampaign} />)
 
     expect(screen.getByText('Campaign Status')).toBeInTheDocument()
     expect(screen.getByText('Active')).toBeInTheDocument()
     expect(screen.getByText('Verified')).toBeInTheDocument()
-    expect(screen.getByText('Pro')).toBeInTheDocument()
     expect(screen.getByText('Demo Account')).toBeInTheDocument()
     expect(screen.getByText('Won Election')).toBeInTheDocument()
   })

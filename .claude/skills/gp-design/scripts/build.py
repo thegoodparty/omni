@@ -32,7 +32,7 @@ import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-from option_section import OPTION_IDS, section_span
+from option_section import OPTION_IDS, flow_bytes, section_span
 
 skill = Path(__file__).resolve().parent.parent
 repo = skill.parents[2]
@@ -95,7 +95,7 @@ def main():
         if not mount:
             sys.exit(f'build.py: flow/{oid}.tsx has no <div data-gp-flow="{oid}"></div> on the page')
         flow = work / 'flow' / f'{oid}.tsx'
-        built = 'sha256:' + hashlib.sha256(flow.read_bytes()).hexdigest()
+        built = 'sha256:' + hashlib.sha256(flow_bytes(flow)).hexdigest()
         tag = mount.group(0).replace(f'data-gp-flow="{oid}"', f'data-gp-flow="{oid}" data-gp-built="{built}"', 1)
         html = html[:mount.start()] + tag + '\n' + snapshot_templates(oid, data) + html[mount.end():]
     script = '<script>/*GP_FLOW_JS*/\n' + js.replace('</script', '<\\/script') + '\n/*GP_FLOW_JS end*/</script>\n'

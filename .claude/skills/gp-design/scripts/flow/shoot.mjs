@@ -13,8 +13,17 @@
 // screen it names. It waits for open overlays to finish animating, and prints one
 // line per page error, blank icon, sideways scroll, dead data-go, or two different
 // screens that came out identical (none: "clean").
-// Hover, focus, disabled, and state kept across a path of several screens stay with
-// the person or agent checking the design (gp-design options-workflow.md step 7).
+// It runs axe-core inside the frame on every phone and desktop shot and prints one
+// line per serious or critical accessibility rule broken, with the shots and the
+// elements (selector and markup) it broke on.
+// Shots run several at a time (GP_SHOOT_JOBS, default 6).
+// Each control the design adds (not under data-source, not data-inert) on every
+// screen at 375 gets a crop at rest, on hover and on keyboard focus, in controls/;
+// a focus crop identical to the rest crop prints "no visible focus".
+// Each path the flow exports (paths) is walked from entry at 375 and 1280, one
+// screenshot per step in paths/; a step that can't be taken prints a line.
+// --only a/review,b/editor shoots and checks just those screens and states, and
+// skips the page shots and the paths, for a rerun after a fix to a few screens.
 import { createRequire } from 'node:module'
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync } from 'node:fs'
@@ -23,9 +32,22 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, '../../../../..')
-const [index, out] = process.argv.slice(2).map((p) => path.resolve(p))
-if (!index || !out) {
-  console.error('usage: node shoot.mjs <index.html> <out-dir>')
+const argv = process.argv.slice(2)
+const onlyAt = argv.indexOf('--only')
+const only =
+  onlyAt === -1
+    ? null
+    : new Set(
+        (argv.splice(onlyAt, 2)[1] ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      )
+const [index, out] = argv.map((p) => path.resolve(p))
+if (!index || !out || (only && !only.size)) {
+  console.error(
+    'usage: node shoot.mjs <index.html> <out-dir> [--only a/<key>,b/<key>]',
+  )
   process.exit(2)
 }
 let chromium
@@ -41,13 +63,83 @@ mkdirSync(out, { recursive: true })
 const html = readFileSync(index, 'utf8')
 const keys = [
   ...html.matchAll(/data-gp-snapshot="(option-[abc]) (screen|state) ([^"]+)"/g),
-].map((m) => ({
-  oid: m[1],
-  kind: m[2],
-  key: m[3],
-}))
+]
+  .map((m) => ({
+    oid: m[1],
+    kind: m[2],
+    key: m[3],
+  }))
+  .filter(({ oid, key }) => !only || only.has(`${oid.slice(-1)}/${key}`))
+if (only && keys.length < only.size) {
+  console.error(
+    `--only names a screen or state the page doesn't have: ${[...only].join(', ')}`,
+  )
+  process.exit(2)
+}
 const url = pathToFileURL(index).href
 const found = []
+let axeSource = null
+try {
+  axeSource = readFileSync(
+    createRequire(path.join(repo, 'package.json')).resolve(
+      'axe-core/axe.min.js',
+    ),
+    'utf8',
+  )
+} catch {
+  found.push('axe-core not found under the repo: accessibility not checked')
+}
+// rule id -> { impact, help, shots }
+const a11y = new Map()
+// The frame is a fragment of a page, so page-level rules don't apply to it.
+const pageRules = [
+  'region',
+  'landmark-one-main',
+  'page-has-heading-one',
+  'html-has-lang',
+  'document-title',
+  'bypass',
+]
+const audit = async (page, shot) => {
+  if (!axeSource) return
+  await page.addScriptTag({ content: axeSource })
+  const violations = await page.evaluate(async (off) => {
+    const res = await window.axe.run(
+      { include: [['[data-gp-frame]']] },
+      {
+        runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] },
+        rules: Object.fromEntries(off.map((r) => [r, { enabled: false }])),
+        resultTypes: ['violations'],
+      },
+    )
+    return res.violations
+      .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v) => ({
+        id: v.id,
+        impact: v.impact,
+        help: v.help,
+        nodes: v.nodes.map(
+          (n) =>
+            `${n.target.join(' ')} ${n.html.replace(/\s+/g, ' ').slice(0, 80)}`,
+        ),
+      }))
+  }, pageRules)
+  for (const v of violations) {
+    const seen = a11y.get(v.id) ?? { ...v, shots: [], elements: new Set() }
+    seen.shots.push(shot)
+    for (const n of v.nodes) seen.elements.add(n)
+    a11y.set(v.id, seen)
+  }
+}
+// Run jobs a few at a time; each opens its own context, so they don't share state.
+const pool = async (jobs, size = Number(process.env.GP_SHOOT_JOBS) || 6) => {
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(size, jobs.length) }, async () => {
+      while (next < jobs.length) await jobs[next++]()
+    }),
+  )
+}
 
 const browser = await chromium.launch({ channel: 'chromium' })
 const open = async (width, height, query) => {
@@ -103,23 +195,29 @@ const open = async (width, height, query) => {
   if (r.blank) found.push(`${r.blank} blank icon(s) on ${where}`)
   if (r.page > 0)
     found.push(`the page scrolls sideways by ${r.page}px on ${where}`)
-  if (r.frame > 0)
+  // Below 375 the review page squeezes its frames under any real phone's width, so
+  // the frames are checked in their own ?view= shots instead.
+  if (r.frame > 0 && (query || width >= 375))
     found.push(`a frame scrolls sideways by ${r.frame}px on ${where}`)
   return { ctx, page }
 }
 
-for (const [width, height] of [
-  [375, 812],
-  [1280, 900],
-  [320, 700],
-]) {
+const pageJobs = (
+  only
+    ? []
+    : [
+        [375, 812],
+        [1280, 900],
+        [320, 700],
+      ]
+).map(([width, height]) => async () => {
   const { ctx, page } = await open(width, height, '')
   await page.screenshot({
     path: path.join(out, `page-${width}.png`),
     fullPage: true,
   })
   await ctx.close()
-}
+})
 // How far the tallest scrolling area inside the frame runs past its box.
 const overflow = (page) =>
   page.evaluate(() => {
@@ -161,6 +259,7 @@ const remember = (buf, name, oid) => {
     )
   else hashes.set(h, name)
 }
+const shotJobs = []
 for (const { oid, kind, key } of keys) {
   // 1023 and 1024 sit either side of lg:, where a Drawer becomes a Dialog.
   const views =
@@ -172,61 +271,246 @@ for (const { oid, kind, key } of keys) {
           ['desktop', '1024', 1024, 800],
         ]
       : [['phone', 'phone', 375, 812]]
-  for (const [view, label, width, height] of views) {
-    const query = `?view=${view}&option=${oid.slice(-1)}&${kind === 'screen' ? 'step' : 'state'}=${encodeURIComponent(key)}`
-    const { ctx, page } = await open(width, height, query)
-    const name = `${oid}-${kind}-${key}-${label}`
-    const shot = await page.screenshot({ path: path.join(out, `${name}.png`) })
-    const full = await shootFull(page, path.join(out, `${name}-full.png`))
-    if (label === 'phone' || label === 'desktop')
-      remember(full ?? shot, `${name}${full ? '-full' : ''}.png`, oid)
-    await ctx.close()
-  }
+  for (const [view, label, width, height] of views)
+    shotJobs.push(async () => {
+      const query = `?view=${view}&option=${oid.slice(-1)}&${kind === 'screen' ? 'step' : 'state'}=${encodeURIComponent(key)}`
+      const { ctx, page } = await open(width, height, query)
+      const name = `${oid}-${kind}-${key}-${label}`
+      const shot = await page.screenshot({
+        path: path.join(out, `${name}.png`),
+      })
+      const full = await shootFull(page, path.join(out, `${name}-full.png`))
+      if (label === 'phone' || label === 'desktop') {
+        remember(full ?? shot, `${name}${full ? '-full' : ''}.png`, oid)
+        await audit(page, name)
+      }
+      await ctx.close()
+    })
 }
 // Click every visible data-go on every screen, each from a fresh load at 375, and
 // check it opens the screen it names: a covered, disabled or dead control shows here.
 let clicks = 0
-for (const { oid, key } of keys.filter((k) => k.kind === 'screen')) {
-  const query = `?view=phone&option=${oid.slice(-1)}&step=${encodeURIComponent(key)}`
-  const probe = await open(375, 812, query)
-  const targets = await probe.page.$$eval('[data-gp-frame] [data-go]', (els) =>
-    els.map((e, i) => {
-      // Under an open dialog or drawer only its own controls can be clicked.
-      const modal = document.querySelector(
-        '[data-gp-frame] [role="dialog"], [data-gp-frame] [role="alertdialog"]',
-      )
-      return {
-        i,
-        go: e.getAttribute('data-go'),
-        visible: e.getClientRects().length > 0 && (!modal || modal.contains(e)),
-      }
-    }),
-  )
-  await probe.ctx.close()
-  for (const t of targets.filter((t) => t.visible)) {
-    const { ctx, page } = await open(375, 812, query)
-    const el = (await page.$$('[data-gp-frame] [data-go]'))[t.i]
-    clicks++
-    try {
-      await el.click({ timeout: 3000 })
-      await page.waitForTimeout(250)
-      const now = await page
-        .$eval('[data-gp-step]', (e) => e.getAttribute('data-gp-step'))
-        .catch(() => null)
-      if (now !== t.go)
+const clickJobs = keys
+  .filter((k) => k.kind === 'screen')
+  .map(({ oid, key }) => async () => {
+    const query = `?view=phone&option=${oid.slice(-1)}&step=${encodeURIComponent(key)}`
+    const probe = await open(375, 812, query)
+    const targets = await probe.page.$$eval(
+      '[data-gp-frame] [data-go]',
+      (els) =>
+        els.map((e, i) => {
+          // Under an open dialog or drawer only its own controls can be clicked.
+          const modal = document.querySelector(
+            '[data-gp-frame] [role="dialog"], [data-gp-frame] [role="alertdialog"]',
+          )
+          return {
+            i,
+            go: e.getAttribute('data-go'),
+            visible:
+              e.getClientRects().length > 0 && (!modal || modal.contains(e)),
+          }
+        }),
+    )
+    await probe.ctx.close()
+    for (const t of targets.filter((t) => t.visible)) {
+      const { ctx, page } = await open(375, 812, query)
+      const el = (await page.$$('[data-gp-frame] [data-go]'))[t.i]
+      clicks++
+      try {
+        await el.click({ timeout: 3000 })
+        await page.waitForTimeout(250)
+        const now = await page
+          .$eval('[data-gp-step]', (e) => e.getAttribute('data-gp-step'))
+          .catch(() => null)
+        if (now !== t.go)
+          found.push(
+            `${oid} screen ${key}: data-go="${t.go}" opened ${now ?? 'nothing'}`,
+          )
+      } catch (e) {
         found.push(
-          `${oid} screen ${key}: data-go="${t.go}" opened ${now ?? 'nothing'}`,
+          `${oid} screen ${key}: can't click data-go="${t.go}" (${String(e.message).split('\n')[0]})`,
         )
-    } catch (e) {
-      found.push(
-        `${oid} screen ${key}: can't click data-go="${t.go}" (${String(e.message).split('\n')[0]})`,
-      )
+      }
+      await ctx.close()
+    }
+  })
+// The controls this design adds, at rest, on hover and on keyboard focus.
+mkdirSync(path.join(out, 'controls'), { recursive: true })
+const controlJobs = keys
+  .filter((k) => k.kind === 'screen')
+  .map(({ oid, key }) => async () => {
+    const query = `?view=phone&option=${oid.slice(-1)}&step=${encodeURIComponent(key)}`
+    const { ctx, page } = await open(375, 812, query)
+    const sel =
+      'button, input, textarea, select, [role="button"], [role="tab"], [role="radio"], [role="checkbox"], [role="switch"], [role="link"], [role="combobox"]'
+    // Mark the controls this design adds, so each can be found again by number.
+    const count = await page.$$eval(
+      `[data-gp-frame] :is(${sel})`,
+      (els) =>
+        els
+          .filter(
+            (e) =>
+              e.getClientRects().length > 0 &&
+              !e.closest('[data-source], [data-inert]'),
+          )
+          .map((e, i) => e.setAttribute('data-gp-ctl', String(i))).length,
+    )
+    for (let i = 0; i < Math.min(count, 12); i++) {
+      const el = page.locator(`[data-gp-ctl="${i}"]`)
+      const name = `${oid}-${key}-ctl${i + 1}`
+      try {
+        await el.scrollIntoViewIfNeeded({ timeout: 2000 })
+        const box = await el.boundingBox()
+        if (!box) continue
+        const clip = {
+          x: Math.max(0, box.x - 8),
+          y: Math.max(0, box.y - 8),
+          width: box.width + 16,
+          height: box.height + 16,
+        }
+        await page.mouse.move(0, 0)
+        const rest = await page.screenshot({
+          clip,
+          path: path.join(out, 'controls', `${name}-rest.png`),
+        })
+        if (await el.isEnabled()) {
+          await el.hover({ timeout: 2000 })
+          await page.waitForTimeout(120)
+          await page.screenshot({
+            clip,
+            path: path.join(out, 'controls', `${name}-hover.png`),
+          })
+        }
+        await page.mouse.move(0, 0)
+        // A key press first, so focus() shows :focus-visible the way Tab does.
+        await page.keyboard.press('Shift')
+        await el.focus({ timeout: 2000 })
+        await page.waitForTimeout(120)
+        const focus = await page.screenshot({
+          clip,
+          path: path.join(out, 'controls', `${name}-focus.png`),
+        })
+        const label = (
+          (await el.getAttribute('aria-label')) ||
+          (await el.innerText().catch(() => '')) ||
+          (await el.getAttribute('placeholder')) ||
+          ''
+        )
+          .trim()
+          .slice(0, 40)
+        if ((await el.isEnabled()) && rest.equals(focus))
+          found.push(
+            `${oid} screen ${key}: no visible focus on "${label || `control ${i + 1}`}" (controls/${name}-focus.png)`,
+          )
+        await page.evaluate(() => document.activeElement?.blur?.())
+      } catch {
+        // A control that moved or closed under the last one's focus: skip it.
+      }
     }
     await ctx.close()
-  }
+  })
+// Walk every path the flow exports, from entry, at phone and desktop width.
+mkdirSync(path.join(out, 'paths'), { recursive: true })
+const pathsOf = async () => {
+  const { ctx, page } = await open(375, 812, '?view=phone')
+  const all = await page.evaluate(() => window.gpPaths ?? {})
+  await ctx.close()
+  return all
 }
+const pathJobs = []
+if (!only) {
+  const all = await pathsOf()
+  for (const [oid, paths] of Object.entries(all))
+    for (const [label, steps] of Object.entries(paths))
+      for (const [view, width, height] of [
+        ['phone', 375, 812],
+        ['desktop', 1280, 800],
+      ])
+        pathJobs.push(async () => {
+          const query = `?view=${view}&option=${oid.slice(-1)}&step=entry`
+          const { ctx, page } = await open(width, height, query)
+          const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+          const frame = page.locator('[data-gp-frame]').first()
+          for (const [i, step] of steps.entries()) {
+            const what =
+              typeof step === 'string'
+                ? `data-go="${step}"`
+                : step.wait
+                  ? `wait for ${step.wait}`
+                  : `"${step.click}"`
+            try {
+              if (typeof step === 'string') {
+                await frame
+                  .locator(`[data-go="${step}"]`)
+                  .filter({ visible: true })
+                  .first()
+                  .click({ timeout: 3000 })
+                await page.waitForTimeout(250)
+                const now = await page
+                  .$eval('[data-gp-step]', (e) =>
+                    e.getAttribute('data-gp-step'),
+                  )
+                  .catch(() => null)
+                if (now !== step) {
+                  found.push(
+                    `${oid} path "${label}" at ${width}: step ${i + 1} ${what} opened ${now ?? 'nothing'}`,
+                  )
+                  break
+                }
+              } else if (step.wait) {
+                // A screen that moves on by itself (drafting, uploading).
+                await page.waitForFunction(
+                  (k) =>
+                    document
+                      .querySelector('[data-gp-step]')
+                      ?.getAttribute('data-gp-step') === k,
+                  step.wait,
+                  { timeout: 10000 },
+                )
+                await page.waitForTimeout(250)
+              } else {
+                await frame
+                  .getByText(step.click, { exact: false })
+                  .filter({ visible: true })
+                  .first()
+                  .click({ timeout: 3000 })
+                await page.waitForTimeout(250)
+              }
+              await frame.screenshot({
+                path: path.join(
+                  out,
+                  'paths',
+                  `${oid}-${slug}-${view}-${String(i + 1).padStart(2, '0')}.png`,
+                ),
+              })
+            } catch (e) {
+              found.push(
+                `${oid} path "${label}" at ${width}: can't take step ${i + 1} ${what} (${String(e.message).split('\n')[0]})`,
+              )
+              break
+            }
+          }
+          await ctx.close()
+        })
+}
+await pool([
+  ...pageJobs,
+  ...shotJobs,
+  ...clickJobs,
+  ...controlJobs,
+  ...pathJobs,
+])
 await browser.close()
+for (const [id, v] of a11y) {
+  found.push(
+    `accessibility ${v.impact}: ${id} (${v.help}) on ${v.shots.length} shot(s): ${v.shots.slice(0, 4).join(', ')}${v.shots.length > 4 ? ', ...' : ''}`,
+  )
+  // The element to fix: its selector inside the frame and the start of its markup.
+  for (const el of [...v.elements].slice(0, 5)) found.push(`  at ${el}`)
+}
 console.log(found.length ? found.join('\n') : 'clean')
 console.log(`${clicks} data-go clicks checked`)
-console.log(`${keys.length} screens and states, screenshots in ${out}`)
+console.log(
+  `${keys.length} screens and states, ${pathJobs.length / 2} paths walked, screenshots in ${out}`,
+)
 process.exit(found.length ? 1 : 0)

@@ -7,7 +7,7 @@ name: Analytics governance
 # State story (decided in DATA-2068): the scheduled run is the authoritative
 # writer of the git-tracked state under
 # packages/runbooks/scripts/python/instrumentation_data/. It commits changes
-# to a fixed branch and keeps a single auto-merge PR open against main;
+# to a fixed branch and opens a fresh auto-merge PR against main each run;
 # per-PR provisional rows written by the instrument-analytics-event skill are
 # hints the walk verifies and overwrites. The branch is pushed with the
 # automation App token, not GITHUB_TOKEN, because GITHUB_TOKEN pushes never
@@ -308,20 +308,22 @@ jobs:
           git add "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml "$snapshot" "$console"
           git commit -m "chore(analytics): scheduled governance state refresh"
           git push -f origin "$branch"
+          # A force-push dismisses delegate's approval and delegate does not
+          # re-review it, so an unmerged PR left open stays unmergeable forever
+          # (2026-10-26 to 2026-11-19). Replace it with a fresh PR every run.
           pr=$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')
-          if [ -z "$pr" ]; then
-            gh pr create --base main --head "$branch" \
-              --title "chore(analytics): scheduled governance state refresh" \
-              --body "$(cat <<'EOF'
+          if [ -n "$pr" ]; then
+            gh pr close "$pr" --comment "Superseded by the next scheduled run's PR."
+          fi
+          gh pr create --base main --head "$branch" \
+            --title "chore(analytics): scheduled governance state refresh" \
+            --body "$(cat <<'EOF'
           Automated state write-back from the analytics-governance scheduled run: the provenance CSV/watermark and the health log/state, per the DATA-2068 state story (the scheduled run is the authoritative writer; per-PR provisional rows are hints it verifies). The analytics-event explorer's and the event health console's snapshots ride along, because each page renders its file and nothing else; both carry their own refresh time, so this PR now opens on every run rather than only on a state change.
 
-          Auto-merges once delegate approves and checks pass. If a newer run fires before this merges, it force-updates this same branch, so the PR always carries the latest state.
+          Auto-merges once delegate approves and checks pass. If it has not merged by the next run, that run closes it and opens a fresh one carrying the latest state.
           EOF
           )"
-          # Only on creation: auto-merge persists across force-pushes, and
-          # re-enabling it on an existing PR makes gh exit non-zero.
           gh pr merge "$branch" --auto --squash
-          fi
 
       # Interim path until DATA-2072 (Google service account — none exists in
       # the org yet): the personal OAuth token pickle, injected as a base64

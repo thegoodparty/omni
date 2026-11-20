@@ -25,14 +25,21 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { TEAM_SETTINGS_PATH } from 'app/dashboard/pro-upgrade/proUpgradePlanParams'
 import {
   proUpgradeHref,
   type ProUpgradeChannel,
   type ProUpgradeSource,
 } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
+import { buildPlanPitch } from '../plan/planPitch'
 import { usePlanPitch } from '../plan/usePlanPitch'
+import { SeeAllPlansLink } from '../plan/SeeAllPlansLink'
 import { usePlan } from './deriveMembershipState'
-import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
+import {
+  MEMBERSHIP_COPY,
+  membershipInviteCopy,
+  membershipPlanCopy,
+} from './membershipCopy'
 
 const TILE_ICONS = [UsersIcon, MessageSquareIcon, DoorOpenIcon, ShieldCheckIcon]
 
@@ -51,6 +58,9 @@ interface ProPitchDialogProps {
   // Which wall opened the pitch, for its events and the wizard's Flow Started.
   source: ProUpgradeSource
   channel: ProUpgradeChannel
+  // Invite on a gated campaign: always the Team pitch, titled for inviting,
+  // and checkout returns to the team page.
+  invite?: boolean
 }
 
 // The membership surface's Pro pitch (design: renderProPitch): what Pro costs
@@ -61,19 +71,25 @@ export const ProPitchDialog = ({
   onOpenChange,
   source,
   channel,
+  invite = false,
 }: ProPitchDialogProps): React.JSX.Element => {
   const router = useRouter()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
-  const planPitch = usePlanPitch()
+  const flagPitch = usePlanPitch()
   const { plan } = usePlan()
-  const copy = planPitch.enabled
-    ? membershipPlanCopy(planPitch)
-    : {
-        pitchTitle: MEMBERSHIP_COPY.pitch.title,
-        pitchPill: MEMBERSHIP_COPY.pitch.pill,
-        pitchJoin: MEMBERSHIP_COPY.pitch.join,
-      }
+  const planPitch = invite
+    ? buildPlanPitch(flagPitch.ready, flagPitch.enabled, true)
+    : flagPitch
+  const copy = invite
+    ? membershipInviteCopy(plan === 'pro')
+    : planPitch.enabled
+      ? membershipPlanCopy(planPitch)
+      : {
+          pitchTitle: MEMBERSHIP_COPY.pitch.title,
+          pitchPill: MEMBERSHIP_COPY.pitch.pill,
+          pitchJoin: MEMBERSHIP_COPY.pitch.join,
+        }
   // Verification only exists to unlock texting, so once texting has closed
   // for the race the tile sells nothing Pro can still deliver.
   const tiles = MEMBERSHIP_COPY.pitch.tiles
@@ -100,11 +116,14 @@ export const ProPitchDialog = ({
     })
     onOpenChange(false)
     router.push(
-      proUpgradeHref({
-        source,
-        channel,
-        cta: copy.pitchJoin,
-      }),
+      proUpgradeHref(
+        {
+          source,
+          channel,
+          cta: copy.pitchJoin,
+        },
+        invite ? { plan: 'team', returnTo: TEAM_SETTINGS_PATH } : undefined,
+      ),
     )
   }
 
@@ -161,13 +180,16 @@ export const ProPitchDialog = ({
             ))}
           </div>
         </div>
-        <DialogFooter className="shrink-0 sm:justify-center">
+        <DialogFooter className="shrink-0 flex-col items-center sm:flex-col sm:justify-center">
           <Button
             className="w-full sm:w-auto sm:min-w-[360px]"
             onClick={handleJoin}
           >
             {copy.pitchJoin}
           </Button>
+          {planPitch.enabled && (
+            <SeeAllPlansLink href={planPitch.allPlansHref} />
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

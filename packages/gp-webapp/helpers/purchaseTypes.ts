@@ -8,6 +8,8 @@ export const PURCHASE_TYPES = {
   // TEXT handler returns early without a campaignId and finalizes the send
   // to Peerly, neither of which an elected official's org has.
   SERVE_TEXT: 'SERVE_TEXT',
+  // A Win plan (Pro or Team), bought once for the campaign.
+  PLAN: 'PLAN',
 } as const
 
 export type PurchaseType = (typeof PURCHASE_TYPES)[keyof typeof PURCHASE_TYPES]
@@ -20,6 +22,8 @@ export const PURCHASE_TYPE_LABELS: Record<PurchaseType, string> = {
   // reaches the standalone /dashboard/purchase page these records feed.
   [PURCHASE_TYPES.TEXT]: '',
   [PURCHASE_TYPES.SERVE_TEXT]: '',
+  // Paid inside the upgrade wizard, never on the standalone purchase page.
+  [PURCHASE_TYPES.PLAN]: '',
 }
 
 export const PURCHASE_TYPE_DESCRIPTIONS: Record<PurchaseType, string> = {
@@ -28,6 +32,7 @@ export const PURCHASE_TYPE_DESCRIPTIONS: Record<PurchaseType, string> = {
   [PURCHASE_TYPES.POLL]: 'Expand your SMS poll',
   [PURCHASE_TYPES.TEXT]: '',
   [PURCHASE_TYPES.SERVE_TEXT]: '',
+  [PURCHASE_TYPES.PLAN]: '',
 }
 
 export const PURCHASE_STATE = {

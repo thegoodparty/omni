@@ -16,8 +16,9 @@ everything.
 ## How to use this file
 
 This is the map, not the manual. It carries repo-wide conventions and points you at
-the right detailed doc. The detail lives in per-package `AGENTS.md` files (loaded on
-demand when you open files in that package) and in `docs/`. Follow the pointers.
+the right detailed doc. The detail lives in per-package `AGENTS.md` files and in
+`docs/`. Follow the pointers, and check the path yourself — nested docs do not load
+the same way on every harness (see "Progressive disclosure" below).
 
 `AGENTS.md` is the single source of truth. Claude Code reads `CLAUDE.md`, so every
 directory with an `AGENTS.md` also carries a `CLAUDE.md` symlink pointing at it —
@@ -72,6 +73,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Product briefs, one-pagers, customer quotes | `product-brief`, `product-one-pager`, `voice-of-customer` skills (data stays in private `product-os`) |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | Proposing how to build a feature (options, before any detailed design) | `.claude/skills/build-shape/` |
+| Delegate reviewer blocked a correct PR or missed a bug, and you want it fixed | Hill-climb it from Slack: `docs/hill-climbing.md` in the `thegoodparty/ops` repo |
 | Product-analytics question (Amplitude) | `.claude/skills/query-analytics-data/SKILL.md` |
 | **Changing or making an architecture decision** | **`docs/adr/`** (see below) |
 
@@ -80,10 +82,16 @@ tables and terse, high-signal sections. Each app and most feature folders carry 
 
 ## Progressive disclosure — don't load everything
 
-Top-level agent docs load at launch; nested ones load only when you open files in
-their directory. So: when you start work in an area, open its nearest `AGENTS.md`
-and follow its pointers. Don't try to hold the whole monorepo in context to make one
-change. Read what the task touches.
+Top-level agent docs load at launch. Nested ones do not load the same way on every
+harness: Claude Code reads a directory's `AGENTS.md` when a tool touches a file in it,
+pi reads only the working directory and its parents at launch and so never sees a doc
+below it. Do not rely on either.
+
+**Before you read or write a file, check its directory and every parent up to the repo
+root for an `AGENTS.md`, and read any you have not read yet this session.** That check
+costs one `ls`; skipping it costs a doc that changes how you write the code. Then open
+the nearest doc and follow its pointers. Don't try to hold the whole monorepo in
+context to make one change. Read what the task touches.
 
 ## Architecture decisions (`docs/adr/`)
 

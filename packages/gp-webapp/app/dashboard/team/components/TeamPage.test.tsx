@@ -8,6 +8,7 @@ import type {
   PendingInvite,
   TeamMemberStats,
 } from 'gpApi/api-endpoints'
+import { useSearchParams } from 'next/navigation'
 import TeamPage from './TeamPage'
 
 const { mockUseOrganization, mockUseOrganizationRole } = vi.hoisted(() => ({
@@ -789,5 +790,19 @@ describe('TeamPage — outreach results columns (ENG-11080)', () => {
     await waitFor(() => {
       expect(screen.queryByText('Manager Person')).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('TeamPage — opened from the plan upgrade', () => {
+  it('opens the invite drawer when the plan upgrade returns with ?invite=1', async () => {
+    vi.mocked(useSearchParams).mockReturnValueOnce(
+      new URLSearchParams('invite=1') as never,
+    )
+
+    render(<TeamPage />)
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Invite someone' }),
+    ).toBeInTheDocument()
   })
 })

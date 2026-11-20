@@ -40,6 +40,15 @@ npx vitest run packages/gp-api/src/path/to/file.test.ts # single file
 npx vitest run --testNamePattern "name"                 # by test name
 ```
 
+## Eval suites (`*.eval.ts`)
+
+An eval suite runs a real agent or a real model and grades the result, so it is
+not part of `npm test` or `verify`: it spends money and needs model keys. Its
+file pattern is `*.eval.ts`, its own config is
+`packages/gp-api/vitest.evals.config.ts`, and `npm run eval -w packages/gp-api`
+runs it. Inputs are environment variables (`JUDGE_MODEL` and that provider's
+key). How to write one: `packages/judge/AGENTS.md` § Expected-result suites.
+
 CI runs each package's validate job (lint, typecheck, test) on PRs that touch it.
 
 gp-api caches transformed modules on disk between runs

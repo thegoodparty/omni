@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import {
+  CIVIC_PANEL_SEAT_COUNT,
   CIVIC_PANEL_SHORT_GROUPS_SHOWN,
   UNDERREPRESENTED_GROUP_NAMES,
   type CivicPanelComposition,
+  type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { DoorOpenIcon, PhoneIcon } from '@styleguide/components/ui/icons'
@@ -220,3 +222,91 @@ export const CivicPanelNext = (props: NextProps) =>
   ) : (
     <NextCard {...props} reach={null} />
   )
+
+type MakeupKind = keyof typeof COPY.makeupKinds
+
+const MAKEUP_KIND: Partial<Record<UnderrepresentedGroup, MakeupKind>> = {
+  age18to24: 'age',
+  age25to34: 'age',
+  age35to44: 'age',
+  age45to54: 'age',
+  age55to64: 'age',
+  age65plus: 'age',
+  men: 'gender',
+  women: 'gender',
+  white: 'race',
+  black: 'race',
+  hispanic: 'race',
+  asian: 'race',
+}
+
+const MAKEUP_KINDS: MakeupKind[] = ['age', 'gender', 'race']
+
+// A full civic panel's members by age, gender and race, as each group's
+// seats of the 100. Places stay on the seats chart.
+export const CivicPanelMakeup = ({
+  composition,
+}: {
+  composition: CivicPanelComposition
+}) => {
+  const rows = composition.groups.flatMap((g) => {
+    const kind = MAKEUP_KIND[g.group]
+    const have = Math.round(g.memberShare * CIVIC_PANEL_SEAT_COUNT)
+    return kind && (have > 0 || g.districtShare > 0)
+      ? [{ ...g, kind, have }]
+      : []
+  })
+  if (rows.length === 0) return null
+  return (
+    <Card
+      title={COPY.makeupTitle}
+      line={COPY.makeupLine}
+      testId="civic-panel-makeup"
+    >
+      {MAKEUP_KINDS.map((kind) => {
+        const ofKind = rows.filter((row) => row.kind === kind)
+        if (ofKind.length === 0) return null
+        return (
+          <div key={kind} className="flex flex-col gap-3">
+            <h3 className="text-base font-semibold text-foreground">
+              {COPY.makeupKinds[kind]}
+            </h3>
+            <ul
+              className="flex flex-col gap-4"
+              aria-label={COPY.makeupKinds[kind]}
+            >
+              {ofKind.map((row) => {
+                const name = capitalizeFirst(
+                  UNDERREPRESENTED_GROUP_NAMES[row.group],
+                )
+                return (
+                  <li key={row.group} className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="min-w-0 truncate text-base text-foreground">
+                        {name}
+                      </span>
+                      <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+                        {COPY.groupSeats(row.have, CIVIC_PANEL_SEAT_COUNT)}
+                      </span>
+                    </div>
+                    <span
+                      aria-hidden
+                      className="h-1 w-full overflow-hidden rounded-full bg-muted"
+                    >
+                      <span
+                        className="block h-full rounded-full bg-primary"
+                        style={{
+                          width: `${row.have}%`,
+                        }}
+                      />
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )
+      })}
+    </Card>
+  )
+}

@@ -95,35 +95,99 @@ run on the PMF Engine, so their suite sits in the module that dispatches them.
 under `src/chats/evals/judge/cases/` because the old runner still reads them for
 chat and for the guards' pricing.
 
-## The run
+## Expected-result suites
 
-`/judge-eval <suites>` on a PR, or `.github/workflows/judge-eval.yml` by hand.
-Base is `https://dev.goodparty.org`, candidate is the PR's **webapp** preview,
-whose `NEXT_PUBLIC_API_BASE` is that PR's gp-api preview. Neither needs a key of
-its own.
+The other kind of suite grades one run against a result a person already ruled
+correct, rather than comparing two builds. Danny's case scout de-identification
+evals are the first.
 
-```bash
-npx tsx packages/judge/src/run.ts \
-  --base https://dev.goodparty.org \
-  --candidate https://pr-3904.preview.goodparty.org \
-  --suite trending_issues \
-  --judge-model anthropic/claude-sonnet-4-6 \
-  --out ./judge-results
+```ts
+// packages/gp-api/src/<feature>/<thing>.eval.ts
+import { defineExpectedResultEvalSuite } from '@goodparty_org/judge'
+
+export default defineExpectedResultEvalSuite('case_scout_gate', {
+  run: async (input, ctx) => {
+    // Input is inferred from this parameter.
+    await ctx.annotate(`gating ${input.draft.caseId}`, 'step')
+    return gateDraft(input.draft, input.denylist, input.userMessages)
+  },
+  // ctx.input is the case's own input; ctx.judgeModel is the only model call.
+  judge: async (output, ctx) => {
+    const { containsPii } = await ctx.judgeModel(PiiSchema, prompt(ctx.input))
+    return { passed: output.passed, containsPii }
+  },
+  cases: [
+    {
+      id: 'planted-name',
+      input: { draft, denylist: [], userMessages: ['...'] },
+      expected: { passed: false, containsPii: true },
+    },
+  ],
+})
 ```
 
-| File              | What                                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `src/suite.ts`    | `definePairwiseAgentEvalSuite`, `EvalContext`, `Case`, `grading`                                                  |
-| `src/arm.ts`      | One arm of one attempt: a fresh test user, its org, `ctx`, `probeArm`                                             |
-| `src/apiRoot.ts`  | Whether an arm is a webapp (gp-api at `/api`) or a gp-api origin (`/v1`); a URL neither answers for is not an arm |
-| `src/runAgent.ts` | The two agent routes, and the poll                                                                                |
-| `src/execute.ts`  | One shared pool: six runs per case, a pair graded as soon as both sides land                                      |
-| `src/grade.ts`    | The grading call, through the AI SDK's `generateObject`                                                           |
-| `src/stats.ts`    | The exact sign test and the handledWhen test                                                                      |
-| `src/report.ts`   | `results.json` and `results.md`                                                                                   |
-| `src/cli.ts`      | Flags                                                                                                             |
-| `src/discover.ts` | The `packages/gp-api/src/**/*.eval.ts` glob                                                                       |
-| `src/run.ts`      | The command                                                                                                       |
+| Piece                            | What it is                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run(input, ctx)`                | Drives the code under test. `Input` is inferred from this parameter, and `ctx.annotate` records a step                                                        |
+| `judge(output, ctx)`             | Reads the run's output plus `ctx.input`. `Judgment` is inferred from its return type                                                                          |
+| `ctx.judgeModel(schema, prompt)` | One `generateObject` call, returning what the schema parsed. The suite's whole model surface                                                                  |
+| `cases`                          | `{ id, input, expected }`. One `test.concurrent` per case, three attempts each, and the case passes only when every attempt's judgment deep-equals `expected` |
+
+`Input` and `Judgment` are inferred, so a case whose input does not fit `run`, or
+whose `expected` does not fit `judge`, fails to compile.
+
+**One file pattern, no registry.** Vitest finds `src/**/*.eval.ts` through
+`packages/gp-api/vitest.evals.config.ts`. `npm run eval -w packages/gp-api` runs
+it. `npm test` and `verify` do not: an eval spends real runs and model calls.
+
+**Inputs are environment variables**, never flags. `JUDGE_MODEL` is an AI SDK
+model id (`anthropic/claude-sonnet-5-5`) plus that provider's own key. A suite
+whose judge never calls `judgeModel` needs neither; one that does calls it and
+fails the test with a sentence naming `JUDGE_MODEL` when it is unset.
+
+**Annotations are the report.** Every attempt records the case id, the run's
+output (truncated to a few KB), the prompt summary and parsed answer of every
+`judgeModel` call, the judgment, and expected-vs-actual on a mismatch. Nothing
+written to an annotation may be a secret — a token, a key, a bypass secret — so
+every message is redacted first, and a test scans a whole case's record for
+token-shaped strings.
+
+## The run
+
+```bash
+JUDGE_BASE_URL=https://gp-api-dev.goodparty.org \
+JUDGE_CANDIDATE_URL=https://pr-3904.preview.goodparty.org \
+JUDGE_MODEL=anthropic/claude-sonnet-5-5 \
+npm run eval -w packages/gp-api -- trending_issues --reporter=default --reporter=../judge/src/reporter.ts
+```
+
+Set `CLERK_SECRET_KEY` and the model provider's key (e.g. `ANTHROPIC_API_KEY`)
+in the environment. `JUDGE_CANDIDATE_URL` can also point to a local API.
+Without either URL, pairwise suites skip and name the missing variables.
+Set `JUDGE_REQUIRE_PAIRWISE=true` to make missing URLs fail instead.
+
+Vitest discovers `*.eval.ts` and registers one concurrent test per pairwise
+case. Each case runs three attempts on both arms with a fresh test user per
+run. Each attempt is graded in both orders once its two outputs are ready.
+An `afterAll` hook reads the suite verdict: WORSE and CAN'T JUDGE fail;
+BETTER and NO DIFFERENCE FOUND pass. A case with no judged pairs also fails.
+Test annotations capture redacted run excerpts and grading details. The current
+run routes do not expose engine identity; annotations say `not reported`
+when the response does not include it.
+
+In CI, `/judge-eval <suites>` runs the selected pairwise suites after the PR
+preview is ready. The reporter writes its verdict table to the GitHub job
+summary (stdout locally); the PR comment links there. `/judge` and `judge.yml`
+continue to drive chat suites separately.
+
+| File                              | What                                                           |
+| --------------------------------- | -------------------------------------------------------------- |
+| `src/pairwise.ts`                 | Suite registration, per-case execution, and verdict            |
+| `src/suite.ts`                    | Suite definition types and validation                          |
+| `src/arm.ts` and `src/apiRoot.ts` | Test-user context, API-root discovery, and run-route preflight |
+| `src/runAgent.ts`                 | Agent run and polling routes                                   |
+| `src/grade.ts` and `src/stats.ts` | Grading, exact sign test, and handledWhen regression test      |
+| `src/reporter.ts`                 | Markdown verdict table                                         |
 
 ## The grader
 
@@ -135,9 +199,8 @@ reasoning. Default questions: `task_success`, `instruction_adherence`,
 `user_utility`; a case's `grading.dimensions` adds to them.
 
 `generateObject` from `ai` with a Zod schema — never a provider SDK — so
-`--judge-model` is the only thing naming a provider and swapping providers is a
-flag change. `src/model.ts` maps a known prefix (`anthropic`) to that provider,
-so `anthropic/claude-sonnet-4-6` needs `ANTHROPIC_API_KEY`; a prefix it does not
+`JUDGE_MODEL` is the only thing naming a provider. `src/model.ts` maps a known prefix (`anthropic`) to that provider,
+so `anthropic/claude-sonnet-5-5` needs `ANTHROPIC_API_KEY`; a prefix it does not
 know goes to the AI SDK's default provider, the gateway, which needs
 `AI_GATEWAY_API_KEY`.
 
@@ -145,23 +208,41 @@ A suite's verdict is an exact sign test over its non-tied pairs: BETTER or WORSE
 at p < 0.05, otherwise NO DIFFERENCE FOUND. It is also WORSE when the candidate's
 handledWhen pass rate drops significantly (one-sided Fisher exact on the
 per-attempt pass counts), because a failure both arms share reads as a tie in the
-pairwise comparison. The migration gate is "not WORSE"; the command exits 1 on
-WORSE.
+pairwise comparison.
 
 The exact tests cannot reach p < 0.05 from a single case's three attempts (three
 of three is p = 0.125), which is the honest reading of that little data. A suite
 with one case reports NO DIFFERENCE FOUND however lopsided it looks.
+
+## A failed run is never graded
+
+The judge compares two outputs. A run that threw has none, so a pair with a
+failed run on either side never reaches the grader: it is counted as **not
+judged** and annotated on its case. Grading the marker
+`[the run failed: ...]` instead reads the arm that ran as the better one, which
+is how a candidate whose routes were not deployed yet scored 18-0 for a degraded
+build (PR #3926).
+
+A suite with no judged pairs, or with more than half of them not judged, is
+**CAN'T JUDGE**: its votes are the minority of its attempts, so reading a
+direction off them claims more than the run saw. The preflight asks each arm for a run ID no arm can hold
+(`GET .../v1/agents/runs/<random uuid>`). Its guard answers 401, or its handler
+answers 404 for the missing run. Nest's `Cannot GET ...` 404 instead fails the
+suite before a single agent run or grading call is spent.
 
 ## Signing in
 
 `@goodparty_org/test-users` creates the user, the campaign or elected office, and
 the org through the API before anything else. `CLERK_SECRET_KEY` is the dev Clerk
 instance secret; Clerk's Backend API budget is 100 requests per 10 seconds per
-instance, shared with the e2e suite and gp-api's own lookups, which is why
-`--concurrency` is capped.
+instance, shared with the e2e suite and gp-api's own lookups, so use Vitest's worker and concurrency limits when sharing that budget.
 
 ## Tests
 
 `src/*.test.ts`, Vitest. A fake model (`generateObjectFn`, or a
 `MockLanguageModelV3` for the real `generateObject`) and fake transports stand in
 for the provider and the two arms; nothing here touches a network.
+
+`src/expectedResult.test.ts` drives the expected-result helper through fake
+Vitest globals and a fake model, so it covers the registration, the three
+attempts, the annotations and the `JUDGE_MODEL` failure without a provider.

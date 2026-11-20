@@ -403,13 +403,13 @@ describe('CivicPanelHero', () => {
     render(<CivicPanelHero stage="ready" members={230} goal={GOAL} />)
     expect(
       screen.getByText(
-        'Your civic panel has 230 residents. Ask them what they think whenever you want to hear from your whole district.',
+        '230 residents are on your civic panel. Ask them what they think whenever you want to hear from your whole district.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/seats are filled/)).not.toBeInTheDocument()
   })
 
-  it('says every seat is filled once it is ready at its goal', () => {
+  it('counts the members, not the goal, once it is ready', () => {
     const { container } = render(
       <CivicPanelHero
         stage="ready"
@@ -423,7 +423,7 @@ describe('CivicPanelHero', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'All 240 seats are filled. Ask them what they think whenever you want to hear from your whole district.',
+        '260 residents are on your civic panel. Ask them what they think whenever you want to hear from your whole district.',
       ),
     ).toBeInTheDocument()
     expect(filledSeats(container)).toBe(100)
@@ -446,7 +446,7 @@ describe('CivicPanelHero', () => {
     )
     expect(
       screen.getByText(
-        'All 240 seats are filled. Ask them what they think whenever you want to hear from all of Asheville.',
+        '240 Asheville residents are on your civic panel. Ask them what they think whenever you want to hear from all of Asheville.',
       ),
     ).toBeInTheDocument()
   })

@@ -23,7 +23,12 @@
 //   values that line contains;
 // - a muted paragraph (<p> with text-muted-foreground) and an Alert are earned:
 //   data-earned="<why>" on it, or copied from the product under data-source;
+// - no ScrollArea inside a DrawerBody or DrawerContent, which already scroll;
 // - every literal data-go names a screen, and there is an entry screen.
+// On a three-option page, flow/shared.tsx holds the screens and parts every option
+// draws the same; an option imports them from './shared'. shared.tsx gets every rule
+// above except the screens, states, entry and data-go checks, which belong to the
+// options that use it.
 import { createRequire } from 'node:module'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -93,7 +98,7 @@ const RAW = new Set([
   'a',
 ])
 const ALLOWED_IMPORTS =
-  /^(?:react|gp-flow|@styleguide(?:\/.*)?|@goodparty_org\/styleguide)$/
+  /^(?:react|gp-flow|@styleguide(?:\/.*)?|@goodparty_org\/styleguide|\.\/shared)$/
 
 const tokens = (value) =>
   value
@@ -170,7 +175,7 @@ for (const st of sf.statements) {
     else if (!ALLOWED_IMPORTS.test(from))
       fail(
         st,
-        `import from "${from}": a flow imports only react, gp-flow and the styleguide; copy product markup instead`,
+        `import from "${from}": a flow imports only react, gp-flow, the styleguide and ./shared; copy product markup instead`,
       )
   }
 }
@@ -390,7 +395,13 @@ const walk = (node, ctx) => {
       gap: ctx.gap || 'data-gap' in a,
       parentAsChild: 'asChild' in a,
       host: ctx.host || /\bseamlessFieldHost\b/.test(classText),
+      scrolls: ctx.scrolls || name === 'DrawerBody' || name === 'DrawerContent',
     }
+    if (name === 'ScrollArea' && ctx.scrolls)
+      fail(
+        open,
+        'ScrollArea inside a Drawer: DrawerBody already scrolls (COMPONENTS.md)',
+      )
     if (
       (name === 'Textarea' || name === 'TokenField') &&
       str(a.variant) === 'seamless' &&
@@ -689,6 +700,7 @@ const ROOT = {
   content: false,
   contentSources: null,
   parentAsChild: false,
+  scrolls: false,
 }
 const defNodes = new Set([...components.values()].map((c) => c.node))
 for (const st of sf.statements) if (!defNodes.has(st)) walk(st, ROOT)
@@ -771,9 +783,12 @@ const keysOf = (exportName) => {
   }
   return null
 }
+const shared = path.basename(file) === 'shared.tsx'
 const screens = keysOf('screens')
 const states = keysOf('states')
-if (screens === null)
+if (shared) {
+  // Checked where the options use it.
+} else if (screens === null)
   problems.push({
     line: 1,
     message: 'no exported screens object (assets/flow-template.tsx)',
@@ -791,7 +806,7 @@ else {
         `data-go="${g.step}" names no screen (screens has ${screens.join(', ')})`,
       )
 }
-if (states === null || !states.length)
+if (!shared && (states === null || !states.length))
   problems.push({
     line: 1,
     message:

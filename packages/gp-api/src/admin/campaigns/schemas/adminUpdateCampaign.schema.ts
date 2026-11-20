@@ -7,7 +7,6 @@ export class AdminUpdateCampaignSchema extends createZodDto(
     .object({
       isVerified: z.boolean().nullable().optional(),
       tier: z.nativeEnum(CampaignTier).nullable().optional(),
-      isPro: z.boolean().optional(),
       didWin: z.boolean().nullable().optional(),
     })
     .strict(),

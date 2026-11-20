@@ -36,6 +36,7 @@ export type AgentRunStatus =
 // One background agent run, read through the base URL alone.
 export type AgentRunResult = {
   runId: string
+  engine?: string
   status: AgentRunStatus
   // The validated artifact, as the route returns it. Absent until the run has
   // completed.
@@ -111,7 +112,7 @@ export type PairwiseAgentEvalSuiteDefinition<Input> = {
   cases: EvalCase<Input>[]
 }
 
-export const definePairwiseAgentEvalSuite = <Input>(
+export const createPairwiseAgentEvalSuite = <Input>(
   name: string,
   definition: PairwiseAgentEvalSuiteDefinition<Input>,
 ): PairwiseAgentEvalSuite<Input> => {

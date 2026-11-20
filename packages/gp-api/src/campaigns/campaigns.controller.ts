@@ -464,7 +464,12 @@ export class CampaignsController {
       this.campaigns.fetchLiveRaceTargetMetrics(campaign),
     ])
 
-    return { ...campaign, positionName, raceTargetMetrics: liveMetrics }
+    return {
+      ...campaign,
+      positionName,
+      raceTargetMetrics: liveMetrics,
+      planEndsAt: planEndsAt(campaign),
+    }
   }
 
   @UseGuards(M2MOnly)

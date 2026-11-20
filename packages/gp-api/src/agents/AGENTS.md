@@ -283,8 +283,9 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   `AgentRun` (`agentName`, `organizationSlug`, status `queued`, `manifest`
   and its `shapeHash`, `input`) with the input as its first `AgentMessage`
   row, then sends the `agentRun` job.
-- The `agentRun` job (one queue for every agent, `maxConcurrent: 10`
-  fleet-wide, 120-minute attempts, 5 attempts) loads the run's messages and
+- The `agentRun` job (one queue for every agent, capped at 100 running
+  runs fleet-wide, with this many slots on every task too, so the cap alone
+  decides; 120-minute attempts, 5 attempts) loads the run's messages and
   calls the loop. Every message the loop writes is one `AgentMessage` row, in
   order: the assistant message (its text and tool calls) and, when tools ran,
   the tool message holding their results. Only assistant rows carry the model

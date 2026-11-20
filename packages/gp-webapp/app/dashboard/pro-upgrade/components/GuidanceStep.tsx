@@ -19,13 +19,17 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
+import { useWinPerCampaignPricingFlag } from 'app/shared/experiments/winPerCampaignPricingFlag'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
+import { useProUpgradeCarry } from './proUpgradeCarryContext'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // Design: sgBody's overview. Every launch gathers the filing details before
 // payment, so the list carries campaign verification's own rows around the EIN
 // and payment ones, with the wait for the PIN last.
-const ROWS = [
+const buildRows = (paymentBody: string) => [
   {
     icon: FileBadgeIcon,
     title: 'Your campaign EIN',
@@ -36,13 +40,27 @@ const ROWS = [
   {
     icon: CreditCardIcon,
     title: 'Payment',
-    body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
+    body: paymentBody,
   },
   PIN_TIMING_ROW,
 ]
 
+const SUBSCRIPTION_PAYMENT_BODY =
+  'Add your payment details to activate Pro at $10 per month. You can cancel any time.'
+
 const GuidanceStep = (): React.JSX.Element => {
   const { channel, goToStep, goToPreviousStep, exit } = useProUpgradeWizard()
+  const { enabled: planPricing } = useWinPerCampaignPricingFlag()
+  const carry = useProUpgradeCarry()
+  const planName = carry.plan === 'team' ? 'Team' : 'Pro'
+  const planPrice = formatPlanCents(
+    carry.plan === 'team' ? PLAN_PRICING.teamCents : PLAN_PRICING.proCents,
+  )
+  const allRows = buildRows(
+    planPricing
+      ? `Add your payment details to activate ${planName} for ${planPrice}. It is one payment per campaign.`
+      : SUBSCRIPTION_PAYMENT_BODY,
+  )
   const { smsCompliance, smsCutoffDate, generalElectionDate } =
     useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
@@ -90,7 +108,9 @@ const GuidanceStep = (): React.JSX.Element => {
       </p>
     ) : null
 
-  const rows = smsClosed ? ROWS.filter((row) => row !== PIN_TIMING_ROW) : ROWS
+  const rows = smsClosed
+    ? allRows.filter((row) => row !== PIN_TIMING_ROW)
+    : allRows
   return (
     // min-h-full + flex-col: inside the outreach sheet the footer row pins
     // to the bottom (design: renderSgModal's footerRow); in the route

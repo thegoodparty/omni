@@ -11,6 +11,7 @@ import { useEffect } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   proUpgradeHref,
@@ -224,6 +225,16 @@ export function ProUpgradeModal({
     }
   }
 
+  // Leaving for the plans page must dismiss the auto-popup the same way the
+  // primary CTA does, or it reopens over the plans page.
+  const handleSeeAllPlansClick = (): void => {
+    if (onUpgradeLinkClick) {
+      onUpgradeLinkClick()
+    } else if (onClose) {
+      onClose()
+    }
+  }
+
   return (
     <Modal
       open={open}
@@ -262,6 +273,14 @@ export function ProUpgradeModal({
             {cta}
           </Link>
         </Button>
+        {planPitch.enabled && (
+          <div className="mt-4">
+            <SeeAllPlansLink
+              href={planPitch.allPlansHref}
+              onClick={handleSeeAllPlansClick}
+            />
+          </div>
+        )}
       </div>
     </Modal>
   )

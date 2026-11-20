@@ -44,11 +44,21 @@ is real and what is not:
 | Every event opens the shared card: verdict, both names, volume, Amplitude                         | Per-step volume where one event covers many steps                   |
 | Each event's route, where one is recorded, as the shared card shows it                            | Zones on a page are inferred from `fires_on`, not declared anywhere |
 | Feedback composer and usage tracking, the explorer's, from the shared partials                    | Step extraction; the node model is hand-authored in `map.js`        |
+| Every area the app declares in `productMap.ts`; an undrawn one lists its events ("events only")    | Steps for those areas                                               |
 | Undrawn flows placed under their areas as "Still being built" placeholders; the panel counts them | Their steps, read out of the files each placeholder names           |
 
 A placeholder is `building(name, route, src, note?)` in the `TREE`. It renders as a
 collapsed surface with the tag and opens to the file its steps live in, so the map never
 reads as complete. Drawing one means replacing the placeholder with a surface constant.
+
+The areas are not hand-kept. `build.py` reads every area's name, path and modes from
+`packages/gp-api/src/chats/general/product-knowledge/productMap.ts` (the list the in-product
+assistants answer from, which CI keeps in step with the nav) and passes them in as
+`product_areas`. `map.js` adds each one the `TREE` has not drawn, matched by name or route
+within its own product, as an "events only" area listing the events filed under it: by
+explorer area name, through `AREA_ALIASES` where the names differ, or by route. An area in
+both products goes under "Win and Serve". The read is a regex; `test_the_map_reads_every_area_in_productMap`
+counts the areas a second way and fails if the two disagree.
 
 The node model (`TREE`, the surface constants) lives in `map.js` as code, because
 it carries judgement per step: which events belong, which branch rejoins where, what a
@@ -58,7 +68,8 @@ no longer appear.
 
 ## Data
 
-Its one input is refreshed by the governance run, so the map moves when the explorer does.
+Two inputs. The snapshot is refreshed by the governance run, so the map moves when the
+explorer does; the area list moves whenever `productMap.ts` changes on `main`.
 
 - The explorer snapshot, `surfaces/event-explorer/data/event-explorer.json`,
   whole. The page searches every event in it, and `map.js` builds each step's row

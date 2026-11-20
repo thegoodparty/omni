@@ -9,7 +9,8 @@ An option's section runs from the <section> tag whose id is the option id throug
 its matching </section>, nested sections included. The hash is SHA-256 of that
 text, byte for byte as UTF-8, in src.html (not index.html, where the fragments
 are inlined), followed by the option's flow file <work>/flow/<option-id>.tsx when
-it exists. Any edit to either, whitespace included, changes it. build.py,
+it exists, and by <work>/flow/shared.tsx when the flow imports './shared'. Any
+edit to any of them, whitespace included, changes it. build.py,
 check.py and the build-shape skill all use this file.
 """
 import hashlib
@@ -39,6 +40,15 @@ def flow_file(src, oid):
     return Path(src).resolve().parent.parent / 'flow' / f'{oid}.tsx'
 
 
+def flow_bytes(flow):
+    """The flow file, then shared.tsx when it imports './shared': what an option is drawn from."""
+    data = flow.read_bytes()
+    shared = flow.parent / 'shared.tsx'
+    if shared.exists() and re.search(rb"from\s+['\"]\./shared['\"]", data):
+        data += shared.read_bytes()
+    return data
+
+
 def option_hash(html, oid, src=None):
     span = section_span(html, oid)
     if not span:
@@ -46,7 +56,7 @@ def option_hash(html, oid, src=None):
     text = html[span[0]:span[2]]
     flow = flow_file(src, oid) if src else None
     if flow and flow.exists():
-        text += flow.read_text()
+        text += flow_bytes(flow).decode()
     return 'sha256:' + hashlib.sha256(text.encode()).hexdigest()
 
 

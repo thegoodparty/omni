@@ -1,9 +1,27 @@
 'use client'
 
-import { Badge, Card } from '@styleguide'
+import {
+  Badge,
+  Button,
+  Card,
+  ExternalLinkIcon,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@styleguide'
 import Image from 'next/image'
+import Link from 'next/link'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { useCampaign } from '@shared/hooks/useCampaign'
+import { useOrganizationRole } from '@shared/organization-picker'
+import { PaymentPortalButton } from '@shared/PaymentPortalButton'
+import { SUPPORT_EMAIL } from '@shared/utils/supportContact'
+import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
-import { buildPlanPitch } from 'app/dashboard/shared/plan/planPitch'
+import {
+  buildPlanPitch,
+  formatPlanCents,
+} from 'app/dashboard/shared/plan/planPitch'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { AccountSettingsButton } from 'app/dashboard/profile/components/AccountSettingsButton'
 import { SubscriptionPendingCancellationAlert } from 'app/dashboard/profile/components/SubscriptionPendingCancellationAlert'
@@ -24,6 +42,17 @@ const formatJoined = (createdAt?: Date | string): string => {
   return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
+const formatGoodThrough = (date: Date): string =>
+  date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+
+const TEAM_UPGRADE_CTA = `Upgrade to Team for ${formatPlanCents(
+  PLAN_PRICING.teamCents - PLAN_PRICING.proCents,
+)}`
+
 export const AccountInformationCard = ({
   user,
   isPro,
@@ -33,13 +62,25 @@ export const AccountInformationCard = ({
 }: AccountInformationCardProps): React.JSX.Element => {
   const userType = isElectedOffice ? 'Elected official' : 'Candidate'
   const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
-  const { plan } = usePlan()
+  const { plan, planEndsAt } = usePlan()
+  const [campaign] = useCampaign()
+  const role = useOrganizationRole()
   const paidPlan = buildPlanPitch(true, planPricingEnabled, plan === 'team')
-  const planLabel = isPro
-    ? planPricingEnabled
-      ? `GoodParty.org ${paidPlan.name} Plan - ${paidPlan.price}`
-      : 'GoodParty.org Pro Plan - $10/month'
-    : 'GoodParty.org Base Plan - Free'
+  // Subscribers (planPricingModel subscription, or a legacy row with none)
+  // keep the subscription label and Manage Subscription.
+  const oneTimePlan =
+    planPricingEnabled &&
+    isPro &&
+    !isElectedOffice &&
+    campaign?.planPricingModel === 'one_time'
+  const showPlansLink = planPricingEnabled && !isPro && !isElectedOffice
+  const planLabel = oneTimePlan
+    ? `GoodParty.org ${paidPlan.name} Plan`
+    : isPro
+      ? 'GoodParty.org Pro Plan - $10/month'
+      : planPricingEnabled
+        ? 'GoodParty.org Free Plan'
+        : 'GoodParty.org Base Plan - Free'
 
   return (
     <Card className="w-full max-w-[640px] gap-4 p-6">
@@ -47,12 +88,23 @@ export const AccountInformationCard = ({
         <h2 className="m-0 text-xl font-semibold text-foreground">
           Account Information
         </h2>
-        <AccountSettingsButton
-          isPro={isPro}
-          isElectedOffice={isElectedOffice}
-          subscriptionId={subscriptionId}
-          customerId={user.metaData?.customerId}
-        />
+        {oneTimePlan ? (
+          <PaymentPortalButton variant="outline">
+            Billing history
+            <ExternalLinkIcon className="ml-2 size-4" />
+          </PaymentPortalButton>
+        ) : showPlansLink ? (
+          <Button asChild>
+            <Link href="/dashboard/plans">See plans</Link>
+          </Button>
+        ) : (
+          <AccountSettingsButton
+            isPro={isPro}
+            isElectedOffice={isElectedOffice}
+            subscriptionId={subscriptionId}
+            customerId={user.metaData?.customerId}
+          />
+        )}
       </div>
 
       {isPro && !!subscriptionCancelAt && (
@@ -82,6 +134,63 @@ export const AccountInformationCard = ({
           <span>{planLabel}</span>
         </Badge>
       </div>
+
+      {oneTimePlan && planEndsAt && (
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs font-medium text-muted-foreground">
+            Good through
+          </span>
+          <p className="m-0 text-sm text-foreground">
+            {formatGoodThrough(planEndsAt)}{' '}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-sm text-muted-foreground"
+                >
+                  Why this date?
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="text-sm">
+                <p className="m-0">
+                  Your plan runs {PLAN_PRICING.accessDaysAfterElection / 7}{' '}
+                  weeks after election day, so this date moves if the election
+                  moves. Headed to a runoff?{' '}
+                  <a href={`mailto:${SUPPORT_EMAIL}`} className="underline">
+                    Contact us
+                  </a>
+                  .
+                </p>
+              </PopoverContent>
+            </Popover>
+          </p>
+        </div>
+      )}
+
+      {oneTimePlan && plan === 'pro' && role === 'owner' && (
+        <div className="flex flex-col gap-2">
+          <p className="m-0 text-sm text-foreground">
+            Working with a campaign manager or volunteers? Upgrade to Team to
+            give them their own logins. You pay the{' '}
+            {formatPlanCents(PLAN_PRICING.teamCents - PLAN_PRICING.proCents)}{' '}
+            difference, and your outreach credit and dates stay the same.
+          </p>
+          <div>
+            <Button asChild variant="outline">
+              <Link
+                href={`${proUpgradeHref({
+                  source: 'navigation',
+                  channel: 'generic',
+                  cta: TEAM_UPGRADE_CTA,
+                })}&plan=team`}
+              >
+                {TEAM_UPGRADE_CTA}
+              </Link>
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-0.5">
         <span className="text-xs font-medium text-muted-foreground">

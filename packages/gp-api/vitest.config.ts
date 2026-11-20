@@ -26,6 +26,12 @@ const TEST_FILES = [
   'seed/**/*.test.ts',
 ]
 
+// Eval suites (`*.eval.ts`) spend real agent runs and model calls, so they run
+// only under `vitest.evals.config.ts` (`npm run eval`), never here or in
+// `verify`. The glob above would not reach them anyway; this keeps it that way
+// if it ever widens.
+const EVAL_FILES = '**/*.eval.ts'
+
 // Most of a file's cost is importing the app graph (~1,200 modules for
 // anything that boots AppModule), not running its tests, so the default
 // project reuses each worker's module cache across files (isolate: false).
@@ -181,7 +187,11 @@ export default defineConfig({
             './src/test-clerk-throttle-mock.ts',
           ],
           include: TEST_FILES,
-          exclude: [...configDefaults.exclude, ...needsFreshModules],
+          exclude: [
+            ...configDefaults.exclude,
+            EVAL_FILES,
+            ...needsFreshModules,
+          ],
           isolate: false,
         },
       },
@@ -190,6 +200,7 @@ export default defineConfig({
         test: {
           name: 'fresh-modules',
           include: needsFreshModules,
+          exclude: [...configDefaults.exclude, EVAL_FILES],
         },
       },
     ],

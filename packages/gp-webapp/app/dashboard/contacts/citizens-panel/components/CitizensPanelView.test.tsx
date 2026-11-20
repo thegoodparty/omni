@@ -389,11 +389,63 @@ describe('CitizensPanelView', () => {
       screen.getByRole('heading', { name: 'Your civic panel is ready' }),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('civic-panel-next')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('managed-panel-controls')).toBeNull()
+  })
+
+  it('shows a full panel by age, gender and race, not by place', () => {
+    render(
+      <CitizensPanelView
+        summary={{
+          ...SUMMARY,
+          members: 250,
+          progress: { ...SUMMARY.progress, members: 250 },
+        }}
+        managed={managed('ready')}
+      />,
+    )
+
+    const makeup = screen.getByTestId('civic-panel-makeup')
+    expect(
+      within(makeup).getByRole('heading', {
+        name: 'Your members by age, gender and race',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      within(makeup).getByText('Out of every 100 seats on your civic panel.'),
+    ).toBeInTheDocument()
+    const age = within(makeup).getByRole('list', { name: 'Age' })
+    expect(within(age).getByText('People 65 and over')).toBeInTheDocument()
+    expect(within(age).getByText('5 of 100 seats')).toBeInTheDocument()
+    const gender = within(makeup).getByRole('list', { name: 'Gender' })
+    expect(within(gender).getByText('Men')).toBeInTheDocument()
+    expect(within(gender).getByText('60 of 100 seats')).toBeInTheDocument()
+    const race = within(makeup).getByRole('list', { name: 'Race' })
+    expect(within(race).getByText('Black residents')).toBeInTheDocument()
+    expect(within(makeup).queryByText(/Oakdale/)).not.toBeInTheDocument()
+  })
+
+  it('drops the invites once members reach the goal, before the status turns', () => {
+    render(
+      <CitizensPanelView
+        summary={{
+          ...SUMMARY,
+          members: 247,
+          progress: { ...SUMMARY.progress, members: 247, goal: 243 },
+        }}
+        managed={managed('building')}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Your civic panel is ready' }),
+    ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Your civic panel is full. No new invites are going out.',
+        '247 Asheville residents are on your civic panel. Ask them what they think whenever you want to hear from all of Asheville.',
       ),
     ).toBeInTheDocument()
+    expect(screen.queryByTestId('managed-panel-controls')).toBeNull()
+    expect(screen.queryByText('Next invites')).toBeNull()
   })
 
   it('puts the invites, numbers and See members in the rail', () => {

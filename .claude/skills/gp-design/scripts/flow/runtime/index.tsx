@@ -4,6 +4,10 @@
 //   states:  { 'upload-failed': { label: 'The file has no phone column', screen: () => <...>, values: { color: 'blue' } } }
 //            Other states; values (optional) seeds useFlowState for that state
 //   products (optional): ['serve', 'win'] when the ticket names both; the page shows a Serve / Win switch
+//   paths (optional): { 'Send with a photo': ['goal', { click: 'Add a photo' }, 'review'] }
+//            each path from entry: a screen key clicks the data-go to it, { click } clicks
+//            a control by its text and stays, { wait } waits for a screen that opens by
+//            itself (a draft that finishes); shoot.mjs walks each at 375 and 1280
 // Any element with data-go="<screen key>" opens that screen when clicked.
 // useFlowState(key, initial) keeps a choice across screens (a picked color, a removed
 // photo); Restart clears it, and each state starts from its own values.
@@ -19,6 +23,10 @@ export type Product = 'win' | 'serve'
 export type Screen = () => ReactNode
 export type Screens = { entry: Screen } & Record<string, Screen>
 export type FlowValues = Record<string, unknown>
+export type Paths = Record<
+  string,
+  Array<string | { click: string } | { wait: string }>
+>
 export type States = Record<
   string,
   { label: string; screen: Screen; values?: FlowValues }
@@ -27,6 +35,7 @@ export type FlowModule = {
   screens: Screens
   states?: States
   products?: Product[]
+  paths?: Paths
 }
 
 export const ProductContext = createContext<Product>('serve')

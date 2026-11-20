@@ -40,7 +40,7 @@ export type RatedFeedback = Prisma.ChatMessageFeedbackGetPayload<{
 const toDTO = (row: RatedFeedback): ChatMessageFeedbackDTO => ({
   id: row.id,
   conversationId: row.conversationId,
-  messageId: row.agentMessageId ?? '',
+  messageId: row.agentMessageId,
   feedback: row.feedback,
   comment: row.comment,
   createdAt: row.createdAt,
@@ -62,13 +62,7 @@ export class ChatMessageFeedbackService extends createPrismaBase(
       where: { conversationId, submitterUserId: userId },
       select: FEEDBACK_COLUMNS,
     })
-    // A rating with no message key belongs to no visible turn, so it restores
-    // no action-bar state.
-    return new Map(
-      rows.flatMap((row) =>
-        row.agentMessageId === null ? [] : [[row.agentMessageId, row] as const],
-      ),
-    )
+    return new Map(rows.map((row) => [row.agentMessageId, row] as const))
   }
 
   async setForMessage(

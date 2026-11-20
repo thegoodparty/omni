@@ -4,6 +4,7 @@ import { Grid, Text, Badge, Flex, Box } from '@radix-ui/themes'
 import { InfoCard } from './InfoCard'
 import { FieldList } from './FieldList'
 import { DataRow } from './DataRow'
+import { PlanCard } from './PlanCard'
 import type { CampaignData, CampaignDetails } from '@/shared/gpApi'
 import type { EnrichedCampaign } from '@/app/dashboard/campaigns/actions'
 import { formatLocalDateString } from '@/lib/utils/date'
@@ -30,7 +31,6 @@ function fmtNumber(value: number | null | undefined): string {
 const STATUS_FLAGS = buildDisplayFields([
   'isActive',
   'isVerified',
-  'isPro',
   'isDemo',
   'didWin',
   'canDownloadFederal',
@@ -97,6 +97,8 @@ export function CampaignSection({ campaign, district }: CampaignSectionProps) {
             <FieldList data={campaign} fields={STATUS_FLAGS} />
           </Flex>
         </InfoCard>
+
+        <PlanCard campaign={campaign} />
 
         <InfoCard title="Election Results (Campaign Tier)">
           <FieldList data={campaign} fields={TIER_FIELDS} />
