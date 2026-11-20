@@ -11,11 +11,7 @@ export const PlanBadge = ({
 }: PlanBadgeProps): React.JSX.Element | null => {
   if (plan === 'pro') return <ProBadge size="small" />
   if (plan === 'team') {
-    return (
-      <Badge className="px-1.5 py-0.5 text-[10px] font-semibold tracking-wide">
-        TEAM
-      </Badge>
-    )
+    return <Badge>TEAM</Badge>
   }
   return null
 }
