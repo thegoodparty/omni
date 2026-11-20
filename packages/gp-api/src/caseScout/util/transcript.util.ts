@@ -1,8 +1,5 @@
 import { formatInTimeZone } from 'date-fns-tz'
-// Relative, not '@/': the pairwise judge runner imports every *.eval.ts with
-// tsx from the repo root, where gp-api's path alias does not resolve, and
-// caseScoutDeidentifier.eval.ts reaches this file.
-import { ChatMessageRole } from '../../generated/prisma'
+import { ChatMessageRole } from '@/generated/prisma'
 import type { Session } from './sessions.util'
 
 const UTC = 'UTC'
