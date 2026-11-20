@@ -96,7 +96,24 @@ describe('AccountInformationCard plans', () => {
     expect(mockClientFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('hides the Team upgrade from non-owners and on Team', () => {
+  it('shows a Team owner the Team plan with no Team upgrade', () => {
+    mockCampaign.mockReturnValue({
+      isPro: true,
+      plan: 'team',
+      planPricingModel: 'one_time',
+      planEndsAt: '2026-11-17T12:00:00.000Z',
+    })
+    renderCard(true)
+
+    expect(screen.getByText('GoodParty.org Team Plan')).toBeInTheDocument()
+    expect(screen.getByText('Nov 17, 2026')).toBeInTheDocument()
+    expect(screen.queryByText(/Upgrade to Team/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Manage Subscription/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides the Team upgrade from non-owners', () => {
     mockRole.mockReturnValue('campaignAdmin')
     mockCampaign.mockReturnValue({
       isPro: true,
