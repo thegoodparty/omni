@@ -30,6 +30,7 @@ export type {
   CampaignPlanState,
   AdminSetPlan,
   AdminExtendPlan,
+  AdminPlanRefundEligibility,
   AdminRefundPlanResponse,
   ListCampaignsPagination,
   SetDistrictOutput,

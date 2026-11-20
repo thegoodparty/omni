@@ -7,6 +7,7 @@ import { gpAction } from '@/shared/util/gpClient.util'
 import { extractApiErrorMessage } from '@/lib/utils/sdkError'
 import type {
   AdminExtendPlan,
+  AdminPlanRefundEligibility,
   AdminRefundPlanResponse,
   AdminSetPlan,
   CampaignPlanState,
@@ -68,4 +69,26 @@ export const refundCampaignPlan = async (
   return runPlanAction(userId, "Couldn't refund the plan", (client) =>
     client.campaigns.refundPlan(campaignId)
   )
+}
+
+// Read-only, so it skips runPlanAction's revalidate: that would refresh the
+// page under the open dialog.
+export const getRefundEligibility = async (
+  campaignId: number
+): Promise<PlanActionResult<AdminPlanRefundEligibility>> => {
+  const { has } = await auth()
+  if (!has?.({ role: ADMIN_ROLE })) {
+    return { data: null, error: 'Only admins can refund a plan' }
+  }
+  try {
+    const data = await gpAction((client) =>
+      client.campaigns.getRefundEligibility(campaignId)
+    )
+    return { data, error: null }
+  } catch (error) {
+    return {
+      data: null,
+      error: extractApiErrorMessage(error, "Couldn't check refund eligibility"),
+    }
+  }
 }
