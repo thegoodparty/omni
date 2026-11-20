@@ -1,5 +1,6 @@
 import type {
   AdminExtendPlan,
+  AdminPlanRefundEligibility,
   AdminRefundPlanResponse,
   AdminSetPlan,
   CampaignPlanState,
@@ -125,5 +126,10 @@ export class CampaignsResource extends BaseResource {
     this.postRequest<AdminRefundPlanResponse>(
       `/admin/campaigns/${id}/plan/refund`,
       {}
+    )
+
+  getRefundEligibility = (id: number): Promise<AdminPlanRefundEligibility> =>
+    this.getRequest<AdminPlanRefundEligibility>(
+      `/admin/campaigns/${id}/plan/refund-eligibility`
     )
 }

@@ -13,6 +13,7 @@ interface ConfirmDialogProps {
   cancelLabel?: string
   color?: 'red' | 'blue' | 'green'
   loading?: boolean
+  confirmDisabled?: boolean
 }
 
 export function ConfirmDialog({
@@ -25,6 +26,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   color = 'red',
   loading = false,
+  confirmDisabled = false,
 }: ConfirmDialogProps) {
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -47,6 +49,7 @@ export function ConfirmDialog({
                 onConfirm()
               }}
               loading={loading}
+              disabled={confirmDisabled}
             >
               {confirmLabel}
             </Button>

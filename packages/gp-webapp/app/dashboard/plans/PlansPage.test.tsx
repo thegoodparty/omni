@@ -3,7 +3,10 @@ import { render, screen, within } from '@testing-library/react'
 import { PLAN_PRICING } from '@goodparty_org/contracts'
 import PlansPage from './PlansPage'
 
-const mockPlan = vi.hoisted(() => ({ current: 'free' as string }))
+const mockPlan = vi.hoisted(() => ({
+  current: 'free' as string,
+  onSubscription: false,
+}))
 
 vi.mock('@shared/experiments/FeatureFlagGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => children,
@@ -14,12 +17,16 @@ vi.mock('../shared/DashboardLayout', () => ({
   ),
 }))
 vi.mock('../shared/membership/deriveMembershipState', () => ({
-  usePlan: () => ({ plan: mockPlan.current }),
+  usePlan: () => ({
+    plan: mockPlan.current,
+    onSubscription: mockPlan.onSubscription,
+  }),
 }))
 
 describe('PlansPage', () => {
   beforeEach(() => {
     mockPlan.current = 'free'
+    mockPlan.onSubscription = false
   })
 
   it('shows the three plans with prices and credit from PLAN_PRICING', () => {
@@ -102,6 +109,24 @@ describe('PlansPage', () => {
       expect(button).toBeDisabled()
     }
     expect(screen.queryAllByRole('link', { name: /Join Pro/ })).toHaveLength(0)
+  })
+
+  it('offers a monthly subscriber no purchase and says why', () => {
+    mockPlan.current = 'pro'
+    mockPlan.onSubscription = true
+    render(<PlansPage highlightTeam={false} />)
+
+    expect(screen.queryAllByRole('link', { name: /Join/ })).toHaveLength(0)
+    for (const button of screen.getAllByRole('button', {
+      name: `Join Team for $${PLAN_PRICING.teamCents / 100}`,
+    })) {
+      expect(button).toBeDisabled()
+    }
+    expect(
+      screen.getByText(
+        "You're on Pro at $10 a month. Team isn't available on a monthly plan.",
+      ),
+    ).toBeInTheDocument()
   })
 
   it('offers nothing below the current plan', () => {

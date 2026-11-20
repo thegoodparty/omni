@@ -183,7 +183,10 @@ export function P2PUpgradeModal({
           </div>
           {planPitch.enabled && !isProFreeTextsNonCompliant && (
             <div className="flex justify-center">
-              <SeeAllPlansLink href={planPitch.allPlansHref} />
+              <SeeAllPlansLink
+                href={planPitch.allPlansHref}
+                onClick={handleClose}
+              />
             </div>
           )}
         </div>

@@ -55,13 +55,34 @@ export class SecondReadCallError extends Error {}
 
 export type SecondReadCall = (draftText: string) => Promise<string>
 
-// The fields that reach GitHub, in the order the Python gate read them.
-export const draftFieldValues = (draft: CaseCandidate): string[] => [
-  draft.condition,
-  draft.handledWhen,
-  ...(draft.question ? [draft.question] : []),
-  ...(draft.turns ?? []),
-]
+export type CaseText = Pick<
+  CaseCandidate,
+  'caseId' | 'condition' | 'handledWhen' | 'question' | 'turns'
+>
+
+export type OutboundDraft = { case: CaseText } | { needsSetup: string }
+
+// Stands in for a needs-setup line that failed the gate, in the bundle and
+// the ledger alike.
+export const WITHHELD_NEEDS_SETUP = '(withheld: the line failed the PII gate)'
+
+// Hyphens and underscores become spaces, so a spaced denylist term such as
+// "Maple Falls" can match maple-falls-ward-2.
+const deslug = (caseId: string): string => caseId.replace(/[-_]+/gu, ' ').trim()
+
+// Every drafter-written string that can leave prod, as the gate reads it. The
+// gate checks exactly this list and caseScoutDeidentifier.eval.ts grades
+// exactly this list, so a new outbound field goes here and nowhere else.
+export const outboundStrings = (draft: OutboundDraft): string[] =>
+  'needsSetup' in draft
+    ? [draft.needsSetup]
+    : [
+        draft.case.condition,
+        draft.case.handledWhen,
+        ...(draft.case.question ? [draft.case.question] : []),
+        ...(draft.case.turns ?? []),
+        deslug(draft.case.caseId),
+      ]
 
 const normalize = (text: string): string =>
   text
@@ -77,9 +98,13 @@ export const checkDenylist = (
   fields: string[],
   denylist: string[],
 ): string | undefined => {
+  // Each term also tries its punctuation as one space, so "Delacroix-Venn"
+  // still matches the de-slugged caseId "delacroix venn asks about turnout".
   const terms = [
     ...new Set(
-      denylist.filter((term) => term.length >= MIN_DENYLIST_TERM_LENGTH),
+      denylist
+        .flatMap((term) => [term, term.replace(/[^\p{L}\p{N}]+/gu, ' ').trim()])
+        .filter((term) => term.length >= MIN_DENYLIST_TERM_LENGTH),
     ),
   ].sort((a, b) => b.length - a.length)
   if (terms.length === 0) return undefined
@@ -105,13 +130,13 @@ const shingles = (text: string): Set<string> => {
 
 export const checkCopiedText = (
   fields: string[],
-  userMessages: string[],
+  sourceTexts: string[],
 ): string | undefined => {
-  const source = shingles(normalize(userMessages.join(' ')))
+  const source = shingles(normalize(sourceTexts.join(' ')))
   if (source.size === 0) return undefined
   const draft = shingles(normalize(fields.join(' ')))
   return [...draft].some((run) => source.has(run))
-    ? "an 8-word run copied from the user's messages appeared in the draft"
+    ? 'an 8-word run copied from the session appeared in the draft'
     : undefined
 }
 
@@ -170,23 +195,51 @@ export const validateAgainstSchema = (
     : (result.error.issues[0]?.message ?? 'schema validation failed')
 }
 
-export const gateDraft = async (
-  draft: CaseCandidate,
+const gateStrings = async (
+  fields: string[],
   denylist: string[],
-  userMessages: string[],
+  sourceTexts: string[],
   secondRead: SecondReadCall,
+  schema?: () => string | undefined,
 ): Promise<GateResult> => {
-  const fields = draftFieldValues(draft)
   const layers: Array<[GateRule, () => Promise<string | undefined>]> = [
     ['denylist', async () => checkDenylist(fields, denylist)],
-    ['copiedText', async () => checkCopiedText(fields, userMessages)],
+    ['copiedText', async () => checkCopiedText(fields, sourceTexts)],
     ['contactPattern', async () => checkContactPatterns(fields)],
     ['secondRead', () => runSecondRead(fields, secondRead)],
-    ['schema', async () => validateAgainstSchema(draft)],
   ]
+  if (schema) layers.push(['schema', async () => schema()])
   for (const [rule, check] of layers) {
     const reason = await check()
     if (reason !== undefined) return { passed: false, rule, reason }
   }
   return { passed: true }
 }
+
+export const gateDraft = (
+  draft: CaseCandidate,
+  denylist: string[],
+  sourceTexts: string[],
+  secondRead: SecondReadCall,
+): Promise<GateResult> =>
+  gateStrings(
+    outboundStrings({ case: draft }),
+    denylist,
+    sourceTexts,
+    secondRead,
+    () => validateAgainstSchema(draft),
+  )
+
+// The text layers only: a needs-setup line has no case schema.
+export const gateNeedsSetup = (
+  what: string,
+  denylist: string[],
+  sourceTexts: string[],
+  secondRead: SecondReadCall,
+): Promise<GateResult> =>
+  gateStrings(
+    outboundStrings({ needsSetup: what }),
+    denylist,
+    sourceTexts,
+    secondRead,
+  )

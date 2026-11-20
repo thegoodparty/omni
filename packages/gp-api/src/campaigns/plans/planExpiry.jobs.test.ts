@@ -1,4 +1,5 @@
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { CampaignPlanLevel, PlanPricingModel, Prisma } from '@/generated/prisma'
@@ -66,6 +67,36 @@ beforeEach(() => {
 })
 
 describe('planExpirySweep', () => {
+  it('never ends a subscriber, backfilled or not, past its election', async () => {
+    setSweepFlag(true)
+    const backfilled = await seedPlan({
+      planPricingModel: PlanPricingModel.subscription,
+      outreachCreditCents: 0,
+      details: {
+        subscriptionId: 'sub_backfilled',
+        electionDate: format(subDays(new Date(), 60), 'yyyy-MM-dd'),
+      },
+    })
+    const legacy = await seedPlan({
+      plan: CampaignPlanLevel.free,
+      planPricingModel: null,
+      outreachCreditCents: 0,
+      details: {
+        subscriptionId: 'sub_legacy',
+        electionDate: format(subDays(new Date(), 60), 'yyyy-MM-dd'),
+      },
+    })
+
+    await service.jobs.runSchedule('planExpirySweep')
+
+    for (const { id } of [backfilled, legacy]) {
+      expect(await readCampaign(id)).toMatchObject({
+        isPro: true,
+        planEndedAt: null,
+      })
+    }
+  })
+
   it('ends a one-time plan 15 days after the election', async () => {
     setSweepFlag(true)
     const track = spyOnTrack()
@@ -227,5 +258,46 @@ describe('planExpirySweep', () => {
       outreachCreditCents: 17_500,
     })
     expect(track).not.toHaveBeenCalled()
+  })
+
+  it('sends no event when an extend lands between the read and the lock', async () => {
+    setSweepFlag(true)
+    const track = spyOnTrack()
+    const campaign = await seedPlan({ electionDaysAgo: 20 })
+    const campaigns = service.app.get(CampaignsService)
+    const setIsPro = campaigns.setIsPro.bind(campaigns)
+    vi.spyOn(campaigns, 'setIsPro').mockImplementationOnce(async (...args) => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { planEndsAtOverride: addDays(new Date(), 10) },
+      })
+      return setIsPro(...args)
+    })
+
+    await service.jobs.runSchedule('planExpirySweep')
+
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: true,
+      planEndedAt: null,
+      outreachCreditCents: 17_500,
+    })
+    expect(track).not.toHaveBeenCalled()
+  })
+
+  it('ends the plan and sends the event once when the retry follows a Segment failure', async () => {
+    setSweepFlag(true)
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockRejectedValueOnce(new Error('Segment down'))
+      .mockResolvedValue({ event: 'tracked', userId: 'tracked' })
+    const campaign = await seedPlan({ electionDaysAgo: 20 })
+
+    await service.jobs.runSchedule('planExpirySweep')
+
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: false,
+      outreachCreditCents: 0,
+    })
+    expect(track).toHaveBeenCalledTimes(2)
   })
 })
