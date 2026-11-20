@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -14,6 +14,7 @@ import { useProUpgradeCarry } from './proUpgradeCarryContext'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import SuccessStep from './SuccessStep'
+import { PLAN_RECEIPT_QUERY_KEY } from './PlanReceiptCard'
 
 vi.mock('app/shared/experiments/winPerCampaignPricingFlag', () => ({
   useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: true }),
@@ -118,6 +119,26 @@ describe('SuccessStep with per-campaign pricing on', () => {
     expect(screen.getByText('Good through')).toBeInTheDocument()
     expect(screen.getByText('November 17, 2027')).toBeInTheDocument()
     expect(screen.queryByText(/\/mo/)).not.toBeInTheDocument()
+  })
+
+  it('draws no receipt and no error when a manager is refused the receipt', async () => {
+    setup('pro')
+    api.mock('GET /v1/payments/purchase/plan-receipt', {
+      status: 403,
+      data: { message: 'Organization owner access required' },
+    })
+    renderStep()
+
+    expect(await screen.findByText('Welcome to Pro')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        testQueryClient.getQueryState(PLAN_RECEIPT_QUERY_KEY)?.status,
+      ).toBe('error'),
+    )
+    expect(
+      screen.queryByRole('button', { name: /Your receipt/ }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('keeps the PIN note and says it also unlocks the credit', async () => {
