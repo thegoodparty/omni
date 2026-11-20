@@ -67,6 +67,36 @@ beforeEach(() => {
 })
 
 describe('planExpirySweep', () => {
+  it('never ends a subscriber, backfilled or not, past its election', async () => {
+    setSweepFlag(true)
+    const backfilled = await seedPlan({
+      planPricingModel: PlanPricingModel.subscription,
+      outreachCreditCents: 0,
+      details: {
+        subscriptionId: 'sub_backfilled',
+        electionDate: format(subDays(new Date(), 60), 'yyyy-MM-dd'),
+      },
+    })
+    const legacy = await seedPlan({
+      plan: CampaignPlanLevel.free,
+      planPricingModel: null,
+      outreachCreditCents: 0,
+      details: {
+        subscriptionId: 'sub_legacy',
+        electionDate: format(subDays(new Date(), 60), 'yyyy-MM-dd'),
+      },
+    })
+
+    await service.jobs.runSchedule('planExpirySweep')
+
+    for (const { id } of [backfilled, legacy]) {
+      expect(await readCampaign(id)).toMatchObject({
+        isPro: true,
+        planEndedAt: null,
+      })
+    }
+  })
+
   it('ends a one-time plan 15 days after the election', async () => {
     setSweepFlag(true)
     const track = spyOnTrack()

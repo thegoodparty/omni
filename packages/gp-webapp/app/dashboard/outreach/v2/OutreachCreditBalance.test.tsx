@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   enabled: false,
   cents: 17500,
   hasFreeTextsOffer: false,
+  onSubscription: false,
 }))
 
 vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
@@ -18,13 +19,17 @@ vi.mock('@shared/hooks/useCampaign', () => ({
 }))
 
 vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
-  usePlan: () => ({ creditCents: state.cents }),
+  usePlan: () => ({
+    creditCents: state.cents,
+    onSubscription: state.onSubscription,
+  }),
 }))
 
 beforeEach(() => {
   state.enabled = true
   state.cents = 17500
   state.hasFreeTextsOffer = false
+  state.onSubscription = false
 })
 
 describe('OutreachCreditBalance', () => {
@@ -47,6 +52,14 @@ describe('OutreachCreditBalance', () => {
 
   it('shows nothing with the flag off', () => {
     state.enabled = false
+    render(<OutreachCreditBalance />)
+
+    expect(screen.queryByText('Outreach credit')).not.toBeInTheDocument()
+  })
+
+  it('shows nothing for a monthly subscriber, who has no credit', () => {
+    state.cents = 0
+    state.onSubscription = true
     render(<OutreachCreditBalance />)
 
     expect(screen.queryByText('Outreach credit')).not.toBeInTheDocument()
