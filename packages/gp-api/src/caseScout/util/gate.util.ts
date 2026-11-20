@@ -143,13 +143,13 @@ const identifyingSourceRuns = (text: string): string[] => {
     .map((run) => run.map(({ word }) => word).join(' '))
 }
 
+// Split before lowercasing, as the source side does: lowercasing "İ" adds a
+// combining mark, which would split one word in two on this side only.
 const draftRuns = (text: string): string[] =>
   runsOf(
-    text
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, ' ')
-      .split(' ')
-      .filter(Boolean),
+    [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((match) =>
+      match[0].toLowerCase(),
+    ),
   ).map((run) => run.join(' '))
 
 export const checkCopiedText = (

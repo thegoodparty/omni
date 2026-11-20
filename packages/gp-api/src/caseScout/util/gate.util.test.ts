@@ -105,6 +105,15 @@ describe('checkCopiedText', () => {
     ).toBeDefined()
   })
 
+  it('blocks a copied name whose lowercase gains a combining mark', () => {
+    expect(
+      checkCopiedText(
+        ['the polling place on İnönü Road closed early today'],
+        ['so the polling place on İnönü Road closed early today'],
+      ),
+    ).toBeDefined()
+  })
+
   it('blocks a copied run whose source carries a number', () => {
     expect(
       checkCopiedText(

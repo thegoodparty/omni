@@ -136,11 +136,12 @@ const sourceTexts = (turns: SourceTurn[]): string[] =>
         ],
   )
 
+// Split before lowercasing, as the gate does: lowercasing "İ" adds a combining
+// mark, which would otherwise split one word in two.
 const normalize = (text: string): string =>
-  text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
+  [...text.matchAll(/[\p{L}\p{N}]+/gu)]
+    .map((match) => match[0].toLowerCase())
+    .join(' ')
 
 const digitsOf = (text: string): string => text.replace(/\D/gu, '')
 
