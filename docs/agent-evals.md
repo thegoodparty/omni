@@ -29,7 +29,7 @@ export default defineExpectedResultEvalSuite('message_classifier', {
 })
 ```
 
-See [the case scout gate suite](../packages/gp-api/src/caseScout/caseScoutGate.eval.ts) for a full example. Omni is public. Never commit private or real data. Load it at run time from a private location and keep it out of annotations and shared reports.
+See [the case scout gate suite](../packages/gp-api/src/caseScout/caseScoutGate.eval.ts) for a full example. Omni is public. Never commit private or real data. Load it at run time from a private location and keep it out of annotations and shared reports. Annotations reach a public job summary, so never annotate a token, key or test-user secret; the annotation helper redacts known secret shapes, but do not rely on it.
 
 ## Pairwise suites
 
@@ -49,7 +49,7 @@ The judge compares blinded outputs in both orders for each of three attempts per
 
 ## Run evals
 
-From the repo root:
+Evals never run in `npm test` or `npm run verify`: only `vitest.evals.config.ts` picks up `*.eval.ts`. From the repo root:
 
 ```sh
 npm run eval -w packages/gp-api
