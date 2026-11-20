@@ -1,13 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ChatMessageRole } from '@/generated/prisma'
 import {
   checkContactPatterns,
   checkCopiedText,
   checkDenylist,
   gateDraft,
+  gateNeedsSetup,
+  outboundStrings,
   runSecondRead,
   SecondReadCallError,
   type CaseCandidate,
 } from './gate.util'
+import type { Message, Session } from './sessions.util'
+import { sessionSourceTexts } from './transcript.util'
 
 const clean: CaseCandidate = {
   caseId: 'a-clean-case',
@@ -43,6 +48,21 @@ describe('checkDenylist', () => {
         ['Call City Council (District 4) directly.'],
         ['City Council (District 4)'],
       ),
+    ).toBeDefined()
+  })
+
+  it('catches a punctuated term in a de-slugged caseId', () => {
+    expect(
+      checkDenylist(['delacroix venn asks about turnout'], ['Delacroix-Venn']),
+    ).toBeDefined()
+    expect(
+      checkDenylist(['o brien wants a yard sign'], ["O'Brien"]),
+    ).toBeDefined()
+  })
+
+  it('catches a hyphenated term written with a space', () => {
+    expect(
+      checkDenylist(['Ask Delacroix Venn about turnout.'], ['Delacroix-Venn']),
     ).toBeDefined()
   })
 
@@ -82,7 +102,7 @@ describe('checkCopiedText', () => {
     ).toBeDefined()
   })
 
-  it('never blocks without user messages', () => {
+  it('never blocks without source texts', () => {
     expect(
       checkCopiedText(['anything at all, eight or more words long here'], []),
     ).toBeUndefined()
@@ -182,5 +202,209 @@ describe('gateDraft', () => {
     expect(
       await gateDraft({ ...clean, handledWhen: 'x'.repeat(601) }, [], [], pass),
     ).toMatchObject({ passed: false, rule: 'schema' })
+  })
+})
+
+describe('copied text from every role', () => {
+  const pass = async () => '[]'
+  const message = (fields: Partial<Message>): Message => ({
+    conversationId: 'conv-1',
+    scope: 'campaign_assistant',
+    messageId: 'msg-1',
+    role: ChatMessageRole.user,
+    content: 'how do I plan my week',
+    createdAt: new Date('2026-11-12T15:00:00.000Z'),
+    toolCalls: [],
+    isInternal: false,
+    denylist: [],
+    ...fields,
+  })
+  const session = (messages: Message[]): Session => ({
+    sessionId: 'conv-1:msg-1',
+    conversationId: 'conv-1',
+    scope: 'campaign_assistant',
+    startedAt: new Date('2026-11-12T15:00:00.000Z'),
+    messages,
+  })
+
+  it('blocks a run copied from an assistant turn', async () => {
+    const sources = sessionSourceTexts(
+      session([
+        message({}),
+        message({
+          messageId: 'msg-2',
+          role: ChatMessageRole.assistant,
+          content:
+            'Your volunteers meet at the library annex every Tuesday evening.',
+        }),
+      ]),
+    )
+    expect(
+      await gateDraft(
+        {
+          ...clean,
+          question:
+            'Do volunteers meet at the library annex every Tuesday evening?',
+        },
+        [],
+        sources,
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'copiedText' })
+  })
+
+  it('blocks a run copied from a tool input', async () => {
+    const sources = sessionSourceTexts(
+      session([
+        message({}),
+        message({
+          messageId: 'msg-2',
+          role: ChatMessageRole.assistant,
+          content: 'Saving that now.',
+          toolCalls: [
+            {
+              tool: 'save_note',
+              input: JSON.stringify({
+                note: 'the treasurer wants the mailer proof back by friday',
+              }),
+            },
+          ],
+        }),
+      ]),
+    )
+    expect(
+      await gateDraft(
+        {
+          ...clean,
+          question:
+            'My treasurer wants the mailer proof back by Friday noon. Ok?',
+        },
+        [],
+        sources,
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'copiedText' })
+  })
+})
+
+describe('outboundStrings', () => {
+  it('lists every drafter-written field, the caseId de-slugged', () => {
+    expect(
+      outboundStrings({
+        case: {
+          ...clean,
+          caseId: 'maple-falls_ward-2',
+          question: undefined,
+          turns: ['a', 'b'],
+        },
+      }),
+    ).toEqual([
+      clean.condition,
+      clean.handledWhen,
+      'a',
+      'b',
+      'maple falls ward 2',
+    ])
+    expect(outboundStrings({ needsSetup: 'a line' })).toEqual(['a line'])
+  })
+})
+
+describe('the caseId', () => {
+  const pass = async () => '[]'
+
+  it('blocks a multi-word denylist term in its slug form', async () => {
+    expect(
+      await gateDraft(
+        { ...clean, caseId: 'maple-falls-ward-2-turnout' },
+        ['Maple Falls'],
+        [],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'denylist' })
+    expect(
+      await gateDraft(
+        { ...clean, caseId: 'maple_falls_turnout' },
+        ['Maple Falls'],
+        [],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'denylist' })
+  })
+
+  it('blocks a hyphenated denylist term in its slug form', async () => {
+    expect(
+      await gateDraft(
+        { ...clean, caseId: 'delacroix-venn-asks-about-turnout' },
+        ['Delacroix-Venn'],
+        [],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'denylist' })
+  })
+
+  it('blocks a phone number carried in the slug', async () => {
+    expect(
+      await gateDraft({ ...clean, caseId: 'call-555-018-4423' }, [], [], pass),
+    ).toMatchObject({ passed: false, rule: 'contactPattern' })
+  })
+
+  it('is part of what the second read sees', async () => {
+    const call = vi.fn(pass)
+    await gateDraft({ ...clean, caseId: 'a-clean-case' }, [], [], call)
+    expect(call).toHaveBeenCalledWith(expect.stringContaining('a clean case'))
+  })
+})
+
+describe('gateNeedsSetup', () => {
+  const pass = async () => '[]'
+
+  it('passes a clean line', async () => {
+    expect(
+      await gateNeedsSetup(
+        'An account with a primary next week.',
+        [],
+        [],
+        pass,
+      ),
+    ).toEqual({ passed: true })
+  })
+
+  it('runs the text layers on the line', async () => {
+    expect(
+      await gateNeedsSetup(
+        'The council seat in Lakemoor.',
+        ['Lakemoor'],
+        [],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'denylist' })
+    expect(
+      await gateNeedsSetup(
+        'A volunteer reachable at 555-123-4567.',
+        [],
+        [],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'contactPattern' })
+    expect(
+      await gateNeedsSetup(
+        'An account whose treasurer filed the report two days after the deadline',
+        [],
+        ['our treasurer filed the report two days after the deadline again'],
+        pass,
+      ),
+    ).toMatchObject({ passed: false, rule: 'copiedText' })
+    expect(
+      await gateNeedsSetup(
+        'Data for one town.',
+        [],
+        [],
+        async () => '["one town"]',
+      ),
+    ).toMatchObject({ passed: false, rule: 'secondRead' })
+  })
+
+  it('has no schema layer', async () => {
+    expect(await gateNeedsSetup('x', [], [], pass)).toEqual({ passed: true })
   })
 })
