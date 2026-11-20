@@ -1,4 +1,5 @@
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { CampaignPlanLevel, PlanPricingModel, Prisma } from '@/generated/prisma'
@@ -227,5 +228,46 @@ describe('planExpirySweep', () => {
       outreachCreditCents: 17_500,
     })
     expect(track).not.toHaveBeenCalled()
+  })
+
+  it('sends no event when an extend lands between the read and the lock', async () => {
+    setSweepFlag(true)
+    const track = spyOnTrack()
+    const campaign = await seedPlan({ electionDaysAgo: 20 })
+    const campaigns = service.app.get(CampaignsService)
+    const setIsPro = campaigns.setIsPro.bind(campaigns)
+    vi.spyOn(campaigns, 'setIsPro').mockImplementationOnce(async (...args) => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { planEndsAtOverride: addDays(new Date(), 10) },
+      })
+      return setIsPro(...args)
+    })
+
+    await service.jobs.runSchedule('planExpirySweep')
+
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: true,
+      planEndedAt: null,
+      outreachCreditCents: 17_500,
+    })
+    expect(track).not.toHaveBeenCalled()
+  })
+
+  it('ends the plan and sends the event once when the retry follows a Segment failure', async () => {
+    setSweepFlag(true)
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockRejectedValueOnce(new Error('Segment down'))
+      .mockResolvedValue({ event: 'tracked', userId: 'tracked' })
+    const campaign = await seedPlan({ electionDaysAgo: 20 })
+
+    await service.jobs.runSchedule('planExpirySweep')
+
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: false,
+      outreachCreditCents: 0,
+    })
+    expect(track).toHaveBeenCalledTimes(2)
   })
 })
