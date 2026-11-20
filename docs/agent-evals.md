@@ -56,6 +56,12 @@ npm run eval -w packages/gp-api
 npm run eval -w packages/gp-api -- caseScoutGate.eval.ts
 ```
 
+A pairwise run prints its verdict table only with the judge's reporter. Add it next to Vitest's default reporter:
+
+```sh
+npm run eval -w packages/gp-api -- trending_issues --reporter=default --reporter=../judge/src/reporter.ts
+```
+
 | Suite | Environment |
 | --- | --- |
 | Expected result | Set the agent's own credentials if needed. If `judge` calls `judgeModel`, also set `JUDGE_MODEL` and the judge provider's key. |
