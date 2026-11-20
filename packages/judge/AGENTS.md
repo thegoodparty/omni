@@ -91,9 +91,9 @@ instance, shared with the e2e suite and gp-api's own lookups, so use Vitest's wo
 
 A chat agent has no run route, so `ctx.runAgent` does not reach it. `chatTurns`
 posts the case's turns to the conversation it opened as the case's own test user
-and returns the transcript; `briefingChatTurns` does the same for
-`briefing_annotation`, whose conversation is created with the annotation it
-hangs off. The turn's reply is the SSE body, so `ctx.postEventStream` reads it as
+and returns the transcript, for every scope. Only the opening differs:
+`briefing_annotation` opens on `POST /v1/briefing-chats`, because its
+conversation is created with the annotation it hangs off. The turn's reply is the SSE body, so `ctx.postEventStream` reads it as
 text: through `ctx.api.post` axios would try the whole body as JSON and hand back
 an object for any single frame that happened to parse. A reply that streamed an
 `error` frame or ended without `done` is a thrown turn, not a subject for
