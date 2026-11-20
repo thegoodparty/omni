@@ -41,6 +41,11 @@ describe('redactSecrets', () => {
       'Ada Lovelace called 555-0100 from ada@example.com about 12 Maple Street.'
     expect(redactSecrets(text)).toBe(text)
   })
+
+  it('keeps a run ID, so a report can name the failed run', () => {
+    const text = '"runId": "b5474767-7a55-4029-8b43-e720f85e53b8"'
+    expect(redactSecrets(text)).toBe(text)
+  })
 })
 
 describe('excerpt', () => {

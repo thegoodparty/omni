@@ -34,7 +34,10 @@ const definition = {
 const collect = (env: NodeJS.ProcessEnv) => {
   const tests: { id: string; run: (context: TestContext) => Promise<void> }[] =
     []
-  const meta: { pairwiseVerdict?: { message: string } } = {}
+  const meta: {
+    pairwiseVerdict?: { message: string }
+    pairwiseNotJudged?: { message: string }
+  } = {}
   const hooks: { before?: () => Promise<void>; after?: () => Promise<void> } =
     {}
   const describe = vi.fn((_name: string, body: () => void) => body())
@@ -187,6 +190,14 @@ describe('definePairwiseAgentEvalSuite', () => {
         else await expect(hooks.after?.()).resolves.toBeUndefined()
         const verdict = meta.pairwiseVerdict?.message
         expect(JSON.parse(String(verdict))).toMatchObject({ label })
+        const notJudged = JSON.parse(String(meta.pairwiseNotJudged?.message))
+        expect(notJudged).toHaveLength(winner === 'failure' ? 12 : 0)
+        if (winner === 'failure')
+          expect(notJudged[0]).toMatchObject({
+            side: expect.stringMatching(/^(base|candidate)$/),
+            runs: [{ runId: expect.stringMatching(/^run-/), status: 'failed' }],
+            error: 'run failed',
+          })
       } finally {
         axios.defaults.adapter = adapter
         axios.defaults.env = axiosEnv

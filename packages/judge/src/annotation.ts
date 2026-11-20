@@ -26,9 +26,16 @@ export const REDACTED = '[redacted]'
 export const OUTPUT_EXCERPT_LIMIT = 4_000
 export const PROMPT_SUMMARY_LIMIT = 300
 
+// A run ID is a UUID, and a report that redacts it cannot point anyone at the
+// failed run.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export const redactSecrets = (text: string): string =>
   SECRET_PATTERNS.reduce(
-    (redacted, pattern) => redacted.replace(pattern, REDACTED),
+    (redacted, pattern) =>
+      redacted.replace(pattern, (match) =>
+        UUID.test(match) ? match : REDACTED,
+      ),
     text,
   )
 

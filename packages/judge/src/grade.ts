@@ -105,8 +105,10 @@ export const gradingSchema = (
             names.length === 1
               ? z.enum([names[0]!])
               : z.enum(names as [string, ...string[]]),
-          A: z.number().int().min(1).max(5),
-          B: z.number().int().min(1).max(5),
+          // Not .int(): Claude's native JSON output gives half points (3.5),
+          // and one fractional score would reject the whole verdict.
+          A: z.number().min(1).max(5),
+          B: z.number().min(1).max(5),
         }),
       )
       .describe(

@@ -1,6 +1,7 @@
 import { appendFileSync } from 'node:fs'
 import type { Reporter, TestModule } from 'vitest/node'
 import type { suiteVerdictAnnotation } from './annotation'
+import type { NotJudgedAttempt } from './pairwise'
 import type { SuiteVerdict } from './stats'
 
 const escapeCell = (value: string) =>
@@ -17,10 +18,36 @@ export const renderPairwiseVerdicts = (
   modules: ReadonlyArray<TestModule>,
 ): string => {
   const rows: string[] = []
+  const notJudgedRows: string[] = []
   for (const module of modules) {
     for (const suite of module.children.allSuites()) {
-      const { pairwiseVerdict } = suite.meta() as {
+      const { pairwiseVerdict, pairwiseNotJudged } = suite.meta() as {
         pairwiseVerdict?: ReturnType<typeof suiteVerdictAnnotation>
+        pairwiseNotJudged?: ReturnType<typeof suiteVerdictAnnotation>
+      }
+      if (pairwiseNotJudged) {
+        const attempts = JSON.parse(
+          pairwiseNotJudged.message,
+        ) as NotJudgedAttempt[]
+        for (const { caseId, attempt, side, runs, error } of attempts)
+          notJudgedRows.push(
+            [
+              escapeCell(suite.fullName),
+              escapeCell(caseId),
+              attempt,
+              side,
+              runs.length
+                ? escapeCell(
+                    runs
+                      .map(({ runId, status }) => `${runId} (${status})`)
+                      .join(', '),
+                  )
+                : 'none',
+              escapeCell(
+                error.length > 300 ? `${error.slice(0, 300)}…` : error,
+              ),
+            ].join(' | '),
+          )
       }
       if (!pairwiseVerdict) continue
       const { label, sign, handled, notJudged } = JSON.parse(
@@ -52,6 +79,16 @@ export const renderPairwiseVerdicts = (
     '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
     ...rows.sort().map((row) => `| ${row} |`),
     '',
+    ...(notJudgedRows.length
+      ? [
+          '## Not judged attempts',
+          '',
+          '| Suite | Case | Attempt | Failed at | Runs | Error |',
+          '| --- | --- | ---: | --- | --- | --- |',
+          ...notJudgedRows.map((row) => `| ${row} |`),
+          '',
+        ]
+      : []),
   ].join('\n')
 }
 
