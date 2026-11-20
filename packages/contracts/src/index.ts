@@ -663,6 +663,8 @@ export {
   type TeamMember,
   PendingInviteSchema,
   type PendingInvite,
+  InviteBlockReasonSchema,
+  type InviteBlockReason,
   TeamResponseSchema,
   type TeamResponse,
   InviteMemberResponseSchema,

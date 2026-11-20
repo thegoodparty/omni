@@ -63,7 +63,9 @@ export class OrganizationTeamService {
     this.logger.setContext(OrganizationTeamService.name)
   }
 
-  async listTeam(organization: Organization): Promise<TeamResponse> {
+  async listTeam(
+    organization: Organization,
+  ): Promise<Omit<TeamResponse, 'invites'>> {
     const [memberships, owner, invitations] = await Promise.all([
       this.membership.model.findMany({
         where: { organizationSlug: organization.slug },
