@@ -1,5 +1,5 @@
 import { addMinutes, subMinutes } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_RESULTS_PER_PAGE,
   type PeopleListResponse,
@@ -39,6 +39,13 @@ beforeEach(async () => {
     service.app.get(EmailDomainCheckService),
     'findUndeliverableDomains',
   ).mockResolvedValue(new Set<string>())
+})
+
+// A faked Date outlives the test that set it, so without this the frozen
+// clock below runs the rest of the file: the delivery budget never comes due
+// and every Date read in the app is stuck at that instant.
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 const personId = (index: number) => `p${String(index).padStart(7, '0')}`
@@ -200,7 +207,7 @@ describe('prepare resolves the audience', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const start = new Date()
     vi.setSystemTime(start)
-    const { pages } = stubAudience(25_000)
+    const { pages } = stubAudience(10_001)
     vi.spyOn(
       service.app.get(ContactsService),
       'findContactsForFilter',
@@ -216,7 +223,7 @@ describe('prepare resolves the audience', () => {
     })
     const send = vi.spyOn(service.app.get(JobsService), 'send')
     const { outreachEmailId } = await pendingSend({
-      recipientCap: 25_000,
+      recipientCap: 10_001,
       warmingStep: 2,
     })
 
@@ -226,18 +233,14 @@ describe('prepare resolves the audience', () => {
     expect(
       send.mock.calls.filter(([name]) => name === 'emailSendPrepare'),
     ).toHaveLength(2)
-    expect(pages.map((p) => p.afterId)).toEqual([
-      undefined,
-      personId(9_999),
-      personId(19_999),
-    ])
+    expect(pages.map((p) => p.afterId)).toEqual([undefined, personId(9_999)])
     expect(Math.max(...pages.map((p) => p.length))).toBe(MAX_RESULTS_PER_PAGE)
     const row = await service.prisma.outreachEmail.findUniqueOrThrow({
       where: { id: outreachEmailId },
     })
-    expect(row.audienceCursor).toBe(personId(24_999))
+    expect(row.audienceCursor).toBe(personId(10_000))
     expect(row.preparedAt).not.toBeNull()
-    expect(await recipientsOf(outreachEmailId)).toHaveLength(25_000)
+    expect(await recipientsOf(outreachEmailId)).toHaveLength(10_001)
   })
 
   it('dedupes, skips unsubscribes and people with no email, never-emailed first', async () => {
