@@ -43,6 +43,7 @@ const runArm = async <Input>(
       baseUrl,
       profile: suite.profile,
       mode: suite.mode,
+      annotate,
     })
     user = context.user
     const ctx = {
