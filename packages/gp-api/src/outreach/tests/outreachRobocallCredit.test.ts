@@ -375,3 +375,76 @@ describe('robocall cancel with outreach credit', () => {
     expect(await balance()).toBe(17500)
   })
 })
+
+describe('robocall hold that fails on infrastructure', () => {
+  const stripeOutage = () =>
+    new Stripe.errors.StripeConnectionError({
+      message: 'An error occurred with our connection to Stripe.',
+      type: 'api_error',
+    })
+
+  it('returns the reserve to the balance so an abandoned draft keeps none', async () => {
+    billableCount = LARGE_COUNT
+    const outreachId = await createDraft()
+    paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
+
+    const failed = await authorize(outreachId)
+
+    expect(failed.status).toBe(502)
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(0)
+    expect((await readSpine(outreachId)).creditSettledAt).toBeNull()
+    expect(await balance()).toBe(17500)
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.pending_payment,
+    )
+  })
+
+  it('still gives a retry its credit', async () => {
+    billableCount = LARGE_COUNT
+    const estimate = calcRobocallTotalInCents(LARGE_COUNT)
+    const outreachId = await createDraft()
+    paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
+    await authorize(outreachId)
+
+    const retried = await authorize(outreachId)
+
+    expect(retried.data).toMatchObject({
+      status: 'authorized',
+      authorizedAmountInCents: estimate - 17500,
+    })
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(17500)
+    expect(await balance()).toBe(0)
+  })
+
+  it('lets another send use the credit while the draft waits for a retry', async () => {
+    billableCount = LARGE_COUNT
+    const first = await createDraft()
+    paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
+    await authorize(first)
+    const second = await createDraft()
+
+    await authorize(second)
+
+    expect((await readSpine(second)).creditReservedCents).toBe(17500)
+    expect(await balance()).toBe(0)
+  })
+
+  it('keeps the reserve on a card decline, which the card-update retry resumes', async () => {
+    billableCount = LARGE_COUNT
+    const outreachId = await createDraft()
+    paymentIntentsCreate.mockRejectedValueOnce(
+      new Stripe.errors.StripeCardError({
+        message: 'Your card was declined.',
+        type: 'card_error',
+        code: 'card_declined',
+      }),
+    )
+
+    await authorize(outreachId)
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.hold_failed,
+    )
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(17500)
+  })
+})
