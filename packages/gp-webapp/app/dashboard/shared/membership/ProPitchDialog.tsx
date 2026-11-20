@@ -188,7 +188,10 @@ export const ProPitchDialog = ({
             {copy.pitchJoin}
           </Button>
           {planPitch.enabled && (
-            <SeeAllPlansLink href={planPitch.allPlansHref} />
+            <SeeAllPlansLink
+              href={planPitch.allPlansHref}
+              onClick={() => onOpenChange(false)}
+            />
           )}
         </DialogFooter>
       </DialogContent>
