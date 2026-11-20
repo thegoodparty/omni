@@ -29,6 +29,16 @@ describe('useBadgePlan', () => {
     expect(badgeFor({ plan: 'team', isPro: true })).toBe('team')
   })
 
+  it('shows no badge once the plan has ended', () => {
+    expect(
+      badgeFor({
+        plan: 'team',
+        isPro: false,
+        planEndedAt: '2026-11-01T00:00:00.000Z',
+      }),
+    ).toBe('free')
+  })
+
   it('keeps a legacy subscriber on pro', () => {
     expect(
       badgeFor({

@@ -10,5 +10,7 @@ export const useBadgePlan = (): CampaignPlanName => {
   const [campaign] = useCampaign()
   const { plan } = usePlan()
   if (!enabled) return campaign?.isPro ? 'pro' : 'free'
+  // The expiry sweep leaves `plan` set and clears isPro.
+  if (campaign?.planEndedAt && !campaign.isPro) return 'free'
   return plan
 }
