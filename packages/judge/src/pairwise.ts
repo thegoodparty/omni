@@ -94,7 +94,15 @@ const runArm = async <Input>(
     }),
     'pairwise-run',
   )
-  return output
+  return { output, error, runs }
+}
+
+export type NotJudgedAttempt = {
+  caseId: string
+  attempt: number
+  side: ArmName | 'grader'
+  runs: Pick<AgentRunResult, 'runId' | 'status'>[]
+  error: string
 }
 
 export type PairwiseVitest = VitestGlobals & {
@@ -125,6 +133,7 @@ export const registerPairwiseSuite = <Input>(
   vitest.describe(suite.name, () => {
     let grader: ReturnType<typeof createGrader>
     const pairs: GradedPair[] = []
+    const notJudged: NotJudgedAttempt[] = []
     let attempted = 0
     vitest.beforeAll(async () => {
       if (!urls.base || !urls.candidate) throw new Error(message)
@@ -156,11 +165,29 @@ export const registerPairwiseSuite = <Input>(
           const results = await Promise.all(
             Array.from({ length: ATTEMPTS }, async (_, index) => {
               const attempt = index + 1
-              const [baseOutput, candidateOutput] = await Promise.all(
+              const [base, candidate] = await Promise.all(
                 ARMS.map((arm) =>
                   runArm(suite, theCase, arm, urls[arm]!, attempt, annotate),
                 ),
               )
+              for (const [side, arm] of [
+                ['base', base!],
+                ['candidate', candidate!],
+              ] as const) {
+                if (arm.output === undefined)
+                  notJudged.push({
+                    caseId: theCase.id,
+                    attempt,
+                    side,
+                    runs: arm.runs.map(({ runId, status }) => ({
+                      runId,
+                      status,
+                    })),
+                    error: arm.error ?? 'no output',
+                  })
+              }
+              const baseOutput = base!.output
+              const candidateOutput = candidate!.output
               if (baseOutput === undefined || candidateOutput === undefined)
                 return false
               try {
@@ -204,6 +231,15 @@ export const registerPairwiseSuite = <Input>(
                 pairs.push(pair)
                 return true
               } catch (error) {
+                notJudged.push({
+                  caseId: theCase.id,
+                  attempt,
+                  side: 'grader',
+                  runs: [...base!.runs, ...candidate!.runs].map(
+                    ({ runId, status }) => ({ runId, status }),
+                  ),
+                  error: excerpt(String(error)),
+                })
                 await annotate(
                   `Attempt ${attempt}: ${excerpt(String(error))}`,
                   'pairwise-not-judged',
@@ -243,6 +279,14 @@ export const registerPairwiseSuite = <Input>(
       })
       Object.assign(task.meta, {
         pairwiseVerdict: suiteVerdictAnnotation(verdict),
+        // Redacted per string, not after stringify: the broad pattern would eat
+        // the `n` of an escaped newline and leave invalid JSON.
+        pairwiseNotJudged: {
+          type: 'pairwise-not-judged',
+          message: JSON.stringify(notJudged, (_key, value) =>
+            typeof value === 'string' ? redactSecrets(value) : value,
+          ),
+        },
       })
       if (!attempted) return
       if (verdict.label === 'WORSE' || verdict.label === "CAN'T JUDGE") {

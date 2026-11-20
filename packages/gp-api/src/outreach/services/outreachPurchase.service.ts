@@ -39,6 +39,7 @@ import { OutreachService } from './outreach.service'
 import { OutreachP2pSmsHoldService } from './outreachP2pSmsHold.service'
 import { OutreachP2pSmsCaptureService } from './outreachP2pSmsCapture.service'
 import { PinoLogger } from 'nestjs-pino'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { OutreachCreditsService } from 'src/outreachCredits/services/outreachCredits.service'
 
 // Stripe hands metadata values back as strings.
@@ -62,6 +63,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     private readonly p2pSmsHold: OutreachP2pSmsHoldService,
     private readonly p2pSmsCapture: OutreachP2pSmsCaptureService,
     private readonly credits: OutreachCreditsService,
+    private readonly stripe: StripeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachPurchaseHandlerService.name)
@@ -752,8 +754,9 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     outreachId: number,
     campaignId: number,
     phoneListBuildId: string | undefined,
-    isFreePurchase: boolean,
+    checkoutSessionId: string,
   ): Promise<void> {
+    const isFreePurchase = !checkoutSessionId.startsWith('cs_')
     if (
       !(await this.campaignsService.isPerCampaignPricingEnabled(campaignId))
     ) {
@@ -778,17 +781,30 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       this.credits.reserve(tx, campaignId, outreachId, estimateCents),
     )
 
-    // A fully covered send was confirmed free against the balance at that
-    // moment. If a concurrent send drained part of it since, cap this send to
-    // the texts the credit still pays for rather than send unpaid ones.
-    if (
-      build &&
-      isFreePurchase &&
-      estimateCents - reservedCents >= WIN_SMS_HOLD_MIN_CENTS
-    ) {
+    // The checkout charged the estimate less the balance at session time. If a
+    // concurrent send drained part of it since, the reserve comes up short and
+    // the send is capped to the texts credit plus card actually pay for, rather
+    // than sent unpaid. A hold is exempt: it is undiscounted and capture bills
+    // the difference.
+    const shortfallCents = estimateCents - reservedCents
+    if (!build || shortfallCents < WIN_SMS_HOLD_MIN_CENTS) {
+      return
+    }
+    let paidCents = 0
+    if (!isFreePurchase) {
+      const session =
+        await this.stripe.retrieveCheckoutSession(checkoutSessionId)
+      if (session.metadata?.winSmsHoldBilling === 'true') {
+        return
+      }
+      // Before any promotion code: a code discounts what the card pays, not
+      // the texts the session bought.
+      paidCents = session.amount_subtotal ?? 0
+    }
+    if (shortfallCents - paidCents >= WIN_SMS_HOLD_MIN_CENTS) {
       await this.peerlyPhoneListCapture.persistSendCap(
         build.id,
-        maxTextsForAmountInCents(reservedCents),
+        maxTextsForAmountInCents(reservedCents + paidCents),
       )
     }
   }
@@ -851,7 +867,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
         outreachId,
         campaignId,
         phoneListBuildId,
-        !paymentIntentId.startsWith('cs_'),
+        paymentIntentId,
       )
     }
 

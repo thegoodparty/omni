@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { ProBadge } from '@styleguide'
 import {
   ArrowRightIcon,
   ShieldCheckIcon,
@@ -19,6 +18,7 @@ import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
 import type { PlanPitch } from '../plan/planPitch'
 import { usePlanPitch } from '../plan/usePlanPitch'
+import { PlanBadge } from '../plan/PlanBadge'
 import { SeeAllPlansLink } from '../plan/SeeAllPlansLink'
 import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
@@ -144,7 +144,7 @@ export const MembershipBanner = (): React.JSX.Element | null => {
   const body = (
     <>
       {state.tier === 'free' ? (
-        <ProBadge size="small" />
+        <PlanBadge plan={planPitch.enabled ? planPitch.plan : 'pro'} />
       ) : (
         <ShieldCheckIcon className="size-4 text-primary" aria-hidden />
       )}

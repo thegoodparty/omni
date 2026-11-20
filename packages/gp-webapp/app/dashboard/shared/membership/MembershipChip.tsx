@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { ProBadge } from '@styleguide'
 import { ShieldCheckIcon } from '@styleguide/components/ui/icons'
 import { trackEvent } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
@@ -13,6 +12,7 @@ import {
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
+import { PlanBadge } from '../plan/PlanBadge'
 import { usePlanPitch } from '../plan/usePlanPitch'
 import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
@@ -86,11 +86,7 @@ export const MembershipChip = (): React.JSX.Element | null => {
     state.tier === 'free' ? (
       <>
         <span>{MEMBERSHIP_COPY.chip.joinLead}</span>
-        {planPitch.enabled && planPitch.plan === 'team' ? (
-          <span>{planPitch.name}</span>
-        ) : (
-          <ProBadge size="small" />
-        )}
+        <PlanBadge plan={planPitch.enabled ? planPitch.plan : 'pro'} />
         <span>
           {planPitch.enabled
             ? membershipPlanCopy(planPitch).chipJoinTail

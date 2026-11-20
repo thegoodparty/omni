@@ -27,14 +27,14 @@ Covered scopes are `chief_of_staff` and `campaign_assistant`
 (`COVERED_SCOPES` in `caseScout.config.ts`). Other sessions count toward the
 session cap and the marker but are never sent to a model.
 
-| File                                    | Holds                                                                                                                                                        |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                                                              |
-| `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist                                 |
-| `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                                                       |
-| `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy (from every role and tool input), contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
-| `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                                                  |
-| `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                                                     |
+| File                                    | Holds                                                                                                                                                                                                                             |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                                                                                                                                   |
+| `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist                                                                                                      |
+| `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                                                                                                                            |
+| `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy (from every role and tool input, only when the source run carries a number or a mid-sentence capital), contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
+| `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                                                                                                                       |
+| `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                                                                                                                          |
 
 ## Privacy: the drafter and the gate
 
@@ -57,14 +57,14 @@ session cap and the marker but are never sent to a model.
 
 ## Bucket (`case-scout-<env>`)
 
-| Key                                                       | Written by                               | Read by                                     |
-| --------------------------------------------------------- | ---------------------------------------- | ------------------------------------------- |
-| `claims/<runId>`                                          | nightly, create-only                     | nightly: one run a night                    |
-| `marker.json`                                             | the publisher only                       | nightly                                     |
-| `runs/<runId>/manifest.json`                              | nightly, create-only                     | score, draft                                |
-| `runs/<runId>/scores/<sessionId>.json`                    | score, create-only                       | score (spend total), draft                  |
-| `runs/<runId>/sources.json`, `record.json`, `bundle.json` | draft                                    | the publisher                               |
-| `ledger/<yyyy-mm>.jsonl`                                  | draft, and the publisher's outcome lines | draft, the publisher                        |
+| Key                                                       | Written by                               | Read by                    |
+| --------------------------------------------------------- | ---------------------------------------- | -------------------------- |
+| `claims/<runId>`                                          | nightly, create-only                     | nightly: one run a night   |
+| `marker.json`                                             | the publisher only                       | nightly                    |
+| `runs/<runId>/manifest.json`                              | nightly, create-only                     | score, draft               |
+| `runs/<runId>/scores/<sessionId>.json`                    | score, create-only                       | score (spend total), draft |
+| `runs/<runId>/sources.json`, `record.json`, `bundle.json` | draft                                    | the publisher              |
+| `ledger/<yyyy-mm>.jsonl`                                  | draft, and the publisher's outcome lines | draft, the publisher       |
 
 `runId` is the UTC date. The publisher's half of the contract is pinned by
 `fixtures/publisherContract/`: `tests/caseScout.jobs.test.ts` asserts the
@@ -126,9 +126,13 @@ output; `released` is the same result, kept only when the gate let it through.
 `leaksPlanted` and `copiesSource` are code (`copiesSource`: an 8-word run
 copied from any role or tool input that carries a name, place or number);
 `revealsSensitiveFact` is one `judgeModel` call, counted only when its quoted
-span is in the text. The drafter's outcome and the gate rule are annotations,
-never the judgment. The gate suite's expected values are what a person ruled,
-so a red case there is a finding about the gate, never a case to edit.
+span is in the text. The gate's copy check applies the same test as
+`copiesSource` (a digit, or a word capitalized mid-sentence other than "I"),
+because copied conversation is fine without PII in it; each file keeps its own
+code, so the eval measures the gate rather than echoing it. The drafter's
+outcome and the gate rule are annotations, never the judgment. The gate
+suite's expected values are what a person ruled, so a red case there is a
+finding about the gate, never a case to edit.
 
 ```bash
 JUDGE_MODEL=anthropic/claude-sonnet-5-5 npm run eval -w packages/gp-api

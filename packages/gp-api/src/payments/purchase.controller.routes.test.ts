@@ -202,6 +202,44 @@ describe('POST /v1/payments/purchase/checkout-session', () => {
   })
 })
 
+// A campaign someone else owns, where the test user holds `role`.
+const seedMemberCampaign = async (role: OrganizationRole, slug: string) => {
+  const owner = await service.prisma.user.create({
+    data: { email: `${slug}-owner@goodparty.org` },
+  })
+  const org = await service.prisma.organization.create({
+    data: { slug, ownerId: owner.id },
+  })
+  const campaign = await service.prisma.campaign.create({
+    data: {
+      slug,
+      organizationSlug: org.slug,
+      userId: owner.id,
+      isPro: true,
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.one_time,
+      details: {
+        electionDate: futureElectionDate(),
+        subscriptionId: `sub_${slug}`,
+      },
+    },
+  })
+  await service.prisma.organizationMembership.create({
+    data: { organizationSlug: org.slug, userId: service.user.id, role },
+  })
+  await service.prisma.campaignPlanPurchase.create({
+    data: {
+      campaignId: campaign.id,
+      buyerUserId: owner.id,
+      kind: CampaignPlanPurchaseKind.plan,
+      plan: CampaignPlanLevel.pro,
+      amountCents: 29900,
+      stripeCheckoutSessionId: `cs_${slug}`,
+    },
+  })
+  return org
+}
+
 describe('GET /v1/payments/purchase/plan-receipt', () => {
   const PLAN_RECEIPT_ROUTE = '/v1/payments/purchase/plan-receipt'
 
@@ -382,6 +420,29 @@ describe('POST /v1/payments/purchase/create-checkout-session', () => {
       }),
     )
   })
+})
+
+describe.each([
+  ['plan-receipt', '/v1/payments/purchase/plan-receipt'],
+  ['pro-receipt', '/v1/payments/purchase/pro-receipt'],
+])('%s is owner-only', (name, route) => {
+  it.each([OrganizationRole.campaignAdmin, OrganizationRole.volunteer])(
+    'returns 403 to a %s without reading Stripe',
+    async (role) => {
+      const org = await seedMemberCampaign(role, `${name}-${role}`)
+      const stripe = service.app.get(StripeService)
+      const planRead = vi.spyOn(stripe, 'retrieveCheckoutSessionWithCharge')
+      const proRead = vi.spyOn(stripe, 'retrieveLatestPaidInvoice')
+
+      const res = await service.client.get(route, {
+        headers: { 'x-organization-slug': org.slug },
+      })
+
+      expect(res.status).toBe(403)
+      expect(planRead).not.toHaveBeenCalled()
+      expect(proRead).not.toHaveBeenCalled()
+    },
+  )
 })
 
 describe('GET /v1/payments/purchase/pro-receipt', () => {

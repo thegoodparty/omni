@@ -31,9 +31,25 @@ export const PendingInviteSchema = z.object({
 
 export type PendingInvite = z.infer<typeof PendingInviteSchema>
 
+// Why POST /organizations/team/invites would refuse this org, computed by the
+// same code the route enforces. The Team gate is keyed on the org owner's flag.
+export const InviteBlockReasonSchema = z.enum([
+  'TEAM_PLAN_REQUIRED',
+  'TEST_ORGANIZATION',
+  'ELECTED_OFFICE',
+])
+
+export type InviteBlockReason = z.infer<typeof InviteBlockReasonSchema>
+
+export const TeamInvitesStateSchema = z.object({
+  allowed: z.boolean(),
+  reason: InviteBlockReasonSchema.nullable(),
+})
+
 export const TeamResponseSchema = z.object({
   members: z.array(TeamMemberSchema),
   pendingInvites: z.array(PendingInviteSchema),
+  invites: TeamInvitesStateSchema,
 })
 
 export type TeamResponse = z.infer<typeof TeamResponseSchema>

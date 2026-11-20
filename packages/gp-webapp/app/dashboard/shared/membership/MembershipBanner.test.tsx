@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
 import { router } from 'helpers/test-utils/router-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
@@ -359,5 +362,30 @@ describe('MembershipBanner plan copy', () => {
       screen.getByText(MEMBERSHIP_COPY.banner.free.body),
     ).toBeInTheDocument()
     expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
+  })
+
+  it('pitches Team under a TEAM pill in a large race', () => {
+    mockPlanFlag.enabled = true
+    mockUseMembershipState.mockReturnValue({
+      ready: true,
+      state: membership({ tier: 'free' }),
+      tcrCompliance: { status: 'submitted' },
+    })
+    render(
+      <CampaignContext.Provider
+        value={[
+          {
+            raceTargetMetrics: {
+              registeredVoters: PLAN_PRICING.teamRecommendVoterThreshold + 1,
+            },
+          } as unknown as Campaign,
+        ]}
+      >
+        <MembershipBanner />
+      </CampaignContext.Provider>,
+    )
+
+    expect(screen.getByText('TEAM')).toBeInTheDocument()
+    expect(screen.getByText(/for \$399/)).toBeInTheDocument()
   })
 })

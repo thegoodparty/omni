@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
 import type { Campaign } from 'helpers/types'
@@ -12,9 +13,30 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+const { mockPlanFlag } = vi.hoisted(() => ({
+  mockPlanFlag: { enabled: false },
+}))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: mockPlanFlag.enabled,
+  }),
+}))
+
 describe('P2PUpgradeModal', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockPlanFlag.enabled = false
+  })
+
+  it('closes when See all plans navigates away', async () => {
+    mockPlanFlag.enabled = true
+    const onClose = vi.fn()
+    render(<P2PUpgradeModal open variant="NonProUpgrade" onClose={onClose} />)
+
+    await userEvent.click(screen.getByRole('link', { name: 'See all plans' }))
+
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('points the NonProUpgrade CTA at the Pro upgrade wizard', () => {

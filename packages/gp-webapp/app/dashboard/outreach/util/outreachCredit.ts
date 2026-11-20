@@ -31,7 +31,8 @@ export const creditLines = (
 
 export interface OutreachCredit {
   // Credit lines show only with the pricing flag on, and never for a campaign
-  // still on the free-texts offer, which gp-api bills on its old path.
+  // still on the free-texts offer, which gp-api bills on its old path, or for
+  // a monthly subscriber, who has no credit and pays the card as before.
   active: boolean
   balanceCents: number
 }
@@ -39,9 +40,9 @@ export interface OutreachCredit {
 export const useOutreachCredit = (): OutreachCredit => {
   const [campaign] = useCampaign()
   const { enabled } = useWinPerCampaignPricingFlag(false)
-  const { creditCents } = usePlan()
+  const { creditCents, onSubscription } = usePlan()
   return {
-    active: enabled && !campaign?.hasFreeTextsOffer,
+    active: enabled && !campaign?.hasFreeTextsOffer && !onSubscription,
     balanceCents: creditCents,
   }
 }

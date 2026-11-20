@@ -1,5 +1,8 @@
 import pageMetaData from 'helpers/metadataHelper'
 import type { SearchParams } from 'next/dist/server/request/search-params'
+import { redirect } from 'next/navigation'
+import { apiRoutes } from 'gpApi/routes'
+import { serverFetch } from 'gpApi/serverFetch'
 import candidateAccess from '../shared/candidateAccess'
 import { ALL_PLANS_HIGHLIGHT_PARAM } from '../shared/plan/planPitch'
 import PlansPage from './PlansPage'
@@ -20,6 +23,10 @@ export default async function Page({
   searchParams,
 }: PageProps): Promise<React.JSX.Element> {
   await candidateAccess()
+  const electedOfficeResp = await serverFetch(apiRoutes.electedOffice.current)
+  if (electedOfficeResp?.ok && electedOfficeResp?.data) {
+    return redirect('/dashboard/chief-of-staff')
+  }
   const params = await searchParams
 
   return (

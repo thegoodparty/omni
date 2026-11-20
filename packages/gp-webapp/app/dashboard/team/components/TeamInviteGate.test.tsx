@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { TEAM_GATE_START } from '@goodparty_org/contracts'
+import type { InviteBlockReason } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -10,11 +10,10 @@ import TeamPage from './TeamPage'
 const { state, errorSnackbar } = vi.hoisted(() => ({
   state: {
     role: 'owner',
-    flag: true,
-    campaign: { createdAt: '2026-12-02T00:00:00.000Z', plan: 'free' } as {
-      createdAt: string
-      plan: string
-      isPro?: boolean
+    plan: 'free',
+    invites: { allowed: false, reason: 'TEAM_PLAN_REQUIRED' } as {
+      allowed: boolean
+      reason: InviteBlockReason | null
     },
   },
   errorSnackbar: vi.fn(),
@@ -34,25 +33,25 @@ vi.mock('helpers/useSnackbar', () => ({
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => children,
 }))
-vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [state.campaign, vi.fn()],
-}))
-vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
-  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: state.flag }),
+vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
+  usePlan: () => ({ plan: state.plan }),
 }))
 
 const PITCH_TITLE = 'Join Team to invite your campaign team'
+
+const mockTeam = () =>
+  api.mock('GET /v1/organizations/team', {
+    status: 200,
+    data: { members: [], pendingInvites: [], invites: state.invites },
+  })
 
 beforeEach(() => {
   testQueryClient.clear()
   errorSnackbar.mockClear()
   state.role = 'owner'
-  state.flag = true
-  state.campaign = { createdAt: '2026-12-02T00:00:00.000Z', plan: 'free' }
-  api.mock('GET /v1/organizations/team', {
-    status: 200,
-    data: { members: [], pendingInvites: [] },
-  })
+  state.plan = 'free'
+  state.invites = { allowed: false, reason: 'TEAM_PLAN_REQUIRED' }
+  mockTeam()
   api.mock('GET /v1/organizations/team/stats', {
     status: 200,
     data: { stats: [] },
@@ -82,7 +81,7 @@ describe('TeamPage invite gate', () => {
 
   it('prices the pitch as the $100 difference for a Pro owner', async () => {
     const user = userEvent.setup()
-    state.campaign = { ...state.campaign, plan: 'pro' }
+    state.plan = 'pro'
     render(<TeamPage />)
 
     expect(
@@ -95,22 +94,10 @@ describe('TeamPage invite gate', () => {
     ).toBeInTheDocument()
   })
 
-  it.each([
-    [
-      'a campaign created before the gate',
-      { createdAt: '2026-11-30T00:00:00.000Z', plan: 'free' },
-      true,
-    ],
-    [
-      'a campaign already on Team',
-      { createdAt: TEAM_GATE_START, plan: 'team' },
-      true,
-    ],
-    ['the flag off', { createdAt: TEAM_GATE_START, plan: 'free' }, false],
-  ])('opens the invite drawer for %s', async (_name, campaign, flag) => {
+  it('opens the invite drawer when the API allows invites', async () => {
     const user = userEvent.setup()
-    state.campaign = campaign
-    state.flag = flag
+    state.invites = { allowed: true, reason: null }
+    mockTeam()
     render(<TeamPage />)
 
     await user.click(await screen.findByRole('button', { name: 'Invite' }))
@@ -121,9 +108,40 @@ describe('TeamPage invite gate', () => {
     expect(screen.queryByText(PITCH_TITLE)).toBeNull()
   })
 
+  it.each([
+    ['TEST_ORGANIZATION', 'Team invites aren’t available for test accounts.'],
+    [
+      'ELECTED_OFFICE',
+      'Team accounts aren’t available for elected offices yet.',
+    ],
+  ] as const)('disables Invite with a reason for %s', async (reason, copy) => {
+    state.invites = { allowed: false, reason }
+    mockTeam()
+    render(<TeamPage />)
+
+    expect(await screen.findByText(copy)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Invite' })).toBeDisabled()
+    expect(screen.queryByText(PITCH_TITLE)).toBeNull()
+  })
+
+  it('tells a gated manager to ask the owner without opening the drawer', async () => {
+    const user = userEvent.setup()
+    state.role = 'campaignAdmin'
+    render(<TeamPage />)
+
+    await user.click(await screen.findByRole('button', { name: 'Invite' }))
+
+    expect(errorSnackbar).toHaveBeenCalledWith(
+      'Only the campaign owner can upgrade to Team.',
+    )
+    expect(screen.queryByText('Who do you want to invite?')).toBeNull()
+    expect(screen.queryByText(PITCH_TITLE)).toBeNull()
+  })
+
   it('swaps the drawer for the Team pitch when the API answers TEAM_PLAN_REQUIRED', async () => {
     const user = userEvent.setup()
-    state.flag = false
+    state.invites = { allowed: true, reason: null }
+    mockTeam()
     api.mock('POST /v1/organizations/team/invites', {
       status: 403,
       data: { code: 'TEAM_PLAN_REQUIRED', message: 'Requires Team' },
@@ -143,6 +161,8 @@ describe('TeamPage invite gate', () => {
   it('tells a manager the owner must upgrade instead of opening checkout', async () => {
     const user = userEvent.setup()
     state.role = 'campaignAdmin'
+    state.invites = { allowed: true, reason: null }
+    mockTeam()
     api.mock('POST /v1/organizations/team/invites', {
       status: 403,
       data: { code: 'TEAM_PLAN_REQUIRED', message: 'Requires Team' },

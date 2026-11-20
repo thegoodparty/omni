@@ -35,6 +35,7 @@ import {
   CreateProCheckoutSessionDto,
 } from './purchase.types'
 import { PurchaseService } from './services/purchase.service'
+import { OwnerOnly } from '@/organizations/decorators/OwnerOnly.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 
@@ -181,8 +182,10 @@ export class PurchaseController {
   // nothing to read and the client shows no receipt rather than a made-up
   // one. isPro is checked too: a lapsed subscription keeps its id on the
   // campaign, and a lapsed org's team should not be able to read the
-  // owner's card from it.
+  // owner's card from it. Owner-only: a campaign manager can see the card
+  // brand, last 4 and invoice link otherwise, and only the owner buys.
   @Get('pro-receipt')
+  @OwnerOnly()
   @UseCampaign()
   @ResponseSchema(ProReceiptSchema)
   async getProReceipt(@ReqCampaign() campaign: Campaign): Promise<ProReceipt> {
@@ -218,6 +221,7 @@ export class PurchaseController {
   }
 
   @Get('plan-receipt')
+  @OwnerOnly()
   @UseCampaign()
   @ResponseSchema(PlanReceiptSchema)
   async getPlanReceipt(
