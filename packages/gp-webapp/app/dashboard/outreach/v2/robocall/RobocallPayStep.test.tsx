@@ -56,9 +56,8 @@ beforeEach(() => {
 
 describe('RobocallPayStep success summary', () => {
   it('shows credit used, credit left and a $0.00 charge', async () => {
-    credit.cents = 4000
     mockReserved(10000)
-    render(<RobocallPayStep {...props} />)
+    render(<RobocallPayStep {...props} creditBeforeCents={14000} />)
 
     expect(await screen.findByText('Outreach credit used')).toBeInTheDocument()
     expect(screen.getByText('-$100.00')).toBeInTheDocument()

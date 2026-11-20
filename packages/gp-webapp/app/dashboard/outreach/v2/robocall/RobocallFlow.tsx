@@ -47,6 +47,7 @@ import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
+import { useOutreachCredit } from 'app/dashboard/outreach/util/outreachCredit'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
@@ -459,6 +460,11 @@ export const RobocallFlow = ({
   const [payOutcome, setPayOutcome] =
     useState<RobocallAuthorizeResponse | null>(null)
   const [payOutreachId, setPayOutreachId] = useState<number | null>(null)
+  const outreachCredit = useOutreachCredit()
+  // The balance as it stood before the send, kept so the success screen can
+  // say what is left once the campaign refetch has already taken it down.
+  const creditBeforeRef = useRef(outreachCredit.balanceCents)
+  if (payOutcome === null) creditBeforeRef.current = outreachCredit.balanceCents
 
   // Wrap setPayOutcome so a settled outcome (authorized/deferred/noop, never
   // hold_failed) also refreshes the hub's history list — the draft row now
@@ -1348,6 +1354,7 @@ export const RobocallFlow = ({
           reachCount={audience.reachableCount ?? 0}
           outcome={payOutcome}
           settledOutreachId={payOutreachId}
+          creditBeforeCents={creditBeforeRef.current}
           onOutcome={handlePayOutcome}
           onDraftCreated={handleDraftCreated}
         />
