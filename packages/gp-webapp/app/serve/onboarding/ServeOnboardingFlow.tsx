@@ -215,6 +215,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // pending window closes, so the step can tell a search still running from one
   // that finished empty.
   const [starterIssuesPending, setStarterIssuesPending] = useState(false)
+  // When the pending window last opened: a Try again starts a fresh search, so
+  // it gets a fresh window rather than the remains of the previous one.
+  const starterIssuesPendingSinceRef = useRef<number | null>(null)
   const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
     new Set(),
   )
@@ -515,14 +518,17 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // the search as having found nothing. The window counts from entering the
   // step, not from the start request: the start fires as soon as the office is
   // saved, and the story and term-date steps in between can take longer than
-  // the window itself.
+  // the window itself. A search started after that, such as Try again, counts
+  // from when it started.
   useEffect(() => {
     if (!starterIssuesPending || step !== 'priorities') return
-    const enteredAt = prioritiesEnteredAtRef.current ?? Date.now()
-    const remaining = enteredAt + STARTER_ISSUES_PENDING_MS - Date.now()
+    const startedAt = Math.max(
+      starterIssuesPendingSinceRef.current ?? 0,
+      prioritiesEnteredAtRef.current ?? 0,
+    )
     const timer = setTimeout(
       () => setStarterIssuesPending(false),
-      Math.max(0, remaining),
+      Math.max(0, startedAt + STARTER_ISSUES_PENDING_MS - Date.now()),
     )
     return () => clearTimeout(timer)
   }, [starterIssuesPending, step])
@@ -768,6 +774,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const communityIssuesFailedRef = useRef(false)
   const startCommunityIssues = (): Promise<void> => {
     if (communityIssuesStartRef.current) return communityIssuesStartRef.current
+    starterIssuesPendingSinceRef.current = Date.now()
     setStarterIssuesPending(true)
     const post = () => clientRequest('POST /v1/community-issues/onboarding', {})
     const started = post()
