@@ -73,22 +73,37 @@ export const runAgentThroughRoutes = async (
   const deadline = now() + timeoutMs
   for (;;) {
     const polled = (await transport.get(`/v1/agents/runs/${runId}`)) as {
+      engine?: unknown
       status?: unknown
       artifact?: unknown
       error?: unknown
     } | null
     const status = parseRunStatus(polled?.status)
     onPoll?.(runId, status)
+    const engine =
+      typeof polled?.engine === 'string' ? { engine: polled.engine } : {}
 
     if (status === 'completed') {
-      return { runId, status, artifact: polled?.artifact ?? null, error: null }
+      return {
+        runId,
+        status,
+        ...engine,
+        artifact: polled?.artifact ?? null,
+        error: null,
+      }
     }
     if (status === 'failed' || status === 'superseded') {
       const error =
         typeof polled?.error === 'string' && polled.error
           ? polled.error
           : `run ${status}`
-      return { runId, status, artifact: polled?.artifact ?? null, error }
+      return {
+        runId,
+        status,
+        ...engine,
+        artifact: polled?.artifact ?? null,
+        error,
+      }
     }
     if (now() >= deadline) {
       throw new Error(

@@ -194,16 +194,11 @@ export type Grader = {
 
 export type GraderOptions = {
   model: LanguageModel
-  dimensions?: Dimension[]
   generateObjectFn?: GenerateObjectFn
 }
 
 export const createGrader = ({
   model,
-  dimensions = Object.entries(DEFAULT_DIMENSIONS).map(([name, question]) => ({
-    name,
-    question,
-  })),
   generateObjectFn = defaultGenerateObject,
 }: GraderOptions): Grader => {
   const gradeOrder = async (request: OrderRequest): Promise<GradedOrder> => {

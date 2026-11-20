@@ -10,7 +10,6 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "run": "tsx src/run.ts",
     "test": "vitest run"
   },
   "dependencies": {

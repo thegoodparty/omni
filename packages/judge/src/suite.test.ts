@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { definePairwiseAgentEvalSuite, isPairwiseAgentEvalSuite } from './suite'
+import { createPairwiseAgentEvalSuite, isPairwiseAgentEvalSuite } from './suite'
 
 const definition = {
   mode: 'win' as const,
@@ -8,27 +8,27 @@ const definition = {
   cases: [{ id: 'case-1', input: { topic: 't' } }],
 }
 
-describe('definePairwiseAgentEvalSuite', () => {
+describe('createPairwiseAgentEvalSuite', () => {
   it('stamps the name and the marker', () => {
-    const suite = definePairwiseAgentEvalSuite('a', definition)
+    const suite = createPairwiseAgentEvalSuite('a', definition)
     expect(suite.name).toBe('a')
     expect(suite.isPairwiseAgentEvalSuite).toBe(true)
     expect(suite.cases).toBe(definition.cases)
   })
 
   it('refuses a suite with no name', () => {
-    expect(() => definePairwiseAgentEvalSuite('', definition)).toThrow(/name/)
+    expect(() => createPairwiseAgentEvalSuite('', definition)).toThrow(/name/)
   })
 
   it('refuses a suite with no cases', () => {
     expect(() =>
-      definePairwiseAgentEvalSuite('a', { ...definition, cases: [] }),
+      createPairwiseAgentEvalSuite('a', { ...definition, cases: [] }),
     ).toThrow(/no cases/)
   })
 
   it('refuses two cases with the same id', () => {
     expect(() =>
-      definePairwiseAgentEvalSuite('a', {
+      createPairwiseAgentEvalSuite('a', {
         ...definition,
         cases: [
           { id: 'same', input: { topic: 'a' } },
@@ -40,7 +40,7 @@ describe('definePairwiseAgentEvalSuite', () => {
 
   it('refuses a case with no id', () => {
     expect(() =>
-      definePairwiseAgentEvalSuite('a', {
+      createPairwiseAgentEvalSuite('a', {
         ...definition,
         cases: [{ id: '', input: { topic: 'a' } }],
       }),
@@ -51,7 +51,7 @@ describe('definePairwiseAgentEvalSuite', () => {
 describe('isPairwiseAgentEvalSuite', () => {
   it('recognises a suite', () => {
     expect(
-      isPairwiseAgentEvalSuite(definePairwiseAgentEvalSuite('a', definition)),
+      isPairwiseAgentEvalSuite(createPairwiseAgentEvalSuite('a', definition)),
     ).toBe(true)
   })
 

@@ -78,41 +78,29 @@ Rules:
 
 ## How it runs
 
-```
-npx tsx packages/judge/run.ts \
-  --base https://dev.goodparty.org \
-  --candidate https://pr-3904.preview.goodparty.org \
-  --suite trending_issues \
-  --judge-model anthropic/claude-sonnet-4-6 \
-  --out ./judge-results
+```bash
+JUDGE_BASE_URL=https://gp-api-dev.goodparty.org \
+JUDGE_CANDIDATE_URL=https://pr-3904.preview.goodparty.org \
+JUDGE_MODEL=anthropic/claude-sonnet-5-5 \
+npm run eval -w packages/gp-api -- trending_issues --reporter=default --reporter=../judge/src/reporter.ts
 ```
 
-| Input                              | What it is                                             |
-| ---------------------------------- | ------------------------------------------------------ |
-| `--base`                           | the base arm's URL: dev, running main                  |
-| `--candidate`                      | the candidate arm's URL: a PR preview                  |
-| `--suite`                          | suite names, comma-separated, or `all`                 |
-| `--judge-model`                    | an AI SDK model id, e.g. `anthropic/claude-sonnet-4-6` |
-| `--out`                            | where `results.json` and `results.md` are written      |
-| `--concurrency`                    | cases in flight at once, default 16                    |
-| the judge model provider's API key | in that provider's standard environment variable       |
+Set `CLERK_SECRET_KEY` and the model provider's key (e.g. `ANTHROPIC_API_KEY`)
+in the environment. `JUDGE_CANDIDATE_URL` can also point to a local API.
+Without either URL, pairwise suites skip and name the missing variables.
+Set `JUDGE_REQUIRE_PAIRWISE=true` to make missing URLs fail instead.
 
-It loads suites from the checkout it runs in, and imports nothing else from
-gp-api: the two URLs are the whole of its input.
+Vitest discovers `*.eval.ts` and registers one concurrent test per pairwise
+case. Each case runs three attempts on both arms with a fresh test user per
+run. Each attempt is graded in both orders once its two outputs are ready.
+An `afterAll` hook reads the suite verdict: WORSE and CAN'T JUDGE fail;
+BETTER and NO DIFFERENCE FOUND pass. A case with no judged pairs also fails.
+Test annotations capture redacted run excerpts and grading details.
 
-**Locally**, the same command with `--candidate http://localhost:3000`, or a
-preview URL, and an `--out` in the working tree.
-
-**In CI**, `judge-eval.yml` waits for the preview, runs the command, and posts
-`results.md` as the PR comment. `/judge-eval <suites>` triggers it. It is a
-workflow of its own rather than a mode of `judge.yml`, because the old judge
-still drives chat suites and has to keep working untouched.
-
-**Flow.** For every case and its three attempts, base and candidate run at
-once in one shared pool: sign in, setup, run, keep the output string. A pair
-is graded as soon as attempt N exists on both sides, so grading overlaps the
-runs still landing. At the end the process writes `results.json` and
-`results.md`.
+In CI, `/judge-eval <suites>` runs the selected pairwise suites after the PR
+preview is ready. The reporter writes its verdict table to the GitHub job
+summary (stdout locally); the PR comment links there. `/judge` and `judge.yml`
+continue to drive chat suites separately.
 
 ### Signing in
 
@@ -141,7 +129,7 @@ run as three identities with the same profile.
 It needs `CLERK_SECRET_KEY` for the dev Clerk instance. Clerk's Backend API
 budget is 100 requests per 10 seconds per instance, shared with every other
 process holding that secret — the e2e suites, gp-api's own provisioning
-lookups, the test-user sweep — which is one reason `--concurrency` is capped.
+lookups, the test-user sweep — which is one reason to bound Vitest concurrency.
 
 ## One way to run any background agent
 
