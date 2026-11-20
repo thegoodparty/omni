@@ -1,3 +1,7 @@
+import type { TestContext } from 'vitest'
+
+export type Annotate = (message: string, type: string) => Promise<void>
+
 // Every string an eval suite writes to a test's annotations goes through
 // `redactSecrets`, because a test report is as public as the repository and an
 // annotation carries whatever a case input, a run or a model answer put in it.
@@ -57,3 +61,14 @@ export const renderValue = <Value>(value: Value): string => {
   const json = JSON.stringify(value, null, 2)
   return json === undefined ? String(value) : json
 }
+
+export const annotateWith =
+  (context: Pick<TestContext, 'annotate'>): Annotate =>
+  async (message, type) => {
+    await context.annotate(redactSecrets(message), type)
+  }
+
+export const suiteVerdictAnnotation = <Verdict>(verdict: Verdict) => ({
+  type: 'pairwise-verdict',
+  message: redactSecrets(renderValue(verdict)),
+})

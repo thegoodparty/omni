@@ -6,62 +6,7 @@ and grades the pairs.
 
 Plan: `docs/judge-eval-framework-plan.md`. This package is phase 2.
 
-## The shape
-
-| Vitest          | Here                                                |
-| --------------- | --------------------------------------------------- |
-| Test file       | **Suite**: one agent experience (`<agent>.eval.ts`) |
-| `it(...)`       | **Case**: one scenario with an input                |
-| `beforeEach`    | **Setup**: state a case needs first                 |
-| Code under test | **Run**: drives the agent, returns a string         |
-| `expect(...)`   | **Grading**: the judge compares base and candidate  |
-
-```ts
-// packages/gp-api/src/<feature>/<agent>/<agent>.eval.ts
-import type { AgentRunResult } from '@goodparty_org/judge'
-import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
-
-export default definePairwiseAgentEvalSuite<{ organizationSlug: string }>(
-  'trending_issues',
-  {
-    mode: 'serve',
-    profile: { positionId: 'Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb24vMTczMjcw' },
-    run: async (input, ctx) => {
-      const run = await ctx.runAgent('trending_issues', input)
-      return JSON.stringify(run.artifact)
-    },
-    cases: [
-      {
-        id: 'a-district-with-news',
-        input: { organizationSlug: 'ignored-ctx-wins' },
-        setup: async (ctx) => {
-          await ctx.api.post('/v1/some-route', {})
-        },
-        grading: {
-          condition: 'the district has recent local news',
-          handledWhen: 'the output names at least one dated source',
-          dimensions: { sourcing: 'Are the sources dated and checkable?' },
-        },
-      },
-    ],
-  },
-)
-```
-
-A pairwise suite needs nothing from gp-api but types: the two URLs are the whole
-of its input. The runner still loads every `*.eval.ts` with tsx from the repo
-root, expected-result suites included, so a suite that imports gp-api runtime
-code must reach it through relative paths. gp-api's `@/` alias does not resolve
-there, and one that fails to load breaks `/judge-eval` for every suite.
-
-## `EvalContext`
-
-| Field                   | What                                                                                                                                                                                           |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `api`                   | `get`/`post`/`put`, signed in as this run's test user, scoped to its org, paths relative to the arm's API root                                                                                 |
-| `baseUrl`               | the arm's root: dev for base, the PR's webapp preview for candidate. Its API root is resolved once (`src/apiRoot.ts`) — a webapp proxies gp-api at `/api`, a gp-api origin serves `/v1` itself |
-| `org.slug`              | the org bootstrap created for this user. Nothing has to create one                                                                                                                             |
-| `runAgent(name, input)` | `POST /agents/:name/runs` then poll `GET /agents/runs/:runId`. The route picks the engine, so a suite never knows which one ran                                                                |
+For choosing, writing, and running suites, see [Writing agent evals](../../docs/agent-evals.md).
 
 ## Rules, enforced by construction
 
@@ -78,120 +23,20 @@ there, and one that fails to load breaks `/judge-eval` for every suite.
   (`organization_slug` included, from `ctx.org.slug`), so one suite judges a run
   on either engine.
 
-## Suites
+## Implementation
 
-Thirteen, one per background agent, each beside the agent's own module:
+Vitest runs three attempts per case. Pairwise attempts grade both output orders,
+and a case with no judged pairs fails. The run routes do not expose engine
+identity today; annotations say `not reported` when it is missing.
 
-| Suite                                                                                                              | Where                            |
-| ------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
-| `trending_issues`, `top_community_issues`                                                                          | `src/communityIssues/<agent>/`   |
-| `race_opponent_summary`, `race_opponent_collection`, `race_opponent_actions`, `opponent_research`, `self_research` | `src/raceOpponent/`              |
-| `opposition_research`, `opportunities_and_challenges`                                                              | `src/campaignStrategy/`          |
-| `meeting_schedule`, `meeting_briefing`                                                                             | `src/meetings/`                  |
-| `campaign_tracker_tasks`                                                                                           | `src/campaigns/campaignTracker/` |
-| `find_existing_ordinances`                                                                                         | `src/ordinances/`                |
-
-All paths are under `packages/gp-api/`. The five agents gp-api has not built yet
-run on the PMF Engine, so their suite sits in the module that dispatches them.
-`district_issue_pulse`, `district_issue_snapshot` (to be deleted) and
-`compliance_setup` (makes real purchases) have no suite. The old JSON lists stay
-under `src/chats/evals/judge/cases/` because the old runner still reads them for
-chat and for the guards' pricing.
-
-## Expected-result suites
-
-The other kind of suite grades one run against a result a person already ruled
-correct, rather than comparing two builds. The case scout's two suites are the
-first: `case_scout_gate` grades the PII gate alone, and
-`case_scout_deidentifier` grades the whole exit path from source chat to
-released case (`packages/gp-api/src/caseScout/AGENTS.md`).
-
-```ts
-// packages/gp-api/src/<feature>/<thing>.eval.ts
-import { defineExpectedResultEvalSuite } from '@goodparty_org/judge'
-
-export default defineExpectedResultEvalSuite('case_scout_deidentifier', {
-  run: async (input: CaseInput, ctx) => {
-    const draft = await draftCandidate(model, toSession(input), prompt, signal)
-    await ctx.annotate(`drafter: ${draft.outcome}`, 'outcome')
-    return { outbound: outbound(draft), gate: await gate(draft) }
-  },
-  // ctx.input is the case's own input; ctx.judgeModel is its model call.
-  judge: async (output, ctx) => {
-    const { facts } = await ctx.judgeModel(FactsSchema, prompt(ctx.input))
-    return { leaksPlanted: leaked(output), revealsFact: found(facts) }
-  },
-  cases: [
-    {
-      id: 'third-party-opponent',
-      input: { scope, denylist, turns, planted, sensitiveFacts },
-      expected: { leaksPlanted: false, revealsFact: false },
-    },
-  ],
-})
-```
-
-| Piece                            | What it is                                                                                                                                                    |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run(input, ctx)`                | Drives the code under test. `Input` is inferred from this parameter, and `ctx.annotate` records a step                                                        |
-| `judge(output, ctx)`             | Reads the run's output plus `ctx.input`. `Judgment` is inferred from its return type                                                                          |
-| `ctx.judgeModel(schema, prompt)` | One `generateObject` call, returning what the schema parsed. The suite's whole model surface                                                                  |
-| `cases`                          | `{ id, input, expected }`. One `test.concurrent` per case, three attempts each, and the case passes only when every attempt's judgment deep-equals `expected` |
-
-`Input` and `Judgment` are inferred, so a case whose input does not fit `run`, or
-whose `expected` does not fit `judge`, fails to compile.
-
-**One file pattern, no registry.** Vitest finds `src/**/*.eval.ts` through
-`packages/gp-api/vitest.evals.config.ts`. `npm run eval -w packages/gp-api` runs
-it. `npm test` and `verify` do not: an eval spends real runs and model calls.
-
-**Inputs are environment variables**, never flags. `JUDGE_MODEL` is an AI SDK
-model id (`anthropic/claude-sonnet-5-5`) plus that provider's own key. A suite
-whose judge never calls `judgeModel` needs neither; one that does calls it and
-fails the test with a sentence naming `JUDGE_MODEL` when it is unset.
-
-**Annotations are the report.** Every attempt records the case id, the run's
-output (truncated to a few KB), the prompt summary and parsed answer of every
-`judgeModel` call, the judgment, and expected-vs-actual on a mismatch. Nothing
-written to an annotation may be a secret — a token, a key, a bypass secret — so
-every message is redacted first, and a test scans a whole case's record for
-token-shaped strings.
-
-**Pairwise and expected-result suites share the glob.** The pairwise runner
-(`src/discover.ts`) skips a file that defines only expected-result suites, and
-the Vitest config skips a file that still uses `definePairwiseAgentEvalSuite`.
-That is how the thirteen background pairwise suites keep running under the old
-runner until they are converted.
-
-## The run
-
-`/judge-eval <suites>` on a PR, or `.github/workflows/judge-eval.yml` by hand.
-Base is `https://dev.goodparty.org`, candidate is the PR's **webapp** preview,
-whose `NEXT_PUBLIC_API_BASE` is that PR's gp-api preview. Neither needs a key of
-its own.
-
-```bash
-npx tsx packages/judge/src/run.ts \
-  --base https://dev.goodparty.org \
-  --candidate https://pr-3904.preview.goodparty.org \
-  --suite trending_issues \
-  --judge-model anthropic/claude-sonnet-5-5 \
-  --out ./judge-results
-```
-
-| File              | What                                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `src/suite.ts`    | `definePairwiseAgentEvalSuite`, `EvalContext`, `Case`, `grading`                                                  |
-| `src/arm.ts`      | One arm of one attempt: a fresh test user, its org, `ctx`; `probeArm` checks the run route before anything runs   |
-| `src/apiRoot.ts`  | Whether an arm is a webapp (gp-api at `/api`) or a gp-api origin (`/v1`); a URL neither answers for is not an arm |
-| `src/runAgent.ts` | The two agent routes, and the poll                                                                                |
-| `src/execute.ts`  | One shared pool: six runs per case; a pair is graded as soon as both sides land, and never when either threw      |
-| `src/grade.ts`    | The grading call, through the AI SDK's `generateObject`                                                           |
-| `src/stats.ts`    | The exact sign test, the handledWhen test, and CAN'T JUDGE                                                        |
-| `src/report.ts`   | `results.json` and `results.md`                                                                                   |
-| `src/cli.ts`      | Flags                                                                                                             |
-| `src/discover.ts` | The `packages/gp-api/src/**/*.eval.ts` glob                                                                       |
-| `src/run.ts`      | The command                                                                                                       |
+| File                              | What                                                           |
+| --------------------------------- | -------------------------------------------------------------- |
+| `src/pairwise.ts`                 | Suite registration, per-case execution, and verdict            |
+| `src/suite.ts`                    | Suite definition types and validation                          |
+| `src/arm.ts` and `src/apiRoot.ts` | Test-user context, API-root discovery, and run-route preflight |
+| `src/runAgent.ts`                 | Agent run and polling routes                                   |
+| `src/grade.ts` and `src/stats.ts` | Grading, exact sign test, and handledWhen regression test      |
+| `src/reporter.ts`                 | Markdown verdict table                                         |
 
 ## The grader
 
@@ -203,8 +48,7 @@ reasoning. Default questions: `task_success`, `instruction_adherence`,
 `user_utility`; a case's `grading.dimensions` adds to them.
 
 `generateObject` from `ai` with a Zod schema — never a provider SDK — so
-`--judge-model` is the only thing naming a provider and swapping providers is a
-flag change. `src/model.ts` maps a known prefix (`anthropic`) to that provider,
+`JUDGE_MODEL` is the only thing naming a provider. `src/model.ts` maps a known prefix (`anthropic`) to that provider,
 so `anthropic/claude-sonnet-5-5` needs `ANTHROPIC_API_KEY`; a prefix it does not
 know goes to the AI SDK's default provider, the gateway, which needs
 `AI_GATEWAY_API_KEY`.
@@ -213,8 +57,7 @@ A suite's verdict is an exact sign test over its non-tied pairs: BETTER or WORSE
 at p < 0.05, otherwise NO DIFFERENCE FOUND. It is also WORSE when the candidate's
 handledWhen pass rate drops significantly (one-sided Fisher exact on the
 per-attempt pass counts), because a failure both arms share reads as a tie in the
-pairwise comparison. The migration gate is "not WORSE"; the command exits 1 on
-WORSE.
+pairwise comparison.
 
 The exact tests cannot reach p < 0.05 from a single case's three attempts (three
 of three is p = 0.125), which is the honest reading of that little data. A suite
@@ -224,36 +67,24 @@ with one case reports NO DIFFERENCE FOUND however lopsided it looks.
 
 The judge compares two outputs. A run that threw has none, so a pair with a
 failed run on either side never reaches the grader: it is counted as **not
-judged** and listed under "Runs that failed". Grading the marker
+judged** and annotated on its case. Grading the marker
 `[the run failed: ...]` instead reads the arm that ran as the better one, which
 is how a candidate whose routes were not deployed yet scored 18-0 for a degraded
 build (PR #3926).
 
 A suite with no judged pairs, or with more than half of them not judged, is
 **CAN'T JUDGE**: its votes are the minority of its attempts, so reading a
-direction off them claims more than the run saw. The report names the side that
-failed and how often, and the command exits 2 — distinct from WORSE's 1, because
-nothing about the candidate was learned. WORSE is read first, so a real
-regression still exits 1.
-
-Two guards keep a whole sweep from being wasted this way:
-
-- **Before any run**, `probeArm` asks each arm for a run id no arm can hold
-  (`GET .../v1/agents/runs/<random uuid>`). The route existing is the signal:
-  its guard answers 401, or its handler answers 404 for the missing run. A
-  route that is not deployed answers Nest's own `Cannot GET ...` 404, which
-  fails the run before a single agent run or grading call is spent.
-- **Every run on one arm failing with the same HTTP status** is printed at the top
-  of `results.md`, naming the arm and status, because one broken deploy is not a
-  set of unrelated failures.
+direction off them claims more than the run saw. The preflight asks each arm for a run ID no arm can hold
+(`GET .../v1/agents/runs/<random uuid>`). Its guard answers 401, or its handler
+answers 404 for the missing run. Nest's `Cannot GET ...` 404 instead fails the
+suite before a single agent run or grading call is spent.
 
 ## Signing in
 
 `@goodparty_org/test-users` creates the user, the campaign or elected office, and
 the org through the API before anything else. `CLERK_SECRET_KEY` is the dev Clerk
 instance secret; Clerk's Backend API budget is 100 requests per 10 seconds per
-instance, shared with the e2e suite and gp-api's own lookups, which is why
-`--concurrency` is capped.
+instance, shared with the e2e suite and gp-api's own lookups, so use Vitest's worker and concurrency limits when sharing that budget.
 
 ## Tests
 

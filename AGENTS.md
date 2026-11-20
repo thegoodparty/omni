@@ -49,6 +49,7 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Understanding the system / service map | `docs/architecture.md`                        |
 | Our AI agent platform (CAP) — overview | `docs/cap.md`                                 |
 | Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
+| Writing or running an agent eval (pairwise judge or expected-result) | `docs/agent-evals.md` |
 | Judging an agent change (pairwise eval) | `packages/judge/AGENTS.md`                   |
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
 | Moving agents into gp-api (the plan)   | `docs/cap-consolidation.md`                   |
@@ -58,7 +59,6 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 | **Shipping a user-facing feature**     | **`docs/product-knowledge.md`** (add it to the assistants' product map) |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
-| Writing a query, loop or list over voters, contacts or people | `docs/scale.md` |
 | Adding a scheduled job (pg-boss only)  | `docs/scheduled-jobs.md`                      |
 | Adding a background job               | `packages/gp-api/src/jobs/AGENTS.md`          |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |

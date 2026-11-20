@@ -40,23 +40,9 @@ npx vitest run packages/gp-api/src/path/to/file.test.ts # single file
 npx vitest run --testNamePattern "name"                 # by test name
 ```
 
-## Eval suites (`*.eval.ts`)
+## Agent evals
 
-An eval suite runs a real agent or a real model and grades the result, so it is
-not part of `npm test` or `verify`: it spends money and needs model keys. Its
-file pattern is `*.eval.ts`, its own config is
-`packages/gp-api/vitest.evals.config.ts`, and `npm run eval -w packages/gp-api`
-runs it. Inputs are environment variables (`JUDGE_MODEL` and that provider's
-key). How to write one: `packages/judge/AGENTS.md` § Expected-result suites.
-
-CI runs each package's validate job (lint, typecheck, test) on PRs that touch it.
-
-gp-api caches transformed modules on disk between runs
-(`packages/gp-api/.vitest-fs-module-cache/`), so its first run after a
-lockfile, Node or `vitest.config.ts` change is slower than the ones after it.
-If a run ever behaves as if it is running code that is no longer in the
-source, clear the cache from `packages/gp-api` with `npx vitest --clearCache`
-(or delete the directory) and run again.
+See [Writing agent evals](agent-evals.md) for known-answer and pairwise suites.
 
 ## E2E (Playwright)
 

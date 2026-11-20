@@ -15,104 +15,7 @@ old engine on main". This framework is that check.
 
 ## The framework
 
-The judge is a small test framework, like Vitest for agents.
-
-| Vitest          | Here                                               |
-| --------------- | -------------------------------------------------- |
-| Test file       | **Suite**: one agent experience                    |
-| `it(...)`       | **Case**: one scenario with an input               |
-| `beforeEach`    | **Setup**: state a case needs first                |
-| Code under test | **Run**: drives the agent, returns text            |
-| `expect(...)`   | **Grading**: the judge compares base and candidate |
-
-```ts
-type EvalContext = {
-  api: AuthedFetch // signed in as this run's test user; paths relative to baseUrl
-  baseUrl: string // dev (base arm) or the PR preview (candidate arm)
-  // The org bootstrap created for this run's test user. Every run gets a new
-  // user and so a new org; nothing has to create one.
-  org: { slug: string }
-  runAgent: (name: string, input: unknown) => Promise<AgentRunResult>
-}
-
-definePairwiseAgentEvalSuite<Input>(name, {
-  mode: 'win' | 'serve', // which kind of test user a case needs
-  profile: Profile, // name, office, district, race: the same for a case's 3 attempts
-  run: (input: Input, ctx: EvalContext) => Promise<string>,
-  cases: Case < Input > [],
-})
-
-type Case<Input> = {
-  id: string
-  input: Input
-  setup?: (ctx: EvalContext) => Promise<void>
-  grading?: {
-    condition?: string // what is special about this case
-    handledWhen?: string // a pass/fail rule checked on each run
-    dimensions?: Record<string, string> // extra questions, name to question
-  }
-}
-```
-
-Rules:
-
-- **Every case runs 3 times on each side.** Not configurable.
-- **Every run gets a new test user.** All three attempts, on each side, so
-  each starts from a clean slate. The three attempts of one case share the
-  suite's profile, so only the identity is new and the attempts stay
-  comparable.
-- **Output is a string**: the exact text the judge reads. A background suite
-  serializes its artifact.
-- **Cases are TypeScript**, in `<agent>.eval.ts` beside the agent. The
-  suite's input type checks every case. No JSON case files.
-- **Setup goes through public routes, or runs another agent.** It never writes
-  rows directly. A case whose state no route and no agent can create is not
-  written yet.
-- **The judge talks only to a base URL and a candidate URL.** It imports no
-  gp-api code and holds no AWS, S3, SQS or Databricks access. It holds a
-  judge-model key and a way to sign in a user. Either URL may be a webapp that
-  proxies gp-api at `/api` or a gp-api origin that serves `/v1` itself; which
-  one is a property of the URL, resolved once per arm.
-- **No page replay and no pinned data version.** Both arms run at the same
-  time, so the web and the voter mart are the same for both.
-
-## How it runs
-
-```
-npx tsx packages/judge/run.ts \
-  --base https://dev.goodparty.org \
-  --candidate https://pr-3904.preview.goodparty.org \
-  --suite trending_issues \
-  --judge-model anthropic/claude-sonnet-4-6 \
-  --out ./judge-results
-```
-
-| Input                              | What it is                                             |
-| ---------------------------------- | ------------------------------------------------------ |
-| `--base`                           | the base arm's URL: dev, running main                  |
-| `--candidate`                      | the candidate arm's URL: a PR preview                  |
-| `--suite`                          | suite names, comma-separated, or `all`                 |
-| `--judge-model`                    | an AI SDK model id, e.g. `anthropic/claude-sonnet-4-6` |
-| `--out`                            | where `results.json` and `results.md` are written      |
-| `--concurrency`                    | cases in flight at once, default 16                    |
-| the judge model provider's API key | in that provider's standard environment variable       |
-
-It loads suites from the checkout it runs in, and imports nothing else from
-gp-api: the two URLs are the whole of its input.
-
-**Locally**, the same command with `--candidate http://localhost:3000`, or a
-preview URL, and an `--out` in the working tree.
-
-**In CI**, `judge-eval.yml` waits for the preview, runs the command, and posts
-`results.md` as the PR comment. `/judge-eval <suites>` triggers it. It is a
-workflow of its own rather than a mode of `judge.yml`, because the old judge
-still drives chat suites and has to keep working untouched.
-
-**Flow.** For every case and its three attempts, base and candidate run at
-once in one shared pool: sign in, setup, run, keep the output string. A pair
-is graded as soon as attempt N exists on both sides, so grading overlaps the
-runs still landing. At the end the process writes `results.json` and
-`results.md`.
+See [Writing agent evals](agent-evals.md) for the current suite API and commands.
 
 ### Signing in
 
@@ -141,7 +44,7 @@ run as three identities with the same profile.
 It needs `CLERK_SECRET_KEY` for the dev Clerk instance. Clerk's Backend API
 budget is 100 requests per 10 seconds per instance, shared with every other
 process holding that secret — the e2e suites, gp-api's own provisioning
-lookups, the test-user sweep — which is one reason `--concurrency` is capped.
+lookups, the test-user sweep — which is one reason to bound Vitest concurrency.
 
 ## One way to run any background agent
 
