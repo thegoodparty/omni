@@ -1038,7 +1038,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     }
   })
 
-  it('gives a Try again its own searching window', async () => {
+  it('gives a Try again its own searching window after the first one closed', async () => {
     resumedAt('priorities')
     let starts = 0
     api.mock('POST /v1/community-issues/onboarding', () => {
@@ -1073,6 +1073,52 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       // Still inside the fresh window a few seconds later: a window measured
       // from the first entry would already be over here.
       await act(() => vi.advanceTimersByTimeAsync(4_000))
+
+      expect(
+        screen.getByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/We couldn’t find issues for your area yet/),
+      ).not.toBeInTheDocument()
+      expect(starts).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restarts the searching window when Try again comes before it closes', async () => {
+    resumedAt('priorities')
+    let starts = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      starts += 1
+      return starts <= 2
+        ? { status: 500, data: {} }
+        : { status: 200, data: { queued: true } }
+    })
+    let loadFails = true
+    api.mock('GET /v1/priorities/onboarding', () =>
+      loadFails
+        ? { status: 500, data: {} }
+        : { status: 200, data: { options: [] } },
+    )
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({
+        skipHover: true,
+        advanceTimers: vi.advanceTimersByTime,
+      })
+      renderFlow()
+
+      await screen.findByText('We couldn’t load issues for your community.')
+      await act(() => vi.advanceTimersByTimeAsync(10_000))
+      loadFails = false
+      await user.click(screen.getByRole('button', { name: 'Try again' }))
+      // 55s after the retry is past the first window and inside the retried one.
+      await act(() => vi.advanceTimersByTimeAsync(55_000))
 
       expect(
         screen.getByText('Finding issues in your community'),

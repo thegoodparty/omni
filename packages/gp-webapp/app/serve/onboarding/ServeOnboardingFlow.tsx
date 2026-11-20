@@ -211,13 +211,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   >(null)
   const [priorityLoadFailed, setPriorityLoadFailed] = useState(false)
   const [communityIssuesFailed, setCommunityIssuesFailed] = useState(false)
-  // Set when the queued starter-issue search is asked for and cleared once the
-  // pending window closes, so the step can tell a search still running from one
-  // that finished empty.
-  const [starterIssuesPending, setStarterIssuesPending] = useState(false)
-  // When the pending window last opened: a Try again starts a fresh search, so
-  // it gets a fresh window rather than the remains of the previous one.
-  const starterIssuesPendingSinceRef = useRef<number | null>(null)
+  // When the queued starter-issue search was last asked for, null once the
+  // pending window closes: the step tells a search still running from one that
+  // finished empty, and a Try again gets a window of its own.
+  const [starterIssuesPendingSince, setStarterIssuesPendingSince] = useState<
+    number | null
+  >(null)
+  const starterIssuesPending = starterIssuesPendingSince !== null
   const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
     new Set(),
   )
@@ -521,17 +521,17 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // the window itself. A search started after that, such as Try again, counts
   // from when it started.
   useEffect(() => {
-    if (!starterIssuesPending || step !== 'priorities') return
+    if (starterIssuesPendingSince === null || step !== 'priorities') return
     const startedAt = Math.max(
-      starterIssuesPendingSinceRef.current ?? 0,
+      starterIssuesPendingSince,
       prioritiesEnteredAtRef.current ?? 0,
     )
     const timer = setTimeout(
-      () => setStarterIssuesPending(false),
+      () => setStarterIssuesPendingSince(null),
       Math.max(0, startedAt + STARTER_ISSUES_PENDING_MS - Date.now()),
     )
     return () => clearTimeout(timer)
-  }, [starterIssuesPending, step])
+  }, [starterIssuesPendingSince, step])
   const waitingForStarterIssues =
     starterIssuesPending &&
     step === 'priorities' &&
@@ -774,8 +774,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const communityIssuesFailedRef = useRef(false)
   const startCommunityIssues = (): Promise<void> => {
     if (communityIssuesStartRef.current) return communityIssuesStartRef.current
-    starterIssuesPendingSinceRef.current = Date.now()
-    setStarterIssuesPending(true)
+    setStarterIssuesPendingSince(Date.now())
     const post = () => clientRequest('POST /v1/community-issues/onboarding', {})
     const started = post()
       .catch(post)
