@@ -438,11 +438,13 @@ describe('OrganizationPicker', () => {
 
     mockBadgePlan.current = 'pro'
     const pro = renderPicker()
+    expect(screen.getByRole('img', { name: 'PRO' })).toBeInTheDocument()
     expect(screen.queryByText('TEAM')).toBeNull()
     pro.unmount()
 
     mockBadgePlan.current = 'free'
     renderPicker()
+    expect(screen.queryByRole('img', { name: 'PRO' })).toBeNull()
     expect(screen.queryByText('TEAM')).toBeNull()
   })
 
