@@ -10,6 +10,7 @@ import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.se
 import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
 import { OutreachRobocallCancelService } from '@/outreach/services/outreachRobocallCancel.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
+import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
 import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 import { WIN_PER_CAMPAIGN_PRICING_FLAG } from '@/shared/util/winPerCampaignPricingFlag.util'
@@ -373,5 +374,92 @@ describe('robocall cancel with outreach credit', () => {
 
     expect(voidSpy).toHaveBeenCalledWith('pi_credit')
     expect(await balance()).toBe(17500)
+  })
+})
+
+describe('robocall hold that fails on infrastructure', () => {
+  const stripeOutage = () =>
+    new Stripe.errors.StripeConnectionError({
+      message: 'An error occurred with our connection to Stripe.',
+      type: 'api_error',
+    })
+
+  const sweepAbandoned = (hoursIdle: number) =>
+    service.app
+      .get(OutreachRobocallDeferredHoldService)
+      .releaseAbandonedReserves(addHours(new Date(), hoursIdle))
+
+  it('keeps the reserve so the retry holds the same amount under the same key', async () => {
+    billableCount = LARGE_COUNT
+    const estimate = calcRobocallTotalInCents(LARGE_COUNT)
+    const outreachId = await createDraft()
+    paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
+
+    const failed = await authorize(outreachId)
+
+    expect(failed.status).toBe(502)
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(17500)
+    expect(await balance()).toBe(0)
+
+    const retried = await authorize(outreachId)
+
+    expect(retried.data).toMatchObject({
+      status: 'authorized',
+      authorizedAmountInCents: estimate - 17500,
+    })
+    expect(await balance()).toBe(0)
+  })
+
+  it('returns the reserve of a draft nobody retried once the key has expired', async () => {
+    billableCount = LARGE_COUNT
+    const outreachId = await createDraft()
+    paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
+    await authorize(outreachId)
+
+    await sweepAbandoned(24)
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(17500)
+
+    await sweepAbandoned(26)
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(0)
+    expect((await readSpine(outreachId)).creditSettledAt).toBeNull()
+    expect(await balance()).toBe(17500)
+  })
+
+  it('still gives a late retry its credit after the sweep returned it', async () => {
+    billableCount = LARGE_COUNT
+    const estimate = calcRobocallTotalInCents(LARGE_COUNT)
+    const outreachId = await createDraft()
+    paymentIntentsCreate.mockRejectedValueOnce(stripeOutage())
+    await authorize(outreachId)
+    await sweepAbandoned(26)
+
+    const retried = await authorize(outreachId)
+
+    expect(retried.data).toMatchObject({
+      status: 'authorized',
+      authorizedAmountInCents: estimate - 17500,
+    })
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(17500)
+    expect(await balance()).toBe(0)
+  })
+
+  it('leaves a declined draft alone, which the card-update retry resumes', async () => {
+    billableCount = LARGE_COUNT
+    const outreachId = await createDraft()
+    paymentIntentsCreate.mockRejectedValueOnce(
+      new Stripe.errors.StripeCardError({
+        message: 'Your card was declined.',
+        type: 'card_error',
+        code: 'card_declined',
+      }),
+    )
+    await authorize(outreachId)
+
+    await sweepAbandoned(48)
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.hold_failed,
+    )
+    expect((await readSpine(outreachId)).creditReservedCents).toBe(17500)
   })
 })

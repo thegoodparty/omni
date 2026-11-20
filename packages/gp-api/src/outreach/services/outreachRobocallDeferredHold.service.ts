@@ -1,5 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common'
-import { addDays, isAfter } from 'date-fns'
+import { addDays, addHours, isAfter } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { JobsService } from '@/jobs/jobs.service'
@@ -15,6 +15,9 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
+
+// Stripe keeps an idempotency key for 24 hours; the extra hour is margin.
+const ABANDONED_RESERVE_HOURS = 25
 
 // The sweeps find their drafts with these, and each draft's job reads the
 // draft back through the same filter, so a job that waited in the queue does
@@ -86,6 +89,8 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   async sweepDeferredHolds(sweep: JobRun<ScheduleData>): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
 
+    await this.releaseAbandonedReserves(new Date())
+
     const candidates = await this.model.findMany({
       where: deferredHoldDue(new Date()),
       select: { outreachId: true },
@@ -97,6 +102,38 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
         key: `${outreachId}:${sweep.id}`,
       })),
     )
+  }
+
+  // A hold that failed on Stripe infrastructure leaves its credit reserved so
+  // the retry replays the same idempotency key with the same amount. Once that
+  // key has expired nothing is replayed, so a draft still waiting in
+  // pending_payment gives the credit back (non-terminal, a later hold reserves
+  // afresh). The satellite row lock keeps a retry's claim from landing between
+  // the check and the unreserve.
+  async releaseAbandonedReserves(now: Date): Promise<void> {
+    const candidates = await this.client.outreach.findMany({
+      where: {
+        creditReservedCents: { gt: 0 },
+        creditSettledAt: null,
+        robocall: {
+          settleState: RobocallSettleState.pending_payment,
+          updatedAt: { lt: addHours(now, -ABANDONED_RESERVE_HOURS) },
+        },
+      },
+      select: { id: true },
+    })
+    for (const { id } of candidates) {
+      await this.client.$transaction(async (tx) => {
+        const [stillIdle] = await tx.$queryRaw<{ outreach_id: number }[]>`
+          SELECT outreach_id FROM outreach_robocall
+          WHERE outreach_id = ${id}
+            AND settle_state = 'pending_payment'
+            AND updated_at < ${addHours(now, -ABANDONED_RESERVE_HOURS)}
+          FOR UPDATE
+        `
+        if (stillIdle) await this.credits.unreserve(id, tx)
+      })
+    }
   }
 
   async placeDeferredHold(job: JobRun<{ outreachId: number }>): Promise<void> {

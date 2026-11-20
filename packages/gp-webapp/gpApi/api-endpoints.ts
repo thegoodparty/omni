@@ -198,6 +198,7 @@ import type {
   RaceOpponentThreatTier,
   OrganizationRole,
   SetChatMessageFeedbackRequest,
+  InviteBlockReason,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -3200,6 +3201,7 @@ export type PendingInvite = {
 export type TeamResponse = {
   members: TeamMember[]
   pendingInvites: PendingInvite[]
+  invites?: { allowed: boolean; reason: InviteBlockReason | null }
 }
 
 export type InviteMemberResponse =
