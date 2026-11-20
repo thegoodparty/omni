@@ -3,7 +3,7 @@ title: The case scout hands each night's de-identified cases to the Delegate swa
 status: active
 decided_by: [dealvz]
 date: 2026-11-19
-code: ['#TODO']
+code: ['#3972']
 scope:
   - packages/gp-api/src/caseScout/**
   - packages/contracts/src/caseScout/**
