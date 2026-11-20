@@ -73,10 +73,14 @@ via a Clerk invitation). No other code path may create one.
 | DELETE | `team/members/me`      | `@UseOrganization()` + `@AllowVolunteer()` |
 | DELETE | `team/members/:userId` | `@UseOrganization()` + `@OwnerOnly()` |
 
-**`POST team/invites` is Team-plan gated (ENG-11687).** After the `eo-` (400) and
-test-org (409) checks, with `win_per_campaign_pricing` on (read for the org
-owner), an org whose campaign has `createdAt >= TEAM_GATE_START` (contracts)
-and `plan !== 'team'` gets a 403 body `{ code: 'TEAM_PLAN_REQUIRED', message }`.
+**`POST team/invites` is Team-plan gated (ENG-11687, ENG-11709).** One method,
+`TeamController.getInviteBlockReason`, returns why an org can't invite, and both
+`POST team/invites` (throws) and `GET team` (fills `invites: { allowed, reason }`)
+call it, so the webapp renders what the route enforces. Order: `eo-` org
+(`ELECTED_OFFICE`, 400), test org (`TEST_ORGANIZATION`, 409), then with
+`win_per_campaign_pricing` on (read for the org owner, never the viewer) a
+campaign with `createdAt >= TEAM_GATE_START` (contracts) and `plan !== 'team'`
+(`TEAM_PLAN_REQUIRED`, 403 body `{ code, message }`; `planEndedAt` is ignored).
 Older campaigns, Serve orgs and flag off are untouched.
 
 **`DELETE team/members/me` is self-removal (ENG-11137).** Any member —

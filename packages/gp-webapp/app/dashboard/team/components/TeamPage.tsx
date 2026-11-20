@@ -51,7 +51,7 @@ import {
   teamStatsQueryKey,
 } from '../team.util'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
-import { useTeamInviteGate } from '../useTeamInviteGate'
+import { UNAVAILABLE_COPY, useTeamInviteGate } from '../useTeamInviteGate'
 import InviteMemberDrawer from './InviteMemberDrawer'
 
 const TeamPage = (): React.JSX.Element => {
@@ -74,13 +74,16 @@ const TeamPage = (): React.JSX.Element => {
   const [inviteOpen, setInviteOpen] = useState(
     () => searchParams?.get('invite') === '1',
   )
-  const { gated, plan } = useTeamInviteGate()
   const [pitchOpen, setPitchOpen] = useState(false)
   // Only the owner can buy the plan, so a manager the API turns away gets
   // the reason rather than a checkout that would refuse them.
   const openTeamPitch = () => {
     if (isOwner) setPitchOpen(true)
     else errorSnackbar('Only the campaign owner can upgrade to Team.')
+  }
+  const onInviteClick = () => {
+    if (gated) openTeamPitch()
+    else setInviteOpen(true)
   }
 
   // isPending, not isLoading: in React Query v5 isLoading = isPending &&
@@ -94,6 +97,8 @@ const TeamPage = (): React.JSX.Element => {
       clientRequest('GET /v1/organizations/team', {}).then((res) => res.data),
     enabled: !!orgSlug && !isElectedOffice,
   })
+
+  const { gated, plan, unavailableReason } = useTeamInviteGate(data?.invites)
 
   // Independent of the members query (ENG-11080): a stats failure must never
   // degrade member management, so it gets its own isPending/isError rather
@@ -286,15 +291,16 @@ const TeamPage = (): React.JSX.Element => {
                   decision recorded on that route in team.controller.ts.
                   Revoke (below) is manager+ for the same reason (delegate
                   review, PR #1688). */}
-              <Button
-                onClick={() =>
-                  gated && isOwner ? setPitchOpen(true) : setInviteOpen(true)
-                }
-              >
+              <Button onClick={onInviteClick} disabled={!!unavailableReason}>
                 <PlusIcon />
                 Invite
               </Button>
             </div>
+            {unavailableReason && (
+              <p className="m-0 text-sm text-muted-foreground">
+                {UNAVAILABLE_COPY[unavailableReason]}
+              </p>
+            )}
             {gated && isOwner && plan === 'pro' && (
               <div className="rounded-lg bg-muted p-4">
                 <p className="m-0 text-sm font-medium text-foreground">
