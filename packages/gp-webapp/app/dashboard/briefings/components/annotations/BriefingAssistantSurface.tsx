@@ -85,7 +85,7 @@ function ChatBody({
       <AskAiChatBody
         meetingDate={meetingDate}
         anchor={anchorFromAnnotation(item)}
-        annotationIdOverride={item.id}
+        conversationIdOverride={item.chat?.id}
         showInlineHeader={false}
         bodyClassName="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
         active={active}

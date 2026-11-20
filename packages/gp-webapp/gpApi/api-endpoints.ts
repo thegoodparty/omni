@@ -223,7 +223,7 @@ import type {
   UpdateCivicPanelInput,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
-import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
+import type { AnnotationAnchor } from 'app/shared/briefings/types'
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type {
   ChatConversationListResponse,
@@ -2349,12 +2349,10 @@ export type APIEndpoints = {
     Response: Race
   }
 
-  // Briefing chat routes — cross-repo contract with gp-api PR #1607.
-  // Request/response shapes mirror gp-api's createBriefingChatSchema,
-  // getConversationResponseSchema, and sendMessageSchema. SSE message
-  // streaming is intentionally not modeled here because clientRequest
-  // can't consume an SSE body — see chat-api.ts streamMessage for the
-  // raw fetch path.
+  // The annotation-keyed half of briefing chat. Turns and history are
+  // conversation-keyed and go through the shared `/v1/chats/:id` routes (see
+  // app/dashboard/shared/agent-chat/chatClient.ts); SSE streaming is not
+  // modeled here because clientRequest can't consume an SSE body.
   'POST /v1/briefing-chats': {
     Request: {
       meetingDate: string
@@ -2363,13 +2361,6 @@ export type APIEndpoints = {
     Response: {
       annotationId: string
       conversationId: string
-    }
-  }
-  'GET /v1/briefing-chats/:annotationId': {
-    Request: {}
-    Response: {
-      conversationId: string
-      messages: ChatMessage[]
     }
   }
   'DELETE /v1/briefing-chats/:annotationId': {

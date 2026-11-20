@@ -124,9 +124,9 @@ export class BriefingContextService extends createPrismaBase(
     }
   }
 
-  // The scope-handler entry: the shared chat interface keys on a
-  // conversationId, briefing chat on an annotationId. Annotation
-  // .chatConversationId is @unique, so this resolves to at most one annotation.
+  // The scope-handler entry. `Annotation.chatConversationId` is @unique, so a
+  // conversation resolves to at most one annotation; the annotation-keyed
+  // create and delete still go through `loadContext` below.
   async loadContextByConversation(
     conversationId: string,
     userId: number,

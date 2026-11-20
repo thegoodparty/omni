@@ -139,11 +139,12 @@ tools: {
 table is not fixed by its definition but chosen per run, as the people marts
 are (`PeopleDatasetService` picks `gp_api_voters` or `gp_api_constituents` per
 org). The resolver runs once per query and an empty list refuses every query;
-the description then says "the table named in your input" rather than listing
-one, because a table the run chooses cannot be named at definition time. Put
-the chosen name in the run's input so the model reads it from its first message,
-and have the resolver read it back from the stored `AgentRun.input` by
-`ctx.runId` — never from anything the model sends in a tool call.
+the description then says "the table this organization reads" rather than
+listing one, because a table the run chooses cannot be named at definition
+time. Resolve it from `ctx.organizationSlug` through the service that owns the
+choice, as `topCommunityIssuesDatabricksTables` does — never from anything the
+model sends in a tool call, and never from a field a caller has to remember to
+pass, because then one caller that forgets starts runs no query can serve.
 
 - **Aggregate-only, on the constituent-data tool's rules.** The chat tools
   (`query_constituent_data`, `district_insights`) hold model-written voter SQL to
@@ -231,8 +232,9 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   closed: no state or half an L2 pair is `no_scope`.
 - **The table must be one gp-api's principal can read**: `mart_gp_api`, the
   schema with a grant that survives a dbt rebuild. A manifest's `dbt.*` table
-  gets a mart view first, and where the table varies by org the run carries the
-  name (`top_community_issues` reads the org's own people mart).
+  gets a mart view first, and where the table varies by org the tool resolves
+  it from the run's org (`top_community_issues` reads the org's own people
+  mart).
 - **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
   reads a double-quoted identifier as a string), so the model writes the filter
   itself and the tool proves it rather than splicing SQL.

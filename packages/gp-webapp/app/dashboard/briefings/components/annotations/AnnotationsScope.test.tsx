@@ -163,8 +163,6 @@ vi.mock('@shared/observability/reportClientError', () => ({
 vi.mock('@shared/briefings/chat-api', () => ({
   chatApi: {
     createBriefingChat: vi.fn(),
-    listMessages: vi.fn().mockResolvedValue([]),
-    streamMessage: vi.fn(),
     softDelete: vi.fn(),
   },
 }))

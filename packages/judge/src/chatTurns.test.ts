@@ -212,7 +212,7 @@ describe('briefingChatTurns', () => {
         },
       },
       {
-        path: '/v1/briefing-chats/annotation-1/messages',
+        path: '/v1/chats/briefing-conversation-1/messages?scope=briefing_annotation',
         body: { content: 'what is this meeting about' },
       },
     ])

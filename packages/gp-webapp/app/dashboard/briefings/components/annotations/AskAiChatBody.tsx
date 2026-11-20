@@ -14,12 +14,12 @@ import { segmentsToLive } from '../../../shared/agent-chat/streaming'
 import { COMPOSE_HANDOFF_TOOL } from '../../../shared/agent-chat/composeHandoffWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { newClientMessageId } from '../../../shared/agent-chat/chatHelpers'
-import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { DictationMicButton } from '../../../shared/dictation/DictationMicButton'
 import { DictationFeedback } from '../../shared/DictationFeedback'
 import { chatApi } from '@shared/briefings/chat-api'
 import { EMPTY_ANCHOR } from '@shared/briefings/anchorResolver'
+import { briefingChatApi } from '../../briefingChat'
 import { reportClientError } from '@shared/observability/reportClientError'
 import type { AnnotationAnchor } from '@shared/briefings/types'
 import AskAiSuggestedPills from './AskAiSuggestedPills'
@@ -28,11 +28,11 @@ type Props = {
   meetingDate: string
   anchor: AnnotationAnchor | null
   /**
-   * When set, the body skips `createBriefingChat` and uses this annotation
-   * id to load prior messages directly. Use when reopening an existing
-   * chat-kind annotation.
+   * When set, the body skips `createBriefingChat` and loads this
+   * conversation's history directly. Use when reopening an existing
+   * chat-kind annotation: `Annotation.chat.id` is the conversation id.
    */
-  annotationIdOverride?: string
+  conversationIdOverride?: string
   /**
    * When true, renders the inline "Briefing assistant" header in the empty
    * state. Sheet container renders its own SheetHeader and sets this false.
@@ -102,13 +102,14 @@ function toolDisplayName(toolName: string): string {
  * briefing-specific chrome: deferred create against an annotation, the
  * "interrupted" retry box, the jump-to-latest pill, and suggested pills.
  *
- * The briefing chat is annotation-keyed; a thin adapter maps the shared engine's
- * `conversationId` onto the briefing client's `annotationId`.
+ * Turns and history are conversation-keyed like every other scope's, so the
+ * engine talks to `briefingChatApi` directly; only the deferred create is
+ * briefing's own, and it is what mints the annotation the delete is keyed on.
  */
 export default function AskAiChatBody({
   meetingDate,
   anchor,
-  annotationIdOverride,
+  conversationIdOverride,
   showInlineHeader = true,
   bodyClassName,
   active = true,
@@ -116,7 +117,7 @@ export default function AskAiChatBody({
   onSendingChange,
   onAnnotationIdReady,
 }: Props): React.JSX.Element {
-  const [annotationId, setAnnotationId] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const [loading, setLoading] = useState(false)
   const [streamError, setStreamError] = useState<{
@@ -149,25 +150,6 @@ export default function AskAiChatBody({
     onChange: setComposer,
   })
 
-  // Adapter: the shared engine speaks `conversationId`; the briefing client is
-  // keyed by `annotationId`. They carry the same message/stream shapes, so this
-  // is a pure key rename.
-  const streamingApi = useMemo<
-    Pick<AgentChatClient, 'streamMessage' | 'listMessages'>
-  >(
-    () => ({
-      streamMessage: ({ conversationId, content, id, signal }) =>
-        chatApi.streamMessage({
-          annotationId: conversationId,
-          content,
-          id,
-          signal,
-        }),
-      listMessages: (conversationId) => chatApi.listMessages(conversationId),
-    }),
-    [],
-  )
-
   // compose_handoff is a widget this surface does not register, and the label
   // fallback would otherwise put its internal name on a pill.
   const toolLabel = useCallback(
@@ -177,7 +159,7 @@ export default function AskAiChatBody({
   )
 
   const { messages, setMessages, visibleSegments, sending, send, isStreaming } =
-    useStreamingTurn(streamingApi, {
+    useStreamingTurn(briefingChatApi, {
       toolLabel,
       onTurnStart: () => {
         setStreamError(null)
@@ -206,22 +188,22 @@ export default function AskAiChatBody({
     onSendingChange?.(busy)
   }, [busy, onSendingChange])
 
-  // Override path — load prior messages for an existing chat annotation.
+  // Override path — load the transcript of an existing chat's conversation.
   const loadExistingChat = useCallback(async () => {
-    if (!annotationIdOverride) return
+    if (!conversationIdOverride) return
     if (loadRequestedRef.current) return
     loadRequestedRef.current = true
     setLoading(true)
-    setAnnotationId(annotationIdOverride)
+    setConversationId(conversationIdOverride)
     try {
-      const msgs = await chatApi.listMessages(annotationIdOverride)
+      const msgs = await briefingChatApi.listMessages(conversationIdOverride)
       setMessages(msgs)
     } catch (err) {
       reportClientError(err, {
         surface: 'briefing-ask-ai',
         phase: 'init',
         meetingDate,
-        annotationIdOverride,
+        conversationIdOverride,
       })
       loadRequestedRef.current = false
       setStreamError({
@@ -231,18 +213,19 @@ export default function AskAiChatBody({
     } finally {
       setLoading(false)
     }
-  }, [annotationIdOverride, meetingDate, setMessages])
+  }, [conversationIdOverride, meetingDate, setMessages])
 
   useEffect(() => {
-    if (!active || !annotationIdOverride) return
+    if (!active || !conversationIdOverride) return
     void loadExistingChat()
-  }, [active, annotationIdOverride, loadExistingChat])
+  }, [active, conversationIdOverride, loadExistingChat])
 
-  // Deferred create. Returns the existing annotationId, or mints a new chat row
-  // and returns its id (null on failure). State commits BEFORE the verification
-  // GET so a retry after a thrown GET does not re-create the row.
-  const ensureAnnotationId = useCallback(async (): Promise<string | null> => {
-    if (annotationId) return annotationId
+  // Deferred create. Returns the existing conversation id, or mints the
+  // annotation + conversation pair and returns the conversation's id (null on
+  // failure). State commits BEFORE the verification GET so a retry after a
+  // thrown GET does not re-create the row.
+  const ensureConversationId = useCallback(async (): Promise<string | null> => {
+    if (conversationId) return conversationId
     if (creatingRef.current) return null
     creatingRef.current = true
     setLoading(true)
@@ -251,7 +234,7 @@ export default function AskAiChatBody({
         meetingDate,
         anchor: anchor ?? EMPTY_ANCHOR,
       })
-      setAnnotationId(created.annotationId)
+      setConversationId(created.conversationId)
       onAnnotationIdReady?.(created.annotationId)
       // Defer onChatCreated until the first stream lands `done` — firing it here
       // triggers the host's overlay swap, unmounting this body mid-stream.
@@ -262,8 +245,8 @@ export default function AskAiChatBody({
       // Verification GET: confirms the freshly-minted chat is readable and gives
       // the server a beat to settle before the first POST /messages, which
       // otherwise raced a server-side visibility window (100% first-send fail).
-      await chatApi.listMessages(created.annotationId)
-      return created.annotationId
+      await briefingChatApi.listMessages(created.conversationId)
+      return created.conversationId
     } catch (err) {
       reportClientError(err, {
         surface: 'briefing-ask-ai',
@@ -275,7 +258,7 @@ export default function AskAiChatBody({
       creatingRef.current = false
       setLoading(false)
     }
-  }, [annotationId, anchor, meetingDate, onAnnotationIdReady])
+  }, [conversationId, anchor, meetingDate, onAnnotationIdReady])
 
   // Resolve-or-create the annotation, then stream the turn. `hidden` skips the
   // optimistic user bubble (a retry re-streams an existing turn). Fires the
@@ -312,16 +295,16 @@ export default function AskAiChatBody({
             ...prev,
             {
               id: `pending-${crypto.randomUUID()}`,
-              conversationId: annotationId ?? '',
+              conversationId: conversationId ?? '',
               role: 'user',
               content: trimmed,
               createdAt: new Date().toISOString(),
             },
           ])
         }
-        let id = annotationId
+        let id = conversationId
         if (!id) {
-          id = await ensureAnnotationId()
+          id = await ensureConversationId()
           if (!id) {
             setStreamError({
               message: 'Could not start chat. Try again.',
@@ -340,7 +323,7 @@ export default function AskAiChatBody({
         deliveringRef.current = false
       }
     },
-    [isStreaming, annotationId, ensureAnnotationId, send, setMessages],
+    [isStreaming, conversationId, ensureConversationId, send, setMessages],
   )
 
   const onSend = useCallback((): void => {
@@ -379,7 +362,7 @@ export default function AskAiChatBody({
   // (repeated retries of that still replay via the stored ref).
   const resendUserTurn = useCallback(
     (content: string): void => {
-      if (!annotationId) return
+      if (!conversationId) return
       const trimmed = content.trim()
       if (!trimmed) return
       // Content-match, not per-message tracking: if two user turns share the
@@ -391,14 +374,14 @@ export default function AskAiChatBody({
           : newClientMessageId()
       lastUserContentRef.current = trimmed
       lastClientMessageIdRef.current = userMessageId
-      void send(annotationId, trimmed, { hidden: true, id: userMessageId })
+      void send(conversationId, trimmed, { hidden: true, id: userMessageId })
     },
-    [annotationId, send],
+    [conversationId, send],
   )
 
   const onRetryInterrupted = useCallback(
     (interruptedId: string): void => {
-      if (!annotationId || busy) return
+      if (!conversationId || busy) return
       const idx = messages.findIndex((m) => m.id === interruptedId)
       if (idx <= 0) return
       const prior = messages[idx - 1]
@@ -406,11 +389,11 @@ export default function AskAiChatBody({
       setMessages((prev) => prev.filter((m) => m.id !== interruptedId))
       resendUserTurn(prior.content)
     },
-    [annotationId, busy, messages, setMessages, resendUserTurn],
+    [conversationId, busy, messages, setMessages, resendUserTurn],
   )
 
   const onRetryLastUser = useCallback((): void => {
-    if (!annotationId || busy) return
+    if (!conversationId || busy) return
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
       if (m && m.role === 'user') {
@@ -418,7 +401,7 @@ export default function AskAiChatBody({
         return
       }
     }
-  }, [annotationId, busy, messages, resendUserTurn])
+  }, [conversationId, busy, messages, resendUserTurn])
 
   // Track whether the user is pinned to the bottom so we follow streaming text
   // only while they haven't scrolled up to read earlier content.

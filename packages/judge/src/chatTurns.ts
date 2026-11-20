@@ -9,11 +9,11 @@ import type { EvalContext } from './suite'
 //   POST /v1/chats                     { scope, anchor? } -> { conversationId }
 //   POST /v1/chats/:id/messages?scope= { content }        -> text/event-stream
 //
-// briefing_annotation is the exception: its conversation is created together
-// with the annotation it hangs off, so it opens on its own pair of routes.
+// briefing_annotation is the exception only on create: its conversation is
+// made together with the annotation it hangs off. Its turns go to the shared
+// route like every other scope.
 //
-//   POST /v1/briefing-chats              { meetingDate, anchor }
-//   POST /v1/briefing-chats/:annotationId/messages
+//   POST /v1/briefing-chats              { meetingDate, anchor } -> { conversationId }
 //
 // The org header is already on the arm's client (`arm.ts`), so every path here
 // is relative to the arm's API root and scoped to the org bootstrap created.
@@ -132,14 +132,14 @@ export const briefingChatTurns = async (
   ctx: EvalContext,
   { meetingDate, anchor, turns }: BriefingChatTurnsInput,
 ): Promise<string> => {
-  const { annotationId, conversationId } = await ctx.api.post<{
-    annotationId: string
-    conversationId: string
-  }>('/v1/briefing-chats', { meetingDate, anchor })
+  const { conversationId } = await ctx.api.post<{ conversationId: string }>(
+    '/v1/briefing-chats',
+    { meetingDate, anchor },
+  )
   return converse(ctx, {
     scope: 'briefing_annotation',
     conversationId,
-    path: `/v1/briefing-chats/${annotationId}/messages`,
+    path: `/v1/chats/${conversationId}/messages?scope=briefing_annotation`,
     turns,
   })
 }

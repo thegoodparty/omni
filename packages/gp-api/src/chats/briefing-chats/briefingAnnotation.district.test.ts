@@ -167,12 +167,5 @@ describe('BriefingAnnotationHandler district scoping (two orgs)', () => {
     const ctxB = await handler.loadContext(b.conversationId, userId)
     expect(ctxA.districtFilters).toEqual(filtersFor(OFFICE_A))
     expect(ctxB.districtFilters).toEqual(filtersFor(OFFICE_B))
-
-    // The annotation-keyed entry (the /v1/briefing-chats send path) agrees.
-    const viaAnnotationB = await handler.loadContextForAnnotation(
-      b.annotation.id,
-      userId,
-    )
-    expect(viaAnnotationB.districtFilters).toEqual(filtersFor(OFFICE_B))
   })
 })

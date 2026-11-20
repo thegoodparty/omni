@@ -29,7 +29,7 @@ export default defineExpectedResultEvalSuite('message_classifier', {
 })
 ```
 
-See [the case scout gate suite](../packages/gp-api/src/caseScout/caseScoutGate.eval.ts) for a full example. Omni is public. Never commit private or real data. Load it at run time from a private location and keep it out of annotations and shared reports.
+See [the case scout gate suite](../packages/gp-api/src/caseScout/caseScoutGate.eval.ts) for a full example. Omni is public. Never commit private or real data. Load it at run time from a private location and keep it out of annotations and shared reports. Annotations reach a public job summary, so never annotate a token, key or test-user secret; the annotation helper redacts known secret shapes, but do not rely on it.
 
 ## Pairwise suites
 
@@ -56,8 +56,9 @@ own test user and returns the transcript.
 `chatTurns(ctx, { scope, turns, anchor? })` opens `POST /v1/chats` and posts each
 turn to `POST /v1/chats/:conversationId/messages`. `briefingChatTurns(ctx,
 { meetingDate, anchor, turns })` is the exception: a briefing conversation is
-created together with the annotation it hangs off, so it opens `POST
-/v1/briefing-chats` and posts to `/v1/briefing-chats/:annotationId/messages`.
+created together with the annotation it hangs off, so it opens with `POST
+/v1/briefing-chats`. Its turns go to the shared `POST
+/v1/chats/:conversationId/messages` route like every other scope.
 `POST /v1/chats` refuses the `briefing_annotation` scope on purpose.
 
 Both return the turns as `User: …\nAssistant: …` blocks, which is the text the
@@ -90,7 +91,7 @@ bench reads them back. A change to one changes no verdict.
 
 ## Run evals
 
-From the repo root:
+Evals never run in `npm test` or `npm run verify`: only `vitest.evals.config.ts` picks up `*.eval.ts`. From the repo root:
 
 ```sh
 npm run eval -w packages/gp-api

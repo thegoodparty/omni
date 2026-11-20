@@ -5,25 +5,27 @@ import { render } from 'helpers/test-utils/render'
 import type {
   ChatErrorCode,
   ChatStreamEvent,
-} from '@shared/briefings/chat-events'
+} from '../../../shared/agent-chat/chatClient'
 import AskAiChatBody from './AskAiChatBody'
 import { EMPTY_ANCHOR } from '@shared/briefings/anchorResolver'
 
-// Stub `chatApi` so we can drive create / stream behavior from each test
-// and assert what the body actually fired.
+// Two seams, because the surface has two: the annotation-keyed create lives in
+// `chatApi`, and turns/history live on the shared scope client. Stub both so a
+// test can drive what the body actually fired.
 const createMock = vi.fn()
 const listMessagesMock = vi.fn()
 const streamMessageMock = vi.fn()
-const softDeleteMock = vi.fn()
-const sendInterruptMock = vi.fn()
 
 vi.mock('@shared/briefings/chat-api', () => ({
   chatApi: {
     createBriefingChat: (...args: unknown[]) => createMock(...args),
+  },
+}))
+
+vi.mock('../../briefingChat', () => ({
+  briefingChatApi: {
     listMessages: (...args: unknown[]) => listMessagesMock(...args),
     streamMessage: (...args: unknown[]) => streamMessageMock(...args),
-    softDelete: (...args: unknown[]) => softDeleteMock(...args),
-    sendInterrupt: (...args: unknown[]) => sendInterruptMock(...args),
   },
 }))
 
@@ -78,15 +80,13 @@ beforeEach(() => {
   createMock.mockReset()
   listMessagesMock.mockReset()
   streamMessageMock.mockReset()
-  softDeleteMock.mockReset()
-  sendInterruptMock.mockReset()
 })
 
 describe('<AskAiChatBody> deferred creation', () => {
-  it('does NOT call chatApi.createBriefingChat on mount when no annotationIdOverride is given', async () => {
+  it('does NOT call chatApi.createBriefingChat on mount when no conversationIdOverride is given', async () => {
     render(<AskAiChatBody meetingDate={MEETING_DATE} anchor={null} active />)
 
-    // Composer is interactive immediately (no annotationId required to
+    // Composer is interactive immediately (no conversation required to
     // type into it).
     const textarea = await screen.findByLabelText(/ask assistant message/i)
     expect(textarea).not.toBeDisabled()
@@ -130,13 +130,14 @@ describe('<AskAiChatBody> deferred creation', () => {
     // against the post-create settling race that surfaced as 100% first
     // message failure before the warm-up read was reintroduced.
     await waitFor(() => expect(listMessagesMock).toHaveBeenCalledTimes(1))
-    expect(listMessagesMock).toHaveBeenCalledWith('ann_new_1')
+    expect(listMessagesMock).toHaveBeenCalledWith('conv_new_1')
 
-    // After create + verification, stream fires with the freshly-minted id.
+    // After create + verification, stream fires against the conversation the
+    // create returned — not the annotation, which only owns the delete.
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
     expect(streamMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        annotationId: 'ann_new_1',
+        conversationId: 'conv_new_1',
         content: 'what is on the agenda',
       }),
     )
@@ -205,7 +206,7 @@ describe('<AskAiChatBody> deferred creation', () => {
   it('does NOT call createBriefingChat twice when the post-create verification GET fails and the user retries', async () => {
     // Regression guard for the delegate-reviewer finding: if state
     // commits happen AFTER `listMessages`, a thrown verification GET
-    // leaves `annotationId` null and the retry path re-creates the chat
+    // leaves `conversationId` null and the retry path re-creates the chat
     // row server-side. Asserts the create is invoked exactly once even
     // when the verification GET throws.
     const user = userEvent.setup()
@@ -226,7 +227,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     await screen.findByRole('alert')
 
     // Retry — listMessages would succeed now, but the implementation
-    // should short-circuit via the cached annotationId and skip create
+    // should short-circuit via the cached conversationId and skip create
     // entirely.
     listMessagesMock.mockResolvedValueOnce([])
     await user.click(screen.getByRole('button', { name: /^retry$/i }))
@@ -238,7 +239,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     expect(createMock).toHaveBeenCalledTimes(1)
     expect(streamMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        annotationId: 'ann_no_dup',
+        conversationId: 'conv_no_dup',
         content: 'first try',
       }),
     )
@@ -344,13 +345,13 @@ describe('<AskAiChatBody> deferred creation', () => {
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
     expect(streamMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        annotationId: 'ann_retry',
+        conversationId: 'conv_retry',
         content: 'first try',
       }),
     )
   })
 
-  it('reuses the same annotationId for a second send (does not re-create)', async () => {
+  it('reuses the same conversationId for a second send (does not re-create)', async () => {
     const user = userEvent.setup()
     createMock.mockResolvedValue({
       annotationId: 'ann_reuse',
@@ -369,13 +370,13 @@ describe('<AskAiChatBody> deferred creation', () => {
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
 
     // Send a second message — create must NOT fire again, stream uses
-    // the same id.
+    // the same conversation.
     await user.type(textarea, 'second')
     await user.click(screen.getByRole('button', { name: /ask assistant/i }))
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(2))
     expect(createMock).toHaveBeenCalledTimes(1)
     expect(streamMessageMock.mock.calls[1]?.[0]).toMatchObject({
-      annotationId: 'ann_reuse',
+      conversationId: 'conv_reuse',
       content: 'second',
     })
   })
@@ -412,7 +413,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     await user.click(screen.getByRole('button', { name: /^retry$/i }))
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(2))
     expect(streamMessageMock.mock.calls[1]?.[0]).toMatchObject({
-      annotationId: 'ann_dedupe',
+      conversationId: 'conv_dedupe',
       content: 'dedupe me',
       id: firstId,
     })
@@ -462,7 +463,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(2))
     // Same content AND the same client-message id — the server dedupes it.
     expect(streamMessageMock.mock.calls[1]?.[0]).toMatchObject({
-      annotationId: 'ann_bare',
+      conversationId: 'conv_bare',
       content: 'ping the server',
       id: firstId,
     })
@@ -470,7 +471,7 @@ describe('<AskAiChatBody> deferred creation', () => {
 })
 
 describe('<AskAiChatBody> override path still works', () => {
-  it('loads prior messages from an existing chat when annotationIdOverride is provided, without minting a new row', async () => {
+  it('loads prior messages from an existing chat when conversationIdOverride is provided, without minting a new row', async () => {
     listMessagesMock.mockResolvedValue([
       { id: 'm1', role: 'user', content: 'historical question' },
       { id: 'm2', role: 'assistant', content: 'historical answer' },
@@ -480,13 +481,13 @@ describe('<AskAiChatBody> override path still works', () => {
       <AskAiChatBody
         meetingDate={MEETING_DATE}
         anchor={null}
-        annotationIdOverride="ann_existing"
+        conversationIdOverride="conv_existing"
         active
       />,
     )
 
     await waitFor(() => expect(listMessagesMock).toHaveBeenCalledTimes(1))
-    expect(listMessagesMock).toHaveBeenCalledWith('ann_existing')
+    expect(listMessagesMock).toHaveBeenCalledWith('conv_existing')
     expect(createMock).not.toHaveBeenCalled()
     expect(await screen.findByText('historical question')).toBeInTheDocument()
     expect(screen.getByText('historical answer')).toBeInTheDocument()

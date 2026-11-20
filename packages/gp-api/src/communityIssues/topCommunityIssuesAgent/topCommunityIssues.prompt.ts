@@ -89,7 +89,7 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 
 **Internal modeled data (\`queryDatabricks\`) — lean annotation only**:
 
-- The one table is the \`peopleTable\` in your input, exactly as written there — it is \`goodparty_data_catalog.mart_gp_api.gp_api_voters\` or \`...gp_api_constituents\`, whichever this organization reads. Every query must read that one table; a query with no FROM, or naming the other, is rejected.
+- The one table is \`goodparty_data_catalog.mart_gp_api.gp_api_voters\` or \`...gp_api_constituents\`, whichever this organization reads; it is the tool's table, and every query must read it. A query with no FROM, or naming a table that is not this organization's, is rejected.
 - **Every query writes its own jurisdiction filter, as literals.** Always \`Residence_Addresses_State = '<state>'\`. When the input has the L2 pair, also \`<l2DistrictType> = '<l2DistrictName>'\` — the column NAME is the value of \`l2DistrictType\`, the value is \`l2DistrictName\` exactly as given, unquoted column, single-quoted value: \`City_Ward = 'FAYETTEVILLE CITY WARD 2'\`. No OR around either clause. A query without them is rejected and tells you the clause to add; add it and run again. No bind parameters: write values inline.
 - **\`Active\` is a STRING.** Add \`Active = 'A'\`. \`Active = 1\` matches zero rows.
 - One SELECT per call, no joins of the table with itself, no DDL, no \`SHOW\`, no \`DESCRIBE\`, no \`information_schema\`. Use the **inline catalog** below for column names; it is the complete set.
@@ -180,7 +180,7 @@ For each candidate, capture the **named instance** (the project, rate, vote, dol
 
 Pick community-relevant columns from the inline catalog, then run ONE batched aggregation. Scoping matters: \`hs_*\` are within-state percentile ranks, so averaging them over the whole state collapses every lean to ~0. The district scope is what makes the lean meaningful. **Target 1-2 turns.**
 
-With the L2 pair (\`l2DistrictType: "City_Ward"\`, \`l2DistrictName: "FAYETTEVILLE CITY WARD 2"\`, \`state: "NC"\`, \`peopleTable: "goodparty_data_catalog.mart_gp_api.gp_api_voters"\`):
+With the L2 pair (\`l2DistrictType: "City_Ward"\`, \`l2DistrictName: "FAYETTEVILLE CITY WARD 2"\`, \`state: "NC"\`):
 
 \`\`\`sql
 SELECT COUNT(*) AS n,
