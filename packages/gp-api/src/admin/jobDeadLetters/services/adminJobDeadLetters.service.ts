@@ -21,8 +21,13 @@ import { DEFAULT_PAGINATION_OFFSET } from '@/shared/constants/paginationOptions.
 import { deadLetterQueue } from '@/jobs/jobs.service'
 
 type DeadLetterRow = {
+  id: string
   name: string
+  created_on: Date
   source_name: string | null
+  source_retry_count: number | null
+  data: JobDeadLetter['data']
+  source_output: Prisma.JsonValue
 }
 
 // pg-boss keeps a failed attempt's error as serialize-error's object, nested
@@ -34,6 +39,15 @@ const errorOf = (output: Prisma.JsonValue): string | null => {
   const message = isJsonObject(nested) ? nested['message'] : output['message']
   return typeof message === 'string' ? message : null
 }
+
+const toDeadLetter = (row: Omit<DeadLetterRow, 'name'>): JobDeadLetter => ({
+  id: row.id,
+  sourceQueue: row.source_name,
+  createdAt: row.created_on,
+  retriesUsed: row.source_retry_count,
+  data: row.data,
+  error: errorOf(row.source_output),
+})
 
 @Injectable()
 export class AdminJobDeadLettersService implements OnModuleDestroy {
@@ -90,14 +104,7 @@ export class AdminJobDeadLettersService implements OnModuleDestroy {
       : Prisma.sql`name LIKE ${'%-dlq'}`
     const [rows, count] = await Promise.all([
       this.prisma.$queryRaw<
-        Array<{
-          id: string
-          created_on: Date
-          source_name: string | null
-          source_retry_count: number | null
-          data: JobDeadLetter['data']
-          source_output: Prisma.JsonValue
-        }>
+        Array<Omit<DeadLetterRow, 'name'>>
       >`SELECT id::text AS id, created_on, source_name, source_retry_count,
           data, source_output
         FROM pgboss.job WHERE ${where}
@@ -107,16 +114,15 @@ export class AdminJobDeadLettersService implements OnModuleDestroy {
         SELECT count(*)::int AS total FROM pgboss.job WHERE ${where}`,
     ])
     return {
-      data: rows.map((row) => ({
-        id: row.id,
-        sourceQueue: row.source_name,
-        createdAt: row.created_on,
-        retriesUsed: row.source_retry_count,
-        data: row.data,
-        error: errorOf(row.source_output),
-      })),
+      data: rows.map(toDeadLetter),
       meta: { total: count[0]?.total ?? 0, offset, limit },
     }
+  }
+
+  async get(id: string): Promise<JobDeadLetter> {
+    const row = await this.findDeadLetter(id)
+    if (!row) throw new NotFoundException(`No dead letter ${id}`)
+    return toDeadLetter(row)
   }
 
   /**
@@ -167,7 +173,9 @@ export class AdminJobDeadLettersService implements OnModuleDestroy {
 
   private async findDeadLetter(id: string): Promise<DeadLetterRow | undefined> {
     const [row] = await this.prisma.$queryRaw<DeadLetterRow[]>`
-      SELECT name, source_name FROM pgboss.job
+      SELECT id::text AS id, name, created_on, source_name, source_retry_count,
+        data, source_output
+      FROM pgboss.job
       WHERE id = ${id}::uuid AND name LIKE ${'%-dlq'}`
     return row
   }

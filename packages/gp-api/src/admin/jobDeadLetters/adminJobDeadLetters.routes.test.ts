@@ -32,6 +32,8 @@ const deadLetterOne = async (): Promise<string> => {
 const listDeadLetters = (params?: Record<string, string>) =>
   service.client.get(LIST_PATH, { params })
 
+const getDeadLetter = (id: string) => service.client.get(`${LIST_PATH}/${id}`)
+
 const queuedJobsFor = async (organizationSlug: string) => {
   const rows = await service.prisma.$queryRaw<
     Array<{
@@ -102,6 +104,41 @@ describe('admin job dead letters', () => {
       data: [],
       meta: { total: 0, offset: 0, limit: 100 },
     })
+  })
+
+  it('reads one dead letter with the same shape the list gives it', async () => {
+    const organizationSlug = await deadLetterOne()
+    const listed = await listDeadLetters()
+    const deadLetter: { id: string } = listed.data.data[0]
+
+    const res = await getDeadLetter(deadLetter.id)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual({
+      id: deadLetter.id,
+      sourceQueue: SOURCE_QUEUE,
+      createdAt: expect.any(String),
+      retriesUsed: 2,
+      data: { organizationSlug },
+      error: 'Segment is down',
+    })
+  })
+
+  it('answers an unknown id with 404', async () => {
+    const res = await getDeadLetter(randomUUID())
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('rejects a non-admin reading one dead letter', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [] },
+    })
+
+    const res = await getDeadLetter(randomUUID())
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
 
   it('redrives one dead letter onto the queue its job failed on', async () => {

@@ -35,6 +35,12 @@ export class AdminJobDeadLettersController {
     return this.deadLetters.list(query)
   }
 
+  @Get(':id')
+  @ResponseSchema(JobDeadLetterSchema)
+  get(@Param('id', ParseUUIDPipe) id: string) {
+    return this.deadLetters.get(id)
+  }
+
   @Post(':id/redrive')
   @ResponseSchema(RedriveJobDeadLetterResultSchema)
   redrive(@Param('id', ParseUUIDPipe) id: string) {
