@@ -271,9 +271,7 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
    PMF Engine, so the switch flips per environment. Keep the test-user and
    test-mode check `ExperimentRunsService.dispatchRun` makes; `run` does not
    make it.
-5. Add it to `IN_PROCESS_AGENTS` in the judge
-   (`src/chats/evals/judge/runners/backgroundInProcess.ts`): its candidate
-   arm then runs on gp-api against the PMF Engine's base arm.
+5. Add a pairwise migration suite. See [Writing agent evals](../../../../docs/agent-evals.md).
 6. Delete its `qa/` manifest under `packages/runbooks/experiments/`. QA
    checkers are not migrated.
 
