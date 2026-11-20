@@ -3,7 +3,7 @@ title: A job dead letter is redriven through gp-admin, and the queue comes from 
 status: active
 decided_by: [swain]
 date: 2026-11-20
-code: ['#0']
+code: ['#3970']
 scope:
   - packages/gp-api/src/admin/jobDeadLetters/**
   - packages/gp-admin/src/app/dashboard/job-dead-letters/**
