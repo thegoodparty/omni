@@ -983,6 +983,58 @@ describe('the handoff to Delegate', () => {
     expect(marker().updatedByRun).toBe(RUN_ID)
   })
 
+  it('sends again under the same webhook-id when delivery.json fails', async () => {
+    sendToDelegate()
+    await draftOne()
+    vi.spyOn(
+      service.app.get(CaseScoutBucketService),
+      'writeDelivery',
+    ).mockRejectedValueOnce(new Error('S3 unavailable'))
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    // The swarm dedupes on webhook-id, so the second post is harmless.
+    expect(requests.map((r) => r.headers['webhook-id'])).toEqual([
+      `case-scout-dev-${RUN_ID}`,
+      `case-scout-dev-${RUN_ID}`,
+    ])
+    expect(requests[0]?.body).toBe(requests[1]?.body)
+    expect(
+      DeliverySchema.parse(
+        JSON.parse(bucketJson(`runs/${RUN_ID}/delivery.json`) ?? '{}'),
+      ),
+    ).toMatchObject({ webhookId: `case-scout-dev-${RUN_ID}` })
+    expect(notes).toHaveLength(1)
+    expect(marker().updatedByRun).toBe(RUN_ID)
+  })
+
+  it('labels a prod night prod and posts its note to the prod digest', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    sendToDelegate()
+    await draftOne()
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    expect(requests).toHaveLength(1)
+    const [{ headers, body }] = requests as [WebhookRequest]
+    expect(headers['webhook-id']).toBe(`case-scout-prod-${RUN_ID}`)
+    expect(CaseScoutHandoffSchema.parse(JSON.parse(body)).environment).toBe(
+      'prod',
+    )
+    // The note names source conversations, so it must reach only the prod
+    // digest.
+    expect(notes.map((n) => n.channel)).toEqual([
+      SlackChannel.productChatsDigest,
+    ])
+    expect(notes[0]?.text).toContain(
+      'FROM gp_api_pg.public.agent_message WHERE conversation_id IN ' +
+        "('conv-ho')",
+    )
+    expect(notes[0]?.text).toContain(
+      `Handoff: sent to Delegate (webhook-id case-scout-prod-${RUN_ID})`,
+    )
+  })
+
   it('does nothing more once the marker names the night', async () => {
     sendToDelegate()
     await draftOne()
