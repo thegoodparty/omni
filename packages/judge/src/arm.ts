@@ -108,13 +108,12 @@ export const createArmContext = async (
 
   const ctx: EvalContext = {
     api: toEvalApi(user),
-    // `responseType: 'text'` and the identity transform: axios' default would
-    // try the whole body as JSON, and a single SSE frame that happens to parse
-    // would reach the parser as an object rather than as the stream text.
+    // A turn's reply is the event stream itself: opaque text with no JSON body
+    // to read. `responseType: 'text'` asks for that explicitly instead of
+    // leaving it to axios, which types and would log the body as a parsed value.
     postEventStream: async (path, body) => {
       const { data } = await user.client.post<string>(path, body, {
         responseType: 'text',
-        transformResponse: [(raw: string) => raw],
         headers: { Accept: 'text/event-stream' },
         // A turn streams for minutes; the arm's own budget bounds the run, not
         // a socket timeout under it.

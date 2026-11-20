@@ -72,6 +72,18 @@ const startArm = async (): Promise<{
           .end(JSON.stringify({ id: 7 }))
         return
       }
+      // A chat turn: the arm answers with the raw event stream, which is what
+      // the client has to hand back untouched, whatever the content type says.
+      if (
+        request.method === 'POST' &&
+        request.url ===
+          '/api/v1/chats/conversation-1/messages?scope=chief_of_staff'
+      ) {
+        response
+          .writeHead(200, { 'content-type': 'application/json' })
+          .end('data: {"type":"done"}\n\n')
+        return
+      }
       // The preflight's own probe: a run id that cannot exist, answered the way
       // a live arm answers one — the route is there, the run is not.
       if (request.url?.startsWith('/api/v1/agents/runs/')) {
@@ -179,6 +191,29 @@ describe('createArmContext', () => {
     )
     expect(call?.headers['x-organization-slug']).toBe('campaign-7')
     expect(call?.headers.authorization).toBe('Bearer token-1')
+  })
+
+  it('reads a chat turn as the raw stream text', async () => {
+    const { ctx } = await createArmContext({
+      arm: 'base',
+      baseUrl: arm.baseUrl,
+      mode: 'serve',
+      profile: {},
+      provisionUser: async () => fakeUser(arm.baseUrl),
+    })
+    // The reply is the event stream itself, so the whole body comes back as
+    // text for the SSE parser, with no JSON layer over it.
+    const body = await ctx.postEventStream(
+      '/v1/chats/conversation-1/messages?scope=chief_of_staff',
+      { content: 'hi' },
+    )
+    expect(body).toBe('data: {"type":"done"}\n\n')
+    const call = arm.requests.find((request) =>
+      request.url.startsWith('/api/v1/chats/conversation-1/messages'),
+    )
+    expect(call?.body).toBe(JSON.stringify({ content: 'hi' }))
+    expect(call?.headers.accept).toBe('text/event-stream')
+    expect(call?.headers['x-organization-slug']).toBe('campaign-7')
   })
 
   it('hands the arm URL to the context', async () => {
