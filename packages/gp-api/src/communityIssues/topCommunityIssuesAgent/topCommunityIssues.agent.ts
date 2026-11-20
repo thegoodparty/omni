@@ -9,6 +9,9 @@ import {
 } from '@/agents/tools/queryDatabricks'
 import type { ToolContext } from '@/agents/tools/tool'
 import { webSearch } from '@/agents/tools/webSearch'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { peopleTable as peopleTableFor } from '@/peopleDb/databricks/databricksVoterSql.util'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { CommunityIssueService } from '../services/communityIssue.service'
 import { getCommunityIssues } from '../trendingIssuesAgent/getCommunityIssues.tool'
@@ -22,10 +25,10 @@ import {
 const L2_COLUMN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 // The run's own input, read by run id, never anything the model sends. The
-// dispatcher builds it from the org's resolveServeContext and its resolved
-// people mart, so in production it is the org's own scope and table; on a judge
-// run, where every case shares one fixture org, it is the case's own district.
-// A run with no valid input refuses every query.
+// dispatcher builds it from the org's resolveServeContext, so in production it
+// is the org's own scope; on a judge run, where every case shares one fixture
+// org, it is the case's own district. A run with no valid input refuses every
+// query.
 const runInput = async (
   ctx: ToolContext,
 ): Promise<z.infer<typeof TopCommunityIssuesInputSchema> | null> => {
@@ -53,14 +56,21 @@ export const topCommunityIssuesDatabricksScope = async (
   return { state, district }
 }
 
-// The one people mart this run may read: whichever PeopleDatasetService
-// resolved for its org at dispatch. An input naming anything else (or none)
-// refuses every query, so the grant never widens to the other mart.
+// The one people mart this run may read: whichever PeopleDatasetService picks
+// for the run's org, the same choice every other people read in the product
+// makes. Resolved here, at query time, rather than carried in the input: no
+// caller starts a run with a table its org does not read, and no manifest has
+// to declare a field the product chooses. An org that no longer resolves
+// refuses every query.
 export const topCommunityIssuesDatabricksTables = async (
   ctx: ToolContext,
 ): Promise<string[]> => {
-  const input = await runInput(ctx)
-  return input ? [input.peopleTable] : []
+  const organization = await ctx
+    .get(OrganizationsService)
+    .client.organization.findUnique({ where: { slug: ctx.organizationSlug } })
+  if (!organization) return []
+  const dataset = await ctx.get(PeopleDatasetService).resolve(organization)
+  return [peopleTableFor(dataset)]
 }
 
 // The top_community_issues experiment on gp-api's own agents. The manifest's

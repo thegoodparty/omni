@@ -176,6 +176,39 @@ describe('on gp-api', () => {
     expect(run.input).toMatchObject({ today: '2026-11-19' })
   })
 
+  // An agent whose tool resolves its table per query takes the manifest's input
+  // and nothing else, so a suite can start it. The people mart is deliberately
+  // absent from the input: which one a run reads is its org's choice, made
+  // when the tool runs.
+  it('starts an agent whose people mart its tool resolves at query time', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'top_community_issues')
+
+    const res = await startRun('top_community_issues', {
+      organization_slug: ORG_SLUG,
+      state: 'NC',
+      office: 'City Council Member',
+      district_descriptor: 'FAYETTEVILLE CITY WARD 2, NC',
+      l2_district_type: 'City_Ward',
+      l2_district_name: 'FAYETTEVILLE CITY WARD 2',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const run = await service.prisma.agentRun.findUniqueOrThrow({
+      where: { id: res.data.runId },
+    })
+    expect(run.agentName).toBe('top_community_issues')
+    expect(run.status).toBe(AgentRunStatus.queued)
+    expect(run.input).toEqual({
+      organizationSlug: ORG_SLUG,
+      state: 'NC',
+      office: 'City Council Member',
+      districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
+      l2DistrictType: 'City_Ward',
+      l2DistrictName: 'FAYETTEVILLE CITY WARD 2',
+      today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) as unknown as string,
+    })
+  })
+
   it('reads the artifact off the run once it has one', async () => {
     const run = await service.prisma.agentRun.create({
       data: {

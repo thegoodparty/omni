@@ -70,10 +70,6 @@ const TrendingIssuesParamsSchema = z.object({
 const TopCommunityIssuesParamsSchema = TrendingIssuesParamsSchema.extend({
   l2_district_type: z.string().optional(),
   l2_district_name: z.string().optional(),
-  // Every judge case runs under one fixture org, so the case names the mart
-  // its run may read; the dispatcher fills the same field from the org's
-  // PeopleDatasetService in production.
-  people_table: z.string().optional(),
 })
 
 export const IN_PROCESS_AGENTS: Partial<Record<string, InProcessAgent>> = {
@@ -87,9 +83,6 @@ export const IN_PROCESS_AGENTS: Partial<Record<string, InProcessAgent>> = {
         districtDescriptor: parsed.district_descriptor,
         l2DistrictType: parsed.l2_district_type,
         l2DistrictName: parsed.l2_district_name,
-        peopleTable:
-          parsed.people_table ??
-          'goodparty_data_catalog.mart_gp_api.gp_api_voters',
         today,
       })
     },

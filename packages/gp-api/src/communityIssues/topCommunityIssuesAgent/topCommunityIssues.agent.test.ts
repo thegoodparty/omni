@@ -34,10 +34,7 @@ import {
   topCommunityIssuesDatabricksScope,
   topCommunityIssuesDatabricksTables,
 } from './topCommunityIssues.agent'
-import {
-  PEOPLE_MART_TABLES,
-  TopCommunityIssuesInputSchema,
-} from './topCommunityIssues.schema'
+import { TopCommunityIssuesInputSchema } from './topCommunityIssues.schema'
 
 const service = useTestService({ jobs: true })
 
@@ -50,31 +47,11 @@ const SERVE_CONTEXT = {
   l2DistrictName: 'FAYETTEVILLE CITY WARD 2',
 }
 
-const VOTERS_MART = PEOPLE_MART_TABLES[0]
+const VOTERS_TABLE = peopleTable({ base: 'voters' })
 
-// The mart the run's input names, read from the prompt the way the model reads
-// it. The fixture org resolves through PeopleDatasetService like any other, so
-// it is the constituents mart when its owner carries the consumer-data flag —
-// never assume VOTERS_MART.
-const peoplesTableFromPrompt = (
-  prompt: LanguageModelV3CallOptions['prompt'],
-): string => {
-  for (const message of prompt) {
-    const text =
-      typeof message.content === 'string'
-        ? message.content
-        : message.content
-            .map((part) => ('text' in part ? part.text : ''))
-            .join('')
-    if (!text.startsWith('{')) continue
-    const parsed = TopCommunityIssuesInputSchema.safeParse(JSON.parse(text))
-    if (parsed.success) return parsed.data.peopleTable
-  }
-  throw new Error('the run input was not in the prompt')
-}
-// The prompt's step-8 query, written against whichever table the run's input
-// names, exactly as a model reading that input would: bare aggregates and a
-// COUNT(*), because a function wrapped around an aggregate is rejected.
+// The mart the model's lean query must name, read off the tool description it
+// is given: the run's own input no longer carries a table, so this is the
+// only place the resolved mart is visible before a query runs.
 const leanSql = (table: string) =>
   `SELECT COUNT(*) AS n, AVG(hs_violent_crime_worried) AS avg_hs_violent_crime_worried, COUNT(hs_violent_crime_worried) AS cov_hs_violent_crime_worried FROM ${table} WHERE Residence_Addresses_State = 'NC' AND City_Ward = 'FAYETTEVILLE CITY WARD 2' AND Active = 'A'`
 
@@ -125,18 +102,16 @@ const toolCall = (toolName: string, input: unknown) => ({
 })
 
 // Read the feed, run the lean query, submit with the feed's issue carried
-// and the other one left out.
-const scriptedModel = () => {
+// and the other one left out. The lean query names the mart the run resolves,
+// since the input no longer carries one.
+const scriptedModel = (mart: string) => {
   const prompts: string[] = []
   const reply = (options: LanguageModelV3CallOptions) => {
     prompts.push(JSON.stringify(options.prompt))
     const step = options.prompt.filter((m) => m.role === 'assistant').length
     if (step === 0)
       return toolCall('getCommunityIssues', { list: 'top_community' })
-    if (step === 1)
-      return toolCall('queryDatabricks', {
-        sql: leanSql(peoplesTableFromPrompt(options.prompt)),
-      })
+    if (step === 1) return toolCall('queryDatabricks', { sql: leanSql(mart) })
     return toolCall('submitOutput', {
       output: output([
         issue('Stormwater flooding on Murchison Road', 1, carriedId),
@@ -198,6 +173,19 @@ const toolContext = (runId: string): ToolContext => ({
   signal: new AbortController().signal,
   get: (type) => service.app.get(type, { strict: false }),
 })
+
+// The mart this org's runs resolve, the same way the tool resolves it. The
+// fixture org resolves through PeopleDatasetService like any other, so it is
+// the constituents mart when its owner carries the consumer-data flag — never
+// assume voters.
+const orgMart = async (slug = orgSlug) =>
+  peopleTable(
+    await service.app.get(PeopleDatasetService).resolve(
+      await service.prisma.organization.findFirstOrThrow({
+        where: { slug },
+      }),
+    ),
+  )
 
 const seedRun = (input: Prisma.InputJsonObject, organizationSlug = orgSlug) =>
   service.prisma.agentRun.create({
@@ -284,7 +272,7 @@ describe('top_community_issues on gp-api agents', () => {
         body: Buffer.from(''),
       }),
     )
-    const prompts = scriptedModel()
+    const prompts = scriptedModel(await orgMart())
 
     const res = await service.client.post<{ dispatched: number }>(
       `${BASE}/self-dispatch`,
@@ -310,7 +298,7 @@ describe('top_community_issues on gp-api agents', () => {
     })
     expect(prompts[1]).toContain(carriedId)
     expect(query.mock.calls.map((call) => call[0].sql)).toEqual([
-      leanSql(TopCommunityIssuesInputSchema.parse(run.input).peopleTable),
+      leanSql(await orgMart()),
     ])
 
     const rows = await service.prisma.communityIssue.findMany({
@@ -405,7 +393,7 @@ describe('top_community_issues on gp-api agents', () => {
       toolCall('submitOutput', {
         output: output([issue('Stormwater flooding on Murchison Road', 1)]),
       }),
-      toolCall('queryDatabricks', { sql: leanSql(VOTERS_MART) }),
+      toolCall('queryDatabricks', { sql: leanSql(VOTERS_TABLE) }),
       toolCall('submitOutput', {
         output: output([issue('Stormwater flooding on Murchison Road', 1)]),
       }),
@@ -557,7 +545,6 @@ describe('top_community_issues on gp-api agents', () => {
       state: 'NC',
       office: 'City Council Member',
       districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
-      peopleTable: VOTERS_MART,
       today: '2026-11-18',
     })
 
@@ -639,7 +626,7 @@ describe('topCommunityIssuesDatabricksScope', () => {
         .spyOn(service.app.get(PeopleDbxStatementClient), 'query')
         .mockResolvedValue({ columns: [], rows: [] }),
     )
-    scriptedModel()
+    scriptedModel(await orgMart())
 
     await service.client.post(
       `${BASE}/self-dispatch`,
@@ -660,47 +647,35 @@ describe('topCommunityIssuesDatabricksScope', () => {
   })
 
   // The table the tool may read is the org's own people mart, resolved at
-  // dispatch by PeopleDatasetService — the same choice every other people read
-  // makes. A Win org reads voters; a Serve org with the consumer-data flag
-  // reads constituents. Either way the run carries exactly one name.
-  it("carries the org's PeopleDatasetService mart, and the tool accepts only it", async () => {
-    vi.stubEnv('AGENTS_ON_GP_API', 'top_community_issues')
-    spies.push(
-      vi
-        .spyOn(service.app.get(PeopleDbxStatementClient), 'query')
-        .mockResolvedValue({ columns: [], rows: [] }),
-    )
-    scriptedModel()
-
-    await service.client.post(
-      `${BASE}/self-dispatch`,
-      { type: 'top_community_issues' },
-      { headers: { 'x-organization-slug': orgSlug } },
-    )
-    await service.jobs.settle()
-    const run = await service.prisma.agentRun.findFirstOrThrow({
-      where: { organizationSlug: orgSlug, agentName: 'top_community_issues' },
-    })
-    const organization = await service.prisma.organization.findFirstOrThrow({
-      where: { slug: orgSlug },
+  // query time by PeopleDatasetService — the same choice every other people
+  // read makes. A Win org reads voters; a Serve org with the consumer-data
+  // flag reads constituents. Either way the tool resolves exactly one name.
+  it("resolves the org's PeopleDatasetService mart, and accepts only it", async () => {
+    const run = await seedRun({
+      organizationSlug: orgSlug,
+      state: 'NC',
+      office: 'City Council Member',
+      districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
+      today: '2026-11-18',
     })
 
-    const expected = peopleTable(
-      await service.app.get(PeopleDatasetService).resolve(organization),
-    )
-    expect(TopCommunityIssuesInputSchema.parse(run.input).peopleTable).toBe(
-      expected,
+    const expected = await orgMart()
+    expect(TopCommunityIssuesInputSchema.parse(run.input)).not.toHaveProperty(
+      'peopleTable',
     )
     await expect(
       topCommunityIssuesDatabricksTables(toolContext(run.id)),
     ).resolves.toEqual([expected])
   })
 
-  it('names no table for a run whose input it cannot read', async () => {
+  it('names no table for an org that no longer exists', async () => {
     const run = await seedRun({ organizationSlug: orgSlug, state: 'NC' })
 
     await expect(
-      topCommunityIssuesDatabricksTables(toolContext(run.id)),
+      topCommunityIssuesDatabricksTables({
+        ...toolContext(run.id),
+        organizationSlug: 'an-org-that-is-gone',
+      }),
     ).resolves.toEqual([])
   })
 
@@ -710,7 +685,6 @@ describe('topCommunityIssuesDatabricksScope', () => {
       state: 'TX',
       office: 'County Commissioner',
       districtDescriptor: 'Kenedy County Commissioner, Precinct 2, TX',
-      peopleTable: VOTERS_MART,
       today: '2026-11-18',
     })
 
@@ -727,7 +701,6 @@ describe('topCommunityIssuesDatabricksScope', () => {
         office: 'City Council Member',
         districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
         l2DistrictType: 'City_Ward',
-        peopleTable: VOTERS_MART,
         today: '2026-11-18',
       },
     ],
@@ -736,7 +709,6 @@ describe('topCommunityIssuesDatabricksScope', () => {
       {
         office: 'City Council Member',
         districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
-        peopleTable: VOTERS_MART,
         today: '2026-11-18',
       },
     ],
@@ -746,7 +718,6 @@ describe('topCommunityIssuesDatabricksScope', () => {
         state: '',
         office: 'City Council Member',
         districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
-        peopleTable: VOTERS_MART,
         today: '2026-11-18',
       },
     ],
@@ -769,7 +740,6 @@ describe('topCommunityIssuesDatabricksScope', () => {
         state: 'NC',
         office: 'City Council Member',
         districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
-        peopleTable: VOTERS_MART,
         today: '2026-11-18',
       },
       otherSlug,

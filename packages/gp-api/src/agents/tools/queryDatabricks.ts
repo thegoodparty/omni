@@ -51,7 +51,8 @@ export type DatabricksToolOptions = {
   // a table an agent did not declare. A resolver is for the table that is not
   // fixed by the definition but chosen per run (which people mart the org
   // reads); it is called once per query, so the description cannot name the
-  // table and the model reads the allowed name from its run input instead.
+  // table and a query naming the wrong one is refused with the table that was
+  // resolved.
   tables: string[] | ((ctx: ToolContext) => Promise<string[]>)
   // The manifest's scope.max_rows. Results are cut here.
   maxRows: number
@@ -467,11 +468,12 @@ export const databricksTool = (options: DatabricksToolOptions) => {
   const groupable = dimensions.join(', ') || '(none)'
   const tablesFor = async (ctx: ToolContext): Promise<string[]> =>
     typeof options.tables === 'function' ? options.tables(ctx) : options.tables
-  // A definition-fixed table can be named here. One the run chooses cannot, so
-  // the description sends the model to its input for the name.
+  // A definition-fixed table can be named here. One the run chooses cannot:
+  // it is resolved per query, so the description says which choice it is and
+  // the refusal names the table that was resolved.
   const tablePhrase =
     typeof options.tables === 'function'
-      ? 'the table named in your input'
+      ? 'the table this organization reads'
       : options.tables.join(', ')
   return defineTool({
     description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One flat statement only: no subquery, UNION, MIN or MAX, an aggregate takes a plain column or *, no DDL, no writes.`,

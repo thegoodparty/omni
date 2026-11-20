@@ -872,8 +872,10 @@ describe('queryDatabricks', () => {
       ).resolves.toMatchObject({ ok: false, reason: 'rejected' })
     })
 
-    it('names the run input for the table instead of listing one', () => {
-      expect(chosen([TABLE]).description).toContain('named in your input')
+    it("describes a resolved table as the organization's, not by name", () => {
+      const description = chosen([TABLE]).description
+      expect(description).not.toContain(TABLE)
+      expect(description).toContain('the table this organization reads')
     })
 
     it('refuses every query when the run resolved no table', async () => {
