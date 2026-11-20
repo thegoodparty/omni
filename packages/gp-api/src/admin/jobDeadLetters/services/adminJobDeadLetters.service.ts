@@ -75,14 +75,20 @@ export class AdminJobDeadLettersService implements OnModuleDestroy {
   // forgotten, so the next request tries again rather than replaying it.
   private async reader(): Promise<PgBoss> {
     if (!this.boss) {
-      this.boss = new PgBoss({
+      const boss = new PgBoss({
         connectionString: requireEnv('DATABASE_URL'),
         max: 2,
         migrate: false,
         supervise: false,
         schedule: false,
         registerInstance: false,
-      }).start()
+      })
+      // PgBoss is an EventEmitter and forwards pool errors as 'error', which
+      // is uncaught with no listener and would take the whole API task down.
+      boss.on('error', (err) =>
+        this.logger.error({ err }, 'dead letter pg-boss error'),
+      )
+      this.boss = boss.start()
       void this.boss.catch(() => {
         this.boss = null
       })
