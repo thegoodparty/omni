@@ -2101,3 +2101,16 @@ export {
   type ContactFieldSource,
   type ContactSourcesResponse,
 } from './contactUploads/ContactUpload.schema'
+
+export {
+  CASE_SCOUT_HANDOFF_VERSION,
+  CASE_SCOUT_SUITES,
+  CaseScoutSuiteSchema,
+  type CaseScoutSuite,
+  CaseScoutHandoffCaseSchema,
+  type CaseScoutHandoffCase,
+  CaseScoutHandoffNeedsSetupSchema,
+  type CaseScoutHandoffNeedsSetup,
+  CaseScoutHandoffSchema,
+  type CaseScoutHandoff,
+} from './caseScout/CaseScoutHandoff.schema'

@@ -36,4 +36,9 @@ export const SLACK_CHANNEL_IDS = {
     // a member of the channel for chat.postMessage to land.
     apiChannelId: process.env.SLACK_SHARED_PEERLY_10DLC_CHANNEL_ID,
   },
+  [SlackChannel.productChatsDigest]: {
+    // Private, so it posts through the Web API, and the goodparty app must be
+    // a member. Not a secret: the case scout's prod note goes here.
+    apiChannelId: 'C0C626B0ZJN',
+  },
 }

@@ -9,21 +9,26 @@ import {
 import { MimeTypes } from 'http-constants-ts'
 import { z } from 'zod'
 import { caseScoutBucketName } from '../caseScout.config'
+import { CaseScoutHandoffSchema } from '@goodparty_org/contracts'
 import {
   BundleSchema,
+  DeliverySchema,
   LedgerLineSchema,
   ManifestSchema,
   MarkerSchema,
   RecordSchema,
   SessionScoreSchema,
   SourcesSchema,
+  WrittenMarkerSchema,
   type Bundle,
+  type Delivery,
   type LedgerLine,
   type Manifest,
   type Marker,
   type RunRecord,
   type SessionScore,
   type Sources,
+  type WrittenMarker,
 } from '../schemas/caseScoutBucket.schema'
 import { parseLedgerText, type LedgerEntry } from '../util/ledger.util'
 
@@ -41,11 +46,11 @@ const httpStatus = (err: Error): number | undefined =>
   AwsErrorSchema.safeParse(err).data?.$metadata.httpStatusCode
 
 // The outcomes the draft job writes. A retry replaces its run's earlier lines
-// of these kinds; the publisher's own lines are left alone.
+// of these kinds; PR outcome lines are left alone.
 const DRAFT_OUTCOMES = new Set<string>(LedgerLineSchema.shape.outcome.options)
 
-// The scout's private bucket, case-scout-<env>. Layout and the publisher's
-// half of the contract: src/caseScout/AGENTS.md § Bucket. Every write is
+// The scout's private bucket, case-scout-<env>. Layout:
+// src/caseScout/AGENTS.md § Bucket. Every write is
 // validated against its schema first.
 @Injectable()
 export class CaseScoutBucketService {
@@ -163,6 +168,12 @@ export class CaseScoutBucketService {
     )
   }
 
+  // Only the draft job writes the marker, one night at a time, once the
+  // night's handoff is held or sent.
+  async writeMarker(marker: WrittenMarker): Promise<void> {
+    await this.writeJson('marker.json', WrittenMarkerSchema, marker)
+  }
+
   readManifest(runId: string): Promise<Manifest | undefined> {
     return this.readJson(`runs/${runId}/manifest.json`, ManifestSchema)
   }
@@ -222,6 +233,50 @@ export class CaseScoutBucketService {
     )
   }
 
+  readSources(runId: string): Promise<Sources | undefined> {
+    return this.readJson(`runs/${runId}/sources.json`, SourcesSchema)
+  }
+
+  readRecord(runId: string): Promise<RunRecord | undefined> {
+    return this.readJson(`runs/${runId}/record.json`, RecordSchema)
+  }
+
+  // Every night's record this month, for the month-to-date spend.
+  async readMonthRecords(yyyymm: string): Promise<RunRecord[]> {
+    const bucket = caseScoutBucketName()
+    const keys = (await this.listKeys(bucket, `runs/${yyyymm}-`)).filter(
+      (key) => key.endsWith('/record.json'),
+    )
+    const texts = await Promise.all(
+      keys.map((key) => this.getText(bucket, key)),
+    )
+    return texts.flatMap((text) =>
+      text === undefined ? [] : [RecordSchema.parse(JSON.parse(text))],
+    )
+  }
+
+  // The exact bytes held for a person to read, and the bytes sent.
+  async writeHandoff(runId: string, body: string): Promise<void> {
+    CaseScoutHandoffSchema.parse(JSON.parse(body))
+    await this.putText(
+      caseScoutBucketName(),
+      `runs/${runId}/handoff.json`,
+      body,
+    )
+  }
+
+  readDelivery(runId: string): Promise<Delivery | undefined> {
+    return this.readJson(`runs/${runId}/delivery.json`, DeliverySchema)
+  }
+
+  async writeDelivery(delivery: Delivery): Promise<void> {
+    await this.writeJson(
+      `runs/${delivery.runId}/delivery.json`,
+      DeliverySchema,
+      delivery,
+    )
+  }
+
   async writeSources(runId: string, sources: Sources): Promise<void> {
     await this.writeJson(`runs/${runId}/sources.json`, SourcesSchema, sources)
   }
@@ -243,7 +298,7 @@ export class CaseScoutBucketService {
   }
 
   // S3 has no append, so this is read-modify-write. Only the draft job writes
-  // here, one night at a time, and the publisher runs after it returns. Lines
+  // here, one night at a time (maxConcurrent 1). Lines
   // this run wrote on an earlier attempt are replaced, not doubled.
   async replaceRunLedgerLines(
     yyyymm: string,

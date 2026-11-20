@@ -38,8 +38,7 @@ const CaseListFileSchema = z.object({
 
 // Reads cases/<agentId>.json off main, unauthenticated: omni is public, so no
 // credential is needed, and this process must never hold a write-capable
-// GitHub key (it reads transcripts). The publisher appends to the same file
-// later through the GitHub API.
+// GitHub key (it reads transcripts).
 @Injectable()
 export class CaseScoutCaseListsService {
   constructor(private readonly logger: PinoLogger) {

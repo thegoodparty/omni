@@ -162,8 +162,9 @@ The old runner stays for chat until the follow-ups below.
 - **Chat suites on the framework.** Convert the five chat case lists. A chat
   case's input is `{ turns: string[] }` through the public chat routes.
   Simulated tool failures and seeded transcripts go away. Coordinate with
-  Danny first: the case scout's publisher appends to `cases/<agent>.json`,
-  and the guard's picker and pricing read the old layout.
+  Danny first: the case scout still reads `cases/<agent>.json` for its
+  collision and condition checks, and the guard's picker and pricing read the
+  old layout.
 - **Briefing chat into the chats controller.** `briefing-chats` is the only
   chat with its own controller. Fold it into `chats` as a scope, so chat suites
   need one helper and every chat agent has one interface.
