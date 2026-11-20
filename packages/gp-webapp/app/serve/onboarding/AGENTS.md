@@ -124,13 +124,20 @@ behind, so the save never holds the motion.
 The priorities step's issues come from `POST /v1/community-issues/onboarding`,
 started as soon as the office is on the org. gp-api queues the paid search and
 answers before it runs, so that call returning tells the step nothing about
-whether issues exist: the step waits 10 seconds for it, then polls
-`GET /v1/priorities/onboarding` every 4 seconds for up to 120 (a real starter
-search takes 25 to 55 seconds). A failed start retries once on its own. The
-step has three list states: the "Finding issues" spinner while
-the list loads, "We couldn't load issues for your area" with Try again when
-the search failed twice (Other and skip stay available), and the "couldn't
-find issues" empty line only when the search succeeded with nothing.
+whether issues exist. The step waits 10 seconds for it, then reads
+`GET /v1/priorities/onboarding` once and polls it every 4 seconds for up to 120
+(a real starter search takes 25 to 55 seconds). A failed start retries once on
+its own. Because the read lands before the queued search can have written
+anything, an empty list is treated as the search still running, not as nothing
+found, for 60 seconds after the start was asked for (`starterIssuesPending`):
+so the step has four list states. "Finding issues in your community" while the
+list loads or that window is open (Continue stays available, so nobody is
+held on the step), "We couldn't load issues for your area" with Try again when
+the search failed twice (Other and skip stay available), the "couldn't find
+issues" empty line once the search finished with nothing (the only state that
+fires Priorities Errored `none_found`, which also waits out the window), and
+the list itself. Priorities Viewed waits for the window to close too, so
+`loadMs` measures the real wait.
 
 ## The district story
 

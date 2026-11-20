@@ -942,6 +942,64 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(loads).toBe(2)
   })
 
+  it('keeps the step searching, and the record empty, until the queued search lands', async () => {
+    resumedAt('priorities')
+    let loads = 0
+    api.mock('GET /v1/priorities/onboarding', () => {
+      loads += 1
+      return {
+        status: 200,
+        data: {
+          options:
+            loads < 3
+              ? []
+              : [
+                  {
+                    key: 'issue-1',
+                    kind: 'community',
+                    title: 'Housing costs',
+                    description: 'Rents are rising fast.',
+                    selected: false,
+                  },
+                ],
+        },
+      }
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      renderFlow()
+
+      // The queued start answered at once and the first read found nothing yet:
+      // that is the search still running, not a search that came back empty.
+      expect(
+        await screen.findByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/We couldn’t find issues for your area yet/),
+      ).not.toBeInTheDocument()
+      expect(eventProps(PRIORITIES_ERRORED)).toHaveLength(0)
+      expect(eventProps(PRIORITIES_VIEWED)).toHaveLength(0)
+      // The official is not held on the step while the search runs.
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+
+      expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
+      expect(
+        screen.queryByText(/We couldn’t find issues for your area yet/),
+      ).not.toBeInTheDocument()
+      expect(eventProps(PRIORITIES_ERRORED)).toHaveLength(0)
+      await waitFor(() =>
+        expect(eventProps(PRIORITIES_VIEWED)).toEqual([
+          expect.objectContaining({ loadMs: expect.any(Number) }),
+        ]),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('lets the official skip the step when there are no issues to pick', async () => {
     resumedAt('priorities')
     let saves = 0
@@ -957,18 +1015,32 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup({ skipHover: true })
-    renderFlow()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({
+        skipHover: true,
+        advanceTimers: vi.advanceTimersByTime,
+      })
+      renderFlow()
 
-    await screen.findByText(/We couldn’t find issues for your area yet/)
-    expect(screen.getByLabelText(/Other/)).not.toBeChecked()
-    expect(eventProps(PRIORITIES_ERRORED)).toEqual([
-      expect.objectContaining({ reason: 'none_found', retried: false }),
-    ])
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(
+        await screen.findByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+      // Past the pending window nothing came back, so the empty list is the
+      // honest reading and the step says so.
+      await act(() => vi.advanceTimersByTimeAsync(60_000))
+      await screen.findByText(/We couldn’t find issues for your area yet/)
+      expect(screen.getByLabelText(/Other/)).not.toBeChecked()
+      expect(eventProps(PRIORITIES_ERRORED)).toEqual([
+        expect.objectContaining({ reason: 'none_found', retried: false }),
+      ])
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take the People First Pledge to get started')
-    expect(saves).toBe(0)
+      await screen.findByText('Take the People First Pledge to get started')
+      expect(saves).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('does not refire a failed community issues start on later steps, only on Try again', async () => {
@@ -1011,7 +1083,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
 
     loadFails = false
     await user.click(screen.getByRole('button', { name: 'Try again' }))
-    await screen.findByText(/We couldn’t find issues for your area yet/)
+    // The retried start is queued too, so the list waits on it instead of
+    // calling the empty result "nothing found".
+    await screen.findByText('Finding issues in your community')
     expect(communityStarts).toBe(3)
   })
 

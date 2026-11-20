@@ -382,9 +382,11 @@ export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
 
 export const SERVE_CITIZEN_PANELS_PLEDGE_BUTTON = 'Meet your Chief of Staff'
 
-// The priorities step's list states. A failed issue search and a search that
-// found nothing read differently, so the official knows which one to retry.
+// The priorities step's list states. A search still running, a failed issue
+// search and a search that found nothing read differently, so the official knows
+// whether to wait, retry or skip.
 export const SERVE_PRIORITIES_LIST_COPY = {
+  searching: 'Finding issues in your community',
   searchFailed: 'We couldn’t load issues for your area.',
   retry: 'Try again',
   empty:
