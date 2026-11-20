@@ -536,6 +536,17 @@ describe('POST /v1/organizations/team/invites', () => {
       expect((await invite()).status).toBe(409)
     })
 
+    it('GET team still lists members and allows invites when the flag lookup hangs', async () => {
+      await createOrg()
+      await seedCampaign(AFTER_GATE, 'pro')
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockImplementation(() => new Promise<boolean>(() => undefined))
+
+      expect(await getInvites()).toEqual({ allowed: true, reason: null })
+    })
+
     it('GET team for a manager follows the owner flag, not the manager flag', async () => {
       await createOrg()
       await seedCampaign(AFTER_GATE, 'pro')

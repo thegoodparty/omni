@@ -96,6 +96,9 @@ const TeamPage = (): React.JSX.Element => {
     queryFn: () =>
       clientRequest('GET /v1/organizations/team', {}).then((res) => res.data),
     enabled: !!orgSlug && !isElectedOffice,
+    // The invite gate depends on the plan, which the upgrade flow changes
+    // while this page's cache is still fresh.
+    refetchOnMount: 'always',
   })
 
   const { gated, plan, unavailableReason } = useTeamInviteGate(data?.invites)

@@ -48,6 +48,8 @@ import {
 import { OrganizationTeamService } from './services/organizationTeam.service'
 import { TeamStatsService } from './services/teamStats.service'
 
+export const INVITE_GATE_TIMEOUT_MS = 1000
+
 @Controller('organizations/team')
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
@@ -67,9 +69,29 @@ export class TeamController {
   async getTeam(@ReqOrganization() organization: Organization) {
     const [team, reason] = await Promise.all([
       this.team.listTeam(organization),
-      this.getInviteBlockReason(organization),
+      this.getInviteBlockReasonWithin(organization, INVITE_GATE_TIMEOUT_MS),
     ])
     return { ...team, invites: { allowed: reason === null, reason } }
+  }
+
+  // A slow flag lookup must not hold up the member list. On timeout the page
+  // shows Invite as allowed; POST still enforces the gate.
+  private async getInviteBlockReasonWithin(
+    organization: Organization,
+    timeoutMs: number,
+  ): Promise<InviteBlockReason | null> {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs)
+    })
+    try {
+      return await Promise.race([
+        this.getInviteBlockReason(organization),
+        timeout,
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   // The one predicate behind both POST team/invites and the `invites` field
