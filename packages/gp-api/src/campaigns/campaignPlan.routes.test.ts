@@ -113,6 +113,44 @@ describe('planEndsAt on the M2M GET /v1/campaigns/:id', () => {
   })
 })
 
+describe('plan and credit columns on the M2M PUT /v1/campaigns/:id', () => {
+  it('ignores them and still applies the other fields in the body', async () => {
+    vi.spyOn<AuthProvider, 'verifyM2MToken'>(
+      service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN),
+      'verifyM2MToken',
+    ).mockResolvedValue({ id: 'mt_test', subject: 'mch_gp_admin' })
+    const campaign = await seedCampaign({ outreachCreditCents: 500 })
+
+    const res = await service.client.put(
+      `/v1/campaigns/${campaign.id}`,
+      {
+        isDemo: true,
+        plan: 'team',
+        planPricingModel: 'one_time',
+        planPaidAt: '2026-09-01T15:00:00.000Z',
+        planEndedAt: '2026-10-01T15:00:00.000Z',
+        outreachCreditCents: 99999,
+        hasFreeTextsOffer: true,
+      },
+      { headers: { Authorization: 'Bearer mt_test' } },
+    )
+
+    expect(res.status).toBe(200)
+    const after = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(after).toMatchObject({
+      isDemo: true,
+      plan: 'free',
+      planPricingModel: null,
+      planPaidAt: null,
+      planEndedAt: null,
+      outreachCreditCents: 500,
+      hasFreeTextsOffer: false,
+    })
+  })
+})
+
 describe('outreach_credit_cents', () => {
   it('rejects a negative balance at the database', async () => {
     const campaign = await seedCampaign()
