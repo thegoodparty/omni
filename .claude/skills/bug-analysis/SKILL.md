@@ -19,10 +19,16 @@ Show three severity cards side by side on wide screens, stacked as needed on nar
 
 ## 2. Five whys
 
-Use five short numbered questions and answers. Start at the symptom and trace the relevant system boundaries, fields, and failed checks. Label unknowns and say what evidence would resolve them. Do not invent a cause to fill a slot. Add a small inline flow diagram only if it clarifies the cause. Show the relevant handoff and mark where it failed; omit unrelated steps.
+Use five short numbered questions and answers. Start at the symptom and trace the relevant system boundaries, fields, and failed checks. Verify the root cause before presenting the analysis for approval. If evidence needed to identify or confirm it is missing, label the analysis incomplete, state exactly what evidence is missing, and do not ask for approval. Do not invent a cause to fill a slot. Add a small inline flow diagram only if it clarifies the cause. Show the relevant handoff and mark where it failed; omit unrelated steps.
 
 ## 3. Proposed solution
 
 Name the behavior to change, where the change belongs, and how to verify normal and failure paths. Include a cleanup proposal owned by the bug responder: how to identify affected records, what to repair, and how to verify the repair. If no cleanup is needed, explain why. Call out any actions another team must perform; the responder still owns coordination and verification.
 
-End by asking reviewers for a thumbs up or a pinned comment on what to change.
+## Self-review before sharing
+
+- Can you state the actual root cause in one sentence and point to evidence that confirms it for this bug, not just a plausible failure mode?
+- Does the evidence rule out any competing explanation that would change the fix or cleanup plan?
+- Does the proposed fix address the confirmed cause, and does the cleanup cover the affected records?
+
+If the cause still needs investigation or confirmation, share only an **Incomplete investigation** if useful. Name the missing evidence and the check that would settle it. Do not call it a finished RCA or request approval. Only a confirmed RCA ends by asking reviewers for a thumbs up or a pinned comment on what to change.
