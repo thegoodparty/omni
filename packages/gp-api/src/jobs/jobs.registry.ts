@@ -367,6 +367,19 @@ export const JOBS = {
     concurrency: 2,
     maxConcurrent: 10,
   }),
+  // Serve onboarding's own start, off the request path: a Gemini search for
+  // starter issues plus both dispatches took 25 to 55 seconds, longer than a
+  // mobile browser holds a fetch open (ENG-11702).
+  communityIssueOnboarding: defineJob({
+    schema: z.object({ organizationSlug: z.string().min(1) }),
+    worker: (job, { get }) =>
+      get(CommunityIssueDispatchService).startOnboarding(job),
+    // The priorities step polls for these for two minutes while it waits.
+    alertAfterWaitingMinutes: 10,
+    concurrency: 2,
+    // One paid Gemini generation each; keep a burst from filling the fleet.
+    maxConcurrent: 5,
+  }),
   ordinanceRefreshDispatch: defineJob({
     schema: z.object({ organizationSlug: z.string().min(1) }),
     worker: (job, { get }) =>

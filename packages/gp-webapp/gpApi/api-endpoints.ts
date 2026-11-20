@@ -2497,7 +2497,7 @@ export type APIEndpoints = {
 
   'POST /v1/community-issues/onboarding': {
     Request: {}
-    Response: { starterIssueCount: number }
+    Response: { queued: boolean }
   }
 
   // Self-serve landing catch-up: called client-side after landing on the

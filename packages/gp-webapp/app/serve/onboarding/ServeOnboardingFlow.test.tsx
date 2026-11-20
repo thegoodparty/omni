@@ -156,7 +156,7 @@ const mockPriorities = () => {
   api.mock('PUT /v1/priorities/onboarding', { status: 200, data: undefined })
   api.mock('POST /v1/community-issues/onboarding', {
     status: 200,
-    data: { starterIssueCount: 1 },
+    data: { queued: true },
   })
 }
 
@@ -267,7 +267,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     let communityStarts = 0
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     const checkpoints: unknown[] = []
     api.mock('PUT /v1/elected-office/:id', (req) => {
@@ -618,7 +618,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     let communityStarts = 0
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     renderFlow()
 
@@ -637,7 +637,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     let communityStarts = 0
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     const user = userEvent.setup({ skipHover: true })
     renderFlow()
@@ -665,7 +665,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       )
       api.mock('POST /v1/community-issues/onboarding', () => {
         communityStarts += 1
-        return { status: 200, data: { starterIssueCount: 1 } }
+        return { status: 200, data: { queued: true } }
       })
       api.mock('PUT /v1/elected-office/:id', {
         status: 200,
@@ -730,7 +730,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     })
     api.mock('POST /v1/community-issues/onboarding', () => {
       calls.push('start issues')
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     const positionsKey = ['serve-onboarding-positions', '90001']
     testQueryClient.setQueryData(positionsKey, {
@@ -979,7 +979,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       communityStarts += 1
       return communityStarts <= 2
         ? { status: 500, data: {} }
-        : { status: 200, data: { starterIssueCount: 0 } }
+        : { status: 200, data: { queued: true } }
     })
     api.mock('GET /v1/priorities/onboarding', () =>
       loadFails
@@ -1022,7 +1022,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       communityStarts += 1
       return communityStarts === 1
         ? { status: 401, data: {} }
-        : { status: 200, data: { starterIssueCount: 1 } }
+        : { status: 200, data: { queued: true } }
     })
     api.mock('GET /v1/priorities/onboarding', () =>
       communityStarts < 2
@@ -1060,7 +1060,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       communityStarts += 1
       return searchFails
         ? { status: 401, data: {} }
-        : { status: 200, data: { starterIssueCount: 1 } }
+        : { status: 200, data: { queued: true } }
     })
     api.mock('GET /v1/priorities/onboarding', () =>
       searchFails
@@ -1138,7 +1138,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
     let prioritiesLoads = 0
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     api.mock('GET /v1/priorities/onboarding', () => {
       prioritiesLoads += 1

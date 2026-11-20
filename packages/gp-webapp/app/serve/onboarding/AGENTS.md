@@ -122,8 +122,12 @@ the data-derived step. Story steps navigate first and save the checkpoint
 behind, so the save never holds the motion.
 
 The priorities step's issues come from `POST /v1/community-issues/onboarding`,
-started as soon as the office is on the org. A failed start retries once on
-its own. The step has three list states: the "Finding issues" spinner while
+started as soon as the office is on the org. gp-api queues the paid search and
+answers before it runs, so that call returning tells the step nothing about
+whether issues exist: the step waits 10 seconds for it, then polls
+`GET /v1/priorities/onboarding` every 4 seconds for up to 120 (a real starter
+search takes 25 to 55 seconds). A failed start retries once on its own. The
+step has three list states: the "Finding issues" spinner while
 the list loads, "We couldn't load issues for your area" with Try again when
 the search failed twice (Other and skip stay available), and the "couldn't
 find issues" empty line only when the search succeeded with nothing.
