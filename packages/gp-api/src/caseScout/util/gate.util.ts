@@ -23,6 +23,32 @@ const PHONE = new RegExp(
     String.raw`[-.\s]?\p{Nd}{4}(?!\p{Nd})`,
   'u',
 )
+// A local number with no area code: an exchange (never starting 0 or 1) and a
+// line. The lookarounds keep zips, decimals and digit groups out.
+const LOCAL_PHONE = new RegExp(
+  String.raw`(?<![\p{Nd},.$])([2-9]\p{Nd}{2})([-.\s])(\p{Nd}{4})` +
+    String.raw`(?!\p{Nd}|[.,]\p{Nd})`,
+  'gu',
+)
+const YEAR = /^(?:19|20)\d{2}$/u
+
+// "Ordinance 245-2025" and "500-1000 voters" share a phone's shape. A year
+// for a line, or a hyphenated rising pair of round numbers, reads as one of
+// those instead.
+const isLocalPhone = ([
+  ,
+  exchange = '',
+  separator,
+  line = '',
+]: RegExpMatchArray) =>
+  !YEAR.test(line) &&
+  !(
+    separator === '-' &&
+    exchange.endsWith('0') &&
+    line.endsWith('0') &&
+    Number(line) > Number(exchange)
+  )
+
 const URL_PATTERN = new RegExp(
   String.raw`(?<!${WORD})(?:https?://|www\.)\S+`,
   'iu',
@@ -143,7 +169,9 @@ export const checkCopiedText = (
 export const checkContactPatterns = (fields: string[]): string | undefined => {
   const text = fields.join(' ')
   if (EMAIL.test(text)) return 'an email address appeared in a case field'
-  if (PHONE.test(text)) return 'a phone number appeared in a case field'
+  if (PHONE.test(text) || [...text.matchAll(LOCAL_PHONE)].some(isLocalPhone)) {
+    return 'a phone number appeared in a case field'
+  }
   if (URL_PATTERN.test(text)) return 'a URL appeared in a case field'
   return undefined
 }
