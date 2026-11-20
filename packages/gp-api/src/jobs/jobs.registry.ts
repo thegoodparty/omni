@@ -374,8 +374,10 @@ export const JOBS = {
     schema: z.object({ organizationSlug: z.string().min(1) }),
     worker: (job, { get }) =>
       get(CommunityIssueDispatchService).startOnboarding(job),
-    // The priorities step polls for these for two minutes while it waits.
-    alertAfterWaitingMinutes: 10,
+    // The priorities step shows "searching" for 60 seconds and polls for two
+    // minutes, so 2 is the longest a user waits for this job to start; paging
+    // and scale-out then begin while they are still on the screen.
+    alertAfterWaitingMinutes: 2,
     concurrency: 2,
     // One paid Gemini generation each; keep a burst from filling the fleet.
     maxConcurrent: 5,
