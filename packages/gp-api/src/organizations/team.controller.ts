@@ -19,13 +19,13 @@ import {
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { z } from 'zod'
 import {
   AcceptInviteResponseSchema,
   InviteBlockReason,
   InviteMemberResponseSchema,
   MyPendingInviteResponseSchema,
   TeamResponseSchema,
-  TEAM_GATE_START,
   TeamStatsResponseSchema,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
@@ -49,6 +49,11 @@ import { OrganizationTeamService } from './services/organizationTeam.service'
 import { TeamStatsService } from './services/teamStats.service'
 
 export const INVITE_GATE_TIMEOUT_MS = 1000
+
+// Set by a human on the flag's `on` variant in Amplitude.
+const TeamGatePayloadSchema = z.object({
+  teamGateStart: z.string().pipe(z.coerce.date()),
+})
 
 @Controller('organizations/team')
 @UsePipes(ZodValidationPipe)
@@ -109,22 +114,23 @@ export class TeamController {
     if (organization.slug.startsWith('eo-')) return 'ELECTED_OFFICE'
     if (organization.testModeCreatedAt) return 'TEST_ORGANIZATION'
 
-    // Campaigns created on or after TEAM_GATE_START need the Team plan to
-    // invite anyone. Earlier campaigns keep inviting on any plan. The flag is
-    // read for the org owner so a manager's view buckets with the owner.
-    if (
-      await this.features.isFeatureEnabled({
-        user: organization.ownerId,
-        feature: WIN_PER_CAMPAIGN_PRICING_FLAG,
-      })
-    ) {
+    // Campaigns created on or after the flag payload's teamGateStart need the
+    // Team plan to invite anyone. Earlier campaigns keep inviting on any plan,
+    // and so does a flag with no usable payload. The flag is read for the org
+    // owner so a manager's view buckets with the owner.
+    const { enabled, payload } = await this.features.getFeatureWithPayload({
+      user: organization.ownerId,
+      feature: WIN_PER_CAMPAIGN_PRICING_FLAG,
+    })
+    const gate = TeamGatePayloadSchema.safeParse(payload)
+    if (enabled && gate.success) {
       const campaign = await this.campaigns.findFirst({
         where: { organizationSlug: organization.slug },
         select: { createdAt: true, plan: true },
       })
       if (
         campaign &&
-        campaign.createdAt >= new Date(TEAM_GATE_START) &&
+        campaign.createdAt >= gate.data.teamGateStart &&
         campaign.plan !== 'team'
       ) {
         return 'TEAM_PLAN_REQUIRED'

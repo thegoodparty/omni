@@ -110,15 +110,22 @@ const stubCrmTeamMembers = () => service.app.get(CrmTeamMembersService)
 // tests that don't care about it don't leave a real, unmocked DB lookup
 // racing in the background into the next test — individual tests below
 // re-spy these to assert on them or to simulate a HubSpot failure.
-// isFeatureEnabled answers true for every flag when Amplitude is unconfigured,
-// so the per-campaign pricing flag is pinned explicitly (off by default, so a
-// campaign's createdAt crossing TEAM_GATE_START never changes the suite).
-const setPerCampaignPricing = (enabled: boolean) =>
+// Amplitude is unconfigured in tests, so the flag read answers on for every
+// flag. The per-campaign pricing flag is pinned explicitly (off by default),
+// with the teamGateStart payload a human sets on the `on` variant.
+const GATE_START = '2026-12-01T00:00:00.000Z'
+const setPerCampaignPricing = (enabled: boolean, ...payload: [] | [unknown]) =>
   vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockImplementation(
-      async ({ feature }) =>
-        feature !== WIN_PER_CAMPAIGN_PRICING_FLAG || enabled,
+    .spyOn(service.app.get(FeaturesService), 'getFeatureWithPayload')
+    .mockImplementation(async ({ feature }) =>
+      feature === WIN_PER_CAMPAIGN_PRICING_FLAG
+        ? {
+            enabled,
+            payload: payload.length
+              ? payload[0]
+              : { teamGateStart: GATE_START },
+          }
+        : { enabled: true, payload: undefined },
     )
 
 beforeEach(() => {
@@ -513,6 +520,47 @@ describe('POST /v1/organizations/team/invites', () => {
       expect(await getInvites()).toEqual({ allowed: true, reason: null })
     })
 
+    it('gates a campaign created on the payload date exactly', async () => {
+      setPerCampaignPricing(true, { teamGateStart: AFTER_GATE.toISOString() })
+      await createOrg()
+      await seedCampaign(AFTER_GATE, 'pro')
+
+      expect(await getInvites()).toEqual({
+        allowed: false,
+        reason: 'TEAM_PLAN_REQUIRED',
+      })
+    })
+
+    it('GET team allows a campaign created before the payload date', async () => {
+      setPerCampaignPricing(true, { teamGateStart: AFTER_GATE.toISOString() })
+      await createOrg()
+      await seedCampaign(BEFORE_GATE, 'pro')
+
+      expect(await getInvites()).toEqual({ allowed: true, reason: null })
+    })
+
+    it.each([
+      ['missing', undefined],
+      ['empty', {}],
+      ['unparseable date', { teamGateStart: 'soon' }],
+      ['non-string date', { teamGateStart: null }],
+    ])('GET team allows invites when the payload is %s', async (_, payload) => {
+      setPerCampaignPricing(true, payload)
+      await createOrg()
+      await seedCampaign(AFTER_GATE, 'pro')
+
+      expect(await getInvites()).toEqual({ allowed: true, reason: null })
+    })
+
+    it('creates the invite after the gate when the payload is malformed', async () => {
+      setPerCampaignPricing(true, { teamGateStart: 'soon' })
+      await createOrg()
+      await seedCampaign(AFTER_GATE, 'pro')
+      stubClerkSuccess()
+
+      expect((await invite()).status).toBe(201)
+    })
+
     it('GET team allows invites after the gate when the flag is off', async () => {
       await createOrg()
       await seedCampaign(AFTER_GATE, 'pro')
@@ -541,8 +589,11 @@ describe('POST /v1/organizations/team/invites', () => {
       await seedCampaign(AFTER_GATE, 'pro')
       vi.spyOn(
         service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockImplementation(() => new Promise<boolean>(() => undefined))
+        'getFeatureWithPayload',
+      ).mockImplementation(
+        () =>
+          new Promise<{ enabled: boolean; payload: unknown }>(() => undefined),
+      )
 
       expect(await getInvites()).toEqual({ allowed: true, reason: null })
     })
@@ -558,11 +609,11 @@ describe('POST /v1/organizations/team/invites', () => {
       const ownerId = service.user.id
       vi.spyOn(
         service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockImplementation(
-        async ({ user, feature }) =>
-          feature !== WIN_PER_CAMPAIGN_PRICING_FLAG || user === ownerId,
-      )
+        'getFeatureWithPayload',
+      ).mockImplementation(async ({ user, feature }) => ({
+        enabled: feature !== WIN_PER_CAMPAIGN_PRICING_FLAG || user === ownerId,
+        payload: { teamGateStart: GATE_START },
+      }))
 
       const result = await service.client.get(TEAM_PATH, {
         headers: {
