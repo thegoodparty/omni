@@ -81,6 +81,12 @@ type ResolvedScope = {
   affinityColumn?: AffinityColumn
 }
 
+type ResolvedDraft = { draft: VariantDraft; scope: ResolvedScope }
+
+const isResolved = (
+  outcome: ResolvedDraft | SizeFailure | null,
+): outcome is ResolvedDraft => outcome !== null && !('error' in outcome)
+
 // Campaign.details is Prisma JSON, so its shadow type can't be trusted at
 // runtime. `.catch(null)` matters as much as the shape: without it one
 // off-shape value elsewhere in details fails the whole parse and a perfectly
@@ -320,19 +326,16 @@ export class RecommendedListsService {
       }))
       .filter((draft): draft is VariantDraft => draft.filter !== null)
 
-    // One request is several warehouse aggregates and they decide its
-    // latency, so every variant goes out together.
-    const sized = await Promise.all(
-      drafts.map((draft) =>
-        this.sizeDraft(
-          organization,
-          district,
-          channel,
-          draft,
-          votesNeededToWin,
-          variant !== null,
-        ),
-      ),
+    // One request is one warehouse aggregate, whatever the variant count: the
+    // counts share a single scan, because a statement per variant is what put
+    // a page view's whole fan-out on the warehouse at once.
+    const sized = await this.sizeDrafts(
+      organization,
+      district,
+      channel,
+      drafts,
+      votesNeededToWin,
+      variant !== null,
     )
 
     // Nothing surviving is an outage, not an empty result set. Returning []
@@ -502,14 +505,14 @@ export class RecommendedListsService {
     )
   }
 
-  private async sizeDraft(
+  // Every draft's scope resolution is Postgres and election-db work, so it
+  // still fans out; only the warehouse read is shared. A draft whose own
+  // resolution fails is still just a lost card.
+  private async resolveDraft(
     organization: Organization,
-    district: DbxDistrict,
     channel: RecommendedListChannel | null,
     draft: VariantDraft,
-    votesNeededToWin: number | null,
-    explicitlyRequested: boolean,
-  ): Promise<SizeOutcome> {
+  ): Promise<ResolvedDraft | SizeFailure | null> {
     try {
       // The same resolution a saved list gets before it is queried.
       // `convertVoterFileFilterToFilters` alone drops support status, so a
@@ -523,76 +526,144 @@ export class RecommendedListsService {
       // logged some outreach.
       if (resolved.empty) return null
 
-      const scope: ResolvedScope = {
-        filters: filtersSchema.parse(resolved.filters),
-        idOverrides: resolved.idOverrides,
-        affinityColumn: await this.contacts.affinityColumnFor(
-          organization,
-          resolved.filters,
+      return {
+        draft,
+        scope: {
+          filters: filtersSchema.parse(resolved.filters),
+          idOverrides: resolved.idOverrides,
+          affinityColumn: await this.contacts.affinityColumnFor(
+            organization,
+            resolved.filters,
+          ),
+        },
+      }
+    } catch (error) {
+      return this.sizeFailure(error, draft.variant, channel)
+    }
+  }
+
+  private async sizeDrafts(
+    organization: Organization,
+    district: DbxDistrict,
+    channel: RecommendedListChannel | null,
+    drafts: VariantDraft[],
+    votesNeededToWin: number | null,
+    explicitlyRequested: boolean,
+  ): Promise<SizeOutcome[]> {
+    const resolved = await Promise.all(
+      drafts.map((draft) => this.resolveDraft(organization, channel, draft)),
+    )
+
+    if (channel === 'doorKnocking') {
+      const doorKnocking = channel
+      return Promise.all(
+        resolved.map((draft) =>
+          isResolved(draft)
+            ? this.sizeByPrecinctRanking(
+                district,
+                doorKnocking,
+                draft,
+                votesNeededToWin,
+                explicitlyRequested,
+              )
+            : draft,
         ),
-      }
+      )
+    }
 
-      if (channel === 'doorKnocking') {
-        // The ranking's own total already IS the count of the restricted
-        // list, so a second count for the same population would only buy a
-        // number that can disagree with this one.
-        const ranked = await this.reads.rankPrecincts(
+    const counted = resolved.filter(isResolved)
+
+    let counts: number[] = []
+    if (counted.length > 0) {
+      try {
+        counts = await this.reads.countsForFilters(
           district,
-          scope.filters,
-          scope.idOverrides,
-          scope.affinityColumn,
+          counted.map(({ scope }) => scope),
         )
-        if (
-          !qualifies(
-            ranked.totalVoters,
-            channel,
-            draft.variant,
-            votesNeededToWin,
-            explicitlyRequested,
-          )
-        ) {
-          return null
-        }
-        return {
-          variant: draft.variant,
-          filter: {
-            ...draft.filter,
-            precincts: ranked.precincts.map(({ county, precinct }) =>
-              encodePrecinctPair(county, precinct),
-            ),
-          },
-          count: ranked.totalVoters,
-        }
+      } catch (error) {
+        return resolved.map((draft) =>
+          isResolved(draft)
+            ? this.sizeFailure(error, draft.draft.variant, channel)
+            : draft,
+        )
       }
+    }
 
-      const count = await this.reads.countForFilter(
+    let next = 0
+    return resolved.map((draft) => {
+      if (!isResolved(draft)) return draft
+      const count = counts[next++] ?? 0
+      return qualifies(
+        count,
+        channel,
+        draft.draft.variant,
+        votesNeededToWin,
+        explicitlyRequested,
+      )
+        ? { ...draft.draft, count }
+        : null
+    })
+  }
+
+  private async sizeByPrecinctRanking(
+    district: DbxDistrict,
+    channel: RecommendedListChannel,
+    { draft, scope }: ResolvedDraft,
+    votesNeededToWin: number | null,
+    explicitlyRequested: boolean,
+  ): Promise<SizeOutcome> {
+    try {
+      // The ranking's own total already IS the count of the restricted
+      // list, so a second count for the same population would only buy a
+      // number that can disagree with this one.
+      const ranked = await this.reads.rankPrecincts(
         district,
         scope.filters,
         scope.idOverrides,
         scope.affinityColumn,
       )
-      return qualifies(
-        count,
-        channel,
-        draft.variant,
-        votesNeededToWin,
-        explicitlyRequested,
-      )
-        ? { ...draft, count }
-        : null
-    } catch (error) {
-      // One variant's failure costs that card, not the response — the
-      // aggregates are independent and the survivors are still worth
-      // showing. It returns the failure rather than a bare null so the
-      // caller can still tell "could not size" from "did not qualify" and
-      // refuse when every draft failed.
-      this.logger.warn(
-        { err: error, variant: draft.variant, channel },
-        'Recommended list variant could not be sized',
-      )
-      return {
-        error: error instanceof Error ? error : new Error(String(error)),
+      if (
+        !qualifies(
+          ranked.totalVoters,
+          channel,
+          draft.variant,
+          votesNeededToWin,
+          explicitlyRequested,
+        )
+      ) {
+        return null
       }
+      return {
+        variant: draft.variant,
+        filter: {
+          ...draft.filter,
+          precincts: ranked.precincts.map(({ county, precinct }) =>
+            encodePrecinctPair(county, precinct),
+          ),
+        },
+        count: ranked.totalVoters,
+      }
+    } catch (error) {
+      // One variant's failure costs that card, not the response -- the
+      // rankings are independent and the survivors are still worth showing.
+      return this.sizeFailure(error, draft.variant, channel)
+    }
+  }
+
+  // Returns the failure rather than a bare null so the caller can still tell
+  // "could not size" from "did not qualify" and refuse when every draft
+  // failed.
+  private sizeFailure(
+    error: unknown,
+    variant: RecommendedListVariant,
+    channel: RecommendedListChannel | null,
+  ): SizeFailure {
+    this.logger.warn(
+      { err: error, variant, channel },
+      'Recommended list variant could not be sized',
+    )
+    return {
+      error: error instanceof Error ? error : new Error(String(error)),
     }
   }
 }
