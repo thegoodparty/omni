@@ -174,6 +174,33 @@ describe('checkContactPatterns', () => {
       checkContactPatterns(['a perfectly ordinary sentence, order 1234567']),
     ).toBeUndefined()
   })
+
+  it.each([
+    'her direct line is 555-0123',
+    'her direct line is 555 0123',
+    'her direct line is 555.0123.',
+    'leave a message at 555-0193, then hang up',
+    'his cell is 867-5309',
+  ])('catches a seven-digit number with no area code: %s', (text) => {
+    expect(checkContactPatterns([text])).toBeDefined()
+  })
+
+  it.each([
+    'the levy passed in 2024 after failing in 2022',
+    'the 2024-2025 budget',
+    'Ordinance 245-2025 sets the fee',
+    'Room 214 2026 schedule',
+    'we raised $1,250 and spent $4,000',
+    'she won 2,450 to 1,980',
+    'mail it to 80202-1234',
+    'expect 500-1000 voters this fall',
+    'the precinct had 312 voters and 1204 households',
+    'a $250 1,000-piece mailer',
+    'a mill rate of 12.3456',
+    'turnout was 3,212 of 9,876',
+  ])('passes an ordinary number: %s', (text) => {
+    expect(checkContactPatterns([text])).toBeUndefined()
+  })
 })
 
 describe('runSecondRead', () => {
