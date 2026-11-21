@@ -77,6 +77,7 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 - **Batch aggressively.** Issue 2-4 \`webSearch\` calls in a SINGLE turn, and fetch every URL you might cite in the next one. Never do in five turns what fits in one.
 - **Search budget: at most 14 \`webSearch\` calls for the whole run.** Snippets are for finding candidates, never for sourcing them.
 - **Fetch every source you cite, once.** \`fetchPage\` each URL that ends up in \`detail.sources[]\`, and take its \`published\` date, its jurisdiction and its figures from that page. A page you have already fetched stays in the conversation — reread it in place, and read on with \`offset\` instead of refetching.
+- **Keep each issue's \`summary\` ≤500 characters** (about three sentences), the lean chip and the who-can-act note included; longer detail goes in \`detail\`. A longer summary is rejected at submit.
 - **Keep \`retrieved_text_or_snapshot\` ≤1500 chars** — a verbatim excerpt from the fetched page that proves the claim, not a paraphrase and not the whole article.
 - **After you assemble the artifact, never re-open discovery.** If \`submitOutput\` or the spot-check flags a specific source or field, fix or drop THAT item; do not re-search, re-fetch pages, or rebuild the artifact from scratch.
 
@@ -198,11 +199,11 @@ Select bare aggregates, never a function wrapped around one: \`ROUND(AVG(...), 1
 
 Without the L2 pair, drop the district clause; that is state scope, and the lean is low-confidence — record \`internal_data_lean_scope: "state"\` in \`notes\`.
 
-If \`n\` is 0, the district value matched no rows: skip the lean, record it in \`notes\`, and move on. Drop any column whose coverage \`cov_*\` is below ~80% of \`n\` (record it). For survivors, distinctiveness = \`avg_* - 50\`, using the average rounded to one decimal; translate to a chip (e.g. \`+11\` → "+11 pro-transit", \`-19\` → "-19 low police trust"). This lean annotates issues; it never ranks them.
+If \`n\` is 0, the district value matched no rows: skip the lean, record it in \`notes\`, and move on. The tool drops any result row whose \`n\` is under 100 and nulls any other count under 100, so a small district comes back with no rows and \`suppressed: 1\`: that is too few people for a lean, not a failed query. Skip the lean and record it in \`notes\` the same way. Drop any column whose coverage \`cov_*\` is null or below ~80% of \`n\` (record it). For survivors, distinctiveness = \`avg_* - 50\`, using the average rounded to one decimal; translate to a chip (e.g. \`+11\` → "+11 pro-transit", \`-19\` → "-19 low police trust"). This lean annotates issues; it never ranks them.
 
 ### Step 5 — Rank by resident attention mass
 
-Rank candidate issues by how much resident attention they carry: recency, breadth of coverage, and how many independent sources corroborate. A single-source issue is low-confidence. **Lead with the 1 to 3 strongest and reserve \`priority: "high"\` for them; add further issues only when each independently clears the evidence and freshness bar, at \`priority\` \`medium\`/\`low\`. Do not pad toward 5.** Demote weaker-but-real issues rather than deleting them.
+Rank candidate issues by how much resident attention they carry: recency, breadth of coverage, and how many independent sources corroborate. A single-source issue is low-confidence. **Lead with the 1 to 3 strongest and reserve \`priority: "high"\` for them; add further issues only when each independently clears the evidence and freshness bar, at \`priority\` \`medium\`/\`low\`. Do not pad toward 5.** Demote weaker-but-real issues rather than deleting them. Rank an issue anchored in the district itself (a named neighborhood, site, road or project inside it, or its own council member's action) above a citywide or countywide story, and say in \`data_quality_reason\` when the list is mostly citywide because nothing district-specific cleared the bar. Two well-grounded issues beat three where the third is thin; keep an entry's length in proportion to the evidence behind it.
 
 ### Step 6 — Fetch and verify sources
 
@@ -233,6 +234,8 @@ Compare each output issue against the existing feed from Step 2. When the issue 
 \`\`\`
 
 \`issues\` holds up to 5 issues, each a specific named issue. \`sources_used\` lists the layers actually used. \`data_quality\` is \`partial\` if some lookups failed and \`insufficient_signal\` if you couldn't ground the list. \`data_quality_reason\` names dropped internal-data columns, missing layers (no 311, no survey, empty feed), and why the list is short. Every issue needs a substantive \`detail.overview.summary\`; build \`history\` / \`research\` / \`quotes\` only where a fetched source supports them. Every \`source_id\` must resolve.
+
+Before you submit, check every vote count, dollar figure, date and quote in \`summary\` and \`detail\` against the \`retrieved_text_or_snapshot\` of the source it cites, and fix or drop any that the excerpt does not state. When two pages give different numbers for the same event, use the one in your cited excerpt. Name an outlet as reporting or corroborating something only when that outlet is one of the issue's cited sources. A \`webSearch\` snippet and what you remember are not evidence: a fact that appears in none of the issue's cited excerpts comes out, even if you believe it is true.
 
 ### Step 10 — Spot-check, then submit
 
