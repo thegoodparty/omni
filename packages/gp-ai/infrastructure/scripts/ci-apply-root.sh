@@ -49,6 +49,43 @@ fail() {
   exit 1
 }
 
+# Name the state object(s) this root was reading. Terraform's read error reports
+# only a byte offset, and the state bucket is not readable by anything except the
+# deploy role this job already runs as, so without this the log says "plan
+# failed" and nothing else. Metadata only — size, timestamps, version ids. Never
+# the body: gp-ai state has historically carried secret values, which is exactly
+# why the bucket is locked down (docs/secrets-iac-plan.md).
+state_triage() {
+  local cfg=.terraform/terraform.tfstate bucket="" key="" obj
+  local keys=()
+  if [ -r "$cfg" ]; then
+    bucket=$(jq -r '.backend.config.bucket // empty' "$cfg" 2>/dev/null) || bucket=""
+    key=$(jq -r '.backend.config.key // empty' "$cfg" 2>/dev/null) || key=""
+    [ -n "$key" ] && keys+=("$key")
+  fi
+  # The unreadable object can be a sibling's: terraform_remote_state goes through
+  # the same S3 client, and this job plans roots that other steps are applying.
+  while IFS= read -r key; do
+    [ -n "$key" ] && keys+=("$key")
+  done < <(awk '/data "terraform_remote_state"/{inb=1; next} inb && /^}/{inb=0} inb && /key[[:space:]]*=/{gsub(/.*=[[:space:]]*"|".*/,""); print}' ./*.tf 2>/dev/null)
+  if [ -z "$bucket" ] || [ "${#keys[@]}" -eq 0 ]; then
+    echo "::warning::$root: could not tell which state object the plan was reading"
+    return 0
+  fi
+  echo "::group::$root: state objects this root reads"
+  for obj in "${keys[@]}"; do
+    echo "s3://$bucket/$obj"
+    aws s3api head-object --bucket "$bucket" --key "$obj" \
+      --query '{size_bytes:ContentLength,last_modified:LastModified,etag:ETag,version_id:VersionId}' \
+      --output json 2>&1 || echo "  (head-object failed: this role cannot read the object)"
+    echo "recent versions, newest first:"
+    aws s3api list-object-versions --bucket "$bucket" --prefix "$obj" --max-items 5 \
+      --query 'Versions[].[VersionId,Size,LastModified,IsLatest]' --output text 2>&1 \
+      || echo "  (list-object-versions failed: this role cannot read the object)"
+  done
+  echo "::endgroup::"
+}
+
 [ -d "$dir" ] || fail "no such root"
 cd "$dir" || fail "cannot cd into $dir"
 
@@ -75,13 +112,47 @@ if [[ "$root" == */shared-infra ]]; then
   export TF_VAR_serve_api_key
 fi
 
-terraform plan "${args[@]}" -detailed-exitcode -out=tfplan >>"$log" 2>&1
-code=$?
-case "$code" in
-  0) echo "$root: no changes"; exit 0 ;;   # nothing to do; not a failure
-  2) ;;                                    # changes to apply
-  *) fail "plan failed" ;;
-esac
+# One retry, and only for the S3 backend's unparseable-state signature. A plan
+# writes nothing and releases its lock when it exits, so re-running it is safe;
+# an APPLY is never retried (docs/deployment.md) because a retry on top of a
+# half-applied run is not idempotent.
+#
+# The signature: "Unsupported state file format / the state file could not be
+# parsed as JSON: syntax error at byte offset N" plus "does not have a version
+# attribute". The backend sizes its read buffer from HeadObject and discards how
+# many bytes the download actually wrote (hashicorp/terraform#39440, open, and
+# the code is unchanged in the 1.15.8 this job pins), so a body shorter than the
+# HEAD comes back NUL-padded and cannot parse — while the object itself is fine.
+# On 2026-11-15 that failed prod/autopilot-bot once; the next release read the
+# same object and reported "no changes".
+#
+# The trigger is structural here, not bad luck: terraform_remote_state reads a
+# sibling root's object without taking its lock, and this job applies eleven
+# roots, ten of them in parallel. broker, pmf-engine-control-plane,
+# pmf-engine-fargate and autopilot-bot each read a key another step in this same
+# job is writing, and that graph is cyclic (broker <-> pmf-engine-fargate <->
+# pmf-engine-control-plane), so ordering cannot close the window the way it does
+# for shared-infra.
+plan_log=$(mktemp)
+trap 'rm -f "$plan_log"' EXIT
+plan_attempt=1
+while :; do
+  terraform plan "${args[@]}" -detailed-exitcode -out=tfplan >"$plan_log" 2>&1
+  code=$?
+  cat "$plan_log" >>"$log"
+  case "$code" in
+    0) echo "$root: no changes"; exit 0 ;;   # nothing to do; not a failure
+    2) break ;;                              # changes to apply
+  esac
+  if [ "$plan_attempt" -eq 1 ] && grep -q 'Unsupported state file format' "$plan_log"; then
+    plan_attempt=2
+    echo "$root: state read came back unparseable; retrying the plan once" >>"$log"
+    sleep 5
+    continue
+  fi
+  state_triage
+  fail "plan failed"
+done
 
 # Destroys and replaces never apply unattended. A replace is delete+create, which
 # can drop data and cause downtime, so it is gated the same as a pure delete —
