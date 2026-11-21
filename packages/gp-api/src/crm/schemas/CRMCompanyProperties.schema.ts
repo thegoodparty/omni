@@ -40,6 +40,10 @@ export const CRMCompanyPropertiesSchema = z
       z.literal('Inactive'),
     ]),
     [HS_PROPS.pro_upgrade_date]: timestampSchema,
+    [HS_PROPS.win_plan]: z.enum(['free', 'pro', 'team']),
+    // '' clears the HubSpot property; undefined would leave a stale value.
+    [HS_PROPS.win_plan_pricing_model]: z.enum(['subscription', 'one_time', '']),
+    [HS_PROPS.win_plan_ends_at]: z.union([timestampSchema, z.literal('')]),
     [HS_PROPS.running]: yesNoSchema,
 
     // 10DLC compliance filing details

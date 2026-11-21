@@ -27,7 +27,11 @@ import {
 } from 'src/crm/schemas/CRMCompanyProperties.schema'
 import { filterPropertiesForUpdate } from '../util/crmCompanyProperties.util'
 import { WrapperType } from 'src/shared/types/utility.types'
-import { CampaignCreatedBy, OnboardingStep } from '@goodparty_org/contracts'
+import {
+  CampaignCreatedBy,
+  OnboardingStep,
+  planEndsAt,
+} from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { chunk, uniq } from 'es-toolkit'
 
@@ -406,6 +410,12 @@ export class CrmCampaignsService {
       pro_candidate: isPro ? HubSpot.ProCandidate.YES : HubSpot.ProCandidate.NO,
       pro_subscription_status: proSubscriptionStatus,
       pro_upgrade_date: isProUpdatedAtMs,
+      win_plan: campaign.plan,
+      win_plan_pricing_model: campaign.planPricingModel ?? '',
+      win_plan_ends_at:
+        campaign.plan === 'free'
+          ? ''
+          : (formatDateForCRM(planEndsAt(campaign)?.getTime()) ?? ''),
       running: runForOffice ? HubSpot.Running.YES : HubSpot.Running.NO,
 
       // 10DLC compliance filing details
