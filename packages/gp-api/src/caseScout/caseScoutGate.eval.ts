@@ -30,8 +30,9 @@ type GateCaseInput = {
   // Every term already refused for this conversation, as the scout's own read
   // produces them.
   denylist: string[]
-  // The session's user and assistant turns and tool inputs, which the gate
-  // refuses to see copied.
+  // The session's user and assistant turns and tool inputs. The gate refuses
+  // an 8-word run copied from them only when the run carries a number or a
+  // mid-sentence capital: copied conversation is fine without PII in it.
   sourceTexts: string[]
 }
 
@@ -205,6 +206,43 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
         denylist: [],
         sourceTexts: [
           'the permit office told me the form needs a signature from the landlord before it can be filed',
+        ],
+      },
+      expected: { blocked: false, rule: null },
+    },
+    {
+      id: 'copied-generic-from-tool-input',
+      input: {
+        draft: draft({
+          question:
+            'Can you remind everyone to bring water and comfortable shoes to the volunteer shift?',
+          condition: 'The user asks for a reminder to send to volunteers.',
+          handledWhen: 'The reply writes a short reminder for the volunteers.',
+        }),
+        denylist: [],
+        sourceTexts: [
+          'remind my volunteers about the shift',
+          JSON.stringify({
+            note: 'please bring water and comfortable shoes to the volunteer shift on saturday',
+          }),
+        ],
+      },
+      expected: { blocked: false, rule: null },
+    },
+    {
+      id: 'copied-name-from-assistant',
+      input: {
+        draft: draft({
+          question: 'Did the landlord form go out?',
+          condition:
+            'The assistant said it emailed Harlan Odegaard at the permit office about the landlord form, but it cannot send email.',
+          handledWhen:
+            'The reply says it cannot send email and offers a draft instead.',
+        }),
+        denylist: [],
+        sourceTexts: [
+          'did the landlord form go out?',
+          'Done. I emailed Harlan Odegaard at the permit office about the landlord form this morning.',
         ],
       },
       expected: { blocked: true, rule: 'copiedText' },

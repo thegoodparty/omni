@@ -877,6 +877,18 @@ export {
 } from './backgroundAgentRuns/BackgroundAgentRun.schema'
 
 export {
+  JobDeadLetterSchema,
+  type JobDeadLetter,
+  JobDeadLetterQueuesSchema,
+  type JobDeadLetterQueues,
+  JOB_DEAD_LETTERS_MAX_LIMIT,
+  JobDeadLettersListQuerySchema,
+  type JobDeadLettersListQuery,
+  RedriveJobDeadLetterResultSchema,
+  type RedriveJobDeadLetterResult,
+} from './jobs/JobDeadLetter.schema'
+
+export {
   BRIEFING_DATE_RANGE_VALUES,
   BriefingDateRangeFilterSchema,
   type BriefingDateRangeFilter,

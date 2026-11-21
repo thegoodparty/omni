@@ -44,7 +44,8 @@ identity today; annotations say `not reported` when it is missing.
 One pair per attempt, three pairs per case. Each pair is judged in **both
 orders** — base as A and candidate as B, then swapped — and two orders that
 disagree are a tie. One `generateObject` call returns the winner, `handledWhen`
-as yes/partly/no per side, a 1-5 score per dimension, and one sentence of
+as yes/partly/no per side, a 1-5 score per dimension (half points allowed: Claude's native JSON output
+gives them, and an integer-only schema rejected whole verdicts), and one sentence of
 reasoning. Default questions: `task_success`, `instruction_adherence`,
 `user_utility`; a case's `grading.dimensions` adds to them.
 
@@ -79,6 +80,26 @@ direction off them claims more than the run saw. The preflight asks each arm for
 (`GET .../v1/agents/runs/<random uuid>`). Its guard answers 401, or its handler
 answers 404 for the missing run. Nest's `Cannot GET ...` 404 instead fails the
 suite before a single agent run or grading call is spent.
+
+## Debugging a CAN'T JUDGE
+
+1. Read the job summary's **Not judged attempts** table. Each row is one
+   attempt that never became a pair: which side failed (`base`, `candidate`, or
+   `grader`), its run IDs with status, and the error.
+2. `base`/`candidate` with no runs: the arm failed before `runAgent`, so at
+   test-user setup. Search that arm's gp-api logs for the 500 (e.g. `POST
+/v1/elected-office`).
+3. `base`/`candidate` with a run: look the run ID up in that arm's logs or its
+   `experiment_run`/agent-run row. `superseded` means a deploy requeued it.
+4. `grader`: the judge model's answer failed the grading schema or the call
+   errored. Rerun one case locally (`-t <case>`) with base and candidate both set
+   to the same URL to separate the grader from the arms, and catch
+   `NoObjectGeneratedError` for `.text` and `.cause` to see the raw answer.
+5. Full per-run records are the `pairwise-run` annotations, printed by the
+   default reporter on a local run; CI does not keep them.
+
+Run evals from a worktree, not the main checkout: `vite-tsconfig-paths` walks
+every `.worktrees/*` tsconfig there and fails to resolve them.
 
 ## Signing in
 

@@ -75,13 +75,13 @@ describe('checkDenylist', () => {
 
 describe('checkCopiedText', () => {
   const source = [
-    'I think the polling place near my house closed early on election day',
+    'I think the polling place on Fenwick Road closed early on election day',
   ]
 
-  it('blocks a run of exactly eight words', () => {
+  it('blocks an identifying run of exactly eight words', () => {
     expect(
       checkCopiedText(
-        ['He said the polling place near my house closed early'],
+        ['He said the polling place on Fenwick Road closed early'],
         source,
       ),
     ).toBeDefined()
@@ -89,17 +89,65 @@ describe('checkCopiedText', () => {
 
   it('passes seven', () => {
     expect(
-      checkCopiedText(['He said the polling place near my house'], source),
+      checkCopiedText(
+        ['He said the polling place on Fenwick Road closed'],
+        source,
+      ),
     ).toBeUndefined()
   })
 
   it('normalizes case and punctuation on both sides', () => {
     expect(
       checkCopiedText(
-        ['He said: THE POLLING-PLACE near my house, closed early!'],
+        ['He said: THE POLLING-PLACE on fenwick road, closed early!'],
         source,
       ),
     ).toBeDefined()
+  })
+
+  it('blocks a copied name whose lowercase gains a combining mark', () => {
+    expect(
+      checkCopiedText(
+        ['the polling place on İnönü Road closed early today'],
+        ['so the polling place on İnönü Road closed early today'],
+      ),
+    ).toBeDefined()
+  })
+
+  it('blocks a copied run whose source carries a number', () => {
+    expect(
+      checkCopiedText(
+        ['So the polling place near my house closed at 6?'],
+        ['the polling place near my house closed at 6 on election day'],
+      ),
+    ).toBeDefined()
+  })
+
+  it('passes a generic run copied word for word', () => {
+    const generic = [
+      "I'm sure the polling place near my house closed early on election day",
+    ]
+    expect(
+      checkCopiedText(
+        ['He said the polling place near my house closed early'],
+        generic,
+      ),
+    ).toBeUndefined()
+    expect(
+      checkCopiedText(
+        ['He said the Polling Place near my House closed early'],
+        generic,
+      ),
+    ).toBeUndefined()
+  })
+
+  it('reads a capital after a sentence break as ordinary', () => {
+    expect(
+      checkCopiedText(
+        ['Turnout at the polling place near my house was low.'],
+        ['We lost. Turnout at the polling place near my house was low'],
+      ),
+    ).toBeUndefined()
   })
 
   it('never blocks without source texts', () => {
@@ -226,61 +274,82 @@ describe('copied text from every role', () => {
     startedAt: new Date('2026-11-12T15:00:00.000Z'),
     messages,
   })
+  const sourcesFrom = {
+    'a user turn': (text: string) =>
+      sessionSourceTexts(session([message({ content: text })])),
+    'an assistant turn': (text: string) =>
+      sessionSourceTexts(
+        session([
+          message({}),
+          message({
+            messageId: 'msg-2',
+            role: ChatMessageRole.assistant,
+            content: text,
+          }),
+        ]),
+      ),
+    'a tool input': (text: string) =>
+      sessionSourceTexts(
+        session([
+          message({}),
+          message({
+            messageId: 'msg-2',
+            role: ChatMessageRole.assistant,
+            content: 'Saving that now.',
+            toolCalls: [
+              { tool: 'save_note', input: JSON.stringify({ note: text }) },
+            ],
+          }),
+        ]),
+      ),
+  }
+  const roles = Object.keys(sourcesFrom) as Array<keyof typeof sourcesFrom>
 
-  it('blocks a run copied from an assistant turn', async () => {
-    const sources = sessionSourceTexts(
-      session([
-        message({}),
-        message({
-          messageId: 'msg-2',
-          role: ChatMessageRole.assistant,
-          content:
-            'Your volunteers meet at the library annex every Tuesday evening.',
-        }),
-      ]),
-    )
+  it.each(roles)('passes a generic run copied from %s', async (role) => {
     expect(
       await gateDraft(
         {
           ...clean,
           question:
-            'Do volunteers meet at the library annex every Tuesday evening?',
+            'My treasurer wants the mailer proof back by the end of the week.',
         },
         [],
-        sources,
+        sourcesFrom[role](
+          'my treasurer wants the mailer proof back by the end of the week',
+        ),
+        pass,
+      ),
+    ).toEqual({ passed: true })
+  })
+
+  it.each(roles)('blocks a run with a number from %s', async (role) => {
+    expect(
+      await gateDraft(
+        {
+          ...clean,
+          question: 'My treasurer wants the mailer proof back by the 14th. Ok?',
+        },
+        [],
+        sourcesFrom[role](
+          'my treasurer wants the mailer proof back by the 14th at noon',
+        ),
         pass,
       ),
     ).toMatchObject({ passed: false, rule: 'copiedText' })
   })
 
-  it('blocks a run copied from a tool input', async () => {
-    const sources = sessionSourceTexts(
-      session([
-        message({}),
-        message({
-          messageId: 'msg-2',
-          role: ChatMessageRole.assistant,
-          content: 'Saving that now.',
-          toolCalls: [
-            {
-              tool: 'save_note',
-              input: JSON.stringify({
-                note: 'the treasurer wants the mailer proof back by friday',
-              }),
-            },
-          ],
-        }),
-      ]),
-    )
+  it.each(roles)('blocks a run with a name from %s', async (role) => {
     expect(
       await gateDraft(
         {
           ...clean,
           question:
-            'My treasurer wants the mailer proof back by Friday noon. Ok?',
+            'My treasurer wants the mailer proof from Brightwell Press.',
         },
         [],
-        sources,
+        sourcesFrom[role](
+          'my treasurer wants the mailer proof from Brightwell Press by noon',
+        ),
         pass,
       ),
     ).toMatchObject({ passed: false, rule: 'copiedText' })
@@ -388,9 +457,9 @@ describe('gateNeedsSetup', () => {
     ).toMatchObject({ passed: false, rule: 'contactPattern' })
     expect(
       await gateNeedsSetup(
-        'An account whose treasurer filed the report two days after the deadline',
+        'An account whose treasurer filed the report 2 days after the deadline',
         [],
-        ['our treasurer filed the report two days after the deadline again'],
+        ['our treasurer filed the report 2 days after the deadline again'],
         pass,
       ),
     ).toMatchObject({ passed: false, rule: 'copiedText' })
