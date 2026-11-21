@@ -1,14 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import { compareAsc, parseISO } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
-import { ChatScope } from '@/generated/prisma'
 import type { JobRun } from '@/jobs/jobs.registry'
 import {
   CANDIDATE_MIN_SEVERITY,
   caseScoutEnabled,
   COVERED_SCOPES,
   ESTIMATED_COST_PER_CALL_USD,
-  judgeRecordsBucketName,
   spendCapUsd,
 } from '../caseScout.config'
 import { SCORING_MODEL } from '../caseScout.prompts'
@@ -20,7 +18,6 @@ import {
   type LedgerLine,
   type Manifest,
   type ManifestSession,
-  type Removal,
   type RunRecord,
   type Sources,
 } from '../schemas/caseScoutBucket.schema'
@@ -61,20 +58,9 @@ import {
   LIST_SOFT_CAP,
   type CaseListInfo,
 } from './caseScoutCaseLists.service'
-import { CaseScoutJudgeRecordsService } from './caseScoutJudgeRecords.service'
 import { CaseScoutMessagesService } from './caseScoutMessages.service'
 import { CaseScoutModelService } from './caseScoutModel.service'
 import { CaseScoutPublisherService } from './caseScoutPublisher.service'
-
-// The judge's chat agents (CHAT_AGENT_IDS in src/chats/evals/judge/agents.ts,
-// which the production build leaves out), checked for noisy cases.
-const CHAT_AGENT_IDS: ChatScope[] = [
-  ChatScope.chief_of_staff,
-  ChatScope.campaign_assistant,
-  ChatScope.ordinance_flow,
-  ChatScope.priority_flow,
-  ChatScope.briefing_annotation,
-]
 
 export type DraftNightJob = { runId: string }
 
@@ -109,7 +95,6 @@ export class CaseScoutDraftService {
     private readonly messages: CaseScoutMessagesService,
     private readonly model: CaseScoutModelService,
     private readonly caseLists: CaseScoutCaseListsService,
-    private readonly judgeRecords: CaseScoutJudgeRecordsService,
     private readonly publisher: CaseScoutPublisherService,
     private readonly logger: PinoLogger,
   ) {
@@ -444,7 +429,6 @@ export class CaseScoutDraftService {
       })
     }
 
-    const removals = await this.proposeRemovals(errors)
     const outcomes = (outcome: DraftOutcome) =>
       ledgerLines.filter((entry) => entry.outcome === outcome).length
     const newMarker = newMarkerCandidate(
@@ -459,7 +443,7 @@ export class CaseScoutDraftService {
     )
 
     return {
-      bundle: { runId, drafts, needsSetup, listFull, removals },
+      bundle: { runId, drafts, needsSetup, listFull, removals: [] },
       sources,
       ledgerLines,
       record: {
@@ -484,36 +468,6 @@ export class CaseScoutDraftService {
         errors: [...scoringErrors, ...errors],
         newMarker,
       },
-    }
-  }
-
-  // Advisory and beside tonight's drafts, never in front of them: a failure
-  // here costs the PR its removal section, not its cases.
-  private async proposeRemovals(errors: string[]): Promise<Removal[]> {
-    const judgeBucket = judgeRecordsBucketName()
-    if (!judgeBucket) {
-      this.logger.info(
-        'CASE_SCOUT_JUDGE_RECORDS_BUCKET is unset; skipping noisy cases',
-      )
-      return []
-    }
-    const lists: CaseListInfo[] = []
-    for (const agentId of CHAT_AGENT_IDS) {
-      try {
-        lists.push(await this.caseLists.read(agentId))
-      } catch (err) {
-        this.logger.warn(
-          { err, agentId },
-          'Case scout could not read a case list for noisy cases',
-        )
-      }
-    }
-    try {
-      return await this.judgeRecords.proposeRemovals(judgeBucket, lists)
-    } catch (err) {
-      this.logger.warn({ err }, 'Case scout noisy-case proposals failed')
-      errors.push('noisy-case proposals could not be computed')
-      return []
     }
   }
 }

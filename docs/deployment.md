@@ -353,8 +353,7 @@ workflow that runs on every PR.
 
 Not required, on purpose: the Vercel preview `Deploy` jobs (`E2E` already fails
 when the webapp preview fails, and Dependabot PRs cannot deploy), path-filtered
-workflows (infra diffs, setup-smoke, judge schema, `@dev-only` drift), the
-shadow universal-judge `Guard`, and Cursor Bugbot.
+workflows (infra diffs, setup-smoke, `@dev-only` drift), and Cursor Bugbot.
 
 ### PRs with no app code
 
@@ -384,8 +383,7 @@ omni CI has two AWS roles, both owned by `thegoodparty/ops`:
 
 - **Pull-request role**, `github-actions-preview-deploy` (ARN written in the
   workflow). Every `pull_request` job that needs AWS assumes it, and so does
-  any job that runs pull request code, whatever ref starts it: the Universal
-  Judge in `judge.yml` runs from `main` but executes the branch it judges.
+  any job that runs pull request code, whatever ref starts it.
 - **Deploy role**, `github-actions-pulumi-deploy` (`vars.AWS_ROLE_ARN`). Every
   other job that runs from `main`, including jobs in the `production`
   environment, assumes it. It carries `AdministratorAccess`, so it must never
@@ -411,9 +409,9 @@ a pull request run cannot read it.
 Two things to check before adding the environment to a job. It changes the
 job's OIDC subject from `ref:refs/heads/main` to `environment:production`, so
 every role or federation policy the job authenticates to must accept that
-subject (the pull-request role's trust for `judge.yml` and the Databricks
-federation policy in `analytics-governance.yml` are pinned to the ref and do
-not). And a secret the
+subject (the pull-request role's trust in `thegoodparty/ops`, and the
+Databricks federation policy in `analytics-governance.yml`, are pinned to the
+ref and do not). And a secret the
 job reads must not also be read on a pull request, or moving it breaks that run.
 
 PR preview deploys read only `VERCEL_PREVIEW_TOKEN`, with no fallback: it

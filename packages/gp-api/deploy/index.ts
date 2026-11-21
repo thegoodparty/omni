@@ -824,14 +824,6 @@ jwIDAQAB
       CASE_SCOUT_LAMBDA_FUNCTION_NAME: caseScoutName,
       CASE_SCOUT_SPEND_CAP_USD: '50',
       CASE_SCOUT_SESSION_CAP: '75',
-      // Noisy-case proposals read the judge's sweep records. Dev only: dev's
-      // task already reads its own agent-artifacts bucket, and prod reading
-      // the dev bucket is not granted.
-      CASE_SCOUT_JUDGE_RECORDS_BUCKET: select({
-        preview: '',
-        dev: agentArtifactsBucketName,
-        prod: '',
-      }),
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
       HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({

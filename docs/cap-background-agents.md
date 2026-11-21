@@ -131,8 +131,7 @@ A judge dispatch omits `clerk_user_id`, so the broker's `/agent/mcp` proxy refus
 the run, except for the three agents that read gp-api (`meeting_briefing`,
 `top_community_issues`, `trending_issues`). Those name a seeded dev account,
 `user_judge_fixture` on organization `judge-fixture`, which has no campaign so
-every campaign-scoped write tool 404s. See
-`packages/gp-api/src/chats/evals/judge/README.md`.
+every campaign-scoped write tool 404s.
 
 `dispatchRun` is generic over `keyof AgentJobContracts`, and `params` is typed
 against `src/generated/agent-job-contracts.ts` — **generated from the per-experiment

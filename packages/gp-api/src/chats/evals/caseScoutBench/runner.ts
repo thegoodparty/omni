@@ -62,12 +62,7 @@ import {
   sessionDenylist,
   sessionSourceTexts,
 } from '@/caseScout/util/transcript.util'
-import {
-  CASES_DIR,
-  CaseListError,
-  isChatCase,
-  parseCaseList,
-} from '../judge/cases'
+import { CASES_DIR, CaseListError, parseCaseList } from '../judge/cases'
 import {
   conversationIdOf,
   fixtureMessages,
@@ -197,13 +192,12 @@ export const readLocalCaseList = (
   } catch {
     return emptyCaseList(agentId)
   }
-  const list = parseCaseList(agentId, text, { agentId, shape: 'chat' })
-  const chatCases = list.cases.filter(isChatCase)
+  const list = parseCaseList(agentId, text, { agentId })
   return {
     agentId,
     caseCount: list.cases.length,
     caseIds: new Set(list.cases.map((c) => c.caseId)),
-    conditions: chatCases.flatMap((c) => (c.condition ? [c.condition] : [])),
+    conditions: list.cases.flatMap((c) => (c.condition ? [c.condition] : [])),
     fixtureDescription: list.note ?? '',
   }
 }
@@ -232,7 +226,7 @@ export const draftLoaderIssue = (
     cases: [...payload.cases, draft],
   })
   try {
-    parseCaseList(`${agentId}.json`, appended, { agentId, shape: 'chat' })
+    parseCaseList(`${agentId}.json`, appended, { agentId })
     return undefined
   } catch (err) {
     if (err instanceof CaseListError) return err.message

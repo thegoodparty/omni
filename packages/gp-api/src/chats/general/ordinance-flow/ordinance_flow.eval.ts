@@ -7,8 +7,8 @@ import {
 // What a case supplies: its turns. The scope and the anchor are the suite's.
 type OrdinanceFlowEvalInput = { turns: readonly string[] }
 
-// ordinance_flow, on the pairwise suites. Converted from the old judge's chat
-// case list (src/chats/evals/judge/cases/ordinance_flow.json): the cases keep
+// ordinance_flow, on the pairwise suites. Converted from the old judge's case
+// list (src/chats/evals/judge/cases/ordinance_flow.json): the cases keep
 // their ids, `question` became `turns`, and `condition` and `handledWhen` moved
 // under `grading`. The one case the old list marked unscored is a normal case
 // here whose condition starts with 'Control:'.

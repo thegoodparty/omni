@@ -7,7 +7,6 @@ code: ['#3190']
 scope:
   - packages/gp-api/src/testFixtures/**
   - packages/gp-api/src/testMode/**
-  - packages/gp-api/src/chats/evals/judge/judgeIdentifiers.ts
   - packages/gp-webapp/e2e-tests/tests/utils/**
 ---
 

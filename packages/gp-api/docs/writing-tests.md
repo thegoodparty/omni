@@ -204,7 +204,7 @@ if (require.main === module) {
 }
 ```
 
-Keep at most one subprocess test per entry, to prove the `require.main` wiring. See `src/chats/evals/judge/armBudget.test.ts`.
+Keep at most one subprocess test per entry, to prove the `require.main` wiring.
 
 ## Prompt and copy text
 

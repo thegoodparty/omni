@@ -1,8 +1,7 @@
 import type { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 
-// race_opponent_summary, converted from the old judge's background case list
-// (src/chats/evals/judge/cases/race_opponent_summary.json). The cases are unchanged in
+// race_opponent_summary, converted from the old judge's case list. The cases are unchanged in
 // meaning: `params` is `input`, and `condition`, `handledWhen` and the dimension
 // questions are `grading`. A case marked unscored there is a normal case here
 // whose condition says it is a control.

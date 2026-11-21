@@ -385,7 +385,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   CASE_SCOUT_LAMBDA_FUNCTION_NAME: { tier: 'optional' },
   CASE_SCOUT_SPEND_CAP_USD: { tier: 'optional', default: '50' },
   CASE_SCOUT_SESSION_CAP: { tier: 'optional', default: '75' },
-  CASE_SCOUT_JUDGE_RECORDS_BUCKET: { tier: 'optional' },
 
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },
   CV_SCAN_RETRIEVE_SPACING_MS: { tier: 'optional' },
