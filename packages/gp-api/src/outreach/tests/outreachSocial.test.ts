@@ -58,15 +58,31 @@ beforeEach(async () => {
 
 const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
 
-const llmResult = (
-  assets: Array<{ platform: string; text: string; caption?: string }>,
-) => ({
-  object: { assets },
+const assetResult = (asset: { text: string; caption?: string }) => ({
+  object: asset,
   tokens: 100,
   inputTokens: 50,
   outputTokens: 50,
   model: 'claude-test',
 })
+
+const mockGeneratedAssets = (
+  byPlatform: Record<string, { text: string; caption?: string }>,
+) => {
+  jsonCompletion.mockImplementation(
+    (call: { messages: Array<{ role: string; content: string }> }) => {
+      const userPrompt =
+        call.messages.find((message) => message.role === 'user')?.content ?? ''
+      const platform = Object.keys(byPlatform).find((candidate) =>
+        userPrompt.includes(`- ${candidate}: `),
+      )
+      const asset = platform ? byPlatform[platform] : undefined
+      return asset
+        ? Promise.resolve(assetResult(asset))
+        : Promise.reject(new Error('Generation asked for an unknown platform'))
+    },
+  )
+}
 
 const postGenerate = (body: object) =>
   service.client.post('/v1/outreach/social/generate', body, orgHeaders())
@@ -323,13 +339,11 @@ describe('POST /v1/outreach/social/draft', () => {
 
 describe('POST /v1/outreach/social/generate', () => {
   it('returns one asset per platform with server-derived kinds', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([
-        { platform: 'facebook', text: 'FB adaptation' },
-        { platform: 'x', text: 'Short X post' },
-        { platform: 'tiktok', text: 'Spoken script', caption: 'A caption' },
-      ]),
-    )
+    mockGeneratedAssets({
+      facebook: { text: 'FB adaptation' },
+      x: { text: 'Short X post' },
+      tiktok: { text: 'Spoken script', caption: 'A caption' },
+    })
 
     const res = await postGenerate({
       draftMessage: 'Vote for me on election day.',
@@ -353,6 +367,7 @@ describe('POST /v1/outreach/social/generate', () => {
         caption: 'A caption',
       },
     ])
+    expect(jsonCompletion).toHaveBeenCalledTimes(3)
 
     expect(await countAllSocialRows()).toEqual({
       outreach: 0,
@@ -362,9 +377,7 @@ describe('POST /v1/outreach/social/generate', () => {
   })
 
   it('includes the office line in the generate prompt', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
-    )
+    mockGeneratedAssets({ facebook: { text: 'FB adaptation' } })
 
     const res = await postGenerate({
       draftMessage: 'Vote for me on election day.',
@@ -381,9 +394,7 @@ describe('POST /v1/outreach/social/generate', () => {
   })
 
   it('uses the adapt-dont-rewrite platform guidance for the custom purpose', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'x', text: 'Trimmed post' }]),
-    )
+    mockGeneratedAssets({ x: { text: 'Trimmed post' } })
 
     const res = await postGenerate({
       draftMessage: 'My own words, unedited.',
@@ -404,9 +415,7 @@ describe('POST /v1/outreach/social/generate', () => {
   })
 
   it('dedupes repeated platforms before calling the LLM', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
-    )
+    mockGeneratedAssets({ facebook: { text: 'FB adaptation' } })
 
     const res = await postGenerate({
       draftMessage: 'Vote for me.',
@@ -419,13 +428,14 @@ describe('POST /v1/outreach/social/generate', () => {
     expect(jsonCompletion).toHaveBeenCalledTimes(1)
   })
 
-  it('rejects an LLM response missing a requested platform', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
-    )
+  it('asks the model for one platform per call, with only that rule', async () => {
+    mockGeneratedAssets({
+      facebook: { text: 'FB adaptation' },
+      nextdoor: { text: 'Nextdoor adaptation' },
+    })
 
     // issue_update carries no Nextdoor exclusion on Win, unlike
-    // persuade_voters — this asserts the missing-platform gap, not the
+    // persuade_voters — this asserts the per-platform calls, not the
     // ENG-10989 exclusion gate (covered separately below).
     const res = await postGenerate({
       draftMessage: 'Sharing an update.',
@@ -433,13 +443,21 @@ describe('POST /v1/outreach/social/generate', () => {
       platforms: ['facebook', 'nextdoor'],
     })
 
-    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(jsonCompletion).toHaveBeenCalledTimes(2)
+    for (const call of jsonCompletion.mock.calls) {
+      const userPrompt =
+        call[0].messages.find(
+          (message: { role: string }) => message.role === 'user',
+        )?.content ?? ''
+      expect(userPrompt.match(/^- [a-z_]+: /gm)).toHaveLength(1)
+    }
   })
 
-  it('rejects a video asset that arrives without a caption', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'youtube_shorts', text: 'Script only' }]),
-    )
+  it('requires a caption in the schema for a video platform', async () => {
+    mockGeneratedAssets({
+      youtube_shorts: { text: 'Script', caption: 'Caption' },
+    })
 
     const res = await postGenerate({
       draftMessage: 'Vote for me.',
@@ -447,7 +465,12 @@ describe('POST /v1/outreach/social/generate', () => {
       platforms: ['youtube_shorts'],
     })
 
-    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    expect(call.schema.safeParse({ text: 'Script only' }).success).toBe(false)
+    expect(
+      call.schema.safeParse({ text: 'Script', caption: 'Caption' }).success,
+    ).toBe(true)
   })
 
   it('maps an LLM failure to 502', async () => {
@@ -505,9 +528,7 @@ describe('POST /v1/outreach/social/generate', () => {
   )
 
   it('allows the same excluded-elsewhere purposes on Nextdoor for every other platform', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'facebook', text: 'FB adaptation' }]),
-    )
+    mockGeneratedAssets({ facebook: { text: 'FB adaptation' } })
 
     const res = await postGenerate({
       draftMessage: 'Vote for me.',
@@ -519,9 +540,9 @@ describe('POST /v1/outreach/social/generate', () => {
   })
 
   it('drops the vote CTA and closes on bio/priorities for introduce_myself on Nextdoor', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'nextdoor', text: 'Hi neighbors, I am Jane.' }]),
-    )
+    mockGeneratedAssets({
+      nextdoor: { text: 'Hi neighbors, I am Jane.' },
+    })
 
     const res = await postGenerate({
       draftMessage: 'Hi, I am Jane and I am running for city council.',

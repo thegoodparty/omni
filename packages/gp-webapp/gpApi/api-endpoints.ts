@@ -537,9 +537,10 @@ export type APIEndpoints = {
     Response: SocialDraftResponse
   }
 
-  // Synchronous, stateless: one structured LLM call adapts the confirmed
-  // draft into per-platform assets. Nothing persists until save. 502 when
-  // the model returns an incomplete set — retry, never render partial.
+  // Synchronous, stateless: one structured LLM call per requested platform
+  // adapts the confirmed draft into that platform's asset. Nothing persists
+  // until save. 502 only once a platform's own retries are spent — retry,
+  // never render partial.
   'POST /v1/outreach/social/generate': {
     Request: SocialGenerateRequest
     Response: SocialGenerateResponse

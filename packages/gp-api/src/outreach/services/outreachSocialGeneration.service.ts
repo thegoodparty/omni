@@ -9,10 +9,8 @@ import {
   SOCIAL_VIDEO_SCRIPT_MAX_LENGTH,
   ServeSocialPurpose,
   SocialAsset,
-  SocialAssetPlatformSchema,
   SocialPurpose,
   SocialTone,
-  socialAssetKindForPlatform,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
@@ -56,6 +54,16 @@ interface GenerateInput<TPurpose extends string> {
   draftMessage: string
   purpose: TPurpose
   platforms: SocialAssetPlatform[]
+}
+
+interface GenerateAssetInput<TPurpose extends string> {
+  platform: SocialAssetPlatform
+  input: GenerateInput<TPurpose>
+  candidateName: string
+  office: string
+  userId: string
+  campaignContext: string[]
+  voice: SocialVoiceConfig<TPurpose>
 }
 
 // A spoken-word script is unchanged by the CSV guidance — only the
@@ -188,8 +196,8 @@ const WIN_GENERATE_SYSTEM_PROMPT = [
   '  invent facts, endorsements, statistics, dates, or places that',
   '  neither the draft nor the materials contain.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
-  '- Return exactly one asset per requested platform, following each',
-  "  platform's rules.",
+  '- Return exactly one asset for the requested platform, following its',
+  '  rules.',
   '- For video platforms, put the spoken script in "text" and the post',
   '  caption in "caption". For copy platforms, omit "caption".',
 ].join('\n')
@@ -355,8 +363,8 @@ const SERVE_GENERATE_SYSTEM_PROMPT = [
   '  endorsements, statistics, dates, or places that neither the draft',
   '  nor the materials contain.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
-  '- Return exactly one asset per requested platform, following each',
-  "  platform's rules.",
+  '- Return exactly one asset for the requested platform, following its',
+  '  rules.',
   '- For video platforms, put the spoken script in "text" and the post',
   '  caption in "caption". For copy platforms, omit "caption".',
 ].join('\n')
@@ -469,26 +477,14 @@ const DraftSchema = z.object({
 // Length caps live HERE, at the LLM boundary: an over-cap generation must
 // fail jsonCompletion (caught below as a retryable 502), not pass through
 // and get rejected by the response interceptor as an unretryable 500.
-const GeneratedAssetsSchema = z.object({
-  assets: z.array(
-    z
-      .object({
-        platform: SocialAssetPlatformSchema,
-        text: z.string().min(1),
-        caption: z.string().min(1).max(SOCIAL_POST_COPY_MAX_LENGTH).optional(),
-      })
-      .refine(
-        (asset) =>
-          asset.text.length <=
-          (socialAssetKindForPlatform(asset.platform) === 'video_script'
-            ? SOCIAL_VIDEO_SCRIPT_MAX_LENGTH
-            : SOCIAL_POST_COPY_MAX_LENGTH),
-        { message: 'Generated text exceeds the platform cap' },
-      ),
-  ),
+const GeneratedPostCopySchema = z.object({
+  text: z.string().min(1).max(SOCIAL_POST_COPY_MAX_LENGTH),
 })
 
-type GeneratedAssets = z.infer<typeof GeneratedAssetsSchema>
+const GeneratedVideoScriptSchema = z.object({
+  text: z.string().min(1).max(SOCIAL_VIDEO_SCRIPT_MAX_LENGTH),
+  caption: z.string().min(1).max(SOCIAL_POST_COPY_MAX_LENGTH),
+})
 
 @Injectable()
 export class OutreachSocialGenerationService {
@@ -576,13 +572,43 @@ export class OutreachSocialGenerationService {
     voice: SocialVoiceConfig<TPurpose>,
   ): Promise<SocialAsset[]> {
     const platforms = [...new Set(input.platforms)]
+    try {
+      return await Promise.all(
+        platforms.map((platform) =>
+          this.generateAsset({
+            platform,
+            input,
+            candidateName,
+            office,
+            userId,
+            campaignContext,
+            voice,
+          }),
+        ),
+      )
+    } catch (err) {
+      this.logger.error({ err }, 'Social asset generation failed')
+      throw new BadGatewayException('Social asset generation failed')
+    }
+  }
+
+  private async generateAsset<TPurpose extends string>({
+    platform,
+    input,
+    candidateName,
+    office,
+    userId,
+    campaignContext,
+    voice,
+  }: GenerateAssetInput<TPurpose>): Promise<SocialAsset> {
+    const kind = SOCIAL_PLATFORM_KIND[platform]
     const messages: LlmMessage[] = [
       { role: 'system', content: voice.generateSystemPrompt },
       {
         role: 'user',
         content: buildPrompt(
           input,
-          platforms,
+          platform,
           candidateName,
           office,
           campaignContext,
@@ -591,51 +617,31 @@ export class OutreachSocialGenerationService {
       },
     ]
 
-    let generated: GeneratedAssets
-    try {
-      ;({ object: generated } = await this.llm.jsonCompletion({
+    if (kind === SocialAssetKind.video_script) {
+      const { object } = await this.llm.jsonCompletion({
         messages,
-        schema: GeneratedAssetsSchema,
+        schema: GeneratedVideoScriptSchema,
         temperature: 0.7,
         maxTokens: 8192,
         userId,
-      }))
-    } catch (err) {
-      this.logger.error({ err }, 'Social asset generation failed')
-      throw new BadGatewayException('Social asset generation failed')
+      })
+      return { platform, kind, text: object.text, caption: object.caption }
     }
 
-    return platforms.map((platform) => {
-      const asset = generated.assets.find((a) => a.platform === platform)
-      const kind = SOCIAL_PLATFORM_KIND[platform]
-      // A partial set must never reach the client as a success: the flow
-      // saves exactly what generate returned, so missing platforms would
-      // silently persist an incomplete campaign.
-      if (!asset || (kind === SocialAssetKind.video_script && !asset.caption)) {
-        this.logger.error(
-          { platform, requested: platforms },
-          'Social asset generation returned an incomplete set',
-        )
-        throw new BadGatewayException(
-          'Social asset generation returned an incomplete set',
-        )
-      }
-      return {
-        platform,
-        kind,
-        text: asset.text,
-        caption:
-          kind === SocialAssetKind.video_script
-            ? (asset.caption ?? null)
-            : null,
-      }
+    const { object } = await this.llm.jsonCompletion({
+      messages,
+      schema: GeneratedPostCopySchema,
+      temperature: 0.7,
+      maxTokens: 8192,
+      userId,
     })
+    return { platform, kind, text: object.text, caption: null }
   }
 }
 
 const buildPrompt = <TPurpose extends string>(
   input: GenerateInput<TPurpose>,
-  platforms: SocialAssetPlatform[],
+  platform: SocialAssetPlatform,
   candidateName: string,
   office: string,
   campaignContext: string[],
@@ -655,11 +661,8 @@ const buildPrompt = <TPurpose extends string>(
     '"""',
     input.draftMessage,
     '"""',
-    'Requested platforms and their rules:',
-    ...platforms.map((platform) => {
-      const rule = overridesForPurpose?.[platform] ?? platformRules[platform]
-      return `- ${platform}: ${rule}`
-    }),
-    'Adapt the draft into one asset per requested platform.',
+    'Requested platform and its rules:',
+    `- ${platform}: ${overridesForPurpose?.[platform] ?? platformRules[platform]}`,
+    'Adapt the draft for the requested platform.',
   ].join('\n')
 }
