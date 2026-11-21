@@ -1,6 +1,7 @@
 import { HttpClient } from './http/HttpClient'
 import { AdminAgentRunsResource } from './resources/AdminAgentRunsResource'
 import { AdminBackgroundAgentRunsResource } from './resources/AdminBackgroundAgentRunsResource'
+import { AdminJobDeadLettersResource } from './resources/AdminJobDeadLettersResource'
 import { EmailOutreachAdminResource } from './resources/EmailOutreachAdminResource'
 import { SmsOutreachAdminResource } from './resources/SmsOutreachAdminResource'
 import { OutreachResultsAdminResource } from './resources/OutreachResultsAdminResource'
@@ -25,6 +26,7 @@ export class GoodPartyClient {
   readonly admin: AdminResource
   readonly adminAgentRuns: AdminAgentRunsResource
   readonly adminBackgroundAgentRuns: AdminBackgroundAgentRunsResource
+  readonly adminJobDeadLetters: AdminJobDeadLettersResource
   readonly smsOutreachAdmin: SmsOutreachAdminResource
   readonly emailOutreachAdmin: EmailOutreachAdminResource
   readonly outreachResultsAdmin: OutreachResultsAdminResource
@@ -46,6 +48,7 @@ export class GoodPartyClient {
     this.adminBackgroundAgentRuns = new AdminBackgroundAgentRunsResource(
       httpClient
     )
+    this.adminJobDeadLetters = new AdminJobDeadLettersResource(httpClient)
     this.smsOutreachAdmin = new SmsOutreachAdminResource(httpClient)
     this.emailOutreachAdmin = new EmailOutreachAdminResource(httpClient)
     this.outreachResultsAdmin = new OutreachResultsAdminResource(httpClient)

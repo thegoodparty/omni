@@ -11,15 +11,17 @@ import {
   HiStatusOnline,
   HiCheckCircle,
   HiTerminal,
+  HiExclamation,
 } from 'react-icons/hi'
-import { PERMISSIONS, Permission } from '@/lib/permissions'
+import { PERMISSIONS, ROLES, Permission, Role } from '@/lib/permissions'
 import { IconType } from 'react-icons'
 
 export interface NavItem {
   title: string
   href: string
   icon: IconType
-  permission: Permission
+  permission?: Permission
+  role?: Role
 }
 
 export const navItems: NavItem[] = [
@@ -46,6 +48,12 @@ export const navItems: NavItem[] = [
     href: '/dashboard/background-agent-runs',
     icon: HiTerminal,
     permission: PERMISSIONS.READ_AGENT_RUNS,
+  },
+  {
+    title: 'Job dead letters',
+    href: '/dashboard/job-dead-letters',
+    icon: HiExclamation,
+    role: ROLES.ADMIN,
   },
   {
     title: 'SMS Outreach',
