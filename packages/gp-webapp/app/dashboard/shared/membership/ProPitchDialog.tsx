@@ -194,7 +194,7 @@ export const ProPitchDialog = ({
             <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
               {copy.pitchTitle}
             </DialogTitle>
-            <span className="inline-flex h-8 items-center rounded-full bg-info-50 px-3.5 text-[15px] font-medium text-primary">
+            <span className="rounded-xl bg-info-50 px-3.5 py-1.5 text-center text-[15px] font-medium text-primary sm:rounded-full">
               {planPitch.enabled ? (
                 <>
                   <strong className="font-semibold">{pillPrice}</strong>
