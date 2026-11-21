@@ -278,6 +278,74 @@ describe('<AskAiChatBody> deferred creation', () => {
     expect(onChatCreated).not.toHaveBeenCalled()
   })
 
+  it('defers onChatCreated until the reply is reconciled when the first turn drops before `done`', async () => {
+    // A deferred create's onChatCreated swaps the host overlay and unmounts this
+    // body. On a dropped stream the server is still writing the turn, so firing
+    // it at stream-end unmounts us before the reply can be fetched, and the
+    // turn reconciles into nothing (ENG-11724). It has to wait for the
+    // reconciling read, and the reply must be on screen when it does.
+    const user = userEvent.setup()
+    const order: string[] = []
+    const onChatCreated = vi.fn(() => order.push('handoff'))
+    createMock.mockResolvedValue({
+      annotationId: 'ann_drop',
+      conversationId: 'conv_drop',
+    })
+    const persistedReply = [
+      {
+        id: 'srv_u',
+        conversationId: 'conv_drop',
+        role: 'user',
+        content: 'what is on the agenda',
+        createdAt: '2026-06-08T00:00:00.000Z',
+      },
+      {
+        id: 'srv_a',
+        conversationId: 'conv_drop',
+        role: 'assistant',
+        content: 'The agenda, once the socket came back.',
+        createdAt: '2026-06-08T00:00:08.000Z',
+      },
+    ]
+    // An empty verification read, then the reply the server finished after the
+    // drop.
+    listMessagesMock.mockImplementation(async () => {
+      order.push('list')
+      return listMessagesMock.mock.calls.length === 1 ? [] : persistedReply
+    })
+    streamMessageMock.mockImplementation(
+      ({ onInterrupted }: { onInterrupted?: () => void }) =>
+        (async function* () {
+          yield { type: 'text', delta: 'The agenda' } as ChatStreamEvent
+          onInterrupted?.()
+        })(),
+    )
+
+    render(
+      <AskAiChatBody
+        meetingDate={MEETING_DATE}
+        anchor={null}
+        onChatCreated={onChatCreated}
+        active
+      />,
+    )
+
+    const textarea = await screen.findByLabelText(/ask assistant message/i)
+    await user.type(textarea, 'what is on the agenda')
+    await user.click(screen.getByRole('button', { name: /ask assistant/i }))
+
+    await waitFor(() => expect(onChatCreated).toHaveBeenCalledTimes(1))
+    expect(onChatCreated).toHaveBeenCalledWith({
+      annotationId: 'ann_drop',
+      conversationId: 'conv_drop',
+    })
+    // Verification read, then the reconciling read, and only then the handoff.
+    expect(order).toEqual(['list', 'list', 'handoff'])
+    expect(
+      await screen.findByText('The agenda, once the socket came back.'),
+    ).toBeInTheDocument()
+  })
+
   it('does not call create twice if the user double-taps Send', async () => {
     const user = userEvent.setup()
     // Hold the create promise in flight so the second click can race.
