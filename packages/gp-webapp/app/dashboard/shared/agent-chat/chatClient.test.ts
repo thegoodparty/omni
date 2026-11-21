@@ -1,12 +1,44 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAgentChatClient, type ChatStreamEvent } from './chatClient'
 
+const { reportClientError, reportClientInterruption } = vi.hoisted(() => ({
+  reportClientError: vi.fn(),
+  reportClientInterruption: vi.fn(),
+}))
+
+vi.mock('@shared/observability/reportClientError', () => ({
+  reportClientError,
+  reportClientInterruption,
+}))
+
 const sseResponse = (frames: string[]): Response => {
   const encoder = new TextEncoder()
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const frame of frames) controller.enqueue(encoder.encode(frame))
       controller.close()
+    },
+  })
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  })
+}
+
+// A connection that serves one frame and then drops, the way Chrome reports a
+// body read losing its socket: a TypeError, not an AbortError.
+const droppedSseResponse = (frames: string[]): Response => {
+  const encoder = new TextEncoder()
+  let sent = 0
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const frame = frames[sent]
+      if (frame === undefined) {
+        controller.error(new TypeError('network error'))
+        return
+      }
+      sent += 1
+      controller.enqueue(encoder.encode(frame))
     },
   })
   return new Response(body, {
@@ -26,6 +58,37 @@ const collect = async (
 describe('createAgentChatClient streamMessage', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  // ENG-11724. A body read that rejects after a 200 is the connection, so the
+  // turn must end without an error event (the caller reconciles with the
+  // persisted turn) and the failure must not reach the exception stream.
+  it('ends a dropped stream without an error event or a reported error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          droppedSseResponse(['data: {"type":"text","delta":"hi"}\n\n']),
+        ),
+    )
+    const client = createAgentChatClient('campaign_assistant', 'test-surface')
+    const events = await collect(
+      client.streamMessage({ conversationId: 'c1', content: 'hello' }),
+    )
+
+    expect(events.map((e) => e.type)).toEqual(['text'])
+    expect(reportClientError).not.toHaveBeenCalled()
+    expect(reportClientInterruption).toHaveBeenCalledWith(
+      'chat stream interrupted',
+      {
+        surface: 'test-surface',
+        phase: 'stream',
+        step: 'iterate',
+        conversationId: 'c1',
+      },
+    )
   })
 
   it('yields ping keep-alive events so idle watchdogs reset', async () => {

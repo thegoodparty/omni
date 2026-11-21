@@ -18,7 +18,10 @@ import {
   ORG_SLUG_HEADER,
 } from '@shared/organizations/constants'
 import { clientRequest } from 'gpApi/typed-request'
-import { reportClientError } from '@shared/observability/reportClientError'
+import {
+  reportClientError,
+  reportClientInterruption,
+} from '@shared/observability/reportClientError'
 import type { ChatAnchor } from '@goodparty_org/contracts'
 
 // --- scope-generic chat contracts (integration seam) ------------------------
@@ -101,15 +104,30 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
 
 async function* parseSseStream(
   body: ReadableStream<Uint8Array>,
+  signal: AbortSignal | undefined,
+  onInterrupted: () => void,
 ): AsyncGenerator<ChatStreamEvent, void, void> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
   try {
     while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
+      let chunk: ReadableStreamReadResult<Uint8Array>
+      try {
+        chunk = await reader.read()
+      } catch {
+        // The server answered 200 before this read, so a rejection here is the
+        // connection going away under the body (a phone changing networks, a
+        // proxy dropping the tail, a tab backgrounded into a throttled one),
+        // never our parser and never a browser the response refused. End the
+        // stream without `done` so the caller reconciles with the persisted
+        // turn instead of failing the turn, and keep it out of the exception
+        // stream, which is what pages a human (ENG-11724).
+        if (!signal?.aborted) onInterrupted()
+        return
+      }
+      if (chunk.done) break
+      buf += decoder.decode(chunk.value, { stream: true })
       const frames = buf.split('\n\n')
       buf = frames.pop() ?? ''
       for (const frame of frames) {
@@ -298,7 +316,14 @@ export function createAgentChatClient(
       }
 
       try {
-        for await (const ev of parseSseStream(res.body)) {
+        for await (const ev of parseSseStream(res.body, signal, () =>
+          reportClientInterruption('chat stream interrupted', {
+            surface: errorSurface,
+            phase: 'stream',
+            step: 'iterate',
+            conversationId,
+          }),
+        )) {
           yield ev
           if (ev.type === 'done' || ev.type === 'error') return
         }
