@@ -8,7 +8,11 @@ import {
   type CaseList,
   type JudgeCase,
 } from './cases'
-import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
+import {
+  DEFAULT_JUDGE_CONFIG,
+  LABELED_ATTEMPTS_PER_CASE,
+  type JudgeConfig,
+} from './config'
 import { selectAgents } from './cli'
 import { JUDGE_CLERK_ENV } from './judgeClerkSession'
 import { ARM_KEY_ENV } from './modelKey'
@@ -255,6 +259,7 @@ export const attemptsFor = (
   env?: ArmEnv,
   list?: CaseList,
 ): number => {
+  if (agent.shape === 'labeled') return LABELED_ATTEMPTS_PER_CASE
   if (agent.shape !== 'background') return config.attemptsPerCase
   if (env?.backgroundBudget !== undefined) {
     return (

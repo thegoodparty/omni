@@ -8,11 +8,15 @@ import { MAX_LIST_ATTEMPTS_PER_CASE } from './config'
 import { OVERALL } from './judge'
 import {
   CaseListError,
+  caseDimensionsOf,
   caseJudgingOf,
   caseListPath,
   MAX_CONDITION_CHARS,
   MAX_HANDLED_WHEN_CHARS,
   caseTurns,
+  isBackgroundCase,
+  isChatCase,
+  isLabeledCase,
   loadBackgroundCases,
   loadCaseList,
   loadSeedPages,
@@ -914,8 +918,8 @@ describe('a background case condition and scored flag', () => {
       ]),
       expected,
     )
-    expect(list.cases[0]?.dimensions).toEqual([
-      { name: 'citation_honesty', question: 'Real law?' },
+    expect(list.cases.map(caseDimensionsOf)).toEqual([
+      [{ name: 'citation_honesty', question: 'Real law?' }],
     ])
   })
 })
@@ -1028,5 +1032,124 @@ describe('seeded pages', () => {
       [...manifest.input_schema.required].sort(),
     )
     expect(JSON.stringify(one?.params)).toContain(one?.seedPages?.[0]?.url)
+  })
+})
+
+// A labeled list declares its labels once and gives every case an expected
+// value of the right type for each. A missing one would score every arm right
+// on it by default, so each gap is refused by name.
+describe('a labeled case list', () => {
+  const LABELED = { agentId: 'reply_intent', shape: 'labeled' } as const
+  const labels = [
+    { name: 'optOut', type: 'boolean', floor: true },
+    { name: 'stance', type: 'choice', options: ['yes', 'no'] },
+    { name: 'rating', type: 'score' },
+  ]
+  const good = {
+    caseId: 'a',
+    input: { text: 'A fictional reply.', channel: 'text' },
+    expected: { optOut: false, stance: 'yes', rating: 2 },
+  }
+  const list = (
+    over: Record<string, unknown> = {},
+    cases: Record<string, unknown>[] = [good],
+  ) =>
+    JSON.stringify({
+      agentId: 'reply_intent',
+      shape: 'labeled',
+      labels,
+      cases,
+      ...over,
+    })
+
+  it('parses, keeping the label declarations', () => {
+    const parsed = parseCaseList('l.json', list(), LABELED)
+    expect(parsed.labels).toEqual(labels)
+    expect(parsed.cases).toEqual([good])
+    const [one] = parsed.cases
+    if (one === undefined) throw new Error('no case')
+    expect(isLabeledCase(one)).toBe(true)
+    expect(isChatCase(one)).toBe(false)
+    expect(isBackgroundCase(one)).toBe(false)
+    expect(caseJudgingOf(parsed).get('a')).toEqual({ scored: true })
+  })
+
+  it('refuses a labeled list with no labels declared', () => {
+    expect(() =>
+      parseCaseList('l.json', list({ labels: undefined }), LABELED),
+    ).toThrow(/a labeled list declares its labels/)
+  })
+
+  it('refuses labels on a chat list', () => {
+    expect(() =>
+      parseCaseList(
+        'c.json',
+        JSON.stringify({
+          agentId: 'chief_of_staff',
+          shape: 'chat',
+          labels,
+          cases: [{ caseId: 'q', question: 'hi' }],
+        }),
+        { agentId: 'chief_of_staff', shape: 'chat' },
+      ),
+    ).toThrow(/only a labeled list may declare/)
+  })
+
+  it('refuses a floor on anything but a boolean, and a repeated label', () => {
+    expect(() =>
+      parseCaseList(
+        'l.json',
+        list({
+          labels: [
+            {
+              name: 'stance',
+              type: 'choice',
+              options: ['yes', 'no'],
+              floor: true,
+            },
+          ],
+        }),
+        LABELED,
+      ),
+    ).toThrow(CaseListError)
+    expect(() =>
+      parseCaseList(
+        'l.json',
+        list({ labels: [labels[0], labels[0]] }),
+        LABELED,
+      ),
+    ).toThrow(/declares each label once/)
+  })
+
+  it.each([
+    [{ optOut: false, stance: 'yes' }, /no expected value for rating/],
+    [{ optOut: 'no', stance: 'yes', rating: 2 }, /not a boolean/],
+    [{ optOut: false, stance: 'maybe', rating: 2 }, /not one of its options/],
+    [{ optOut: false, stance: 'yes', rating: '2' }, /not a score/],
+    [
+      { optOut: false, stance: 'yes', rating: 2, extra: true },
+      /undeclared label\(s\): extra/,
+    ],
+  ])('refuses expected labels %j', (expected, message) => {
+    expect(() =>
+      parseCaseList('l.json', list({}, [{ ...good, expected }]), LABELED),
+    ).toThrow(message)
+  })
+
+  it('refuses an unknown channel and a misspelled field', () => {
+    expect(() =>
+      parseCaseList(
+        'l.json',
+        list({}, [{ ...good, input: { text: 'x', channel: 'fax' } }]),
+        LABELED,
+      ),
+    ).toThrow(CaseListError)
+    expect(() =>
+      parseCaseList(
+        'l.json',
+        list({}, [{ ...good, expectd: good.expected }]),
+        LABELED,
+      ),
+    ).toThrow(CaseListError)
   })
 })

@@ -203,6 +203,11 @@ export interface ShapeBudget {
 // asking for more is refused by name rather than clamped.
 export const MAX_LIST_ATTEMPTS_PER_CASE = 3
 
+// A labeled case runs once on each arm. A regex answers the same way every
+// time and a decision model nearly so, so a second attempt would pay again to
+// learn almost nothing.
+export const LABELED_ATTEMPTS_PER_CASE = 1
+
 export interface JudgeConfig {
   // Attempts per case per arm. v0: 3. Attempt i of one arm pairs with
   // attempt i of the other; judging all k x k pairs is not the plan.

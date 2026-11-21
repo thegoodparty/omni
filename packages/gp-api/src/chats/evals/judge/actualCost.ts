@@ -81,6 +81,10 @@ export const NO_JUDGE_SPEND: JudgeSpend = {
 // the tokens and then to a reason.
 export const runCostUsd = (record: RunRecord): number | UnmeasuredReason => {
   const stored = record.telemetry.cost?.usdAtCapture
+  // Except on a labeled run, whose adapter states its own bill: a regex arm
+  // is free, and a decision model bills per call, not per token, so neither
+  // has tokens to re-derive from. See labeled/run.ts.
+  if (record.agentShape === 'labeled') return stored ?? 'noCostRecorded'
   if (stored !== undefined && stored > 0) return stored
   const { tokens } = record.telemetry
   if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0)

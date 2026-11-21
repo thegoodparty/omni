@@ -6,6 +6,7 @@ import { missingValues, substituteBackgroundCases } from '../caseParams'
 import type { BackgroundCase, CaseList } from '../cases'
 import {
   caseTurns,
+  isBackgroundCase,
   isChatCase,
   loadBackgroundCases,
   loadCaseList,
@@ -271,10 +272,10 @@ export const backgroundRunInputFor = (
   loadConfig: (agentId: string) => AgentConfig = agentConfigFor,
   intervalMs = 10 * 1000,
 ): BackgroundRunInput => {
-  if (isChatCase(request.case)) {
+  if (!isBackgroundCase(request.case)) {
     throw new Error(
-      `${request.case.caseId} carries no params, so it is a chat case and ` +
-        'not a background one',
+      `${request.case.caseId} carries no params, so it is not a ` +
+        'background case',
     )
   }
   const destination = backgroundDestinationFrom(env)

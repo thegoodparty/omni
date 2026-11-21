@@ -506,6 +506,12 @@ false`: it hands back what was built, not a fresh build. A text holds the
   writes it on a new campaign's anchor envelope only; a key this org already
   spent on a walk leaves the next walk unlinked. See
   `gp-webapp/app/dashboard/shared/agent-chat/AGENTS.md` ("Cards").
+- **The three reply predicates are judged.** `util/textOptOut.util.ts`,
+  `util/civicPanelJoin.util.ts` and `util/civicPanelLeave.util.ts` are what
+  the Universal Judge's labeled agent `reply_intent` measures, so a PR
+  touching one is auto-selected for `/judge`. Its cases are fictional replies
+  with the labels the person meant
+  (`src/chats/evals/judge/cases/reply_intent.json`; README "Labeled cases").
 - Tone vocabulary (`util/messageTone.util.ts`) is shared across every
   stateless compose endpoint — don't redefine `TONE_STYLES` per channel.
 - `nativePhoneBanking` and `nativeDoorKnocking` envelopes are never touched

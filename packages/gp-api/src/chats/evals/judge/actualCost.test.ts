@@ -53,6 +53,23 @@ describe('runCostUsd', () => {
     expect(runCostUsd(withCost(BASE, 0, NO_TOKENS))).toBe('noCostRecorded')
   })
 
+  // A labeled adapter states its own bill: a regex arm is free, and a
+  // decision model bills per call with no tokens to re-derive from.
+  it('reads a labeled run as what its adapter stored, zero included', () => {
+    const labeled: RunRecord = {
+      ...withCost(BASE, 0, NO_TOKENS),
+      agentShape: 'labeled',
+      variant: { ...BASE.variant, model: 'regex' },
+    }
+    expect(runCostUsd(labeled)).toBe(0)
+    expect(runCostUsd(withCost(labeled, 0.002))).toBe(0.002)
+    const { cost, ...unpriced } = labeled.telemetry
+    expect(cost).toBeDefined()
+    expect(runCostUsd({ ...labeled, telemetry: unpriced })).toBe(
+      'noCostRecorded',
+    )
+  })
+
   it('prices the tokens when nothing was stored', () => {
     // 31,213 input at $3/M plus 227 output at $15/M.
     expect(runCostUsd(withCost(BASE, undefined))).toBeCloseTo(0.097, 4)

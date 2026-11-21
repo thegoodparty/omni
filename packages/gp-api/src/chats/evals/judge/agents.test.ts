@@ -39,12 +39,14 @@ describe('the agent registry', () => {
   // The counts are asserted so that adding an agent to the codebase without
   // adding it here fails a test rather than quietly shrinking the
   // denominator the report prints.
-  it('covers 5 chat scopes and 16 background experiments', () => {
+  it('covers 5 chat scopes, 16 background experiments and 1 labeled agent', () => {
     const chat = AGENTS.filter((a) => a.shape === 'chat')
     const background = AGENTS.filter((a) => a.shape === 'background')
+    const labeled = AGENTS.filter((a) => a.shape === 'labeled')
     expect(chat).toHaveLength(5)
     expect(background).toHaveLength(16)
-    expect(AGENTS).toHaveLength(21)
+    expect(labeled.map((a) => a.agentId)).toEqual(['reply_intent'])
+    expect(AGENTS).toHaveLength(22)
   })
 
   it('requires a reason on a blocked agent', () => {
@@ -180,7 +182,7 @@ describe('coverage', () => {
     // Named rather than dropped, so the gap stays visible: compliance_setup
     // must not be swept at all.
     expect(blocked.map((a) => a.agentId).sort()).toEqual(['compliance_setup'])
-    expect(judgeable).toBe(20)
+    expect(judgeable).toBe(21)
     expect(wired).toBe(4)
   })
 

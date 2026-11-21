@@ -39,7 +39,7 @@ export interface AgentDirectory {
   readonly agentId: string
 }
 
-// The chat half of the path-matched floor's table
+// The gp-api directory rows of the path-matched floor's table
 // (.github/scripts/judge-path-floor.sh), mirrored so the picker can be told
 // which changed files the floor already attributed to one agent. Without it
 // the picker saw `chats/general/campaign-manager/...` beside rows mapping
@@ -66,6 +66,10 @@ export const AGENT_DIRECTORIES: readonly AgentDirectory[] = [
   {
     path: 'packages/gp-api/src/chats/briefing-chats/',
     agentId: 'briefing_annotation',
+  },
+  {
+    path: 'packages/gp-api/src/chats/evals/judge/labeled/',
+    agentId: 'reply_intent',
   },
 ]
 
@@ -175,6 +179,23 @@ export const CODE_MAP: readonly CodeMapRow[] = [
     path: 'packages/gp-api/src/chats/briefing-chats/services/districtResolver.service.ts',
     agentIds: CHAT_AGENT_IDS,
     note: 'Every chat handler resolves its district through this service.',
+  },
+  // The production reply predicates the reply_intent adapter calls, so a
+  // change to one is what that labeled agent measures.
+  {
+    path: 'packages/gp-api/src/outreach/util/textOptOut.util.ts',
+    agentIds: ['reply_intent'],
+    note: 'Decides whether an inbound reply opts out.',
+  },
+  {
+    path: 'packages/gp-api/src/outreach/util/civicPanelJoin.util.ts',
+    agentIds: ['reply_intent'],
+    note: 'Decides whether an inbound reply joins the civic panel.',
+  },
+  {
+    path: 'packages/gp-api/src/outreach/util/civicPanelLeave.util.ts',
+    agentIds: ['reply_intent'],
+    note: 'Decides whether an inbound reply leaves the civic panel.',
   },
   {
     path: 'packages/gp-ai/broker/',

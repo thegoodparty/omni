@@ -64,19 +64,34 @@ expect chief_of_staff 'the same agent twice de-dupes' \
   packages/gp-api/src/chats/general/chief-of-staff/a.ts \
   packages/gp-api/src/chats/general/chief-of-staff/b.ts
 
-# Drift check: every `packages/gp-api/src/chats/.../*) add <agent>` arm in
-# judge.yml's own table must be exactly the set this file's table matches.
+# Labeled agents: the judge's labeled kind and the three reply predicates.
+expect reply_intent 'the labeled kind' \
+  packages/gp-api/src/chats/evals/judge/labeled/score.ts
+expect reply_intent 'the opt-out predicate' \
+  packages/gp-api/src/outreach/util/textOptOut.util.ts
+expect reply_intent 'the panel join predicate' \
+  packages/gp-api/src/outreach/util/civicPanelJoin.util.ts
+expect reply_intent 'the panel leave predicate' \
+  packages/gp-api/src/outreach/util/civicPanelLeave.util.ts
+expect '' 'a predicate test file is not the predicate' \
+  packages/gp-api/src/outreach/util/textOptOut.util.test.ts
+expect '' 'another outreach util is not a reply predicate' \
+  packages/gp-api/src/outreach/util/messageTone.util.ts
+
+# Drift check: every `packages/gp-api/src/...) add <agent>` arm in judge.yml's
+# own table, path and agent, must be exactly the set this file's table
+# matches.
 extract_chat_agents() {
-  grep -oE 'packages/gp-api/src/chats/[a-zA-Z/_-]+\*\)[[:space:]]+add [a-z_]+' "$1" \
-    | sed -E 's#.*add ([a-z_]+)$#\1#' \
+  grep -oE 'packages/gp-api/src/[a-zA-Z0-9/._-]+\*?\)[[:space:]]+add [a-z_]+' "$1" \
+    | sed -E 's#^([^)]+)\)[[:space:]]+add ([a-z_]+)$#\1 \2#' \
     | sort -u
 }
 judge_ids="$(extract_chat_agents "$judge_yml")"
 floor_ids="$(extract_chat_agents "$floor")"
-if [ "$judge_ids" = "$floor_ids" ]; then
-  echo "ok   judge.yml's chat-agent table matches judge-path-floor.sh's"
+if [ -n "$judge_ids" ] && [ "$judge_ids" = "$floor_ids" ]; then
+  echo "ok   judge.yml's gp-api table matches judge-path-floor.sh's"
 else
-  echo "FAIL judge.yml's chat-agent table and judge-path-floor.sh's have drifted apart"
+  echo "FAIL judge.yml's gp-api table and judge-path-floor.sh's have drifted apart"
   echo "  judge.yml:            $(echo "$judge_ids" | tr '\n' ' ')"
   echo "  judge-path-floor.sh:  $(echo "$floor_ids" | tr '\n' ' ')"
   failures=$((failures + 1))

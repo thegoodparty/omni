@@ -1,7 +1,11 @@
 import { z } from 'zod'
 import type { AgentEntry } from './agents'
 import { CaseListError, loadCaseList } from './cases'
-import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
+import {
+  DEFAULT_JUDGE_CONFIG,
+  LABELED_ATTEMPTS_PER_CASE,
+  type JudgeConfig,
+} from './config'
 import { chatTurnsIn } from './runners/backgroundDispatch'
 
 // WHAT A SWEEP WILL COST, per agent, priced before anything is spent. The
@@ -133,6 +137,14 @@ export const MEASURED_JUDGE_CALL_USD: Readonly<
 }
 export const UNMEASURED_JUDGE_CALL_USD = 0.1
 
+// WHAT ONE LABELED CASE MAY COST ON ONE ARM: one cent, a ceiling rather than
+// a measurement. A regex arm costs nothing. A decision model answers a short
+// reply's few yes/no questions for about a tenth of a cent (Gemini Decision 1
+// and TypeSafe Jev list prices, read 2026-11-18), so a cent leaves ten times
+// headroom for a longer reply or a pricier model. No panel is called for a
+// labeled agent, so there is no judge line.
+export const LABELED_CASE_CEILING_USD = 0.01
+
 // THE MARGIN: times 1.5, then rounded up to the next $0.50. On a background
 // agent it is applied to one run, from the larger of the two arms' means; on a
 // chat agent to the whole sweep, because a turn is cents and rounding each one
@@ -263,6 +275,20 @@ export const estimateAgent = (
       cents: 0,
       basis: 'unreadable',
       why: 'its case list cannot be read, so nothing is run',
+    }
+  }
+  if (agent.shape === 'labeled') {
+    const cents = withMargin(
+      ARMS * listed * LABELED_ATTEMPTS_PER_CASE * LABELED_CASE_CEILING_USD,
+    )
+    return {
+      cents,
+      basis: 'unmeasured',
+      why:
+        `~${dollars(cents)} = ${ARMS} arms x ${plural(listed, 'case')} x ` +
+        `${plural(LABELED_ATTEMPTS_PER_CASE, 'attempt')} x ` +
+        `$${LABELED_CASE_CEILING_USD.toFixed(2)} a case (a ceiling, not a ` +
+        `measurement), x${MEASURED_MARGIN} and rounded up; no judge panel`,
     }
   }
   // EACH ARM WALKS ITS OWN LIST, so a branch that trims a list still pays

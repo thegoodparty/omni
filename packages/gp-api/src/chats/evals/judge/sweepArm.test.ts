@@ -8,6 +8,7 @@ import { ARM_KEY_ENV } from './modelKey'
 import type { CaseList } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { CHAT_PAIR } from './fixtures/records'
+import { runLabeledCase } from './labeled/run'
 import type { RunRecord } from './record'
 import { createLocalRecordStore, recordKey, type RecordStore } from './records'
 import {
@@ -713,8 +714,8 @@ describe('captureArm, walking background agents', () => {
 
   // A runner that counts how many runs are out at once, per shape.
   const counting = () => {
-    const inFlight = { background: 0, chat: 0 }
-    const most = { background: 0, chat: 0 }
+    const inFlight = { background: 0, chat: 0, labeled: 0 }
+    const most = { background: 0, chat: 0, labeled: 0 }
     const runCase: CaptureArmDeps['runCase'] = async (request) => {
       const shape = request.agent.shape
       inFlight[shape] += 1
@@ -954,6 +955,62 @@ describe('captureArm, walking background agents', () => {
     expect(manifest.agents.map((a) => a.agentId)).toEqual([
       'meeting_briefing',
       'self_research',
+    ])
+  })
+})
+
+// A labeled agent runs each case once a side through its own adapter, which
+// is what the default config's three chat attempts must not leak into.
+describe('captureArm, walking a labeled agent', () => {
+  const LABELED: AgentEntry = {
+    agentId: 'reply_intent',
+    shape: 'labeled',
+    cases: 'reply_intent.json',
+    status: 'pending',
+  }
+  const list: CaseList = {
+    agentId: 'reply_intent',
+    shape: 'labeled',
+    placeholder: false,
+    source: '/cases/reply_intent.json',
+    labels: [{ name: 'optOut', type: 'boolean', floor: true }],
+    cases: ['STOP', 'Thanks!'].map((text, i) => ({
+      caseId: `case-${i}`,
+      input: { text, channel: 'text' as const },
+      expected: { optOut: i === 0 },
+    })),
+  }
+
+  it('walks every case once, through the adapter, and says so', async () => {
+    const d = await deps({
+      loadCases: () => list,
+      runCase: (request) =>
+        runLabeledCase(request, {
+          adapters: {
+            reply_intent: async (input) => ({
+              labels: { optOut: { value: input.text === 'STOP' } },
+              model: 'regex',
+            }),
+          },
+        }),
+      config: DEFAULT_JUDGE_CONFIG,
+    })
+    const manifest = await captureArm(d, env({ agentIds: ['reply_intent'] }), [
+      LABELED,
+    ])
+    expect(DEFAULT_JUDGE_CONFIG.attemptsPerCase).toBeGreaterThan(1)
+    expect(manifest.agents).toEqual([
+      expect.objectContaining({
+        agentId: 'reply_intent',
+        cases: 2,
+        attempts: 1,
+        recordsWritten: 2,
+      }),
+    ])
+    const written = await d.store.listRecords('swp_1', 'candidate')
+    expect(written.map((r) => [r.caseId, r.output?.value])).toEqual([
+      ['case-0', { optOut: { value: true } }],
+      ['case-1', { optOut: { value: false } }],
     ])
   })
 })

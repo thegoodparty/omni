@@ -11,6 +11,7 @@ import {
   MEASURED_BACKGROUND_RUN_COST,
   MEASURED_CHAT_TURN_COST,
   priceAgainstReferences,
+  LABELED_CASE_CEILING_USD,
   UNMEASURED_BACKGROUND_RUN_CENTS,
   type EstimateFn,
 } from './planCost'
@@ -475,12 +476,48 @@ it('prices an agent with no case list at nothing', () => {
   })
 })
 
+// A labeled agent is priced from a per-case ceiling, with no panel.
+describe('a labeled agent', () => {
+  const replyIntent: AgentEntry = {
+    agentId: 'reply_intent',
+    shape: 'labeled',
+    cases: 'reply_intent.json',
+    status: 'pending',
+  }
+
+  it('prices both arms at a cent a case, x1.5 and rounded up', () => {
+    // 2 arms x 40 cases x 1 attempt x $0.01 = $0.80, x1.5 = $1.20 -> $1.50.
+    const estimate = estimateAgent(replyIntent, DEFAULT_JUDGE_CONFIG, {
+      countCases: () => 40,
+    })
+    expect(LABELED_CASE_CEILING_USD).toBe(0.01)
+    expect(estimate).toEqual({
+      cents: 150,
+      basis: 'unmeasured',
+      why:
+        '~$1.50 = 2 arms x 40 cases x 1 attempt x $0.01 a case (a ceiling, ' +
+        'not a measurement), x1.5 and rounded up; no judge panel',
+    })
+  })
+
+  it('ignores the background cap, which a labeled list is not walked by', () => {
+    const capped = estimateAgent(replyIntent, withBudget({ maxCases: 5 }), {
+      countCases: () => 100,
+    })
+    expect(capped.cents).toBe(300)
+  })
+
+  it('prices the real list', () => {
+    expect(estimateAgent(replyIntent).cents).toBe(150)
+  })
+})
+
 // THE NUMBER ON AN ACCIDENTAL `all`. Pinned, so a change to the table, the
 // margin, the budget or a case list that moves it is a visible diff here and
 // in the comments that quote it (judge.yml, judge-comment.yml, README).
-it('prices `all` at $1,164.50', () => {
+it('prices `all` at $1,166.00', () => {
   const total = selectAgents({ kind: 'all' })
     .selected.map((agent) => estimateAgent(agent).cents)
     .reduce((sum, cents) => sum + cents, 0)
-  expect(total).toBe(116_450)
+  expect(total).toBe(116_600)
 })

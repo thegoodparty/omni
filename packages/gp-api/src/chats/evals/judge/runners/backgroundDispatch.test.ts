@@ -279,7 +279,7 @@ describe('backgroundRunInputFor', () => {
         env(),
         () => config(),
       ),
-    ).toThrow(/chat case/)
+    ).toThrow(/not a background case/)
   })
 
   // Names every missing variable at once rather than the first, which is what
@@ -608,7 +608,7 @@ describe('the budget guards and the sweep-wide admission', () => {
     loadConfig: (agentId: string) =>
       config({ timeout_seconds: agentId === 'meeting_briefing' ? 3600 : 600 }),
   }
-  type AgentEntryLike = { agentId: string; shape: 'chat' | 'background' }
+  type AgentEntryLike = Pick<AgentEntry, 'agentId' | 'shape'>
 
   // A REFUSED AGENT LEAVES ITS SHARE. captureArm walks every selected agent,
   // refused ones included, so a refusal that still took its slots would
