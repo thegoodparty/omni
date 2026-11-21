@@ -636,7 +636,7 @@ describe('caseScoutDraft', () => {
         'conv-sev-1-3:msg-sev-1': newCase('fresh-b', 'Rejected failure'),
         'conv-sev-2-3:msg-sev-2': newCase('existing-case', 'collides'),
       })[sessionId] ?? new Error('unexpected')
-  
+
     await service.jobs.runSchedule('caseScoutNightly')
 
     const tonight = ledgerLines()
