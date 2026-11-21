@@ -221,7 +221,8 @@ async function openOnSeededGreeting(): Promise<void> {
     screen.getByRole('button', { name: /meet your campaign manager/i }),
   )
   await waitFor(() => expect(screen.getByText(/^Hi Renee/)).toBeInTheDocument())
-  await act(() => vi.advanceTimersByTimeAsync(5000))
+  // The ~185-char intro types at reading pace (28 chars/s), ~7s.
+  await act(() => vi.advanceTimersByTimeAsync(15_000))
   vi.useRealTimers()
   await screen.findByRole('button', { name: /personalize your campaign/i })
 }

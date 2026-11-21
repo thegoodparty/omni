@@ -320,6 +320,65 @@ describe('useStreamingTurn', () => {
     }
   })
 
+  it('keeps a reply still typing out at reading pace when a follow-up supersedes it', async () => {
+    vi.useFakeTimers()
+    try {
+      const streamMessage = vi
+        .fn()
+        .mockImplementationOnce(
+          async function* (): AsyncGenerator<ChatStreamEvent> {
+            yield {
+              type: 'text',
+              delta: 'A reply long enough to still be typing.',
+            }
+            yield { type: 'done', assistantMessageId: 'a1' }
+          },
+        )
+        .mockImplementationOnce(
+          async function* (): AsyncGenerator<ChatStreamEvent> {
+            yield { type: 'text', delta: 'second' }
+            yield { type: 'done', assistantMessageId: 'a2' }
+          },
+        )
+      const listMessages = vi.fn().mockResolvedValue([])
+      const { result } = renderHook(() =>
+        useStreamingTurn(
+          { streamMessage, listMessages },
+          { toolLabel: () => null, revealCharsPerSecond: 5 },
+        ),
+      )
+
+      let first!: Promise<void>
+      act(() => {
+        first = result.current.send('c1', 'first')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500)
+      })
+      expect(result.current.sending).toBe(false)
+      expect(listMessages).not.toHaveBeenCalled()
+
+      let second!: Promise<void>
+      act(() => {
+        second = result.current.send('c1', 'second')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+        await Promise.all([first, second])
+      })
+
+      const assistant = result.current.messages
+        .filter((m) => m.role === 'assistant')
+        .map((m) => m.content)
+      expect(assistant).toEqual([
+        'A reply long enough to still be typing.',
+        'second',
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('defers onTurnSuccess on a stall until the poll proves the server finished', async () => {
     // The success handoff (e.g. a deferred create's onChatCreated) can swap the
     // host surface and unmount the body. On a stall the server may still be
