@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { useEffect } from 'react'
 import Link from 'next/link'
 import { reportClientError } from '@shared/observability/reportClientError'
+import { isChunkLoadError } from '@shared/observability/isChunkLoadError'
 
 interface ErrorPageProps {
   error: Error
@@ -14,7 +15,7 @@ interface ErrorPageProps {
 export default function Error({ error }: ErrorPageProps): React.JSX.Element {
   useEffect(() => {
     reportClientError(error)
-    if (!error?.message?.startsWith('Loading chunk')) return undefined
+    if (!isChunkLoadError(error)) return undefined
     // Faro sends what it has batched every 250ms. Reloading on the spot could
     // tear the page down before the batch holding this error goes out.
     const reload = setTimeout(() => window.location.reload(), 500)
