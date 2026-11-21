@@ -451,10 +451,11 @@ export function useStreamingTurn(
             // instead of falling straight through to the local rebuild.
             let history = await chatApi.listMessages(conversationId)
             // Poll when this turn produced content, and also whenever the
-            // stream was cut off before `done`: a drop before the first frame
-            // leaves nothing local to fall back on, and the reply the server is
-            // still writing is the only thing there is to show.
-            if (persisted.length > 0 || interrupted) {
+            // stream was cut off before `done` — a stall or a reported drop. A
+            // cut-off before the first frame leaves nothing local to fall back
+            // on, and the reply the server is still writing is the only thing
+            // there is to show.
+            if (persisted.length > 0 || stalled || interrupted) {
               const pollMs = doneSeen ? COMMIT_POLL_MS : DONELESS_COMMIT_POLL_MS
               const maxTries = doneSeen
                 ? COMMIT_MAX_TRIES
@@ -477,11 +478,11 @@ export function useStreamingTurn(
             // screen by appending what streamed. Clear the live render in the
             // same tick so the swap never double-renders or blanks.
             if (canReconcile()) {
-              // A dropped connection with nothing to reconcile to (the server
-              // never wrote the turn) leaves no reply to show: surface a retry
-              // rather than commit a turn that silently never arrives.
-              if (interrupted && !hasTurn(history)) {
-                scope.onError?.('The connection dropped. Try again.', true)
+              // A stream that was cut off with nothing to reconcile to (the
+              // server never wrote the turn) leaves no reply to show: surface a
+              // retry rather than commit a turn that silently never arrives.
+              if ((stalled || interrupted) && !hasTurn(history)) {
+                scope.onError?.('The reply was cut off. Try again.', true)
               }
               // `persisted`, not `segments`: a turn whose only output was a
               // consumed widget call renders no live segment, and gating on

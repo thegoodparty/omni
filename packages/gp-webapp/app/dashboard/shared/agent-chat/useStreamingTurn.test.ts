@@ -483,7 +483,63 @@ describe('useStreamingTurn', () => {
       })
 
       expect(onError).toHaveBeenCalledWith(
-        'The connection dropped. Try again.',
+        'The reply was cut off. Try again.',
+        true,
+      )
+      expect(onTurnSuccess).not.toHaveBeenCalled()
+      expect(result.current.sending).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('surfaces a retryable error when a stalled turn never yields a frame', async () => {
+    // A stream that goes idle before its first frame is the same dead turn as a
+    // dropped connection: nothing local to fall back on and nothing persisted.
+    // It must poll for the turn and, when none ever lands, offer a Retry.
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const onTurnSuccess = vi.fn()
+      const listMessages = vi.fn().mockResolvedValue([
+        {
+          id: 'srv-u',
+          conversationId: 'c1',
+          role: 'user' as const,
+          content: 'draft it',
+          createdAt: new Date().toISOString(),
+        },
+      ])
+      const api = {
+        // Never emits and never ends: the idle watchdog is the only way out.
+        streamMessage: () =>
+          (async function* (): AsyncGenerator<ChatStreamEvent> {
+            await new Promise<void>(() => undefined)
+          })(),
+        listMessages,
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, {
+          toolLabel: () => null,
+          onError,
+          onTurnSuccess,
+        }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'draft it')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300_000)
+        await sendPromise
+      })
+
+      // It polled past the stall rather than committing the unpolled read.
+      expect(listMessages.mock.calls.length).toBeGreaterThan(1)
+      expect(onError).toHaveBeenCalledWith(
+        'The reply was cut off. Try again.',
         true,
       )
       expect(onTurnSuccess).not.toHaveBeenCalled()
