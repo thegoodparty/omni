@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ROLES } from '@/lib/permissions'
+import { SdkError } from '@/shared/gpApi'
 import {
   getJobDeadLetter,
   listJobDeadLetters,
@@ -102,6 +103,18 @@ describe('job dead letter actions', () => {
 
     await expect(redriveJobDeadLetter('dl_1')).resolves.toEqual({
       error: 'Dead letter dl_1 is gone',
+    })
+  })
+
+  it('returns the API message when the redrive answers 409', async () => {
+    mockRedrive.mockRejectedValue(
+      new SdkError(409, 'Conflict', undefined, {
+        message: 'Dead letter dl_1 was already redriven',
+      })
+    )
+
+    await expect(redriveJobDeadLetter('dl_1')).resolves.toEqual({
+      error: 'Dead letter dl_1 was already redriven',
     })
   })
 

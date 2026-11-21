@@ -158,10 +158,9 @@ export class AdminJobDeadLettersService implements OnModuleDestroy {
       sourceName: sourceQueue,
     })
     if (moved !== 1) {
-      // The insert is dropped when key_strict_fifo's source queue still holds
-      // an active, retrying or failed job under this one's key, which it does
-      // until pg-boss deletes the failed row, about two minutes after the
-      // dead letter.
+      // pg-boss skips a dead letter from a key_strict_fifo queue while another
+      // active, retrying or failed job there holds its singleton key, and
+      // leaves it in the dead letter queue.
       if (await this.findDeadLetter(id)) {
         throw new ConflictException(
           `Dead letter ${id} was not requeued: another redrive holds it, or ` +
