@@ -895,6 +895,8 @@ export {
 export {
   JobDeadLetterSchema,
   type JobDeadLetter,
+  JobDeadLetterQueuesSchema,
+  type JobDeadLetterQueues,
   JOB_DEAD_LETTERS_MAX_LIMIT,
   JobDeadLettersListQuerySchema,
   type JobDeadLettersListQuery,

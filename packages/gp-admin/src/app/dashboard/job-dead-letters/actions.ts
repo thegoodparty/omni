@@ -25,26 +25,9 @@ export const listJobDeadLetters = async (params: {
   return gpAction((client) => client.adminJobDeadLetters.list(params))
 }
 
-const QUEUE_OPTIONS_PAGE_SIZE = 100
-const QUEUE_OPTIONS_MAX_PAGES = 20
-
 export const listJobDeadLetterQueues = async (): Promise<string[]> => {
   await requireAdmin('read job dead letters')
-  const queues = new Set<string>()
-  for (let page = 0; page < QUEUE_OPTIONS_MAX_PAGES; page++) {
-    const offset = page * QUEUE_OPTIONS_PAGE_SIZE
-    const result = await gpAction((client) =>
-      client.adminJobDeadLetters.list({
-        offset,
-        limit: QUEUE_OPTIONS_PAGE_SIZE,
-      })
-    )
-    for (const deadLetter of result.data) {
-      if (deadLetter.sourceQueue) queues.add(deadLetter.sourceQueue)
-    }
-    if (offset + QUEUE_OPTIONS_PAGE_SIZE >= result.meta.total) break
-  }
-  return [...queues].sort()
+  return gpAction((client) => client.adminJobDeadLetters.queues())
 }
 
 export const getJobDeadLetter = async (id: string): Promise<JobDeadLetter> => {

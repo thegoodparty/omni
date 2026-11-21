@@ -8,6 +8,7 @@ export class AdminJobDeadLettersListQueryDto extends createZodDto(
 export {
   JobDeadLetterSchema,
   type JobDeadLetter,
+  JobDeadLetterQueuesSchema,
   RedriveJobDeadLetterResultSchema,
   type RedriveJobDeadLetterResult,
 } from '@goodparty_org/contracts'

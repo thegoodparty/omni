@@ -1,5 +1,6 @@
 import type {
   JobDeadLetter,
+  JobDeadLetterQueues,
   JobDeadLettersListQuery,
   PaginatedList,
   RedriveJobDeadLetterResult,
@@ -16,6 +17,9 @@ export class AdminJobDeadLettersResource extends BaseResource {
       this.resourceBasePath,
       options
     )
+
+  queues = (): Promise<JobDeadLetterQueues> =>
+    this.getRequest<JobDeadLetterQueues>(`${this.resourceBasePath}/queues`)
 
   get = (id: string): Promise<JobDeadLetter> =>
     this.getRequest<JobDeadLetter>(`${this.resourceBasePath}/${id}`)
