@@ -69,3 +69,41 @@ describe('GET /v1/elections/districts/types', () => {
     expect((await get('10.4.0.3')).status).toBe(HttpStatus.TOO_MANY_REQUESTS)
   })
 })
+
+// Serve onboarding lists seats, so it asks for every race on file for the zip
+// rather than only the ones inside the future window (ENG-11637).
+describe('GET /v1/elections/races-by-year', () => {
+  let searchPositions: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    searchPositions = vi
+      .spyOn(service.app.get(ElectionsService), 'searchPositions')
+      .mockResolvedValue([])
+  })
+
+  const getRaces = (timeframe: string, ip: string) =>
+    service.client.get('/v1/elections/races-by-year', {
+      params: { zipcode: '54981', timeframe },
+      headers: { 'X-Forwarded-For': ip },
+    })
+
+  it('accepts timeframe=all and forwards it', async () => {
+    const result = await getRaces('all', '10.5.0.1')
+
+    expect(result.status).toBe(HttpStatus.OK)
+    expect(searchPositions).toHaveBeenCalledWith({
+      zip: '54981',
+      timeframe: 'all',
+      displayOfficeLevels: undefined,
+      name: undefined,
+      officeType: undefined,
+    })
+  })
+
+  it('refuses a timeframe outside the enum', async () => {
+    const result = await getRaces('sideways', '10.5.0.2')
+
+    expect(result.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(searchPositions).not.toHaveBeenCalled()
+  })
+})

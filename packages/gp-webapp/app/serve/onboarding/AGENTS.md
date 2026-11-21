@@ -84,12 +84,13 @@ Every step change (and the end of loading) scrolls the window to the top, so
 each step, the pledge included, opens with its headline in view. The window is
 the only scroller around a step.
 
-The office picker (`ServeOfficePicker`) lists positions from upcoming races
-(`races-by-year`, `timeframe: 'future'`) and labels each row with its last
-general election from a second `timeframe: 'past'` lookup (`Last elected:
-Nov 8, 2022`), which tells apart cohort twins with the same name. Primaries
-and runoffs are not when an official was elected, so they never set the date.
-A failed past lookup drops the dates, never the list.
+The office picker (`ServeOfficePicker`) lists the seats on file for the zip, not
+the races ahead of it: one `races-by-year` call with `timeframe: 'all'` (no date
+bound), collapsed to one row per position, so a seat whose next race is years
+out or not published yet still shows (ENG-11637). Each row is labelled with its
+last general election (`Last elected: Nov 8, 2022`), which tells apart cohort
+twins with the same name. Primaries and runoffs are not when an official was
+elected, so they never set the date.
 
 Each story step has its own `Viewed` / `Completed` pair, named for what it
 tells the official (`SERVE_STORY_EVENTS`: You Represent, Hear From The Loudest

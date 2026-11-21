@@ -733,16 +733,13 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       return { status: 200, data: { starterIssueCount: 1 } }
     })
     const positionsKey = ['serve-onboarding-positions', '90001']
-    testQueryClient.setQueryData(positionsKey, {
-      upcoming: [
-        {
-          brPositionId: 'br-pos-1',
-          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
-          city: 'Springfield',
-        },
-      ],
-      past: [],
-    })
+    testQueryClient.setQueryData(positionsKey, [
+      {
+        brPositionId: 'br-pos-1',
+        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+        city: 'Springfield',
+      },
+    ])
 
     try {
       const user = userEvent.setup({ skipHover: true })
@@ -1743,16 +1740,13 @@ describe('ServeOnboardingFlow', () => {
     // react-query entry is pre-seeded; seed the result for the ZIP we type so
     // the picker shows the office synchronously.
     const positionsKey = ['serve-onboarding-positions', '90001']
-    testQueryClient.setQueryData(positionsKey, {
-      upcoming: [
-        {
-          brPositionId: 'br-pos-1',
-          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
-          city: 'Springfield',
-        },
-      ],
-      past: [],
-    })
+    testQueryClient.setQueryData(positionsKey, [
+      {
+        brPositionId: 'br-pos-1',
+        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+        city: 'Springfield',
+      },
+    ])
 
     try {
       const user = userEvent.setup({ skipHover: true })
