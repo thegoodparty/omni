@@ -2,6 +2,7 @@ import { useTestService } from '@/test-service'
 import { randomUUID } from 'crypto'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkClient } from '@clerk/backend'
+import { IMPERSONATION_TARGET_BANNED_ERROR_CODE } from '@goodparty_org/contracts'
 import {
   BadGatewayException,
   BadRequestException,
@@ -1140,6 +1141,9 @@ describe('UsersService', () => {
 
     beforeEach(() => {
       clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        banned: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
     })
 
     it('returns an actor token when the target user has a clerkId', async () => {
@@ -1193,6 +1197,40 @@ describe('UsersService', () => {
       ).rejects.toThrow('User does not have an associated Clerk ID')
     })
 
+    it('refuses to mint a token when Clerk has the target banned', async () => {
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        banned: true,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const createActorToken = vi
+        .spyOn(clerkClient.actorTokens, 'create')
+        .mockResolvedValue({
+          token: 'actor_token_abc',
+        } as Awaited<ReturnType<typeof clerkClient.actorTokens.create>>)
+
+      const impersonation = usersService.impersonateUser(
+        service.user.id,
+        'user_actor_clerk_id',
+      )
+
+      await expect(impersonation).rejects.toBeInstanceOf(ConflictException)
+      await expect(impersonation).rejects.toMatchObject({
+        response: {
+          errorCode: IMPERSONATION_TARGET_BANNED_ERROR_CODE,
+        },
+      })
+      expect(createActorToken).not.toHaveBeenCalled()
+    })
+
+    it('throws BadGatewayException when Clerk refuses to read the target', async () => {
+      vi.spyOn(clerkClient.users, 'getUser').mockRejectedValue(
+        new Error('Clerk API unavailable'),
+      )
+
+      await expect(
+        usersService.impersonateUser(service.user.id, 'user_actor_clerk_id'),
+      ).rejects.toThrow(BadGatewayException)
+    })
+
     it('throws BadGatewayException when Clerk API call fails', async () => {
       vi.spyOn(clerkClient.actorTokens, 'create').mockRejectedValue(
         new Error('Clerk API unavailable'),
@@ -1222,6 +1260,56 @@ describe('UsersService', () => {
 
       await expect(
         usersService.impersonateUser(service.user.id, 'user_actor_clerk_id'),
+      ).rejects.toThrow(BadGatewayException)
+    })
+  })
+
+  describe('getClerkBanStatus', () => {
+    let clerkClient: ClerkClient
+
+    beforeEach(() => {
+      clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('reports the banned flag Clerk holds for the user', async () => {
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        banned: true,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+
+      const status = await usersService.getClerkBanStatus(service.user.id)
+
+      expect(status).toEqual({ banned: true })
+      expect(clerkClient.users.getUser).toHaveBeenCalledWith(
+        service.user.clerkId,
+      )
+    })
+
+    it('throws BadRequestException when the user has no clerkId', async () => {
+      const userWithoutClerkId = await service.prisma.user.create({
+        data: {
+          email: 'noclerkban@example.com',
+          firstName: 'No',
+          lastName: 'Clerk',
+          clerkId: null,
+        },
+      })
+
+      await expect(
+        usersService.getClerkBanStatus(userWithoutClerkId.id),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('throws BadGatewayException when Clerk cannot be read', async () => {
+      vi.spyOn(clerkClient.users, 'getUser').mockRejectedValue(
+        new Error('Clerk API unavailable'),
+      )
+
+      await expect(
+        usersService.getClerkBanStatus(service.user.id),
       ).rejects.toThrow(BadGatewayException)
     })
   })

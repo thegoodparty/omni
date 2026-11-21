@@ -422,6 +422,12 @@ export {
 } from './users/ChangeUserEmail.schema'
 
 export {
+  IMPERSONATION_TARGET_BANNED_ERROR_CODE,
+  ClerkBanStatusSchema,
+  type ClerkBanStatus,
+} from './users/ClerkBanStatus.schema'
+
+export {
   BALLOT_READY_POSITION_LEVEL_VALUES,
   BallotReadyPositionLevel,
   BallotReadyPositionLevelSchema,

@@ -8,7 +8,9 @@ import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-cli
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ClerkClient } from '@clerk/backend'
 import {
+  type ClerkBanStatus,
   type CrmEmailSync,
+  IMPERSONATION_TARGET_BANNED_ERROR_CODE,
   type ListUsersPagination,
 } from '@goodparty_org/contracts'
 import {
@@ -930,6 +932,14 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     if (!user?.clerkId) {
       throw new BadRequestException('User does not have an associated Clerk ID')
     }
+    if (await this.readClerkBanned(user.clerkId, user.id)) {
+      throw new ConflictException({
+        message:
+          'Clerk has this account banned, so it refuses the impersonation ' +
+          'session. Unban the account in the Clerk dashboard, then retry.',
+        errorCode: IMPERSONATION_TARGET_BANNED_ERROR_CODE,
+      })
+    }
     try {
       const { token } = await this.clerkClient.actorTokens.create({
         userId: user.clerkId,
@@ -960,6 +970,30 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         'Failed to create Clerk impersonation token',
       )
       throw new BadGatewayException('Failed to create impersonation token')
+    }
+  }
+
+  async getClerkBanStatus(userId: number): Promise<ClerkBanStatus> {
+    const user = await this.findUniqueOrThrow({ where: { id: userId } })
+    if (!user.clerkId) {
+      throw new BadRequestException('User does not have an associated Clerk ID')
+    }
+    return { banned: await this.readClerkBanned(user.clerkId, user.id) }
+  }
+
+  private async readClerkBanned(
+    clerkId: string,
+    userId: number,
+  ): Promise<boolean> {
+    try {
+      const clerkUser = await this.clerkClient.users.getUser(clerkId)
+      return clerkUser.banned
+    } catch (err) {
+      this.logger.error(
+        { err, userId, targetClerkId: clerkId },
+        'Failed to read Clerk user',
+      )
+      throw new BadGatewayException('Failed to read the user from Clerk')
     }
   }
 

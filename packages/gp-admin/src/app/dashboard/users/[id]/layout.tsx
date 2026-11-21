@@ -37,5 +37,17 @@ export default async function UserLayout({
     throw error
   }
 
-  return <UserProvider user={user}>{children}</UserProvider>
+  // The badge is decoration, so a Clerk read that fails hides it rather than
+  // crashing the user page.
+  const clerkBanned = await gpAction((client) =>
+    client.admin.getClerkBanStatus(Number(id))
+  )
+    .then((banStatus) => banStatus.banned)
+    .catch(() => false)
+
+  return (
+    <UserProvider user={user} clerkBanned={clerkBanned}>
+      {children}
+    </UserProvider>
+  )
 }
