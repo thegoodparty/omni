@@ -187,9 +187,7 @@ export const ProPitchDialog = ({
               the wrapped lines needs the sm: breakpoint spelled out too. */}
           <DialogHeader className="items-center gap-3 text-center sm:text-center">
             {planPitch.enabled && planPitch.plan === 'team' ? (
-              <Badge className="h-[30px] px-4 text-sm font-bold tracking-wide">
-                TEAM
-              </Badge>
+              <Badge>TEAM</Badge>
             ) : (
               <ProBadge size="large" className="h-[30px] w-[66px]" />
             )}
@@ -235,10 +233,10 @@ export const ProPitchDialog = ({
                       </span>
                     </span>
                     {key === 'outreach' && (
-                      <Badge className="bg-info text-info-contrast">
-                        <GiftIcon aria-hidden />
+                      <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium">
+                        <GiftIcon className="size-4" aria-hidden />
                         {planPitch.credit} credit
-                      </Badge>
+                      </span>
                     )}
                   </li>
                 )
