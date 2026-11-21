@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { PlanReceipt } from '@goodparty_org/contracts'
+import { PLAN_PRICING, type PlanReceipt } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import {
   ChevronDownIcon,
@@ -8,6 +8,7 @@ import {
   DownloadIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
 import type { ProUpgradePlan } from '../proUpgradePlanParams'
 
 export const PLAN_RECEIPT_QUERY_KEY = ['plan-receipt']
@@ -107,7 +108,7 @@ export const PlanReceiptCard = ({
           <div className="h-px bg-base-border" />
           <Row label="Date" value={formatReceiptDate(paidAt)} />
           <Row
-            label={plan === 'team' ? 'Team plan' : 'Pro plan'}
+            label={`${plan === 'team' ? 'Team' : 'Pro'} plan with ${formatPlanCents(PLAN_PRICING.includedCreditCents)} outreach credit`}
             value={amount}
           />
           {receipt.cardBrand && receipt.cardLast4 && (

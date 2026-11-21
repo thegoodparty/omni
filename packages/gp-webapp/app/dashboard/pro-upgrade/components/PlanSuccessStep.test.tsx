@@ -115,6 +115,9 @@ describe('SuccessStep with per-campaign pricing on', () => {
     expect(
       screen.getByText('$299.00', { selector: 'span.font-medium' }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText('Pro plan with $175 outreach credit'),
+    ).toBeInTheDocument()
     expect(screen.getByText('Visa •••• 4242')).toBeInTheDocument()
     expect(screen.getByText('Good through')).toBeInTheDocument()
     expect(screen.getByText('November 17, 2027')).toBeInTheDocument()
