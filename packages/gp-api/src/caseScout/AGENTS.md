@@ -90,9 +90,7 @@ processed, so a later night reads it.
 ## Config
 
 `CASE_SCOUT_ENABLED`, `CASE_SCOUT_BUCKET`, `CASE_SCOUT_LAMBDA_FUNCTION_NAME`,
-`CASE_SCOUT_SPEND_CAP_USD`, `CASE_SCOUT_SESSION_CAP`,
-`CASE_SCOUT_JUDGE_RECORDS_BUCKET` (dev only: noisy-case proposals read the
-judge's sweep records; unset skips them). Set in `deploy/index.ts`, with the
+`CASE_SCOUT_SPEND_CAP_USD`, `CASE_SCOUT_SESSION_CAP`. Set in `deploy/index.ts`, with the
 task role's grants on the bucket and the Lambda. Only prod drops staff and
 test accounts (`OTEL_SERVICE_ENVIRONMENT`), as the Python reader did.
 

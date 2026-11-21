@@ -277,7 +277,6 @@ beforeEach(() => {
   vi.stubEnv('CASE_SCOUT_LAMBDA_FUNCTION_NAME', 'case-scout-test')
   vi.stubEnv('CASE_SCOUT_SPEND_CAP_USD', '')
   vi.stubEnv('CASE_SCOUT_SESSION_CAP', '')
-  vi.stubEnv('CASE_SCOUT_JUDGE_RECORDS_BUCKET', '')
   vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
 
   objects = fakeS3(service.app.get(CaseScoutBucketService))
@@ -637,8 +636,7 @@ describe('caseScoutDraft', () => {
         'conv-sev-1-3:msg-sev-1': newCase('fresh-b', 'Rejected failure'),
         'conv-sev-2-3:msg-sev-2': newCase('existing-case', 'collides'),
       })[sessionId] ?? new Error('unexpected')
-    vi.stubEnv('CASE_SCOUT_JUDGE_RECORDS_BUCKET', '')
-
+  
     await service.jobs.runSchedule('caseScoutNightly')
 
     const tonight = ledgerLines()
