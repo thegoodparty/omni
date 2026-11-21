@@ -58,6 +58,7 @@ import {
   type OrdinanceExportFormat,
 } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META, ORDINANCE_STATUS_ORDER } from '../data/statuses'
+import { OrdinanceExportError } from '../data/exportError'
 import DraftChat from './DraftChat'
 import OrdinanceBugReportSheet from './OrdinanceBugReportSheet'
 import QualityReport from './QualityReport'
@@ -322,8 +323,12 @@ export default function DraftDetail({
         draftId: ordinance.id,
         type: format === 'docx' ? 'word' : 'pdf',
       })
-    } catch {
-      setExportError('Could not export the draft. Please try again.')
+    } catch (error) {
+      setExportError(
+        error instanceof OrdinanceExportError
+          ? error.message
+          : 'Could not export the draft. Please try again.',
+      )
     }
   }
 

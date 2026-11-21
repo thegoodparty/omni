@@ -13,6 +13,7 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
+import { Readable } from 'node:stream'
 import { ZodValidationPipe } from 'nestjs-zod'
 import {
   OrdinanceListResponseSchema,
@@ -152,10 +153,12 @@ export class OrdinanceFlowController {
       slug,
       format,
     )
-    return new StreamableFile(buffer, {
+    // Pass a stream, not the Buffer: StreamableFile copies a Buffer's length
+    // into Content-Length, and a fixed length breaks the download when a proxy
+    // re-encodes the body. A stream is sent chunked with no length.
+    return new StreamableFile(Readable.from([buffer]), {
       type: contentType,
       disposition: `attachment; filename="${filename}"`,
-      length: buffer.length,
     })
   }
 
