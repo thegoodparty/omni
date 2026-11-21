@@ -21,7 +21,7 @@ export const DIFF_TRUNCATED_MARKER =
 // reason that is merely long or linky is sanitized rather than failing the
 // whole response's shape.
 const RawAdditionSchema = z.object({
-  suite: z.string().min(1),
+  suite: z.string().regex(/^[A-Za-z0-9_]+$/),
   reason: z.string().min(1),
 })
 
@@ -51,10 +51,16 @@ export interface ValidatedPicks {
 const URL_PATTERN = /\bhttps?:\/\/\S+/gi
 
 export const sanitizeReason = (reason: string): string => {
-  const withoutLinks = reason.replace(URL_PATTERN, '[link removed]').trim()
-  return withoutLinks.length > MAX_REASON_CHARS
-    ? `${withoutLinks.slice(0, MAX_REASON_CHARS - 1).trimEnd()}…`
-    : withoutLinks
+  const plain = reason
+    .replace(URL_PATTERN, '\u0000')
+    .replace(/\/\/\S+/g, '\u0000')
+    .replace(/[<>()[\]`*~|#!]/g, '')
+    .replace(/@(\w)/g, '@\u200b$1')
+    .replace(/\u0000/g, '[link removed]')
+    .trim()
+  return plain.length > MAX_REASON_CHARS
+    ? `${plain.slice(0, MAX_REASON_CHARS - 1).trimEnd()}…`
+    : plain
 }
 
 // The final agent set is always the floor plus validated additions — the

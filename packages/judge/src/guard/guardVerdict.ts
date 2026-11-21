@@ -27,7 +27,14 @@ export interface GuardVerdict extends GuardCheckResult {
 export const resolveGuardVerdict = (
   requested: readonly string[],
   rows: readonly SuiteVerdictRow[] | undefined,
+  previewReady = true,
 ): GuardVerdict => {
+  if (!previewReady) {
+    return {
+      outcome: 'preview not ready',
+      ...mapGuardOutcome('preview not ready'),
+    }
+  }
   if (rows === undefined || rows.length === 0) {
     return { outcome: 'judge crashed', ...mapGuardOutcome('judge crashed') }
   }

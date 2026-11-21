@@ -45,4 +45,10 @@ describe('resolveGuardVerdict', () => {
       resolveGuardVerdict(['a'], [{ suite: 'a', label: 'MAYBE' }]).outcome,
     ).toBe('judge crashed')
   })
+
+  it('reports a preview that never served the commit as not ready, not a crash', () => {
+    expect(
+      resolveGuardVerdict(['chief_of_staff'], undefined, false).outcome,
+    ).toBe('preview not ready')
+  })
 })

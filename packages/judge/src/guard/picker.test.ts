@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_DIFF_BYTES,
   MAX_REASON_CHARS,
+  PickerOutputSchema,
   finalAgentSet,
   sanitizeReason,
   truncateDiff,
@@ -97,5 +98,18 @@ describe('truncateDiff', () => {
     expect(truncated).toBe(true)
     expect(Buffer.byteLength(diff, 'utf8')).toBeLessThanOrEqual(MAX_DIFF_BYTES)
     expect(diff).toContain('diff truncated')
+  })
+
+  it('strips markdown, protocol-relative links and mentions from a reason', () => {
+    const reason = sanitizeReason('see [x](//evil.example) <b>hi</b> @dealvz')
+    expect(reason).toBe('see x[link removed] bhi/b @\u200bdealvz')
+  })
+
+  it('refuses a suite id that is not a plain identifier', () => {
+    expect(
+      PickerOutputSchema.safeParse({
+        add: [{ suite: '[x](https://evil.example)', reason: 'r' }],
+      }).success,
+    ).toBe(false)
   })
 })

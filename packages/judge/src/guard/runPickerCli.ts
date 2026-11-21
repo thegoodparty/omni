@@ -8,6 +8,8 @@ import { PICKER_MODEL, PickerOutputSchema } from './picker'
 import { runPicker, type CallPicker } from './runPicker'
 import { unsweepableReasonFor } from './sweepable'
 
+const REPO_ROOT = path.resolve(__dirname, '../../../..')
+
 const EnvSchema = z.object({
   GUARD_CHANGED_PATHS_FILE: z.string().min(1),
   GUARD_DIFF_FILE: z.string().min(1),
@@ -74,10 +76,13 @@ export const main = async (): Promise<void> => {
   const readEvalAtHead = (suite: string): string | undefined => {
     const file = evalFiles.find((f) => stemOf(f) === suite)
     if (file === undefined) return undefined
+    // Paths are repo-relative; the CLI runs from packages/judge.
+    const absolute = path.resolve(REPO_ROOT, file)
     try {
-      return readFileSync(file, 'utf8')
-    } catch {
-      return undefined
+      return readFileSync(absolute, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
     }
   }
 

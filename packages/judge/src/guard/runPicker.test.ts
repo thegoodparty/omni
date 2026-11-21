@@ -67,7 +67,7 @@ describe('runPicker — happy path', () => {
     })
     expect(result.finalSuites).toEqual(['chief_of_staff'])
     expect(result.droppedIds).toEqual(['ghost_agent'])
-    expect(result.summary).toContain('ghost_agent')
+    expect(result.summary).toContain('Dropped 1 unregistered id(s).')
   })
 
   it('notes a truncated diff without changing pass/fail', async () => {

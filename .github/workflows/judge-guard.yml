@@ -158,7 +158,9 @@ jobs:
       # Polls the same `/v1/version` contract judge-eval.yml uses. Either SHA
       # counts: gp-api tags a preview image with the merge commit.
       - name: Wait for the candidate's preview to serve the PR head
+        id: preview
         if: steps.plan.outputs.suites != ''
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -185,7 +187,7 @@ jobs:
       # `continue-on-error` is what keeps the check green in shadow.
       - name: Judge
         id: judge
-        if: steps.plan.outputs.suites != ''
+        if: steps.plan.outputs.suites != '' && steps.preview.outcome == 'success'
         continue-on-error: true
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -214,6 +216,7 @@ jobs:
         env:
           GUARD_SUITES: ${{ steps.plan.outputs.suites }}
           GUARD_VERDICTS_FILE: /tmp/guard-verdicts.json
+          GUARD_PREVIEW_READY: ${{ steps.preview.outcome == 'success' }}
         working-directory: packages/judge
         run: npx tsx src/guard/guardVerdictCli.ts
 

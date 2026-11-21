@@ -218,7 +218,7 @@ export const runPicker = async (
   )
   const droppedNote =
     droppedIds.length > 0
-      ? ` Dropped unregistered id(s): ${droppedIds.join(', ')}.`
+      ? ` Dropped ${droppedIds.length} unregistered id(s).`
       : ''
   const unsweptNote = unsweepableNote(unsweepable)
 

@@ -4,6 +4,7 @@ export const GuardOutcomes = [
   'NO DIFFERENCE FOUND',
   'WORSE',
   "CAN'T JUDGE",
+  'preview not ready',
   'judge crashed',
 ] as const
 export type GuardOutcome = (typeof GuardOutcomes)[number]
@@ -24,6 +25,10 @@ export const mapGuardOutcome = (outcome: GuardOutcome): GuardCheckResult => {
       return { note: 'WORSE. Read the job summary before merging.' }
     case "CAN'T JUDGE":
       return { note: "CAN'T JUDGE (not enough judged pairs)." }
+    case 'preview not ready':
+      return {
+        note: "The PR's preview did not serve this commit within 10 minutes, so nothing was judged.",
+      }
     case 'judge crashed':
       return { note: 'The judge crashed or reported no verdict.' }
   }
@@ -33,6 +38,7 @@ export const mapGuardOutcome = (outcome: GuardOutcome): GuardCheckResult => {
 // their outcomes collapse to the worst one.
 const SEVERITY: readonly GuardOutcome[] = [
   'judge crashed',
+  'preview not ready',
   'WORSE',
   "CAN'T JUDGE",
   'NO DIFFERENCE FOUND',

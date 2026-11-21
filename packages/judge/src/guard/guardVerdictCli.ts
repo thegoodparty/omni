@@ -5,6 +5,7 @@ import { resolveGuardVerdict, type SuiteVerdictRow } from './guardVerdict'
 const EnvSchema = z.object({
   GUARD_SUITES: z.string().min(1),
   GUARD_VERDICTS_FILE: z.string().min(1),
+  GUARD_PREVIEW_READY: z.string().optional(),
   GITHUB_OUTPUT: z.string().min(1),
 })
 
@@ -27,6 +28,7 @@ export const main = (): void => {
   const verdict = resolveGuardVerdict(
     requested,
     readRows(env.GUARD_VERDICTS_FILE),
+    env.GUARD_PREVIEW_READY !== 'false',
   )
 
   writeOutput(env.GITHUB_OUTPUT, 'outcome', verdict.outcome)
