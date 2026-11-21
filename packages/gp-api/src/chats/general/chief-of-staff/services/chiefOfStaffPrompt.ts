@@ -711,7 +711,6 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ROLE_CLARIFIERS_BLOCK,
     buildGuardrailsBlock('serve'),
     HONEST_REPORTING_BLOCK,
-    PROFESSIONAL_ADVICE_BLOCK,
     relationshipBlock(ctx.isFirstConversation),
     PICKED_NEXT_STEPS_BLOCK,
     ...(ctx.priorities.length === 0 ? [NO_PRIORITIES_BLOCK] : []),
