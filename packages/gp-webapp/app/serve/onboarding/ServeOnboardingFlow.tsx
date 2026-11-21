@@ -119,6 +119,11 @@ const campaignParty = async (
 const STARTER_ISSUES_WAIT_MS = 10_000
 const STARTER_ISSUES_POLL_MS = 4_000
 const STARTER_ISSUES_POLL_LIMIT_MS = 120_000
+// The start route queues the paid search and answers at once, so an empty list
+// on the step is the search still running, not the search having found nothing.
+// A real starter search takes 25 to 55 seconds; past this the empty list is the
+// honest reading and the official is told nothing was found.
+const STARTER_ISSUES_PENDING_MS = 60_000
 
 // Screens whose "Viewed" event fires once on view (in a useEffect). The two
 // selection screens (`inOffice`, `party`) are deliberately absent: their
@@ -206,6 +211,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   >(null)
   const [priorityLoadFailed, setPriorityLoadFailed] = useState(false)
   const [communityIssuesFailed, setCommunityIssuesFailed] = useState(false)
+  // When the queued starter-issue search was last asked for, null once the
+  // pending window closes: the step tells a search still running from one that
+  // finished empty, and a Try again gets a window of its own.
+  const [starterIssuesPendingSince, setStarterIssuesPendingSince] = useState<
+    number | null
+  >(null)
+  const starterIssuesPending = starterIssuesPendingSince !== null
   const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
     new Set(),
   )
@@ -500,7 +512,35 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     if (loading || step !== 'priorities') return
     prioritiesEnteredAtRef.current ??= Date.now()
   }, [loading, step])
-  const prioritiesSettled = priorityOptions !== null || priorityLoadFailed
+  // The queued search answers before it runs, so the step's first read lands
+  // before any starter issues exist. While it is still out, an empty list means
+  // "still looking": the step stays in its loading state and does not record
+  // the search as having found nothing. The window counts from entering the
+  // step, not from the start request: the start fires as soon as the office is
+  // saved, and the story and term-date steps in between can take longer than
+  // the window itself. A search started after that, such as Try again, counts
+  // from when it started.
+  useEffect(() => {
+    if (starterIssuesPendingSince === null || step !== 'priorities') return
+    const startedAt = Math.max(
+      starterIssuesPendingSince,
+      prioritiesEnteredAtRef.current ?? 0,
+    )
+    const timer = setTimeout(
+      () => setStarterIssuesPendingSince(null),
+      Math.max(0, startedAt + STARTER_ISSUES_PENDING_MS - Date.now()),
+    )
+    return () => clearTimeout(timer)
+  }, [starterIssuesPendingSince, step])
+  const waitingForStarterIssues =
+    starterIssuesPending &&
+    step === 'priorities' &&
+    priorityOptions !== null &&
+    priorityOptions.length === 0 &&
+    !priorityLoadFailed &&
+    !communityIssuesFailed
+  const prioritiesSettled =
+    (priorityOptions !== null || priorityLoadFailed) && !waitingForStarterIssues
   useEffect(() => {
     if (step !== 'priorities' || !prioritiesSettled) return
     if (prioritiesViewedRef.current) return
@@ -523,7 +563,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             communityIssuesFailed &&
             !priorityOptions.some((option) => option.kind === 'community'))
         ? 'search_failed'
-        : priorityOptions !== null && priorityOptions.length === 0
+        : priorityOptions !== null &&
+            priorityOptions.length === 0 &&
+            !waitingForStarterIssues
           ? 'none_found'
           : null
   const prioritiesRetriesRef = useRef(0)
@@ -732,6 +774,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const communityIssuesFailedRef = useRef(false)
   const startCommunityIssues = (): Promise<void> => {
     if (communityIssuesStartRef.current) return communityIssuesStartRef.current
+    setStarterIssuesPendingSince(Date.now())
     const post = () => clientRequest('POST /v1/community-issues/onboarding', {})
     const started = post()
       .catch(post)
@@ -1437,6 +1480,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
                 options={priorityOptions}
                 loadFailed={priorityLoadFailed}
                 searchFailed={communityIssuesFailed}
+                searching={waitingForStarterIssues}
                 onRetry={retryPriorities}
                 selectedKeys={selectedPriorityKeys}
                 onToggle={togglePriority}
@@ -1853,6 +1897,7 @@ const PrioritiesStep = ({
   options,
   loadFailed,
   searchFailed,
+  searching,
   onRetry,
   selectedKeys,
   onToggle,
@@ -1866,6 +1911,7 @@ const PrioritiesStep = ({
   options: OnboardingPriorityOption[] | null
   loadFailed: boolean
   searchFailed: boolean
+  searching: boolean
   onRetry: () => void
   selectedKeys: Set<string>
   onToggle: (key: string) => void
@@ -1891,7 +1937,7 @@ const PrioritiesStep = ({
       ) : options === null ? (
         <div className="mt-8 flex flex-col items-center gap-3 text-sm text-muted-foreground">
           <LoaderCircle className="animate-spin" />
-          Finding issues in your community
+          {SERVE_PRIORITIES_LIST_COPY.searching}
         </div>
       ) : (
         <div className="mt-8 space-y-3">
@@ -1903,6 +1949,11 @@ const PrioritiesStep = ({
                 {SERVE_PRIORITIES_LIST_COPY.retry}
               </Button>
             </div>
+          ) : searching ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+              {SERVE_PRIORITIES_LIST_COPY.searching}
+            </p>
           ) : (
             options.length === 0 && (
               <p className="text-sm text-muted-foreground">

@@ -76,12 +76,18 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   the same campaign source `seedFromWin` copies) is held back until they answer
   "I'm an elected official" and move past that question. Someone who picks
   "still campaigning" or "just testing" never triggers it in that case. Called before the PATCH it would find no serve context and
-  write nothing, so the client waits for the saved office, not the pick. The
-  priorities step keeps polling `GET /v1/priorities/onboarding` for a while
-  so starter issues that land late still appear. Writes up to 5
-  starter `top_community` issues from one Gemini Flash search (skipped if the
-  org already has a top list), then calls `onElectedOfficeCreated` to dispatch
-  the full runs. Onboarding creates the
+  write nothing, so the client waits for the saved office, not the pick.
+  **It queues `communityIssueOnboarding` and answers `{ queued: true }`**: the
+  job writes up to 5 starter `top_community` issues from one Gemini Flash
+  search (skipped if the org already has a top list), then calls
+  `onElectedOfficeCreated` to dispatch the full runs. The work moved off the
+  request in ENG-11702 because the search took 25 to 55 seconds and a mobile
+  browser gave up on the fetch first, then retried into the same handler; the
+  priorities step's own poll of `GET /v1/priorities/onboarding` (two minutes)
+  is what shows starter issues that land after the list first loads, so it
+  needs no count from this route. The job is keyed by org slug, so a client
+  that retries and the tasks a burst lands on queue one job, not one paid
+  generation each. Onboarding creates the
   office before it has a position, so the create-time dispatch finds no serve
   context and skips; with the flag on, this is the dispatch that actually
   fires for those users.

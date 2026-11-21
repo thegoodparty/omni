@@ -5,6 +5,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { WrapperType } from '@/shared/types/utility.types'
 import { JobsService } from '@/jobs/jobs.service'
+import { CommunityIssueStarterService } from './communityIssueStarter.service'
 import { isTestUser } from '@/users/util/users.util'
 import type { JobRun } from '@/jobs/jobs.registry'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -99,8 +100,45 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     // dependency at DI time. forwardRef + WrapperType defers resolution.
     @Inject(forwardRef(() => AnalyticsService))
     private readonly analytics: WrapperType<AnalyticsService>,
+    private readonly starter: CommunityIssueStarterService,
   ) {
     super()
+  }
+
+  /**
+   * Queues the onboarding start and returns, so the browser that calls it does
+   * not hold a connection open for the 25 to 55 seconds the paid search takes.
+   * Keyed by the org, so a client that retries and the tasks a burst lands on
+   * leave one job rather than one generation each.
+   */
+  async queueOnboardingStart(electedOffice: ElectedOffice): Promise<void> {
+    await this.jobs.sendMany('communityIssueOnboarding', [
+      {
+        data: { organizationSlug: electedOffice.organizationSlug },
+        key: electedOffice.organizationSlug,
+      },
+    ])
+  }
+
+  // The communityIssueOnboarding job's worker: the work the onboarding request
+  // used to await. Starter issues are written before the full runs dispatch so
+  // those runs read them back as the existing feed and build on them.
+  async startOnboarding(
+    job: JobRun<{ organizationSlug: string }>,
+  ): Promise<void> {
+    const { organizationSlug } = job.data
+    const electedOffice = await this.client.electedOffice.findFirst({
+      where: { organizationSlug },
+    })
+    if (!electedOffice) {
+      this.logger.warn(
+        { organizationSlug },
+        'community-issue onboarding: no elected office for org',
+      )
+      return
+    }
+    await this.starter.seed(organizationSlug)
+    await this.onElectedOfficeCreated(electedOffice)
   }
 
   /**

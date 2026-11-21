@@ -156,7 +156,7 @@ const mockPriorities = () => {
   api.mock('PUT /v1/priorities/onboarding', { status: 200, data: undefined })
   api.mock('POST /v1/community-issues/onboarding', {
     status: 200,
-    data: { starterIssueCount: 1 },
+    data: { queued: true },
   })
 }
 
@@ -267,7 +267,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     let communityStarts = 0
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     const checkpoints: unknown[] = []
     api.mock('PUT /v1/elected-office/:id', (req) => {
@@ -618,7 +618,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     let communityStarts = 0
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     renderFlow()
 
@@ -637,7 +637,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     let communityStarts = 0
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     const user = userEvent.setup({ skipHover: true })
     renderFlow()
@@ -665,7 +665,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       )
       api.mock('POST /v1/community-issues/onboarding', () => {
         communityStarts += 1
-        return { status: 200, data: { starterIssueCount: 1 } }
+        return { status: 200, data: { queued: true } }
       })
       api.mock('PUT /v1/elected-office/:id', {
         status: 200,
@@ -730,7 +730,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     })
     api.mock('POST /v1/community-issues/onboarding', () => {
       calls.push('start issues')
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     const positionsKey = ['serve-onboarding-positions', '90001']
     testQueryClient.setQueryData(positionsKey, {
@@ -942,6 +942,196 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(loads).toBe(2)
   })
 
+  it('keeps the step searching, and the record empty, until the queued search lands', async () => {
+    resumedAt('priorities')
+    let loads = 0
+    api.mock('GET /v1/priorities/onboarding', () => {
+      loads += 1
+      return {
+        status: 200,
+        data: {
+          options:
+            loads < 3
+              ? []
+              : [
+                  {
+                    key: 'issue-1',
+                    kind: 'community',
+                    title: 'Housing costs',
+                    description: 'Rents are rising fast.',
+                    selected: false,
+                  },
+                ],
+        },
+      }
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      renderFlow()
+
+      // The queued start answered at once and the first read found nothing yet:
+      // that is the search still running, not a search that came back empty.
+      expect(
+        await screen.findByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/We couldn’t find issues for your area yet/),
+      ).not.toBeInTheDocument()
+      expect(eventProps(PRIORITIES_ERRORED)).toHaveLength(0)
+      expect(eventProps(PRIORITIES_VIEWED)).toHaveLength(0)
+      // The official is not held on the step while the search runs.
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+
+      expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
+      expect(
+        screen.queryByText(/We couldn’t find issues for your area yet/),
+      ).not.toBeInTheDocument()
+      expect(eventProps(PRIORITIES_ERRORED)).toHaveLength(0)
+      await waitFor(() =>
+        expect(eventProps(PRIORITIES_VIEWED)).toEqual([
+          expect.objectContaining({ loadMs: expect.any(Number) }),
+        ]),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('runs the searching window from entering the step, not from the start request', async () => {
+    // The start is queued as soon as the office is saved, which on this route is
+    // several steps before priorities. A window measured from the request would
+    // be spent, or already over, by the time the official arrives.
+    resumedAt('story-grow')
+    api.mock('GET /v1/priorities/onboarding', {
+      status: 200,
+      data: { options: [] },
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({
+        skipHover: true,
+        advanceTimers: vi.advanceTimersByTime,
+      })
+      renderFlow()
+
+      await findStoryHeading(storyHeading.grow)
+      // Longer than the window itself, spent before the step is reached.
+      await act(() => vi.advanceTimersByTimeAsync(120_000))
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/We couldn’t find issues for your area yet/),
+      ).not.toBeInTheDocument()
+      expect(eventProps(PRIORITIES_ERRORED)).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives a Try again its own searching window after the first one closed', async () => {
+    resumedAt('priorities')
+    let starts = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      starts += 1
+      return starts <= 2
+        ? { status: 500, data: {} }
+        : { status: 200, data: { queued: true } }
+    })
+    let loadFails = true
+    api.mock('GET /v1/priorities/onboarding', () =>
+      loadFails
+        ? { status: 500, data: {} }
+        : { status: 200, data: { options: [] } },
+    )
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({
+        skipHover: true,
+        advanceTimers: vi.advanceTimersByTime,
+      })
+      renderFlow()
+
+      await screen.findByText('We couldn’t load issues for your community.')
+      // The window measured from entering the step is spent before the retry.
+      await act(() => vi.advanceTimersByTimeAsync(90_000))
+      loadFails = false
+      await user.click(screen.getByRole('button', { name: 'Try again' }))
+      // Still inside the fresh window a few seconds later: a window measured
+      // from the first entry would already be over here.
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+
+      expect(
+        screen.getByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/We couldn’t find issues for your area yet/),
+      ).not.toBeInTheDocument()
+      expect(starts).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restarts the searching window when Try again comes before it closes', async () => {
+    resumedAt('priorities')
+    let starts = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      starts += 1
+      return starts <= 2
+        ? { status: 500, data: {} }
+        : { status: 200, data: { queued: true } }
+    })
+    let loadFails = true
+    api.mock('GET /v1/priorities/onboarding', () =>
+      loadFails
+        ? { status: 500, data: {} }
+        : { status: 200, data: { options: [] } },
+    )
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent', selfReported: true }),
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({
+        skipHover: true,
+        advanceTimers: vi.advanceTimersByTime,
+      })
+      renderFlow()
+
+      await screen.findByText('We couldn’t load issues for your community.')
+      await act(() => vi.advanceTimersByTimeAsync(10_000))
+      loadFails = false
+      await user.click(screen.getByRole('button', { name: 'Try again' }))
+      // 55s after the retry is past the first window and inside the retried one.
+      await act(() => vi.advanceTimersByTimeAsync(55_000))
+
+      expect(
+        screen.getByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/We couldn’t find issues for your area yet/),
+      ).not.toBeInTheDocument()
+      expect(starts).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('lets the official skip the step when there are no issues to pick', async () => {
     resumedAt('priorities')
     let saves = 0
@@ -957,18 +1147,32 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup({ skipHover: true })
-    renderFlow()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({
+        skipHover: true,
+        advanceTimers: vi.advanceTimersByTime,
+      })
+      renderFlow()
 
-    await screen.findByText(/We couldn’t find issues for your area yet/)
-    expect(screen.getByLabelText(/Other/)).not.toBeChecked()
-    expect(eventProps(PRIORITIES_ERRORED)).toEqual([
-      expect.objectContaining({ reason: 'none_found', retried: false }),
-    ])
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(
+        await screen.findByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+      // Past the pending window nothing came back, so the empty list is the
+      // honest reading and the step says so.
+      await act(() => vi.advanceTimersByTimeAsync(60_000))
+      await screen.findByText(/We couldn’t find issues for your area yet/)
+      expect(screen.getByLabelText(/Other/)).not.toBeChecked()
+      expect(eventProps(PRIORITIES_ERRORED)).toEqual([
+        expect.objectContaining({ reason: 'none_found', retried: false }),
+      ])
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await screen.findByText('Take the People First Pledge to get started')
-    expect(saves).toBe(0)
+      await screen.findByText('Take the People First Pledge to get started')
+      expect(saves).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('does not refire a failed community issues start on later steps, only on Try again', async () => {
@@ -979,7 +1183,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       communityStarts += 1
       return communityStarts <= 2
         ? { status: 500, data: {} }
-        : { status: 200, data: { starterIssueCount: 0 } }
+        : { status: 200, data: { queued: true } }
     })
     api.mock('GET /v1/priorities/onboarding', () =>
       loadFails
@@ -1011,7 +1215,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
 
     loadFails = false
     await user.click(screen.getByRole('button', { name: 'Try again' }))
-    await screen.findByText(/We couldn’t find issues for your area yet/)
+    // The retried start is queued too, so the list waits on it instead of
+    // calling the empty result "nothing found".
+    await screen.findByText('Finding issues in your community')
     expect(communityStarts).toBe(3)
   })
 
@@ -1022,7 +1228,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       communityStarts += 1
       return communityStarts === 1
         ? { status: 401, data: {} }
-        : { status: 200, data: { starterIssueCount: 1 } }
+        : { status: 200, data: { queued: true } }
     })
     api.mock('GET /v1/priorities/onboarding', () =>
       communityStarts < 2
@@ -1060,7 +1266,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       communityStarts += 1
       return searchFails
         ? { status: 401, data: {} }
-        : { status: 200, data: { starterIssueCount: 1 } }
+        : { status: 200, data: { queued: true } }
     })
     api.mock('GET /v1/priorities/onboarding', () =>
       searchFails
@@ -1138,7 +1344,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
     let prioritiesLoads = 0
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 200, data: { starterIssueCount: 1 } }
+      return { status: 200, data: { queued: true } }
     })
     api.mock('GET /v1/priorities/onboarding', () => {
       prioritiesLoads += 1

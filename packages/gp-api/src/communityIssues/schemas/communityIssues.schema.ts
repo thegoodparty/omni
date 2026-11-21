@@ -57,8 +57,10 @@ export class DispatchRequestDto extends createZodDto(DispatchRequestSchema) {}
 
 export const DispatchResponseSchema = CommunityIssuesDispatchResultSchema
 
+// The route queues the paid work and answers before it runs, so it reports
+// that it queued rather than a count it does not have yet.
 export const OnboardingStartResponseSchema = z.object({
-  starterIssueCount: z.number().int(),
+  queued: z.boolean(),
 })
 
 export const SelfDispatchRequestSchema = z.object({
