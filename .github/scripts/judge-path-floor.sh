@@ -58,6 +58,16 @@ done <<< "$diff_lines"
 
 head_files="$(printf '%s\n' "$head_files" | sed '/^$/d' | sort -u)"
 
+# Only pairwise suites can be judged. An expected-result suite (no
+# definePairwiseAgentEvalSuite) is dropped here, so neither the floor nor the
+# floor-only fallback can send one to the Judge step. Skipped under tests,
+# where the files are not on disk.
+if [ -z "${JUDGE_MAIN_EVAL_FILES:-}" ]; then
+  head_files="$(printf '%s\n' "$head_files" | while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] && grep -q definePairwiseAgentEvalSuite "$f" && printf '%s\n' "$f"
+  done || true)"
+fi
+
 if [ "${1:-}" = "--eval-files" ]; then
   printf '%s\n' "$head_files"
   exit 0
