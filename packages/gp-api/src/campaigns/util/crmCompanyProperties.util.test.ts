@@ -98,6 +98,25 @@ describe('filterPropertiesForUpdate', () => {
       expect(result).not.toHaveProperty('state')
     })
 
+    it('passes an empty plan end and pricing model through so HubSpot clears them', () => {
+      const properties: CRMCompanyProperties = {
+        win_plan_pricing_model: '',
+        win_plan_ends_at: '',
+        state: '',
+      }
+
+      const result = filterPropertiesForUpdate(properties, [
+        P.win_plan_pricing_model,
+        P.win_plan_ends_at,
+        P.state,
+      ])
+
+      expect(result).toEqual({
+        win_plan_pricing_model: '',
+        win_plan_ends_at: '',
+      })
+    })
+
     it('passes null values through so HubSpot can clear the field', () => {
       const properties: CRMCompanyPropertiesInput = {
         state: null,
