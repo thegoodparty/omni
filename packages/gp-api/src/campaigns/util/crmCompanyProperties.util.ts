@@ -1,9 +1,10 @@
+import { HubSpot } from 'src/crm/crm.types'
 import { CRMCompanyProperties } from 'src/crm/schemas/CRMCompanyProperties.schema'
 
 // '' is how these two are cleared in HubSpot after a refund or expiry.
-const CLEARED_WITH_EMPTY_STRING: ReadonlyArray<keyof CRMCompanyProperties> = [
-  'win_plan_pricing_model',
-  'win_plan_ends_at',
+const CLEARED_WITH_EMPTY_STRING: ReadonlyArray<HubSpot.OutgoingProperty> = [
+  HubSpot.OutgoingProperty.win_plan_pricing_model,
+  HubSpot.OutgoingProperty.win_plan_ends_at,
 ]
 
 export type CRMCompanyPropertyField = keyof CRMCompanyProperties | 'all'
