@@ -63,7 +63,7 @@ describe('AccountInformationCard plans', () => {
 
     expect(screen.getByRole('img', { name: 'PRO' })).toBeInTheDocument()
     expect(screen.getByText('$299')).toBeInTheDocument()
-    expect(screen.getByText(/Good until Nov 17, 2026/)).toBeInTheDocument()
+    expect(screen.getByText(/Good through Nov 17, 2026/)).toBeInTheDocument()
     expect(screen.getByText('$175 of $175 left')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /Billing history/ }),
@@ -110,7 +110,7 @@ describe('AccountInformationCard plans', () => {
 
     expect(screen.getByText('TEAM')).toBeInTheDocument()
     expect(screen.getByText('$399')).toBeInTheDocument()
-    expect(screen.getByText(/Good until Nov 17, 2026/)).toBeInTheDocument()
+    expect(screen.getByText(/Good through Nov 17, 2026/)).toBeInTheDocument()
     expect(screen.queryByText(/Upgrade to Team/)).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /Manage Subscription/ }),
@@ -179,14 +179,14 @@ describe('AccountInformationCard plans', () => {
     })
 
     it.each(['America/Los_Angeles', 'Asia/Tokyo'])(
-      'renders Good until and Joined as the UTC date in %s',
+      'renders Good through and Joined as the UTC date in %s',
       (tz) => {
         process.env.TZ = tz
         mockCampaign.mockReturnValue({
           isPro: true,
           plan: 'pro',
           planPricingModel: 'one_time',
-          planEndsAt: '2027-01-29T00:00:00.000Z',
+          planEndsAt: '2027-01-30T00:00:00.000Z',
         })
         render(
           <AccountInformationCard
@@ -195,7 +195,9 @@ describe('AccountInformationCard plans', () => {
             isElectedOffice={false}
           />,
         )
-        expect(screen.getByText(/Good until Jan 29, 2027/)).toBeInTheDocument()
+        expect(
+          screen.getByText(/Good through Jan 29, 2027/),
+        ).toBeInTheDocument()
         expect(screen.getByText('February 2024')).toBeInTheDocument()
       },
     )

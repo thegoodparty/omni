@@ -9,6 +9,7 @@ import {
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
+import { formatPlanEndDate } from 'app/dashboard/shared/plan/formatPlanEndDate'
 import type { ProUpgradePlan } from '../proUpgradePlanParams'
 
 export const PLAN_RECEIPT_QUERY_KEY = ['plan-receipt']
@@ -37,13 +38,6 @@ export const formatReceiptDate = (date: Date) =>
   date.toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-
-export const formatGoodThrough = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-US', {
-    month: 'long',
     day: 'numeric',
     year: 'numeric',
   })
@@ -126,7 +120,7 @@ export const PlanReceiptCard = ({
           {receipt.planEndsAt && (
             <Row
               label="Good through"
-              value={formatGoodThrough(receipt.planEndsAt)}
+              value={formatPlanEndDate(receipt.planEndsAt, 'long')}
             />
           )}
           <div className="h-px bg-base-border" />

@@ -86,7 +86,7 @@ const SHARED_AREAS: ProductArea[] = [
     inside: [
       'Edit details, on the first card, changes your first and last name',
       'Manage sign-in, next to it, changes your sign-in email, phone, and password',
-      'Account Information, on the last card, shows your plan. On a one-time Pro or Team plan it shows the plan price, One payment and a Good until date that moves if the election moves, and the Outreach credit left, a Billing history button that opens the invoices in Stripe, and for the campaign owner on Pro an Upgrade to Team link. A campaign on the Free plan sees what Free includes, From $299 one payment, the $175 outreach credit and a See plans button. A subscriber who started before plans keeps Manage Subscription',
+      'Account Information, on the last card, shows your plan. On a one-time Pro or Team plan it shows the plan price, One payment and a Good through date that moves if the election moves, and the Outreach credit left, a Billing history button that opens the invoices in Stripe, and for the campaign owner on Pro an Upgrade to Team link. A campaign on the Free plan sees what Free includes, From $299 one payment, the $175 outreach credit and a See plans button. A subscriber who started before plans keeps Manage Subscription',
     ],
   },
   {

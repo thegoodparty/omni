@@ -33,15 +33,12 @@ import {
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
+import { formatPlanEndDate } from 'app/dashboard/shared/plan/formatPlanEndDate'
 import { useWinPerCampaignPricingFlag } from 'app/shared/experiments/winPerCampaignPricingFlag'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { TEAM_SETTINGS_PATH } from '../proUpgradePlanParams'
 import { useProUpgradeCarry } from './proUpgradeCarryContext'
-import {
-  PlanReceiptCard,
-  formatGoodThrough,
-  usePlanReceipt,
-} from './PlanReceiptCard'
+import { PlanReceiptCard, usePlanReceipt } from './PlanReceiptCard'
 import { ConfettiField } from './ConfettiField'
 import { ProReceiptCard } from './ProReceiptCard'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
@@ -248,7 +245,7 @@ const SuccessStep = (): React.JSX.Element => {
             <div className="flex min-w-0 flex-col gap-2">
               <p className="font-semibold">Everything from Pro stays</p>
               <p className="text-sm text-base-muted-foreground">
-                {`Your outreach credit, lists and texts stay as they are.${planReceipt?.planEndsAt ? ` Still good through ${formatGoodThrough(planReceipt.planEndsAt)}.` : ''}`}
+                {`Your outreach credit, lists and texts stay as they are.${planReceipt?.planEndsAt ? ` Still good through ${formatPlanEndDate(planReceipt.planEndsAt, 'long')}.` : ''}`}
               </p>
             </div>
           </div>
