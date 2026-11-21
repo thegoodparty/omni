@@ -58,7 +58,7 @@ export const PlansTable = ({
               key={column.plan}
               className={cn(
                 'text-center align-top',
-                column.plan === highlighted && `rounded-t-xl ${TINT}`,
+                column.plan === highlighted && TINT,
               )}
             >
               <div className="flex flex-col items-center gap-2 py-2">

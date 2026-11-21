@@ -1,5 +1,4 @@
 import { Badge, ProBadge } from '@styleguide'
-import { cn } from '@styleguide/lib/utils'
 import type { PlanKey } from './plansCopy'
 
 interface PlanNameProps {
@@ -13,10 +12,7 @@ export const PlanName = ({ plan, name }: PlanNameProps): React.JSX.Element =>
   plan === 'pro' ? (
     <ProBadge size="large" />
   ) : (
-    <Badge
-      variant={plan === 'free' ? 'soft' : 'default'}
-      className={cn('rounded-[4px] px-2 py-0.5 font-semibold uppercase italic')}
-    >
-      {name}
+    <Badge variant={plan === 'free' ? 'soft' : 'default'} shape="pill">
+      {name.toUpperCase()}
     </Badge>
   )
