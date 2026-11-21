@@ -76,6 +76,21 @@ describe('PairwiseReporter', () => {
     }
   })
 
+  it('writes each suite and its verdict label to JUDGE_VERDICTS_FILE', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pairwise-reporter-'))
+    try {
+      const path = join(dir, 'verdicts.json')
+      vi.stubEnv('JUDGE_VERDICTS_FILE', path)
+      vi.stubEnv('GITHUB_STEP_SUMMARY', join(dir, 'summary.md'))
+      new PairwiseReporter().onTestRunEnd(modules, [], 'failed')
+      expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual([
+        { suite: 'suite | name', label: 'WORSE' },
+      ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("keeps the verdict table when a suite's not-judged list is unreadable", () => {
     vi.stubEnv('GITHUB_STEP_SUMMARY', undefined)
     const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
