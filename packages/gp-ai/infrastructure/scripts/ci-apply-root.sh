@@ -28,6 +28,7 @@ log="$log_dir/$slug.txt"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$here/environments/$root"
+. "$here/scripts/ci-tf-init.sh"
 
 fail() {
   echo "::error::$root: $1"
@@ -59,7 +60,10 @@ args=(-input=false -no-color -lock-timeout=10m)
 [ -n "$image_tag" ] && args+=(-var "docker_image_tag=$image_tag")
 [ -n "$image_tag_playwright" ] && args+=(-var "docker_image_tag_playwright=$image_tag_playwright")
 
-terraform init -input=false -no-color >"$log" 2>&1 || fail "init failed"
+# Cold every run: nothing commits a `.terraform` directory and there is no
+# provider cache, so this downloads each root's providers from scratch. The CDN
+# download gets one attempt from terraform, hence the bounded retry.
+tf_init_with_retry "$log" || fail "init failed"
 
 # shared-infra's ALB rules match x-api-key against SERVE_API_KEY (see that
 # root's variables.tf). The apply reads it here, under the deploy role, rather

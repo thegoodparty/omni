@@ -37,6 +37,7 @@ mkdir -p "$plan_dir"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$here/environments/$root"
+. "$here/scripts/ci-tf-init.sh"
 
 if [ ! -d "$dir" ]; then
   echo "no such root: $root" >"$plan_dir/$slug.txt"
@@ -60,8 +61,9 @@ fi
 
 # Providers are pinned by the committed .terraform.lock.hcl in each env wrapper,
 # so init is reproducible. -input=false so a missing variable fails instead of
-# hanging on a prompt.
-if ! terraform init -input=false -no-color >"$plan_dir/$slug.txt" 2>&1; then
+# hanging on a prompt. Retried only on a transient registry error — a config
+# error still fails the plan on the first attempt.
+if ! tf_init_with_retry "$plan_dir/$slug.txt"; then
   echo 1 >"$plan_dir/$slug.code"
   echo 0 >"$plan_dir/$slug.destroy"
   echo 0 >"$plan_dir/$slug.replace"
