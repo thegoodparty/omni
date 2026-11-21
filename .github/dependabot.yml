@@ -9,10 +9,15 @@
 #
 # github-actions: weekly version updates in one grouped PR. Workflows carry tag
 # refs and .github/workflows/actions.lock pins each one to a commit, so a new
-# release reaches CI only through that PR, which bumps the tag refs and
-# regenerates the matching lockfile entries in the same PR. The root directory
-# covers .github/workflows only, so the composite actions under .github/actions
-# are listed too.
+# release reaches CI only through that PR. Dependabot rewrites the tag refs and
+# nothing else: it does not regenerate actions.lock, and no workflow does that
+# on its branches. Whoever lands that PR runs `gh actions-lock` (add
+# `--migrate-local-actions` if a new local action appeared) and commits the
+# lockfile it writes. verify-lockfile.yml turns that into a red `verify` check
+# on the PR, and dependabot-merge.yml waits for `verify`, so a stale lockfile
+# stops the auto-merge instead of landing. The root directory covers
+# .github/workflows only, so the composite actions under .github/actions are
+# listed too.
 version: 2
 updates:
   - package-ecosystem: npm
