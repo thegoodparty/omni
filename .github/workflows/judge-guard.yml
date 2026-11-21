@@ -48,7 +48,7 @@ jobs:
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.fork == false
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v5.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -95,7 +95,7 @@ jobs:
       # two identical arms. `continue-on-error`: a workspace install failure must
       # cost this run the picker's output, not the run, which falls back to the
       # floor.
-      - uses: ./.github/actions/setup-node-workspace
+      - uses: $/.github/actions/setup-node-workspace
         if: steps.floor.outputs.cases_only != 'true'
         continue-on-error: true
         with:
@@ -121,7 +121,7 @@ jobs:
       - name: Save the picker's raw output
         if: steps.picker.outputs.raw_output_saved == 'true'
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: guard-picker-raw-output-${{ github.event.pull_request.number }}-${{ github.run_id }}
           path: /tmp/guard-picker-raw-output.txt
@@ -226,7 +226,7 @@ jobs:
       # was reached.
       - name: Upsert the guard comment
         if: ${{ !cancelled() && steps.plan.outputs.suites != '' }}
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@v8.0.0
         env:
           SUITES: ${{ steps.plan.outputs.suites }}
           OUTCOME: ${{ steps.verdict.outputs.outcome }}
