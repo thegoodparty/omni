@@ -90,6 +90,15 @@ const AVAILABILITY_CHECK_BATCH_SIZE = 5
 const SEARCH_TARGET_CANDIDATE_COUNT = 6
 const SEARCH_TIME_BUDGET_MS = 20_000
 
+// A healthy Route53 Domains check answers in 60ms-1.2s. With the account's
+// token bucket drained the same call takes ~10.9s (traces, 2026-11-16: three
+// searches on campaign 333552, two of them 502), so the 5-wide batch chain can
+// reach about 10 of a 36-candidate search's candidates before the budget runs
+// out, and the search spends all 20s and its share of the quota to learn
+// nothing. One check that misses this window means the registrar is degraded:
+// stop asking the remaining candidates.
+const AVAILABILITY_CHECK_STALL_MS = 5_000
+
 // MAX_PATTERN_CANDIDATES bounds SLDs *before* the TLD fanout below multiplies
 // each one across SUPPORTED_TLDS, so "all 50 candidates" was really up to 300
 // availability checks. The time budget stops a slow search but not the quota
@@ -692,67 +701,99 @@ export class DomainsService
 
     const startedAt = new Date()
     const found: PatternedDomainCandidate[] = []
+    // One controller per search. Whatever the search stops waiting for is
+    // cancelled with it, so a check in Route53 retry backoff cannot keep
+    // spending the account's quota after the request has been answered: on
+    // 2026-11-16 one search's trace ran 42s against a 20s response.
+    const searchAbort = new AbortController()
     let unchecked = 0
     let outOfBudget = false
-    for (let i = 0; i < candidates.length; i += AVAILABILITY_CHECK_BATCH_SIZE) {
-      const remainingMs =
-        SEARCH_TIME_BUDGET_MS - differenceInMilliseconds(new Date(), startedAt)
-      if (remainingMs <= 0) {
-        outOfBudget = true
-        break
-      }
-      const batch = candidates.slice(i, i + AVAILABILITY_CHECK_BATCH_SIZE)
-      // The budget has to bound the request from inside a batch — a single
-      // throttled Route53 check can back off for tens of seconds, so an
-      // elapsed check between batches cannot do it — but it must not cost us
-      // verdicts we already hold. Racing the batch as one unit discarded every
-      // result the batch had settled: on 2026-09-30 four candidates came back
-      // available and priced in 1.6s, the fifth answered 0.2s after the
-      // deadline, and all four were thrown away, so a search that had found
-      // four domains reported that nothing could be checked and 502'd.
-      //
-      // So race each check on its own against one shared deadline: whatever
-      // has an answer when the budget runs out is kept, and only the checks
-      // still in flight are lost. Those settle later into nothing.
-      const budgetExpired = this.deadline(remainingMs)
-      const checked = await Promise.all(
-        batch.map((domain) =>
-          Promise.race([
-            this.checkPatternedCandidate(domain, maxPrice).then(
-              (value) => ({ status: 'fulfilled', value }) as const,
-              (reason: unknown) => ({ status: 'rejected', reason }) as const,
-            ),
-            budgetExpired,
-          ]),
-        ),
-      )
-      for (const r of checked) {
-        if (r === null) {
-          // Still in flight when the budget ran out, so it never reached a
-          // verdict — the same thing a throttled check is, and counted the
-          // same way.
+    let stalled = false
+    try {
+      for (
+        let i = 0;
+        i < candidates.length;
+        i += AVAILABILITY_CHECK_BATCH_SIZE
+      ) {
+        const remainingMs =
+          SEARCH_TIME_BUDGET_MS -
+          differenceInMilliseconds(new Date(), startedAt)
+        if (remainingMs <= 0) {
           outOfBudget = true
-          unchecked += 1
-        } else if (r.status === 'rejected') {
-          const err =
-            r.reason instanceof Error ? r.reason : new Error(String(r.reason))
-          this.logger.warn(
-            { err, fn: 'searchDomainsForCampaign' },
-            'candidate availability check failed; candidate not checked',
-          )
-          // A fault we did not anticipate is not a verdict either. Counting it
-          // as one let an unexpected throw across every candidate return an
-          // empty list the caller reads as "the namespace is taken".
-          unchecked += 1
-        } else if (r.value === UNCHECKED) {
-          unchecked += 1
-        } else if (r.value !== null) {
-          found.push(r.value)
+          break
+        }
+        const batch = candidates.slice(i, i + AVAILABILITY_CHECK_BATCH_SIZE)
+        // The budget has to bound the request from inside a batch — a single
+        // throttled Route53 check can back off for tens of seconds, so an
+        // elapsed check between batches cannot do it — but it must not cost us
+        // verdicts we already hold. Racing the batch as one unit discarded every
+        // result the batch had settled: on 2026-09-30 four candidates came back
+        // available and priced in 1.6s, the fifth answered 0.2s after the
+        // deadline, and all four were thrown away, so a search that had found
+        // four domains reported that nothing could be checked and 502'd.
+        //
+        // So race each check on its own against one shared deadline: whatever
+        // has an answer when the deadline runs out is kept, and only the checks
+        // still in flight are lost and cancelled.
+        const checkDeadlineMs = Math.min(
+          remainingMs,
+          AVAILABILITY_CHECK_STALL_MS,
+        )
+        const budgetExpired = this.deadline(checkDeadlineMs)
+        const checked = await Promise.all(
+          batch.map((domain) =>
+            Promise.race([
+              this.checkPatternedCandidate(
+                domain,
+                maxPrice,
+                searchAbort.signal,
+              ).then(
+                (value) => ({ status: 'fulfilled', value }) as const,
+                (reason: unknown) => ({ status: 'rejected', reason }) as const,
+              ),
+              budgetExpired,
+            ]),
+          ),
+        )
+        let missedDeadline = false
+        for (const r of checked) {
+          if (r === null) {
+            // Still in flight when the deadline ran out, so it never reached a
+            // verdict — the same thing a throttled check is, and counted the
+            // same way.
+            missedDeadline = true
+            unchecked += 1
+          } else if (r.status === 'rejected') {
+            const err =
+              r.reason instanceof Error ? r.reason : new Error(String(r.reason))
+            this.logger.warn(
+              { err, fn: 'searchDomainsForCampaign' },
+              'candidate availability check failed; candidate not checked',
+            )
+            // A fault we did not anticipate is not a verdict either. Counting it
+            // as one let an unexpected throw across every candidate return an
+            // empty list the caller reads as "the namespace is taken".
+            unchecked += 1
+          } else if (r.value === UNCHECKED) {
+            unchecked += 1
+          } else if (r.value !== null) {
+            found.push(r.value)
+          }
+        }
+        if (missedDeadline) {
+          // A check past the stall window means the registrar is degraded, and
+          // every further candidate would miss it too. Stop here rather than
+          // spend the rest of the budget and the shared quota on them.
+          if (checkDeadlineMs === remainingMs) outOfBudget = true
+          else stalled = true
+          break
+        }
+        if (found.length >= SEARCH_TARGET_CANDIDATE_COUNT) {
+          break
         }
       }
-      if (outOfBudget || found.length >= SEARCH_TARGET_CANDIDATE_COUNT) {
-        break
-      }
+    } finally {
+      searchAbort.abort()
     }
 
     if (outOfBudget) {
@@ -764,6 +805,18 @@ export class DomainsService
           fn: 'searchDomainsForCampaign',
         },
         'domain search hit its time budget; returning what was found',
+      )
+    }
+    if (stalled) {
+      this.logger.warn(
+        {
+          campaignId: campaign.id,
+          foundCount: found.length,
+          candidateCount: candidates.length,
+          unchecked,
+          fn: 'searchDomainsForCampaign',
+        },
+        'Route53 stopped answering mid-search; abandoning the remaining candidates',
       )
     }
 
@@ -792,6 +845,7 @@ export class DomainsService
   private async checkPatternedCandidate(
     domain: string,
     maxPrice: number,
+    signal: AbortSignal,
   ): Promise<PatternedDomainCandidate | null | typeof UNCHECKED> {
     // The invariant for every exit below: `null` means we *learned* this is
     // not a candidate (rejected name, taken, over the cap). `UNCHECKED` means
@@ -799,9 +853,14 @@ export class DomainsService
     // makes an outage look like a namespace that is entirely taken.
     let availability: DomainAvailability | undefined
     try {
-      const resp = await this.route53.checkDomainAvailability(domain)
+      const resp = await this.route53.checkDomainAvailability(domain, {
+        signal,
+      })
       availability = resp.Availability
     } catch (error) {
+      // The search stopped waiting and cancelled this check: no verdict, and
+      // nothing to report.
+      if (signal.aborted) return UNCHECKED
       // Only a rejected request carries a verdict: an invalid name or an
       // unsupported TLD is one we can never register, so it is genuinely not
       // a candidate. Everything else — throttling, an AWS outage, a fault we

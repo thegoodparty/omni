@@ -48,6 +48,15 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
   available, priced domains became "nothing could be checked" and a 502
   (2026-09-30, campaign 327394). Only checks still in flight when the budget
   runs out are lost, and those count as unchecked.
+- **A check past the stall window ends the search, and its signal cancels it.**
+  Route 53 answers in 60ms-1.2s when the account's token bucket is healthy and
+  ~10.9s per call when it is drained, so the 5-wide chain reaches about a
+  quarter of a 36-candidate search inside the 20s budget and 502s having
+  learned nothing. A check still unanswered at `AVAILABILITY_CHECK_STALL_MS`
+  (5s) is counted unchecked and stops the search, and the search's single
+  `AbortController` cancels every check it abandons — an 8-attempt Route 53
+  backoff otherwise keeps spending the account-wide quota after the response
+  (2026-11-16, ENG-11666: one search's trace ran 42s against a 20s answer).
 - **The candidate cap applies after the TLD fan-out, not before it.**
   `MAX_PATTERN_CANDIDATES` bounds SLDs, and the fan-out then multiplies each
   by `SUPPORTED_TLDS`, so the nominal 50 was really up to 300 Route53 calls

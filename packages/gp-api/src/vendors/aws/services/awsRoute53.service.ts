@@ -41,14 +41,21 @@ export class AwsRoute53Service extends AwsService {
   /**
    * Checks if a domain name is available for registration
    * @param domainName - The domain name to check (e.g. 'example.com')
+   * @param options.signal - Cancels the call, retries included, when the
+   * caller stops waiting for it
    * @see {@link https://docs.aws.amazon.com/Route53/latest/APIReference/API_domains_CheckDomainAvailability.html}
    */
-  async checkDomainAvailability(domainName: string) {
+  async checkDomainAvailability(
+    domainName: string,
+    options?: { signal?: AbortSignal },
+  ) {
     return this.executeAwsOperation(async () => {
       const command = new CheckDomainAvailabilityCommand({
         DomainName: domainName,
       })
-      const result = await this.domainsClient.send(command)
+      const result = await this.domainsClient.send(command, {
+        abortSignal: options?.signal,
+      })
 
       if (result instanceof Route53DomainsServiceException) {
         switch (result.name) {
