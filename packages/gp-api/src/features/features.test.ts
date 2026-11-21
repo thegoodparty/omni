@@ -299,3 +299,73 @@ describe('FeaturesService.isFeatureEnabled', () => {
     vi.resetModules()
   })
 })
+
+describe('FeaturesService.getFeatureWithPayload', () => {
+  const user = asUser({ id: 1, email: 'a@b.com' })
+
+  beforeEach(() => {
+    mockFetchV2.mockReset()
+  })
+
+  it('returns on with the variant payload', async () => {
+    const svc = await loadRealKeyService()
+    mockFetchV2.mockResolvedValue({
+      flag: {
+        value: 'on',
+        key: 'on',
+        payload: { teamGateStart: '2026-12-01' },
+      },
+    })
+
+    expect(await svc.getFeatureWithPayload({ user, feature: 'flag' })).toEqual({
+      enabled: true,
+      payload: { teamGateStart: '2026-12-01' },
+    })
+  })
+
+  it('returns off for an off variant or a missing flag', async () => {
+    const svc = await loadRealKeyService()
+    mockFetchV2.mockResolvedValue({ flag: { value: 'off', key: 'off' } })
+
+    expect(await svc.getFeatureWithPayload({ user, feature: 'flag' })).toEqual({
+      enabled: false,
+      payload: undefined,
+    })
+    expect(await svc.getFeatureWithPayload({ user, feature: 'other' })).toEqual(
+      { enabled: false, payload: undefined },
+    )
+  })
+
+  it('short-circuits to on with no payload under the placeholder key', async () => {
+    const result = await makeService().getFeatureWithPayload({
+      user,
+      feature: 'flag',
+    })
+
+    expect(result).toEqual({ enabled: true, payload: undefined })
+    expect(mockFetchV2).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when Amplitude fails with a real key', async () => {
+    const svc = await loadRealKeyService()
+    mockFetchV2.mockRejectedValue(new Error('status=401'))
+
+    expect(await svc.getFeatureWithPayload({ user, feature: 'flag' })).toEqual({
+      enabled: false,
+      payload: undefined,
+    })
+  })
+
+  it('resolves a numeric user id through the users service', async () => {
+    const findUniqueOrThrow = vi.fn().mockResolvedValue(user)
+    const svc = await loadRealKeyService({ findUniqueOrThrow })
+    mockFetchV2.mockResolvedValue({ flag: { value: 'on', key: 'on' } })
+
+    await svc.getFeatureWithPayload({ user: 1, feature: 'flag' })
+
+    expect(findUniqueOrThrow).toHaveBeenCalledWith({ where: { id: 1 } })
+    expect(mockFetchV2).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: '1' }),
+    )
+  })
+})
