@@ -24,7 +24,7 @@ runs:
   using: composite
   steps:
     - name: Install Pulumi
-      uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58 # v6
+      uses: pulumi/actions@96c7761824268174e0d2a4e8c7d75671eebd24a7 # v7.1.0
       with:
         pulumi-version: ${{ inputs.pulumi-version }}
 
