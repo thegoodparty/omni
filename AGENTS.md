@@ -80,6 +80,16 @@ and verified by `scripts/agents-md-sync.sh`, which CI runs on every PR.
 `packages/gp-api/AGENTS.md` is the gold-standard for nested-doc style — pointer
 tables and terse, high-signal sections. Each app and most feature folders carry one.
 
+## How to work (fast)
+
+Applies to you and to every subagent you dispatch. Detail: `docs/working-fast.md`.
+
+- Read the files the task names, in one parallel batch. Do not survey the repo.
+- Make the first edit within about 10 tool calls; let `tsc` and tests say what is wrong.
+- Do not read `node_modules` until an error points there.
+- The nearest `AGENTS.md` answers library questions first; treat it as settled.
+- Dispatch subagents with named files, a pattern file and a done condition.
+
 ## Progressive disclosure — don't load everything
 
 Top-level agent docs load at launch. Nested ones do not load the same way on every
