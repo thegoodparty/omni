@@ -28,9 +28,10 @@ const escapeCell = (value: string) =>
   [...value]
     .map((char) => CELL_ENTITIES[char] ?? char)
     .join('')
-    // A bare URL is autolinked without `[`, so break the `//` too. No entity
-    // contains a slash, so this cannot damage one.
+    // Schemes and bare `www.` hosts are autolinked without any markdown, so
+    // break both. No entity contains a slash or a dot, so this is safe.
     .replaceAll('//', '&#47;&#47;')
+    .replace(/www\./gi, (match) => `${match.slice(0, 3)}&#46;`)
 
 const formatP = (p: number) => (p < 0.001 ? '&lt;0.001' : p.toFixed(3))
 

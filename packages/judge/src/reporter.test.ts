@@ -249,7 +249,7 @@ describe('PairwiseReporter', () => {
                     side: 'base',
                     runs: [],
                     error:
-                      '@octocat see https://example.test/x and #123 `code`',
+                      '@octocat see https://example.test/x and #123 `code` and www.example.test',
                   },
                 ]),
               }),
@@ -262,9 +262,10 @@ describe('PairwiseReporter', () => {
     new PairwiseReporter().onTestRunEnd(hostile, [], 'failed')
     const table = String(write.mock.calls[0]?.[0])
     expect(table).toContain(
-      '&#64;octocat see https:&#47;&#47;example.test/x and &#35;123 &#96;code&#96;',
+      '&#64;octocat see https:&#47;&#47;example.test/x and &#35;123 &#96;code&#96; and www&#46;example.test',
     )
     expect(table).not.toContain('@octocat')
+    expect(table).not.toContain('www.example.test')
   })
 
   it('writes to stdout locally and stays quiet without verdicts', () => {

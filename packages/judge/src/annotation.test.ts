@@ -3,6 +3,7 @@ import {
   excerpt,
   redactSecrets,
   REDACTED,
+  renderRedactedValue,
   renderValue,
   summarizePrompt,
 } from './annotation'
@@ -80,5 +81,24 @@ describe('renderValue', () => {
   it('prints a string as itself and anything else as JSON', () => {
     expect(renderValue('plain')).toBe('plain')
     expect(renderValue({ passed: true })).toBe('{\n  "passed": true\n}')
+  })
+})
+
+describe('renderRedactedValue', () => {
+  // Redacting the finished JSON eats the `n` of an escaped newline, and the
+  // result no longer parses, so a reader drops the whole annotation.
+  it('stays valid JSON when a secret starts a line', () => {
+    const secret = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
+    const rendered = renderRedactedValue({ reasoning: `first\n${secret}` })
+    expect(rendered).not.toContain(secret)
+    expect(JSON.parse(rendered)).toEqual({ reasoning: `first\n${REDACTED}` })
+  })
+
+  it('redacts every string it holds, at any depth', () => {
+    const secret = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz'
+    const rendered = renderRedactedValue({
+      orders: [{ handledWhen: { base: secret } }],
+    })
+    expect(rendered).not.toContain(secret)
   })
 })

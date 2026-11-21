@@ -4,6 +4,7 @@ import {
   suiteVerdictAnnotation,
   excerpt,
   redactSecrets,
+  renderRedactedValue,
   renderValue,
   type Annotate,
 } from './annotation'
@@ -208,7 +209,7 @@ export const registerPairwiseSuite = <Input>(
                   scores,
                 } of pair.orders) {
                   await annotate(
-                    renderValue({
+                    renderRedactedValue({
                       attempt,
                       aArm,
                       winner,
@@ -220,7 +221,7 @@ export const registerPairwiseSuite = <Input>(
                   )
                 }
                 await annotate(
-                  renderValue({
+                  renderRedactedValue({
                     attempt,
                     winner: pair.winner,
                     ordersAgree:
@@ -283,9 +284,7 @@ export const registerPairwiseSuite = <Input>(
         // the `n` of an escaped newline and leave invalid JSON.
         pairwiseNotJudged: {
           type: 'pairwise-not-judged',
-          message: JSON.stringify(notJudged, (_key, value) =>
-            typeof value === 'string' ? redactSecrets(value) : value,
-          ),
+          message: renderRedactedValue(notJudged),
         },
       })
       if (!attempted) return
