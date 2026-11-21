@@ -66,6 +66,7 @@ export const PlansTable = ({
                 <span className="text-sm font-normal text-muted-foreground">
                   {column.caption}
                 </span>
+                {/* The design has no price line: paid prices sit in the button label and Free is $0 by being the plan you start on. */}
                 <PlanCta
                   column={column}
                   isCurrent={column.plan === currentPlan}

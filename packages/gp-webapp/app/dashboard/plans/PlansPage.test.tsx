@@ -88,6 +88,21 @@ describe('PlansPage', () => {
     ).toBeGreaterThan(0)
   })
 
+  it('puts each paid price in its button label inside the desktop table', () => {
+    render(<PlansPage highlightTeam={false} />)
+    const table = within(screen.getByRole('table'))
+    expect(
+      table.getByRole('link', {
+        name: `Join Pro for $${PLAN_PRICING.proCents / 100}`,
+      }),
+    ).toBeInTheDocument()
+    expect(
+      table.getByRole('link', {
+        name: `Join Team for $${PLAN_PRICING.teamCents / 100}`,
+      }),
+    ).toBeInTheDocument()
+  })
+
   it('tags the credit as a Bonus', () => {
     render(<PlansPage highlightTeam={false} />)
     expect(screen.getAllByText('Bonus').length).toBeGreaterThan(0)
