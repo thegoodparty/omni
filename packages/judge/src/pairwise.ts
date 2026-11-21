@@ -1,10 +1,11 @@
 import type { afterAll, beforeAll } from 'vitest'
 import {
+  annotateRedacted,
   annotateWith,
   suiteVerdictAnnotation,
   excerpt,
   redactSecrets,
-  renderRedactedValue,
+  redactedJson,
   renderValue,
   type Annotate,
 } from './annotation'
@@ -157,6 +158,7 @@ export const registerPairwiseSuite = <Input>(
         theCase.id,
         async (context) => {
           const annotate = annotateWith(context)
+          const annotateJson = annotateRedacted(context)
           attempted += ATTEMPTS
           const grading = theCase.grading ?? {}
           const dimensions = Object.entries({
@@ -208,8 +210,8 @@ export const registerPairwiseSuite = <Input>(
                   handled,
                   scores,
                 } of pair.orders) {
-                  await annotate(
-                    renderRedactedValue({
+                  await annotateJson(
+                    redactedJson({
                       attempt,
                       aArm,
                       winner,
@@ -220,8 +222,8 @@ export const registerPairwiseSuite = <Input>(
                     'pairwise-order',
                   )
                 }
-                await annotate(
-                  renderRedactedValue({
+                await annotateJson(
+                  redactedJson({
                     attempt,
                     winner: pair.winner,
                     ordersAgree:
@@ -284,7 +286,7 @@ export const registerPairwiseSuite = <Input>(
         // the `n` of an escaped newline and leave invalid JSON.
         pairwiseNotJudged: {
           type: 'pairwise-not-judged',
-          message: renderRedactedValue(notJudged),
+          message: redactedJson(notJudged),
         },
       })
       if (!attempted) return
