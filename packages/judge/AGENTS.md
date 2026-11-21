@@ -29,15 +29,16 @@ Vitest runs three attempts per case. Pairwise attempts grade both output orders,
 and a case with no judged pairs fails. The run routes do not expose engine
 identity today; annotations say `not reported` when it is missing.
 
-| File                              | What                                                           |
-| --------------------------------- | -------------------------------------------------------------- |
-| `src/pairwise.ts`                 | Suite registration, per-case execution, and verdict            |
-| `src/suite.ts`                    | Suite definition types and validation                          |
-| `src/arm.ts` and `src/apiRoot.ts` | Test-user context, API-root discovery, and run-route preflight |
-| `src/runAgent.ts`                 | Agent run and polling routes                                   |
-| `src/chatTurns.ts`                | Chat turns: opens the conversation, posts each turn, reads SSE |
-| `src/grade.ts` and `src/stats.ts` | Grading, exact sign test, and handledWhen regression test      |
-| `src/reporter.ts`                 | Markdown verdict table                                         |
+| File                              | What                                                            |
+| --------------------------------- | --------------------------------------------------------------- |
+| `src/pairwise.ts`                 | Suite registration, per-case execution, and verdict             |
+| `src/suite.ts`                    | Suite definition types and validation                           |
+| `src/arm.ts` and `src/apiRoot.ts` | Test-user context, API-root discovery, and run-route preflight  |
+| `src/runAgent.ts`                 | Agent run and polling routes                                    |
+| `src/chatTurns.ts`                | Chat turns: opens the conversation, posts each turn, reads SSE  |
+| `src/grade.ts` and `src/stats.ts` | Grading, exact sign test, and handledWhen regression test       |
+| `src/reporter.ts`                 | Markdown verdict table, and `JUDGE_VERDICTS_FILE` for the guard |
+| `src/guard/`                      | The PR guard's picker, code map and verdict mapping             |
 
 ## The grader
 
@@ -119,6 +120,13 @@ text: through `ctx.api.post` axios would try the whole body as JSON and hand bac
 an object for any single frame that happened to parse. A reply that streamed an
 `error` frame or ended without `done` is a thrown turn, not a subject for
 grading.
+
+## The PR guard
+
+`.github/workflows/judge-guard.yml` runs `src/guard/` and the suites inline; see [Writing agent evals](../../docs/agent-evals.md#the-pr-guard).
+`reporter.ts` writes `{ suite, label }` rows to `JUDGE_VERDICTS_FILE` when set, which
+the guard maps to a verdict.
+A new shared directory needs a row in `src/guard/codeMap.ts`.
 
 ## Tests
 

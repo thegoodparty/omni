@@ -1,9 +1,11 @@
 import io
+import json
 import os
 import tempfile
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 import boto3
 import httpx
@@ -23,7 +25,7 @@ from broker.endpoints.http_fetch import (
     get_scope_ticket,
     router,
 )
-from broker.page_replay import PageReplay, normalize_url
+from broker.page_replay import PageReplay, _FetchMeta, _HeadMeta, normalize_url
 
 BUCKET = "gp-agent-artifacts-dev"
 TABLE = "scope-tickets"
@@ -634,3 +636,45 @@ class TestOutcomeMarkers:
         h.s3.fail_puts = True
         h.as_candidate()
         assert h.fetch(CANDIDATE, URL, _page(b"live")).content == b"live"
+
+
+# The Universal Judge writes seeded pages straight into a seed store (gp-api
+# `chats/evals/judge/runners/background.ts`, seedPageKeys and seedPageMeta). It
+# hashes the URL as written, so each one must already be in this module's
+# normalized form, and its metadata must be what _FetchMeta and _HeadMeta
+# read. The judge's own schema is the gate on every PR; this runs when the
+# broker changes, so a change here can't quietly stop matching them.
+JUDGE_DIR = Path(__file__).resolve().parents[3] / "gp-api" / "src" / "chats" / "evals" / "judge"
+
+
+def _seeded_urls() -> list[str]:
+    lists = [*sorted((JUDGE_DIR / "cases").glob("*.json")), *sorted((JUDGE_DIR / "fixtures" / "seeded").glob("*.json"))]
+    return [
+        page["url"]
+        for path in lists
+        for case in json.loads(path.read_text())["cases"]
+        for page in case.get("seedPages", [])
+    ]
+
+
+class TestJudgeSeededPages:
+    def test_the_example_list_is_found(self):
+        assert "https://www.example.com/people/jordan-rivera" in _seeded_urls()
+
+    @pytest.mark.parametrize("url", _seeded_urls())
+    def test_every_seeded_url_is_already_normalized(self, url):
+        assert normalize_url(url) == url
+
+    def test_the_judges_metadata_parses(self):
+        meta = _FetchMeta.model_validate_json(
+            '{"status":200,"content_type":"text/html",'
+            '"final_url":"https://www.example.com/people/jordan-rivera",'
+            '"byte_size":29}'
+        )
+        assert meta.byte_size == 29
+
+    def test_the_judges_head_answer_parses(self):
+        head = _HeadMeta.model_validate_json(
+            '{"status":200,"final_url":"https://www.example.com/people/jordan-rivera"}'
+        )
+        assert head.status == 200
