@@ -56,14 +56,17 @@ jobs:
           # Dependabot PR was silently treated as passing and the PR merged
           # without ever being validated. Instead, require the real, runnable
           # validation contexts (each package's "Validate (<package>)" gate —
-          # lint/typecheck/test/build — plus "Dependency Review", none of which
-          # need deploy secrets) to actually be present and to have every
-          # instance conclude SUCCESS. Deploy/E2E are
+          # lint/typecheck/test/build — plus "Dependency Review" and "verify",
+          # none of which need deploy secrets) to actually be present and to have
+          # every instance conclude SUCCESS. "verify" is the verify-lockfile.yml
+          # job, which catches a github-actions PR whose tag refs no longer match
+          # actions.lock; Dependabot bumps the tags but never the lockfile, so
+          # without it that PR auto-merges with a stale lock. Deploy/E2E are
           # deliberately NOT gated here: they depend on a full-stack deploy that
           # can't run for Dependabot PRs (no secrets), so they always skip/fail
           # and are not a meaningful signal for a dependency bump. See the PR
           # body for the branch-protection (ruleset) change this pairs with.
-          required_contexts='["Validate (gp-api)","Validate (gp-webapp)","Validate (gp-admin)","Validate (candidate-sites)","Validate (contracts)","Validate (styleguide)","Validate (gp-ai)","Dependency Review"]'
+          required_contexts='["Validate (gp-api)","Validate (gp-webapp)","Validate (gp-admin)","Validate (candidate-sites)","Validate (contracts)","Validate (styleguide)","Validate (gp-ai)","Dependency Review","verify"]'
           eligible="$(jq -r --arg cutoff "$cutoff" --argjson required "$required_contexts" '
             .[]
             | select(.headRefName | startswith("dependabot/"))

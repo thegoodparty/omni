@@ -504,10 +504,21 @@ verifies upstream. Local actions are referenced as `$/.github/actions/<x>`
 (the same-repo action at the running commit, inherently pinned) and the remote
 actions they call are locked like any other.
 
+Dependabot rewrites the `uses:` tags in a `github-actions` PR and does not touch
+`actions.lock`, so that PR arrives with `verify` red. Whoever lands it runs
+`gh actions-lock` (`--migrate-local-actions` too when a new local action
+appeared), commits the regenerated lockfile to the Dependabot branch, and the
+commit's author takes the PR out of auto-merge, so a human merges it once the
+checks are green again.
+
 Dependabot PRs merge themselves, whatever the ecosystem: the
 `dependabot-merge.yml` workflow sweeps every 30 minutes and squash-merges any
-Dependabot PR that is approved (delegate reviews every PR), has all checks
-green, and whose last commit is at least 24 hours old. A commit pushed by anyone other than Dependabot disqualifies the PR
+Dependabot PR that is approved (delegate reviews every PR), has every context
+that workflow gates on green — the seven `Validate (<package>)` gates,
+`Dependency Review` and `verify` — and whose last commit is at least 24 hours
+old. That gate is the workflow's own list, not the ruleset's: `verify` is not
+among the `main` ruleset's required checks yet, so it stops the auto-merge but
+not a human merge. A commit pushed by anyone other than Dependabot disqualifies the PR
 from auto-merge. Merges authenticate as the `omni-automation` GitHub App
 (`AUTOMATION_APP_ID` var + `AUTOMATION_APP_PRIVATE_KEY` secret) so the merge
 push triggers the dev deploy workflows like any other merge. Auto-merge stops
