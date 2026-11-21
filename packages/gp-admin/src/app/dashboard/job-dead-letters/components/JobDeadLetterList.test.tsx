@@ -21,7 +21,7 @@ const deadLetter = (overrides: Partial<JobDeadLetter> = {}): JobDeadLetter => ({
 })
 
 describe('JobDeadLetterList', () => {
-  it('shows the queue, the last error, the retries and when it died', () => {
+  it('shows the id, the queue, the last error and when it died', () => {
     render(
       <Theme>
         <JobDeadLetterList deadLetters={[deadLetter()]} />
@@ -30,11 +30,10 @@ describe('JobDeadLetterList', () => {
 
     expect(screen.getByText('doorKnockingCanvassingTotals')).toBeInTheDocument()
     expect(screen.getByText('Segment is down')).toBeInTheDocument()
-    expect(screen.getByText('2')).toBeInTheDocument()
     expect(screen.getByText(/2026/)).toBeInTheDocument()
   })
 
-  it('links the queue to the dead letter detail page', () => {
+  it('links the id to the dead letter detail page', () => {
     render(
       <Theme>
         <JobDeadLetterList deadLetters={[deadLetter()]} />
@@ -43,7 +42,7 @@ describe('JobDeadLetterList', () => {
 
     expect(
       screen.getByRole('link', {
-        name: 'doorKnockingCanvassingTotals',
+        name: '5f1a4b26-7c8a-4f5d-9a0b-0f0f5b5f1a4b',
       })
     ).toHaveAttribute(
       'href',

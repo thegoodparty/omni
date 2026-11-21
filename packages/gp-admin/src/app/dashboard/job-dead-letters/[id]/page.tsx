@@ -49,9 +49,12 @@ export default async function Page({ params }: PageProps) {
           ← All dead letters
         </Link>
         <Flex align="center" justify="between" mt="2" gap="3">
-          <Heading size="6">
-            {deadLetter.sourceQueue ?? 'Dead letter with no source queue'}
-          </Heading>
+          <div>
+            <Heading size="6">{deadLetter.id}</Heading>
+            <Text color="gray" size="2">
+              {deadLetter.sourceQueue ?? 'No source queue'}
+            </Text>
+          </div>
           <RedriveDeadLetterButton deadLetter={deadLetter} size="2" />
         </Flex>
       </div>

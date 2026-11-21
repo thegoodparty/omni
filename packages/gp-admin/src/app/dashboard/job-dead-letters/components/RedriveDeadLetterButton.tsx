@@ -41,6 +41,7 @@ export function RedriveDeadLetterButton({
     }
     setOpen(false)
     showToast('Job put back on its queue')
+    router.push('/dashboard/job-dead-letters')
     router.refresh()
   }
 
