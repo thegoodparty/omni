@@ -3,7 +3,7 @@ name: bug-analysis
 description: Analyze a bug and present a one-page root cause and proposed fix for human review. Use when asked for bug analysis or RCA, before implementing a fix.
 ---
 
-Read the ticket and relevant discussion. Check related tickets, deployed code, and available evidence. Distinguish confirmed impact from estimates, and stop causal claims where the evidence stops. Do not implement the fix or change production state.
+Read the ticket and relevant discussion. Check related tickets and the code deployed when the bug occurred. Use all relevant observability tools directly: query Grafana logs, traces, and metrics for the affected environment, time window, and request or record IDs; check frontend errors or session replay for browser symptoms. Use other available read-only system records when telemetry cannot distinguish competing causes. Link the queries and observations that confirm each decisive step. Prior ticket summaries are leads, not fresh evidence. Start by resolving the exact affected record and time window. Query those identifiers first. Broaden only to answer a named scope question, not to substitute similar incidents for evidence about this one. Set per-query timeouts and reserve time to write the artifact. If targeted queries cannot distinguish the remaining causes, name the missing evidence and finish the incomplete investigation rather than searching unrelated records. If a necessary source is unavailable, record what you attempted and what remains unverified. Distinguish confirmed impact from estimates, and stop causal claims where the evidence stops. Do not implement the fix or change production state.
 
 Create a private, single-page HTML artifact using the Omni `artifacts` skill. Aim for a two-minute read. Link to evidence rather than pasting logs or duplicating the analysis in ClickUp.
 
@@ -28,7 +28,7 @@ Name the behavior to change, where the change belongs, and how to verify normal 
 ## Self-review before sharing
 
 - Can you state the actual root cause in one sentence and point to evidence that confirms it for this bug, not just a plausible failure mode?
-- Does the evidence rule out any competing explanation that would change the fix or cleanup plan?
+- Does the evidence rule out any competing explanation that would change the fix or cleanup plan? A missing log is not proof of which path ran unless the deployed code always logs the alternative and the relevant logs are complete.
 - Does the proposed fix address the confirmed cause, and does the cleanup cover the affected records?
 
 If the cause still needs investigation or confirmation, share only an **Incomplete investigation** if useful. Name the missing evidence and the check that would settle it. Do not call it a finished RCA or request approval. Only a confirmed RCA ends by asking reviewers for a thumbs up or a pinned comment on what to change.
