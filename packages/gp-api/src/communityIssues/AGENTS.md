@@ -91,8 +91,8 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
 `trending_issues` and `top_community_issues` each run on either engine;
 `AGENTS_ON_GP_API` (a comma-separated list of the two ids) picks gp-api's own
 agents (`src/agents/AGENTS.md`) per type, and a type left out stays on the PMF
-Engine. `trending_issues` is on in dev and prod; `top_community_issues` is off
-everywhere. `startRun` in the dispatch service is the
+Engine. `trending_issues` is on in dev and prod; `top_community_issues` is on in
+dev only. `startRun` in the dispatch service is the
 one dispatch fork: on gp-api's agents the run is an `AgentRun` with
 `agentName` set to the type, on the PMF Engine an `ExperimentRun` with that
 `experimentType`. Every gate and reader picks its table by
