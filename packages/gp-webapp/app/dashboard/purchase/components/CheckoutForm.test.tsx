@@ -128,4 +128,18 @@ describe('CheckoutForm', () => {
     clickSubmit()
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
   })
+
+  it('submits on the first click even while Stripe has not yet set canConfirm', async () => {
+    // canConfirm lags the last keystroke until the field blurs, so a click
+    // right after typing used to land on a disabled button and do nothing.
+    checkoutValue.canConfirm = false
+    const onSuccess = vi.fn()
+
+    render(<CheckoutForm onSuccess={onSuccess} sessionId="cs_one_time" />)
+    clickSubmit()
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('cs_one_time'))
+    checkoutValue.canConfirm = true
+  })
 })

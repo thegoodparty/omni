@@ -127,6 +127,9 @@ function CheckoutFormContent({
 }): React.JSX.Element {
   const promo = usePromoCode(checkout)
   const [hasConfirmedPayment, setHasConfirmedPayment] = useState(false)
+  // Pay is never disabled on checkout.canConfirm: it lags the last keystroke
+  // until the field blurs, so a click right after typing hit a disabled button
+  // and did nothing. confirm() validates, and its error shows below.
   // The toast is gone in 4s and sits over Back, so a declined or failed
   // confirm also stays on the form until the next attempt.
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -172,7 +175,6 @@ function CheckoutFormContent({
     mutation.mutate()
   }
 
-  const canSubmit = hasConfirmedPayment || checkout.canConfirm
   const currentTotal = checkout.total.total.minorUnitsAmount / 100
   const originalTotal = checkout.total.subtotal.minorUnitsAmount / 100
 
@@ -219,7 +221,7 @@ function CheckoutFormContent({
       )}
       <Button
         type="submit"
-        disabled={!canSubmit || mutation.isPending}
+        disabled={mutation.isPending}
         loading={mutation.isPending}
         className="mt-6 w-full whitespace-nowrap"
         size="large"
