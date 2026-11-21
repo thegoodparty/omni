@@ -2,7 +2,9 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
+  Badge,
   Button,
   Dialog,
   DialogContent,
@@ -14,10 +16,12 @@ import {
 import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import {
   DoorOpenIcon,
+  GiftIcon,
   InfoIcon,
   MessageSquareIcon,
   ShieldCheckIcon,
   UsersIcon,
+  UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
@@ -33,10 +37,11 @@ import {
 } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { buildPlanPitch } from '../plan/planPitch'
 import { usePlanPitch } from '../plan/usePlanPitch'
-import { SeeAllPlansLink } from '../plan/SeeAllPlansLink'
+import { SEE_ALL_PLANS_LABEL } from '../plan/planPitch'
 import { usePlan } from './deriveMembershipState'
 import {
   MEMBERSHIP_COPY,
+  PLAN_PITCH_ROWS,
   membershipInviteCopy,
   membershipPlanCopy,
 } from './membershipCopy'
@@ -51,6 +56,22 @@ const TILE_TINTS = [
   'bg-brand-halo-green-200',
   'bg-brand-waxflower-200',
 ]
+
+const PLAN_ROW_ICONS = {
+  team: UsersRoundIcon,
+  voterData: UsersIcon,
+  outreach: MessageSquareIcon,
+  doors: DoorOpenIcon,
+  verification: ShieldCheckIcon,
+} as const
+
+const PLAN_ROW_TINTS = {
+  team: TILE_TINTS[0],
+  voterData: TILE_TINTS[0],
+  outreach: TILE_TINTS[1],
+  doors: TILE_TINTS[2],
+  verification: TILE_TINTS[3],
+} as const
 
 interface ProPitchDialogProps {
   open: boolean
@@ -100,6 +121,19 @@ export const ProPitchDialog = ({
     }))
     .filter(({ title }) => !smsClosed || title !== 'Campaign verification')
 
+  const planRows = (
+    [
+      ...(planPitch.plan === 'team' ? (['team'] as const) : []),
+      'voterData',
+      'outreach',
+      'doors',
+      'verification',
+    ] as const
+  ).filter((key) => !smsClosed || key !== 'verification')
+  // The price leads the pill in bold: "$399, one payment for ...".
+  const [, pillPrice = '', pillRest = copy.pitchPill] =
+    /^(\$\d+(?:\.\d{2})?)(.*)$/.exec(copy.pitchPill) ?? []
+
   useEffect(() => {
     if (open) {
       trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, {
@@ -120,7 +154,10 @@ export const ProPitchDialog = ({
         {
           source,
           channel,
-          cta: copy.pitchJoin,
+          cta:
+            planPitch.enabled && !invite
+              ? `Join ${planPitch.name}`
+              : copy.pitchJoin,
         },
         invite ? { plan: 'team', returnTo: TEAM_SETTINGS_PATH } : undefined,
       ),
@@ -149,12 +186,23 @@ export const ProPitchDialog = ({
           {/* DialogHeader's own classes end in `sm:text-left`, so centering
               the wrapped lines needs the sm: breakpoint spelled out too. */}
           <DialogHeader className="items-center gap-3 text-center sm:text-center">
-            <ProBadge size="large" className="h-[30px] w-[66px]" />
+            {planPitch.enabled && planPitch.plan === 'team' ? (
+              <Badge>TEAM</Badge>
+            ) : (
+              <ProBadge size="large" className="h-[30px] w-[66px]" />
+            )}
             <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
               {copy.pitchTitle}
             </DialogTitle>
             <span className="inline-flex h-8 items-center rounded-full bg-info-50 px-3.5 text-[15px] font-medium text-primary">
-              {copy.pitchPill}
+              {planPitch.enabled ? (
+                <>
+                  <strong className="font-semibold">{pillPrice}</strong>
+                  {pillRest}
+                </>
+              ) : (
+                copy.pitchPill
+              )}
             </span>
           </DialogHeader>
           {smsClosed && (
@@ -166,32 +214,69 @@ export const ProPitchDialog = ({
               </AlertTitle>
             </Alert>
           )}
-          <div className="grid gap-5 rounded-xl border border-brand-blue-200 p-5 sm:grid-cols-2 sm:gap-6 sm:p-6">
-            {tiles.map(({ title, body, Icon, tint }) => (
-              <div key={title} className="flex flex-col gap-2">
-                <span
-                  className={`flex size-10 items-center justify-center rounded-full ${tint}`}
-                >
-                  <Icon className="size-5" aria-hidden />
-                </span>
-                <p className="font-semibold">{title}</p>
-                <p className="text-sm text-base-muted-foreground">{body}</p>
-              </div>
-            ))}
-          </div>
+          {planPitch.enabled ? (
+            <ul className="flex flex-col divide-y divide-brand-blue-200 rounded-xl border border-brand-blue-200">
+              {planRows.map((key) => {
+                const Icon = PLAN_ROW_ICONS[key]
+                const { title, body } = PLAN_PITCH_ROWS[key]
+                return (
+                  <li key={key} className="flex items-center gap-3 p-4">
+                    <span
+                      className={`flex size-10 shrink-0 items-center justify-center rounded-full ${PLAN_ROW_TINTS[key]}`}
+                    >
+                      <Icon className="size-5" aria-hidden />
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="font-semibold">{title}</span>
+                      <span className="text-sm text-base-muted-foreground">
+                        {body}
+                      </span>
+                    </span>
+                    {key === 'outreach' && (
+                      <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium">
+                        <GiftIcon className="size-4" aria-hidden />
+                        {planPitch.credit} credit
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <div className="grid gap-5 rounded-xl border border-brand-blue-200 p-5 sm:grid-cols-2 sm:gap-6 sm:p-6">
+              {tiles.map(({ title, body, Icon, tint }) => (
+                <div key={title} className="flex flex-col gap-2">
+                  <span
+                    className={`flex size-10 items-center justify-center rounded-full ${tint}`}
+                  >
+                    <Icon className="size-5" aria-hidden />
+                  </span>
+                  <p className="font-semibold">{title}</p>
+                  <p className="text-sm text-base-muted-foreground">{body}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <DialogFooter className="shrink-0 flex-col items-center sm:flex-col sm:justify-center">
           <Button
-            className="w-full sm:w-auto sm:min-w-[360px]"
+            size={planPitch.enabled ? 'large' : undefined}
+            className={
+              planPitch.enabled ? 'w-full' : 'w-full sm:w-auto sm:min-w-[360px]'
+            }
             onClick={handleJoin}
           >
             {copy.pitchJoin}
           </Button>
           {planPitch.enabled && (
-            <SeeAllPlansLink
-              href={planPitch.allPlansHref}
-              onClick={() => onOpenChange(false)}
-            />
+            <Button variant="ghost" asChild className="w-full">
+              <Link
+                href={planPitch.allPlansHref}
+                onClick={() => onOpenChange(false)}
+              >
+                {SEE_ALL_PLANS_LABEL}
+              </Link>
+            </Button>
           )}
         </DialogFooter>
       </DialogContent>
