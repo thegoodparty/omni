@@ -11,7 +11,7 @@ Create a private, single-page HTML artifact using the Omni `artifacts` skill. Ai
 
 Lead with severity, confirmed affected user count, and total affected if known. Say unknown when you cannot establish the total. Describe the user-facing harm in one sentence.
 
-Show three severity cards side by side on wide screens, stacked as needed on narrow screens. Highlight the selected card with color and the label “Applies here.” Keep these definitions fixed:
+Always show all three severity cards, even in an incomplete investigation: side by side on wide screens, stacked as needed on narrow screens, each a bordered box. Highlight the selected card with color and the label “Applies here.” Keep these definitions fixed:
 
 - **High:** Financial harm or a core task blocked with no workaround.
 - **Medium:** A task is disrupted, but a workaround exists.
@@ -19,11 +19,11 @@ Show three severity cards side by side on wide screens, stacked as needed on nar
 
 ## 2. Five whys
 
-Use five short numbered questions and answers. Start at the symptom and trace the relevant system boundaries, fields, and failed checks. Verify the root cause before presenting the analysis for approval. If evidence needed to identify or confirm it is missing, label the analysis incomplete, state exactly what evidence is missing, and do not ask for approval. Do not invent a cause to fill a slot. Add a small inline flow diagram only if it clarifies the cause. Show the relevant handoff and mark where it failed; omit unrelated steps.
+Use five short numbered questions and answers. Start at the symptom and trace the relevant system boundaries, fields, and failed checks. Verify the root cause before presenting the analysis for approval. If evidence needed to identify or confirm it is missing, label the analysis incomplete, state exactly what evidence is missing, and do not ask for approval. Do not invent a cause to fill a slot. Add a small flow diagram only if it clarifies the cause. Draw it as real boxes and connecting arrows (inline SVG or CSS flex boxes), never a text or code block. Show only the relevant handoffs, one box per system step, and color the box or arrow where it failed (or where it is unknown).
 
 ## 3. Proposed solution
 
-Name the behavior to change, where the change belongs, and how to verify normal and failure paths. Include a cleanup proposal owned by the bug responder: how to identify affected records, what to repair, and how to verify the repair. If no cleanup is needed, explain why. Call out any actions another team must perform; the responder still owns coordination and verification.
+If the investigation is incomplete, this section leads with the exact commands that would settle it, each in a copy-pasteable code block with who can run it and what result means what: the literal read-only SQL (real table and column names from the schema, with placeholders only for the record id), the Stripe CLI or API command, the Grafana/Loki query with labels and time window, and so on. Never write “check the database” or “need breakglass” without the command. Otherwise, name the behavior to change, where the change belongs, and how to verify normal and failure paths. Include a cleanup proposal owned by the bug responder: how to identify affected records, what to repair, and how to verify the repair. If no cleanup is needed, explain why. Call out any actions another team must perform; the responder still owns coordination and verification.
 
 ## Self-review before sharing
 
