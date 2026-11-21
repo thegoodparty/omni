@@ -634,4 +634,3 @@ class TestOutcomeMarkers:
         h.s3.fail_puts = True
         h.as_candidate()
         assert h.fetch(CANDIDATE, URL, _page(b"live")).content == b"live"
-
