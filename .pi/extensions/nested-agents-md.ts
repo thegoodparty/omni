@@ -1,4 +1,5 @@
 import { readFile, realpath } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { isReadToolResult } from '@earendil-works/pi-coding-agent'
@@ -14,6 +15,7 @@ export default (pi: ExtensionAPI) => {
 
   pi.on('session_start', async () => injected.clear())
   pi.on('session_compact', async () => injected.clear())
+  pi.on('session_tree', async () => injected.clear())
 
   pi.on('tool_result', async (event, ctx) => {
     if (!isReadToolResult(event) || event.isError) return undefined
@@ -25,7 +27,8 @@ export default (pi: ExtensionAPI) => {
     let file: string
     try {
       root = await realpath(ctx.cwd)
-      file = await realpath(resolve(ctx.cwd, path))
+      const expanded = path.replace(/^@/, '').replace(/^~(?=$|\/)/, homedir())
+      file = await realpath(resolve(ctx.cwd, expanded))
     } catch {
       return undefined
     }
@@ -42,18 +45,15 @@ export default (pi: ExtensionAPI) => {
     let text = ''
     for (const d of dirs) {
       if (injected.has(d)) continue
+      injected.add(d)
       const agentsPath = join(d, 'AGENTS.md')
-      if (agentsPath === file) {
-        injected.add(d)
-        continue
-      }
+      if (agentsPath === file) continue
       let content: string
       try {
         content = await readFile(agentsPath, 'utf-8')
       } catch {
         continue
       }
-      injected.add(d)
       if (Buffer.byteLength(content) > MAX_BYTES) {
         content = `${Buffer.from(content).subarray(0, MAX_BYTES).toString('utf-8')}\n[truncated]`
       }
