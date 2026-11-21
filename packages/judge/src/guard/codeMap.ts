@@ -90,8 +90,8 @@ export const CODE_MAP: readonly CodeMapRow[] = [
   // Files inside one agent's own directory that another agent imports. The
   // picker is told a file under an agent directory reaches only that agent
   // unless a row here covers it, so these rows are what keep a real
-  // cross-agent import visible. codeMap.test.ts fails on a direct import
-  // between agent directories that no row covers.
+  // cross-agent import visible. They are kept by hand: nothing checks that a
+  // new import between agent directories has a row.
   {
     path: `${COS_DIR}chiefOfStaff.handler.ts`,
     suites: ['chief_of_staff', 'priority_flow'],
