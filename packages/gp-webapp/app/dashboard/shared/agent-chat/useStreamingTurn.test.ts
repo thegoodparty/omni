@@ -549,6 +549,63 @@ describe('useStreamingTurn', () => {
     }
   })
 
+  it('keeps a dropped turn’s partial text and still offers a retry when it never persists', async () => {
+    // A drop after some text: the reply the server never wrote cannot be
+    // reconciled, so the turn keeps what streamed and the user is told it was
+    // cut off. The handoff stays unfired — a deferred create's pending callback
+    // has to survive so Retry can still deliver it.
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const onTurnSuccess = vi.fn()
+      const api = {
+        streamMessage: ({ onInterrupted }: { onInterrupted?: () => void }) =>
+          (async function* (): AsyncGenerator<ChatStreamEvent> {
+            yield { type: 'text', delta: 'Half an answer' }
+            onInterrupted?.()
+          })(),
+        listMessages: vi.fn().mockResolvedValue([
+          {
+            id: 'srv-u',
+            conversationId: 'c1',
+            role: 'user' as const,
+            content: 'draft it',
+            createdAt: new Date().toISOString(),
+          },
+        ]),
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, {
+          toolLabel: () => null,
+          onError,
+          onTurnSuccess,
+        }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'draft it')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400_000)
+        await sendPromise
+      })
+
+      expect(onError).toHaveBeenCalledWith(
+        'The reply was cut off. Try again.',
+        true,
+      )
+      expect(onTurnSuccess).not.toHaveBeenCalled()
+      const partial = result.current.messages.find((m) =>
+        m.id.startsWith('local-'),
+      )
+      expect(partial?.content).toBe('Half an answer')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('settles a turn under StrictMode (mountedRef re-armed after the dev remount)', async () => {
     // StrictMode runs effect setup→cleanup→setup. The cleanup flips mountedRef
     // false; if it is not re-armed in setup, `canReconcile()` and the settle
