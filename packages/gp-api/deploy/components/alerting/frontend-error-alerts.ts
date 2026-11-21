@@ -32,12 +32,26 @@ import { Alert } from './alerts.types'
  * `(<host>)` suffix. Anchored, so `Failed to fetch dynamically imported
  * module` (a chunk that no longer exists after a deploy) still counts.
  *
+ * THE WRAPPED FORM IS WHAT A CAUGHT ONE LOOKS LIKE. gp-webapp's fetch
+ * client is ofetch, which composes its own message before any call site sees
+ * the error: `[GET] "/api/v1/elected-office/mine": <no response> Failed to
+ * fetch`. A call site that catches a `clientRequest` rejection and reports it
+ * through `reportClientError` reports that wrapper, so `value` is never the
+ * bare wording above and the anchored pattern missed it — every cancelled
+ * request on an endpoint new to failure filed its own ticket (ENG-11636:
+ * 2026-11-13T12:06:40Z, a back/forward navigation cancelled the request while
+ * gp-api answered 200 in 8 ms). The optional prefix covers the wrapper.
+ *
+ * A RESPONSE OF ANY KIND IS STILL OURS. ofetch puts the status where the
+ * wrapper says `<no response>`, and a `[POST] "/v1/x": 400 ` or a 504 is a
+ * server we can fix, so only the no-response form matches.
+ *
  * RE2 syntax, matched case-insensitively and sent as a raw (backtick)
  * LogQL string, so the backslashes reach Loki as written. Exported so the tests can check it
  * against the messages it is meant to drop and keep.
  */
 export const NETWORK_FAILURE_MESSAGES =
-  '^(failed to fetch|load failed|networkerror when attempting to fetch resource\\.?|network request failed)( \\(.*\\))?$'
+  '^(\\[[a-z]+\\] "[^"]*": <no response> )?(failed to fetch|load failed|networkerror when attempting to fetch resource\\.?|network request failed)( \\(.*\\))?$'
 
 /**
  * A stack frame from a browser extension: an error thrown by code we do not
