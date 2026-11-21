@@ -7,6 +7,10 @@ import {
   resolveAnonymousId,
 } from 'helpers/anonymousId'
 import { API_VERSION_PREFIX } from 'appEnv'
+import {
+  PUBLIC_PATH_PREFIXES,
+  publicPathMatcher,
+} from '@shared/auth/publicPaths'
 
 const ANONYMOUS_ID_MAX_AGE = 60 * 60 * 24 * 365
 
@@ -38,43 +42,12 @@ const seedAnonymousId = (req: NextRequest, res: NextResponse): NextResponse => {
   return res
 }
 
+// Which routes a visitor with no session may see. The same list tells the client
+// not to navigate away from a 401 raised on one of them — see
+// `@shared/auth/publicPaths`.
 const isPublicRoute = createRouteMatcher([
   '/',
-  '/login(.*)',
-  '/logout(.*)',
-  '/sign-up(.*)',
-  '/impersonate(.*)',
-  // Dev-only local briefing gallery. Both the page and its API route hard-return
-  // 404 when NODE_ENV !== 'development', so they never exist in dev/prod; making
-  // them public only affects local runs (Clerk is keyless locally, so gating them
-  // behind auth just blocks the tool with no security benefit).
-  '/dev/(.*)',
-  '/api/dev/(.*)',
-  // Magic-link redemption: the lead is not yet authenticated when they land
-  // here; the ticket is redeemed client-side. Only /serve/welcome is public —
-  // the rest of /serve (e.g. onboarding) still requires an active session.
-  // Returning leads sign in via the shared /login (which surfaces email OTP).
-  '/serve/welcome(.*)',
-  // Candidate ("win") magic-link redemption — same client-side ticket flow as
-  // /serve/welcome; only this landing page is public, onboarding still needs a
-  // session.
-  '/win/welcome(.*)',
-  // Staff-issued one-time sign-in link: the recipient is not yet authenticated
-  // when they land here; the ticket is redeemed client-side on click.
-  '/sign-in-link(.*)',
-  // Team-invite landing page (ENG-11027): Clerk's hosted accept URL redirects
-  // here with __clerk_ticket, and a brand-new invitee has no session yet — an
-  // auth wall would strand the ticket URL-encoded inside /login's
-  // redirect_url where nothing can redeem it. The ticket is redeemed
-  // client-side on the page (same pattern as /serve/welcome).
-  '/team-invite(.*)',
-  // Unsubscribe and reply-address confirmation pages, opened from outreach
-  // email by people with no account. Each GET only loads state; the action is
-  // a button POST.
-  '/email/(.*)',
-  // Machine endpoint: gated by its own REVALIDATE_SECRET (see
-  // app/api/revalidate/route.ts), not a Clerk user session.
-  '/api/revalidate',
+  ...PUBLIC_PATH_PREFIXES.map(publicPathMatcher),
 ])
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {
