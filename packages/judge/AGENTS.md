@@ -37,7 +37,7 @@ identity today; annotations say `not reported` when it is missing.
 | `src/runAgent.ts`                 | Agent run and polling routes                                    |
 | `src/chatTurns.ts`                | Chat turns: opens the conversation, posts each turn, reads SSE  |
 | `src/grade.ts` and `src/stats.ts` | Grading, exact sign test, and handledWhen regression test       |
-| `src/reporter.ts`                 | Markdown verdict table, and `JUDGE_VERDICTS_FILE` for the guard |
+| `src/reporter.ts`                 | Markdown verdict table, and the results JSON |
 | `src/guard/`                      | The PR guard's picker, code map and verdict mapping             |
 
 ## The grader
@@ -99,6 +99,22 @@ suite before a single agent run or grading call is spent.
 5. Full per-run records are the `pairwise-run` annotations, printed by the
    default reporter on a local run; CI does not keep them.
 
+## Reading a verdict from CI
+
+The job summary is a page the GitHub API does not expose, so an agent reads the
+verdicts from the run's artifact instead:
+
+```bash
+gh run download <run id> -n judge-eval-results
+```
+
+That file holds, per suite, the verdict with its counts, p-values and
+`handledWhen` totals, and per case and attempt the winner, each order's arm
+arrangement, the grader's full reasoning and its `handledWhen` answers. Get the
+run id from `gh run list --workflow judge-eval.yml` or the check run's link. The
+verdict table is also printed to stdout (so it is in the job log) and posted in
+the PR's judge-eval comment, but neither carries the per-case reasoning.
+
 Run evals from a worktree, not the main checkout: `vite-tsconfig-paths` walks
 every `.worktrees/*` tsconfig there and fails to resolve them.
 
@@ -125,7 +141,10 @@ grading.
 
 `.github/workflows/judge-guard.yml` runs `src/guard/` and the suites inline; see [Writing agent evals](../../docs/agent-evals.md#the-pr-guard).
 `reporter.ts` writes `{ suite, label }` rows to `JUDGE_VERDICTS_FILE` when set, which
-the guard maps to a verdict.
+the guard maps to a verdict. It also writes the full per-case results to
+`JUDGE_RESULTS_FILE` (set by `judge-eval.yml` and uploaded as the
+`judge-eval-results` artifact) and the verdict table to `JUDGE_TABLE_FILE` (which
+becomes the PR comment).
 A new shared directory needs a row in `src/guard/codeMap.ts`.
 
 ## Tests
