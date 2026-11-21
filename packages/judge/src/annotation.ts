@@ -75,6 +75,23 @@ export const annotateWith =
     await context.annotate(redactSecrets(message), type)
   }
 
+// Redacted per string, not after stringify: the broad pattern would eat the `n`
+// of an escaped newline and leave invalid JSON, which anything parsing the
+// annotation then drops without a trace. The result must reach `annotate`
+// unredacted again — `annotateWith` runs the pattern over the JSON text, where a
+// 31-character word starting a line is the same damage. `annotateRedacted` is
+// the matching annotate.
+export const redactedJson = <Value>(value: Value): string =>
+  JSON.stringify(value, (_key, entry) =>
+    typeof entry === 'string' ? redactSecrets(entry) : entry,
+  )
+
+export const annotateRedacted =
+  (context: Pick<TestContext, 'annotate'>): Annotate =>
+  async (message, type) => {
+    await context.annotate(message, type)
+  }
+
 export const suiteVerdictAnnotation = <Verdict>(verdict: Verdict) => ({
   type: 'pairwise-verdict',
   message: redactSecrets(renderValue(verdict)),

@@ -111,7 +111,7 @@ npm run eval -w packages/gp-api -- trending_issues --reporter=default --reporter
 
 `JUDGE_MODEL` is a provider/model ID. For example, `anthropic/claude-sonnet-5-5` uses `ANTHROPIC_API_KEY`. An unmapped prefix falls back to the AI SDK gateway and uses `AI_GATEWAY_API_KEY`. The [judge resolver](../packages/judge/src/model.ts) does not expose a base-URL setting for Bifrost.
 
-On a PR, comment `/judge-eval <suite>` using the pairwise file stem, for example `/judge-eval trending_issues`. The [workflow](../.github/workflows/judge-eval.yml) compares dev and the PR preview. Look for the verdict table in the job summary and a one-line PR comment linking to it. A WORSE or CAN'T JUDGE verdict fails the check. So does a case with no judged pairs, an unknown suite, or another test or workflow error.
+On a PR, comment `/judge-eval <suite>` using the pairwise file stem, for example `/judge-eval trending_issues`. The [workflow](../.github/workflows/judge-eval.yml) compares dev and the PR preview. The verdict table is in the job summary, in the job log, and in the upserted PR comment; the per-case reasoning is in the `judge-eval-results` artifact (`gh run download <id> -n judge-eval-results`). A WORSE or CAN'T JUDGE verdict fails the check. So does a case with no judged pairs, an unknown suite, or another test or workflow error.
 
 ## The PR guard
 
