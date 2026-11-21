@@ -608,7 +608,7 @@ export {
 export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 export { isStateCode } from './campaigns/StateCode'
 export { campaignWasEverPro } from './campaigns/CampaignEverPro'
-export { PLAN_PRICING, TEAM_GATE_START } from './payments/PlanPricing.const'
+export { PLAN_PRICING } from './payments/PlanPricing.const'
 export { planEndsAt } from './payments/PlanEndsAt'
 export {
   PlanReceiptSchema,

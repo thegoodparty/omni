@@ -44,7 +44,7 @@ can't drift.
 - **Team gate (ENG-11695, ENG-11709):** gp-api decides, the page renders.
   `GET /v1/organizations/team` returns `invites: { allowed, reason }`, computed
   by the code `POST team/invites` enforces and keyed on the owner's flag
-  (never re-derive it here, and don't import `TEAM_GATE_START`).
+  (never re-derive it here; the cutoff lives in the flag payload).
   `useTeamInviteGate(data?.invites)` maps it: `TEAM_PLAN_REQUIRED` makes an
   owner's Invite open `ProPitchDialog` with `invite` (Team, $399 from Free, the
   $100 difference from Pro; checkout returns to `/dashboard/team`, which reopens
