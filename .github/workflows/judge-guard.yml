@@ -152,7 +152,8 @@ jobs:
           fi
           echo "suites=$suites" >> "$GITHUB_OUTPUT"
           if [ -z "$suites" ]; then
-            printf '## No suite reached\n\n%s\n' "$reason" >> "$GITHUB_STEP_SUMMARY"
+            tick="'"
+            printf '## No suite reached\n\n```text\n%s\n```\n' "${reason//\`/$tick}" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # Polls the same `/v1/version` contract judge-eval.yml uses. Either SHA
@@ -247,7 +248,11 @@ jobs:
               '',
               process.env.NOTE || 'The judge reported no verdict.',
               '',
-              process.env.PICKER_SUMMARY,
+              // Model-written text, rendered inert: nothing inside a fenced
+              // block becomes a link, a mention or HTML.
+              '```text',
+              (process.env.PICKER_SUMMARY || '').replace(/`/g, "'"),
+              '```',
               '',
               `[Job summary](${runUrl}#summary)`,
             ].join('\n')

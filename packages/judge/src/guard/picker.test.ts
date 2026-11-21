@@ -112,4 +112,10 @@ describe('truncateDiff', () => {
       }).success,
     ).toBe(false)
   })
+
+  it('strips a bare www link', () => {
+    expect(sanitizeReason('see www.evil.com/login now')).toBe(
+      'see [link removed] now',
+    )
+  })
 })

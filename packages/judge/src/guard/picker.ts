@@ -54,6 +54,7 @@ export const sanitizeReason = (reason: string): string => {
   const plain = reason
     .replace(URL_PATTERN, '\u0000')
     .replace(/\/\/\S+/g, '\u0000')
+    .replace(/\bwww\.\S+/gi, '\u0000')
     .replace(/[<>()[\]`*~|#!]/g, '')
     .replace(/@(\w)/g, '@\u200b$1')
     .replace(/\u0000/g, '[link removed]')
