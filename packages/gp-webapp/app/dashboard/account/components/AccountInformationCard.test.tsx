@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -57,11 +57,14 @@ describe('AccountInformationCard plans', () => {
       plan: 'pro',
       planPricingModel: 'one_time',
       planEndsAt: '2026-11-17T12:00:00.000Z',
+      outreachCreditCents: 17500,
     })
     renderCard(true)
 
-    expect(screen.getByText('GoodParty.org Pro Plan')).toBeInTheDocument()
-    expect(screen.getByText('Nov 17, 2026')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'PRO' })).toBeInTheDocument()
+    expect(screen.getByText('$299')).toBeInTheDocument()
+    expect(screen.getByText(/Good until Nov 17, 2026/)).toBeInTheDocument()
+    expect(screen.getByText('$175 of $175 left')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /Billing history/ }),
     ).toBeInTheDocument()
@@ -105,8 +108,9 @@ describe('AccountInformationCard plans', () => {
     })
     renderCard(true)
 
-    expect(screen.getByText('GoodParty.org Team Plan')).toBeInTheDocument()
-    expect(screen.getByText('Nov 17, 2026')).toBeInTheDocument()
+    expect(screen.getByText('TEAM')).toBeInTheDocument()
+    expect(screen.getByText('$399')).toBeInTheDocument()
+    expect(screen.getByText(/Good until Nov 17, 2026/)).toBeInTheDocument()
     expect(screen.queryByText(/Upgrade to Team/)).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /Manage Subscription/ }),
@@ -146,10 +150,54 @@ describe('AccountInformationCard plans', () => {
   it('shows a Free campaign Free and a link to the plans page', () => {
     mockCampaign.mockReturnValue({ isPro: false, plan: 'free' })
     renderCard(false)
-    expect(screen.getByText('GoodParty.org Free Plan')).toBeInTheDocument()
+    expect(screen.getByText('Free')).toBeInTheDocument()
+    expect(screen.getByText('$0')).toBeInTheDocument()
+    expect(screen.getByText(/From \$299, one payment/)).toBeInTheDocument()
+    expect(screen.getByText('$175 outreach credit')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'See plans' })).toHaveAttribute(
       'href',
       '/dashboard/plans',
+    )
+  })
+
+  it('shows the credit balance left of what came with the plan', () => {
+    mockCampaign.mockReturnValue({
+      isPro: true,
+      plan: 'pro',
+      planPricingModel: 'one_time',
+      planEndsAt: null,
+      outreachCreditCents: 10850,
+    })
+    renderCard(true)
+    expect(screen.getByText('$108.50 of $175 left')).toBeInTheDocument()
+  })
+
+  describe('dates are the same in every timezone', () => {
+    const originalTz = process.env.TZ
+    afterEach(() => {
+      process.env.TZ = originalTz
+    })
+
+    it.each(['America/Los_Angeles', 'Asia/Tokyo'])(
+      'renders Good until and Joined as the UTC date in %s',
+      (tz) => {
+        process.env.TZ = tz
+        mockCampaign.mockReturnValue({
+          isPro: true,
+          plan: 'pro',
+          planPricingModel: 'one_time',
+          planEndsAt: '2027-01-29T00:00:00.000Z',
+        })
+        render(
+          <AccountInformationCard
+            user={{ ...user, createdAt: '2024-02-01T00:00:00.000Z' } as User}
+            isPro
+            isElectedOffice={false}
+          />,
+        )
+        expect(screen.getByText(/Good until Jan 29, 2027/)).toBeInTheDocument()
+        expect(screen.getByText('February 2024')).toBeInTheDocument()
+      },
     )
   })
 
