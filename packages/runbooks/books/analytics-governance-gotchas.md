@@ -116,11 +116,10 @@ row live here:
 | **A PR blocked by the Analytics guard** | The Analytics guard check fails or its PR comment says an OKR event lost a call site or an event is "removed but still listed". | Read the comment: it carries the exact fix. A dead listing clears by deleting the `EVENTS` key; an OKR finding clears only with an `intents:` row added in that PR, with the human's reason. A call moved into another file (a hook, a shared component) clears with one `moved` row naming that file, which the guard verifies against the code (DATA-2606). If the guard is wrong, the row is `not_a_change` (with no `metric:` for a dead listing) and triage reviews it as a guard bug. The OKR legs come from the merge base, so editing the PR's own sem copy does not clear a block. A guard that crashed passes the PR and says so; it never blocks. Design: DATA-2432. | invariant |
 ## Follow-up
 
-Not built: an automated freshness check. **DATA-2592** owns it: the scheduled run flags
-any `state` row whose cited ticket has closed, that cites none, or whose as-of date is
-more than two months old, and a test ties each console caveat to the row it restates.
-Until it ships, re-check a `state` row before acting on it; the as-of date is the last
-time anyone did. (DATA-1960 is the same idea for gp-data-platform's own gotchas file.)
+No scheduled freshness check: it was dropped in the November 2026 backlog groom, since it
+added code while DATA-2598 is shrinking it. What stays is a test tying each console caveat
+to the row it restates, which DATA-2725 carries. Re-check a `state` row before acting on it;
+the as-of date is the last time anyone did. (DATA-1960 is the same idea for gp-data-platform's own gotchas file.)
 
 ## Cross-references
 
