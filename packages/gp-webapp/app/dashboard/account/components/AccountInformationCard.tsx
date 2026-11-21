@@ -25,6 +25,7 @@ import {
   buildPlanPitch,
   formatPlanCents,
 } from 'app/dashboard/shared/plan/planPitch'
+import { formatPlanEndDate } from 'app/dashboard/shared/plan/formatPlanEndDate'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { AccountSettingsButton } from 'app/dashboard/profile/components/AccountSettingsButton'
 import { SubscriptionPendingCancellationAlert } from 'app/dashboard/profile/components/SubscriptionPendingCancellationAlert'
@@ -48,14 +49,6 @@ const formatJoined = (createdAt?: Date | string): string => {
     timeZone: 'UTC',
   })
 }
-
-const formatGoodThrough = (date: Date): string =>
-  date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  })
 
 const TEAM_UPGRADE_CTA = `Upgrade to Team for ${formatPlanCents(
   PLAN_PRICING.teamCents - PLAN_PRICING.proCents,
@@ -141,7 +134,7 @@ export const AccountInformationCard = ({
             <p className="m-0 text-sm text-muted-foreground">
               One payment.
               {planEndsAt
-                ? ` Good until ${formatGoodThrough(planEndsAt)}. `
+                ? ` Good through ${formatPlanEndDate(planEndsAt)}. `
                 : ' '}
               {planEndsAt && (
                 <Popover>
