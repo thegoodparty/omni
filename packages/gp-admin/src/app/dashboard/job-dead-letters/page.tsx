@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { Box, Container, Heading, Text } from '@radix-ui/themes'
 import { ROLES } from '@/lib/permissions'
-import { listJobDeadLetters } from './actions'
+import { listJobDeadLetterQueues, listJobDeadLetters } from './actions'
 import { JobDeadLetterList } from './components/JobDeadLetterList'
 import { JobDeadLettersToolbar } from './components/JobDeadLettersToolbar'
 import { JobDeadLettersPagination } from './components/JobDeadLettersPagination'
@@ -39,11 +39,14 @@ export default async function Page({ searchParams }: PageProps) {
 
   const sourceQueue = firstValue(params[SEARCH_PARAMS.SOURCE_QUEUE])
 
-  const result = await listJobDeadLetters({
-    offset: (currentPage - 1) * DEFAULT_PER_PAGE,
-    limit: DEFAULT_PER_PAGE,
-    ...(sourceQueue ? { sourceQueue } : {}),
-  })
+  const [queues, result] = await Promise.all([
+    listJobDeadLetterQueues(),
+    listJobDeadLetters({
+      offset: (currentPage - 1) * DEFAULT_PER_PAGE,
+      limit: DEFAULT_PER_PAGE,
+      ...(sourceQueue ? { sourceQueue } : {}),
+    }),
+  ])
 
   return (
     <Container size="4">
@@ -56,7 +59,7 @@ export default async function Page({ searchParams }: PageProps) {
       </Text>
 
       <Box mb="6">
-        <JobDeadLettersToolbar sourceQueue={sourceQueue} />
+        <JobDeadLettersToolbar sourceQueue={sourceQueue} queues={queues} />
       </Box>
 
       <JobDeadLetterList deadLetters={result.data} />
