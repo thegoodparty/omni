@@ -355,18 +355,22 @@ const PlanPayment = (): React.JSX.Element => {
 
   // Stripe returns here after a redirecting method (Afterpay, 3DS), and the
   // URL has to say what was bought, since the page loads fresh.
-  const returnUrl = `${successReturnUrl()}${carryQueryString({
+  const returnQuery = carryQueryString({
     ...carry,
     plan: order.plan,
     fromPro: isUpgrade,
-  })}`
+  })
 
   const createSession = useCallback(() => {
     if (!campaignId) {
       return Promise.reject(new Error('Your campaign could not be loaded.'))
     }
-    return createPlanCheckoutSession(campaignId, order.plan, returnUrl)
-  }, [campaignId, order.plan, returnUrl])
+    return createPlanCheckoutSession(
+      campaignId,
+      order.plan,
+      `${successReturnUrl()}${returnQuery}`,
+    )
+  }, [campaignId, order.plan, returnQuery])
 
   const handlePaymentSuccess = useCallback(
     async (sessionId: string) => {
