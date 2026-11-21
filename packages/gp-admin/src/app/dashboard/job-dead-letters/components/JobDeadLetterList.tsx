@@ -21,9 +21,9 @@ export function JobDeadLetterList({ deadLetters }: JobDeadLetterListProps) {
     <Table.Root>
       <Table.Header>
         <Table.Row>
+          <Table.ColumnHeaderCell>ID</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Queue</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Error</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell>Retries</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell>Died</Table.ColumnHeaderCell>
           <Table.ColumnHeaderCell />
         </Table.Row>
@@ -36,13 +36,13 @@ export function JobDeadLetterList({ deadLetters }: JobDeadLetterListProps) {
                 href={`/dashboard/job-dead-letters/${deadLetter.id}`}
                 className="text-[var(--accent-11)] hover:underline"
               >
-                {deadLetter.sourceQueue ?? 'Unknown queue'}
+                {deadLetter.id}
               </Link>
             </Table.Cell>
+            <Table.Cell>{deadLetter.sourceQueue ?? 'Unknown queue'}</Table.Cell>
             <Table.Cell>
               <Text size="2">{deadLetter.error ?? '—'}</Text>
             </Table.Cell>
-            <Table.Cell>{deadLetter.retriesUsed ?? '—'}</Table.Cell>
             <Table.Cell>{formatDateTime(deadLetter.createdAt)}</Table.Cell>
             <Table.Cell>
               <RedriveDeadLetterButton deadLetter={deadLetter} />

@@ -8,10 +8,12 @@ import { SEARCH_PARAMS } from '../types'
 
 interface JobDeadLettersToolbarProps {
   sourceQueue?: string
+  queues: string[]
 }
 
 export function JobDeadLettersToolbar({
   sourceQueue,
+  queues,
 }: JobDeadLettersToolbarProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -58,9 +60,15 @@ export function JobDeadLettersToolbar({
             <TextField.Root
               id="source-queue"
               placeholder="e.g. doorKnockingCanvassingTotals"
+              list="source-queue-options"
               value={sourceQueueInput}
               onChange={(event) => setSourceQueueInput(event.target.value)}
             />
+            <datalist id="source-queue-options">
+              {queues.map((queue) => (
+                <option key={queue} value={queue} />
+              ))}
+            </datalist>
           </Box>
           <Button type="submit">Apply filter</Button>
           {sourceQueue && (

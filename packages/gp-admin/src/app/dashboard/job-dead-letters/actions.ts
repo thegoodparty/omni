@@ -25,6 +25,11 @@ export const listJobDeadLetters = async (params: {
   return gpAction((client) => client.adminJobDeadLetters.list(params))
 }
 
+export const listJobDeadLetterQueues = async (): Promise<string[]> => {
+  await requireAdmin('read job dead letters')
+  return gpAction((client) => client.adminJobDeadLetters.queues())
+}
+
 export const getJobDeadLetter = async (id: string): Promise<JobDeadLetter> => {
   await requireAdmin('read a job dead letter')
   return gpAction((client) => client.adminJobDeadLetters.get(id))
