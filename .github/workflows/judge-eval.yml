@@ -253,6 +253,7 @@ jobs:
           JUDGE_CANDIDATE_URL: https://pr-${{ needs.gate.outputs.pr_number }}.preview.goodparty.org
           JUDGE_MODEL: anthropic/claude-sonnet-5-5
           JUDGE_REQUIRE_PAIRWISE: 'true'
+          JUDGE_VERDICTS_FILE: ${{ runner.temp }}/judge-verdicts.json
         run: |
           set -euo pipefail
           mapfile -t pairwise < <(git grep -l 'definePairwiseAgentEvalSuite' -- 'packages/gp-api/src/*.eval.ts')
@@ -281,6 +282,17 @@ jobs:
           fi
           npm run eval -w packages/gp-api -- "${filters[@]}" \
             --reporter=github-actions --reporter=../judge/src/reporter.ts
+
+      # judge-guard.yml reads the verdicts from here: a job summary is not
+      # readable through the API.
+      - name: Keep the verdicts
+        if: '!cancelled()'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: judge-verdicts
+          path: ${{ runner.temp }}/judge-verdicts.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       # One comment per PR, upserted by marker AND author: on a public
       # repository anyone can post the marker, and this token can edit any

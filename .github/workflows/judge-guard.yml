@@ -1,0 +1,386 @@
+name: Universal judge guard (shadow)
+
+# Judges a PR's agent changes on its own: it picks the suites the diff can
+# reach (an exact-path floor, plus a model picker for shared code that only
+# adds), then dispatches `judge-eval.yml` for them and reports the verdict as a
+# check.
+#
+# HOW THE EVAL RUNS WITH NO SECRETS BEYOND THE PICKER'S. This job fires a
+# `workflow_dispatch` at `judge-eval.yml` over the REST API (`actions: write`),
+# finds that run, waits for it and reads the verdicts it keeps as an artifact.
+# That separate run, started from main, holds the Clerk and model keys and the
+# spend; this job holds no AWS and no id-token.
+#
+# KILL SWITCH: every job below is gated on the repository variable
+# JUDGE_GUARD_ENABLED being exactly `true` (the `guard` job's own `if:`,
+# combined with its other conditions). With the variable unset or set to
+# anything else, this workflow stops before the path floor, the picker, or
+# any check post — no model call, no spend, nothing on the PR. This is what
+# let this workflow merge to main with no effect on any other PR while
+# the guard was being built; only a person sets the variable, never a story
+# in this epic. See docs/agent-evals.md's guard section.
+#
+# SHADOW ONLY. This check is never added to the `main` ruleset's required
+# checks by anything in this file, and every swept result posts neutral with
+# the verdict in the title, so it never goes red.
+#
+# WHY `pull_request_target`, UNLIKE `judge-eval.yml`. That workflow is asked for
+# with a comment because a run costs money. The guard reverses that on purpose
+# and keeps the noise down by posting exactly one check per run (a quiet "No
+# suite reached" pass when nothing was found), and a PR comment only when the
+# final suite set is non-empty.
+#
+# `pull_request_target` runs the workflow FILE from `main`, so a PR cannot
+# change what the guard does to itself, and — see the one checkout step
+# below — this workflow never checks out or runs the PR's own code. Only
+# judge-eval.yml does that, for a same-repository PR.
+#
+# ALSO `opened` AND `reopened`, not just `ready_for_review`/`synchronize`. Most
+# PRs here are opened ready for review — ship-pr's default, with no draft
+# stage — so they never fire `ready_for_review` at all; without `opened`
+# they would get no guard run until their next push, and a PR that merges
+# off its first push is never checked.
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+# Its own key, `judge-guard-pr-<n>`: the dispatched judge-eval run has its own
+# per-PR slot, and a newer push cancels both the old wait and the old run.
+#
+# GATED THE SAME WAY AS THE JOB'S OWN `if:`, not just keyed by PR number. A
+# workflow run joins its concurrency group before any job `if:` is evaluated,
+# so a draft, fork, or disabled-switch push that the job below skips would
+# otherwise still join this group and cancel whatever already holds it.
+# `vars.JUDGE_GUARD_ENABLED` is ANDed in here for exactly that reason, with a
+# `-noop-<run_id>` group as the fallback, the way judge-eval.yml does it.
+concurrency:
+  group: >-
+    ${{ (vars.JUDGE_GUARD_ENABLED == 'true'
+    && github.event.pull_request.draft == false
+    && github.event.pull_request.head.repo.fork == false)
+    && format('judge-guard-pr-{0}', github.event.pull_request.number)
+    || format('judge-guard-noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # comment on the PR when the guard reaches a suite
+  checks: write # the "Universal judge (shadow)" check run
+  actions: write # dispatch judge-eval.yml and watch its run
+  # NO id-token, NO AWS: this runs on `pull_request_target`.
+
+jobs:
+  guard:
+    name: Guard
+    runs-on: ubuntu-latest
+    # The wait covers a judge-eval run, which has its own 120-minute ceiling,
+    # plus the picker and the dispatch. The waiting job holds a runner slot but
+    # bills no minutes, since omni is a public repo.
+    timeout-minutes: 150
+    # GUARD BEFORE CHECKOUT, as a job `if:` rather than a run step, so a fork
+    # or draft PR never starts the job at all, not even the checkout of main
+    # below. `pull_request_target` hands this workflow the PR object directly.
+    #
+    # `ready_for_review` only fires once a PR is no longer a draft, so this
+    # never skips that event; it exists for `synchronize` on a PR still in
+    # draft, and now also for `opened`/`reopened` on a PR opened (or
+    # reopened) directly as a draft, both of which this workflow should
+    # stay quiet on until the PR is marked ready for review.
+    #
+    # `vars.JUDGE_GUARD_ENABLED == 'true'` is the kill switch documented at
+    # the top of this file. An unset or non-`true` variable means this job —
+    # the only job in this workflow — never starts, so nothing past this
+    # line ever runs: no checkout, no floor, no picker, no check post.
+    if: >-
+      vars.JUDGE_GUARD_ENABLED == 'true' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.fork == false
+    steps:
+      # Deliberately no `ref:` override. Under `pull_request_target`,
+      # `actions/checkout` with no `ref:` checks out `github.sha` — the base
+      # repository's own default-branch tip that triggered evaluation of
+      # this workflow file — never the PR's branch or head. That is what
+      # makes it safe to read an untrusted PR's diff below without ever
+      # executing the PR's own code.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Derive the path-matched floor
+        id: floor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+
+          # Self-tested before it is trusted on a real PR: a classifier broken
+          # by an edit fails this run with a clear reason instead of quietly
+          # misjudging every PR after it.
+          bash .github/scripts/judge-path-floor.self-test.sh
+          bash .github/scripts/judge-cases-only.self-test.sh
+
+          # The PR's own file list by GitHub's definition: this checkout is
+          # main's, with no merge-base and no PR history. Rewritten as
+          # `git diff --name-status -M` lines, which the floor reads.
+          gh api --paginate "repos/$GH_REPO/pulls/$PR_NUMBER/files" \
+            --jq '.[] | [.status, .filename, (.previous_filename // "")] | @tsv' > /tmp/guard-files.tsv
+          while IFS=$'\t' read -r status file previous; do
+            case "$status" in
+              added) printf 'A\t%s\n' "$file" ;;
+              removed) printf 'D\t%s\n' "$file" ;;
+              renamed) printf 'R100\t%s\t%s\n' "$previous" "$file" ;;
+              *) printf 'M\t%s\n' "$file" ;;
+            esac
+          done < /tmp/guard-files.tsv > /tmp/guard-name-status.txt
+
+          changed="$(awk -F'\t' '{print $2}' /tmp/guard-files.tsv)"
+          suites="$(bash .github/scripts/judge-path-floor.sh < /tmp/guard-name-status.txt)"
+          bash .github/scripts/judge-path-floor.sh --eval-files < /tmp/guard-name-status.txt > /tmp/guard-eval-files.txt
+
+          printf '%s\n' "$changed" > /tmp/guard-changed-paths.txt
+          gh pr diff "$PR_NUMBER" > /tmp/guard-diff.txt
+
+          # The case scout's PRs only append cases to `*.eval.ts` files, so a
+          # run would compare the same agent code on both arms. The workspace
+          # setup and the picker skip on this, and "Post the guard check" says
+          # why.
+          cases_only="$(printf '%s\n' "$changed" | PR_AUTHOR="$PR_AUTHOR" bash .github/scripts/judge-cases-only.sh)"
+          echo "cases_only=$cases_only" >> "$GITHUB_OUTPUT"
+
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
+          if [ "$cases_only" = "true" ]; then
+            echo "::notice::only the case scout's eval files changed; no picker and no run"
+          elif [ -n "$suites" ]; then
+            echo "::notice::floor matched: $suites"
+          else
+            echo "::notice::floor matched no suite; asking the picker about shared code"
+          fi
+
+      # The picker always runs, floor or not: the dominant case it exists for
+      # is a change to shared code, where the floor found nothing. The one
+      # exception is the case scout's own PR, where there is nothing for the
+      # picker to reason about and its "when unsure, add it" rule would buy a
+      # run of two identical arms.
+      # `continue-on-error`: a workspace install failure must cost this run
+      # the picker's output, never the check post after it.
+      - uses: ./.github/actions/setup-node-workspace
+        if: steps.floor.outputs.cases_only != 'true'
+        continue-on-error: true
+        with:
+          app: judge-eval
+          build-contracts: 'true'
+
+      # `continue-on-error`: a crash anywhere in this step must still let "Post
+      # the guard check" run below, which falls back to the floor.
+      - name: Run the picker
+        id: picker
+        if: steps.floor.outputs.cases_only != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GUARD_CHANGED_PATHS_FILE: /tmp/guard-changed-paths.txt
+          GUARD_DIFF_FILE: /tmp/guard-diff.txt
+          GUARD_EVAL_FILES_FILE: /tmp/guard-eval-files.txt
+          GUARD_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GUARD_FLOOR: ${{ steps.floor.outputs.suites }}
+          GUARD_RAW_OUTPUT_FILE: /tmp/guard-picker-raw-output.txt
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        working-directory: packages/judge
+        run: npx tsx src/guard/runPickerCli.ts
+
+      # The raw text the model actually sent when its answer failed the shape,
+      # so a human can see why. Short retention: it is debugging output from a
+      # public PR's diff.
+      - name: Save the picker's raw output
+        if: steps.picker.outputs.raw_output_saved == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: guard-picker-raw-output-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          path: /tmp/guard-picker-raw-output.txt
+          retention-days: 7
+
+      # `gh workflow run` carries no run id back, so the run it started is
+      # found by diffing the workflow's run list from before to after,
+      # filtered on `displayTitle` matching this PR EXACTLY (`run-name` renders
+      # "Judge eval: PR #<number>"). A `contains("#N")` check would match PR #12
+      # when waiting on #1.
+      #
+      # `--interval 60`, not gh's 3-second default: that spends the
+      # repository's shared GITHUB_TOKEN allowance (1,000 requests an hour)
+      # long before a run ends. No `--exit-status`: a red judge-eval run is a
+      # result to read, not a failure of this job.
+      #
+      # When the picker step crashed outright its outputs are unset, and the
+      # floor alone is dispatched.
+      - name: Dispatch judge-eval and wait for its verdicts
+        id: dispatch
+        if: >-
+          !cancelled() && steps.floor.outputs.cases_only != 'true' &&
+          (steps.picker.outputs.final_suites != '' ||
+          (steps.picker.outputs.picker_status == '' && steps.floor.outputs.suites != ''))
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SUITES: ${{ steps.picker.outputs.final_suites || steps.floor.outputs.suites }}
+        run: |
+          set -euo pipefail
+          echo "suites=$SUITES" >> "$GITHUB_OUTPUT"
+          title="Judge eval: PR #$PR_NUMBER"
+
+          before="$(gh run list --workflow=judge-eval.yml \
+            --json databaseId --limit 20 --jq '[.[].databaseId]')"
+
+          gh workflow run judge-eval.yml \
+            -f "pr_number=$PR_NUMBER" \
+            -f "suites=$SUITES"
+
+          run_id=""
+          for _ in $(seq 1 30); do
+            sleep 10
+            after="$(gh run list --workflow=judge-eval.yml \
+              --json databaseId,displayTitle --limit 20 \
+              --jq "[.[] | select(.displayTitle == \"$title\") | .databaseId]")"
+            run_id="$(jq -n --argjson before "$before" --argjson after "$after" \
+              '($after - $before) | .[0] // empty')"
+            [ -n "$run_id" ] && break
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "::warning::could not find the judge-eval run this dispatched for PR #$PR_NUMBER"
+            exit 0
+          fi
+
+          echo "::notice::guard dispatched judge-eval run $run_id for PR #$PR_NUMBER, suites=$SUITES"
+          echo "run_url=https://github.com/$GH_REPO/actions/runs/$run_id" >> "$GITHUB_OUTPUT"
+
+          gh run watch "$run_id" --interval 60 > /dev/null || true
+          conclusion="$(gh run view "$run_id" --json conclusion --jq '.conclusion')"
+          echo "run_conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+
+          mkdir -p /tmp/guard-verdicts
+          gh run download "$run_id" --name judge-verdicts \
+            --dir /tmp/guard-verdicts || true
+
+      # Reads the verdicts judge-eval wrote and maps them to the check
+      # (guardVerdict.ts / resultMapping.ts). Still runs, and reports a crash,
+      # when the dispatch never found a run.
+      - name: Determine the verdict
+        id: verdict
+        if: ${{ !cancelled() && steps.dispatch.outputs.suites != '' }}
+        continue-on-error: true
+        env:
+          GUARD_SUITES: ${{ steps.dispatch.outputs.suites }}
+          GUARD_VERDICTS_FILE: /tmp/guard-verdicts/judge-verdicts.json
+        working-directory: packages/judge
+        run: npx tsx src/guard/guardVerdictCli.ts
+
+      # `!cancelled()`: this must still post when "Run the
+      # picker" crashed outright, but not when a newer push cancelled this run,
+      # which would post a stale check on a superseded head.
+      # Outcomes: the case scout's own PR, or nothing reached, is a quiet pass.
+      # The picker crashed AND no path matched is "No sweep". A dispatched run
+      # posts its verdict in the title, and the check is neutral.
+      - name: Post the guard check
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CASES_ONLY: ${{ steps.floor.outputs.cases_only }}
+          FLOOR: ${{ steps.floor.outputs.suites }}
+          PICKER_TITLE: ${{ steps.picker.outputs.check_title }}
+          PICKER_SUMMARY: ${{ steps.picker.outputs.check_summary }}
+          SUITES_TO_RUN: ${{ steps.dispatch.outputs.suites }}
+          RUN_URL: ${{ steps.dispatch.outputs.run_url }}
+          VERDICT_OUTCOME: ${{ steps.verdict.outputs.outcome }}
+          VERDICT_CONCLUSION: ${{ steps.verdict.outputs.conclusion }}
+          VERDICT_NOTE: ${{ steps.verdict.outputs.note }}
+        run: |
+          set -euo pipefail
+          if [ "$CASES_ONLY" = "true" ]; then
+            TITLE="No suite reached"
+            SUMMARY='This PR only changes eval files and comes from the case scout, so both arms run the same agent code. There is nothing to compare.'
+            CONCLUSION="success"
+          elif [ -z "$PICKER_TITLE" ] && [ -z "$FLOOR" ]; then
+            TITLE="No sweep"
+            SUMMARY='Couldn'"'"'t check shared code. Comment `/judge-eval <suite>` for a run.'
+            CONCLUSION="success"
+          elif [ -z "$SUITES_TO_RUN" ]; then
+            TITLE="No suite reached"
+            SUMMARY="${PICKER_SUMMARY:-The floor and the picker reached no suite.}"
+            CONCLUSION="success"
+          else
+            TITLE="$SUITES_TO_RUN: ${VERDICT_OUTCOME:-judge crashed}"
+            CONCLUSION="${VERDICT_CONCLUSION:-neutral}"
+            SUMMARY="$(printf '%s\n\n%s' \
+              "${VERDICT_NOTE:-The judge reported no verdict.}" \
+              "${RUN_URL:+Job summary: $RUN_URL#summary}")"
+          fi
+          jq -n \
+            --arg sha "${{ github.event.pull_request.head.sha }}" \
+            --arg title "$TITLE" \
+            --arg summary "$SUMMARY" \
+            --arg conclusion "$CONCLUSION" \
+            '{
+              name: "Universal judge (shadow)",
+              head_sha: $sha,
+              status: "completed",
+              conclusion: $conclusion,
+              output: { title: $title, summary: $summary }
+            }' | gh api --method POST "repos/$GH_REPO/check-runs" --input -
+
+      # One comment per PR, upserted by marker+author, so repeated pushes
+      # update one comment rather than piling one on per push. Only posted when
+      # the final suite set is non-empty.
+      - name: Upsert the guard comment
+        if: ${{ !cancelled() && steps.picker.outputs.final_suites != '' }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FINAL_SUITES: ${{ steps.picker.outputs.final_suites }}
+          SUMMARY: ${{ steps.picker.outputs.check_summary }}
+        with:
+          script: |
+            const marker = '<!-- universal-judge-guard -->'
+            const issue_number = context.payload.pull_request.number
+            const body = [
+              marker,
+              '## Universal judge guard (shadow)',
+              '',
+              `**Suites reached:** \`${process.env.FINAL_SUITES}\``,
+              '',
+              process.env.SUMMARY,
+            ].join('\n')
+
+            const existing = await github.paginate(
+              github.rest.issues.listComments,
+              { ...context.repo, issue_number, per_page: 100 },
+            )
+            // Author first, marker second: anyone can post this marker on a
+            // public repo, and this token can edit any user's comment.
+            const mine = existing.find(
+              (c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker),
+            )
+
+            const post = async (call, args) => {
+              try {
+                await call({ ...context.repo, ...args })
+              } catch (err) {
+                if (err.status !== 403) throw err
+                core.warning(
+                  `could not comment on #${issue_number} (HTTP 403 — the conversation ` +
+                    'is most likely locked).',
+                )
+              }
+            }
+
+            if (mine) {
+              await post(github.rest.issues.updateComment, { comment_id: mine.id, body })
+            } else {
+              await post(github.rest.issues.createComment, { issue_number, body })
+            }

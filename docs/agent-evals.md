@@ -2,15 +2,15 @@
 
 ## Pick the test that answers your question
 
-| What are you testing? | Use | What it needs |
-| --- | --- | --- |
-| Does one version give a known right answer? Examples: a PII gate, classifier, or guardrail. | Expected-result suite | Runs in process, without a deployment. Needs a judge model only if `judge` calls `judgeModel`. |
-| Did a prompt change, model swap, or engine migration make the agent better or worse than main? | Pairwise suite (the universal judge) | Two running gp-api instances, normally deployed dev and a PR preview. |
-| Is deterministic code correct without a model? | Plain unit test, not an eval | See [testing](testing.md). |
-| Did a change make a chat agent better or worse than main? | Pairwise suite that drives the chat routes (`chatTurns`) | Two running instances, as for any pairwise suite. See [Chat suites](#chat-suites). |
-| Does a chat prompt meet a behavioral contract against a real LLM? | [Chat prompt evals](../packages/gp-api/src/chats/evals/README.md) | Opt-in Vitest tests for existing chat contracts. |
-| Is the Chief of Staff meeting an existing golden benchmark? | [Chief of Staff golden bench](../packages/gp-api/src/chats/general/chief-of-staff/evals/README.md) | Use its curated conversation cases and rubric for that benchmark. |
-| Are you evaluating completed PMF experiment runs or working on the Python AI sandbox? | [PMF experiment evals](../packages/runbooks/experiment-evals/AGENTS.md) or [Braintrust sandbox](../packages/gp-ai/braintrust_eval_sandbox/README.md) | Use the experiment's rubric for stored runs, or the sandbox for Python AI experiments. |
+| What are you testing?                                                                          | Use                                                                                                                                                  | What it needs                                                                                  |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Does one version give a known right answer? Examples: a PII gate, classifier, or guardrail.    | Expected-result suite                                                                                                                                | Runs in process, without a deployment. Needs a judge model only if `judge` calls `judgeModel`. |
+| Did a prompt change, model swap, or engine migration make the agent better or worse than main? | Pairwise suite (the universal judge)                                                                                                                 | Two running gp-api instances, normally deployed dev and a PR preview.                          |
+| Is deterministic code correct without a model?                                                 | Plain unit test, not an eval                                                                                                                         | See [testing](testing.md).                                                                     |
+| Did a change make a chat agent better or worse than main?                                      | Pairwise suite that drives the chat routes (`chatTurns`)                                                                                             | Two running instances, as for any pairwise suite. See [Chat suites](#chat-suites).             |
+| Does a chat prompt meet a behavioral contract against a real LLM?                              | [Chat prompt evals](../packages/gp-api/src/chats/evals/README.md)                                                                                    | Opt-in Vitest tests for existing chat contracts.                                               |
+| Is the Chief of Staff meeting an existing golden benchmark?                                    | [Chief of Staff golden bench](../packages/gp-api/src/chats/general/chief-of-staff/evals/README.md)                                                   | Use its curated conversation cases and rubric for that benchmark.                              |
+| Are you evaluating completed PMF experiment runs or working on the Python AI sandbox?          | [PMF experiment evals](../packages/runbooks/experiment-evals/AGENTS.md) or [Braintrust sandbox](../packages/gp-ai/braintrust_eval_sandbox/README.md) | Use the experiment's rubric for stored runs, or the sandbox for Python AI experiments.         |
 
 ## Expected-result suites
 
@@ -37,11 +37,11 @@ Default-export `definePairwiseAgentEvalSuite<Input>(name, { mode, profile, run, 
 
 Use `ctx.runAgent(name, input)` for background agents. It starts a run and polls the run routes, which exist only in dev and previews. The routes pick the engine. Read the returned status and artifact rather than choosing an engine inside the suite.
 
-| Field | When to add it | Example |
-| --- | --- | --- |
-| `condition` | The grader needs context that the output does not show. | The district had no public meetings in the requested period. |
-| `handledWhen` | There is a concrete pass/fail requirement for each output. | Each reported issue includes a dated source from the supplied material, or the reply says there is insufficient evidence. |
-| `dimensions` | A case needs a scored quality measure beyond the defaults. Each named question is scored from 1 to 5. | `specificity`: Does the reply name the decision, not just the topic? |
+| Field         | When to add it                                                                                        | Example                                                                                                                   |
+| ------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `condition`   | The grader needs context that the output does not show.                                               | The district had no public meetings in the requested period.                                                              |
+| `handledWhen` | There is a concrete pass/fail requirement for each output.                                            | Each reported issue includes a dated source from the supplied material, or the reply says there is insufficient evidence. |
+| `dimensions`  | A case needs a scored quality measure beyond the defaults. Each named question is scored from 1 to 5. | `specificity`: Does the reply name the decision, not just the topic?                                                      |
 
 The grader cannot verify that a cited source is real. Use `handledWhen` for grounding rules the grader can check against the material it sees. Use independent verification when you need to establish that a source exists.
 
@@ -104,52 +104,77 @@ A pairwise run prints its verdict table only with the judge's reporter. Add it n
 npm run eval -w packages/gp-api -- trending_issues --reporter=default --reporter=../judge/src/reporter.ts
 ```
 
-| Suite | Environment |
-| --- | --- |
-| Expected result | Set the agent's own credentials if needed. If `judge` calls `judgeModel`, also set `JUDGE_MODEL` and the judge provider's key. |
-| Pairwise | Set `JUDGE_BASE_URL` and `JUDGE_CANDIDATE_URL` to the arm roots, `CLERK_SECRET_KEY` for dev Clerk, and `JUDGE_MODEL` plus the judge provider's key. The candidate may be a locally running API with the required routes. Missing arm URLs skip pairwise suites unless `JUDGE_REQUIRE_PAIRWISE=true`, which makes them fail. |
+| Suite           | Environment                                                                                                                                                                                                                                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Expected result | Set the agent's own credentials if needed. If `judge` calls `judgeModel`, also set `JUDGE_MODEL` and the judge provider's key.                                                                                                                                                                                              |
+| Pairwise        | Set `JUDGE_BASE_URL` and `JUDGE_CANDIDATE_URL` to the arm roots, `CLERK_SECRET_KEY` for dev Clerk, and `JUDGE_MODEL` plus the judge provider's key. The candidate may be a locally running API with the required routes. Missing arm URLs skip pairwise suites unless `JUDGE_REQUIRE_PAIRWISE=true`, which makes them fail. |
 
 `JUDGE_MODEL` is a provider/model ID. For example, `anthropic/claude-sonnet-5-5` uses `ANTHROPIC_API_KEY`. An unmapped prefix falls back to the AI SDK gateway and uses `AI_GATEWAY_API_KEY`. The [judge resolver](../packages/judge/src/model.ts) does not expose a base-URL setting for Bifrost.
 
 On a PR, comment `/judge-eval <suite>` using the pairwise file stem, for example `/judge-eval trending_issues`. The [workflow](../.github/workflows/judge-eval.yml) compares dev and the PR preview. Look for the verdict table in the job summary and a one-line PR comment linking to it. A WORSE or CAN'T JUDGE verdict fails the check. So does a case with no judged pairs, an unknown suite, or another test or workflow error.
 
+## The PR guard
+
+`judge-guard.yml` judges a PR's agent changes without a comment. It runs on every
+non-draft, same-repository PR, but only while the repository variable
+`JUDGE_GUARD_ENABLED` is `true`; with it unset the workflow does nothing.
+
+1. **The floor.** A suite is reached when the diff touches its `*.eval.ts` file
+   or any path under that file's directory (`.github/scripts/judge-path-floor.sh`).
+   A renamed eval file reaches the suite under its new name; a deleted one
+   reaches nothing.
+2. **The picker.** One model call (`anthropic/claude-sonnet-5-5`, through
+   `generateObject`) reads the diff and `packages/judge/src/guard/codeMap.ts` and
+   may add suites for shared code. It never removes one. If it fails, the floor
+   runs alone. Suites with no eval file at the PR head, or that are not pairwise,
+   are dropped.
+3. **The run.** The guard dispatches `judge-eval.yml` with the suites, waits, and
+   reads the verdicts that run keeps as the `judge-verdicts` artifact.
+4. **The check.** "Universal judge (shadow)" is neutral for every result, with the
+   worst verdict in its title: BETTER, NO DIFFERENCE FOUND, WORSE, CAN'T JUDGE or
+   judge crashed. A PR that reaches no suite, or that is the case scout's own
+   (only `*.eval.ts` files, authored by its bot), passes with "No suite reached".
+
+A new directory of shared code that suites depend on needs a row in `codeMap.ts`;
+its test fails when a pairwise suite has no row of its own.
+
 ## Read the results
 
 Start with Vitest annotations. They show the evidence for an individual attempt, such as intermediate results, excerpts, and grading. For expected results, compare the expected judgment with the actual one. For pairwise suites, look at the verdict table first and then inspect the attempts behind it.
 
-| Verdict | Meaning |
-| --- | --- |
-| BETTER | The comparison found evidence in favor of the candidate. |
-| NO DIFFERENCE FOUND | The comparison did not establish a difference. This does not prove equivalence. |
-| WORSE | The comparison found a regression in preference or in a `handledWhen` requirement. |
-| CAN'T JUDGE | No pairs were judged, or more than half were not judged. |
+| Verdict             | Meaning                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| BETTER              | The comparison found evidence in favor of the candidate.                           |
+| NO DIFFERENCE FOUND | The comparison did not establish a difference. This does not prove equivalence.    |
+| WORSE               | The comparison found a regression in preference or in a `handledWhen` requirement. |
+| CAN'T JUDGE         | No pairs were judged, or more than half were not judged.                           |
 
 For CAN'T JUDGE, inspect the failed attempts and arm reachability. Check preview health, credentials, agent run failures, and grader errors. Fix the cause and run again. Do not count missing judgments as ties or as evidence that the candidate passed.
 
 ## Code reference
 
-| Export from `@goodparty_org/judge` | Source | Use |
-| --- | --- | --- |
-| `defineExpectedResultEvalSuite` | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Define and register known-answer cases. |
-| `ExpectedResultEvalCase` | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Type an expected-result fixture. |
-| `ExpectedResultEvalSuite` | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Type a defined expected-result suite. |
-| `ExpectedResultRunContext` | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Type a run callback's context. |
-| `ExpectedResultJudgeContext` | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Type the judge context with input and model helper. |
-| `Annotate` | [annotation.ts](../packages/judge/src/annotation.ts) | Type an annotation callback. |
-| `JudgeModel` | [judgeModel.ts](../packages/judge/src/judgeModel.ts) | Type a schema-based model judgment call. |
-| `definePairwiseAgentEvalSuite` | [pairwise.ts](../packages/judge/src/pairwise.ts) | Define and register a comparison suite. |
-| `chatTurns` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Drive a scoped chat conversation and return its transcript. |
-| `ChatTurnsInput` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Type a chat suite's input; each scope requires its own fields. |
-| `ChatScope` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Every chat scope `chatTurns` drives. |
-| `BriefingChatAnchor` | [chatTurns.ts](../packages/judge/src/chatTurns.ts) | Point a briefing chat at a passage, or at all nulls for the whole briefing. |
-| `PairwiseAgentEvalSuiteDefinition` | [suite.ts](../packages/judge/src/suite.ts) | Type a pairwise definition before registration. |
-| `PairwiseAgentEvalSuite` | [suite.ts](../packages/judge/src/suite.ts) | Type a defined pairwise suite. |
-| `isPairwiseAgentEvalSuite` | [suite.ts](../packages/judge/src/suite.ts) | Identify a pairwise suite export. |
-| `EvalCase` | [suite.ts](../packages/judge/src/suite.ts) | Type a pairwise fixture. |
-| `CaseGrading` | [suite.ts](../packages/judge/src/suite.ts) | Type case-specific instructions for the grader. |
-| `EvalMode` | [suite.ts](../packages/judge/src/suite.ts) | Select a Win or Serve identity. |
-| `SuiteProfile` | [suite.ts](../packages/judge/src/suite.ts) | Describe the test identity and its starting state. |
-| `EvalContext` | [suite.ts](../packages/judge/src/suite.ts) | Type setup and run context for the current arm. |
-| `EvalApi` | [suite.ts](../packages/judge/src/suite.ts) | Type the signed-in API client. |
-| `AgentRunResult` | [suite.ts](../packages/judge/src/suite.ts) | Read a background run's status, artifact, or error. |
-| `AgentRunStatus` | [suite.ts](../packages/judge/src/suite.ts) | Type a run's lifecycle state. |
+| Export from `@goodparty_org/judge` | Source                                                       | Use                                                                         |
+| ---------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `defineExpectedResultEvalSuite`    | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Define and register known-answer cases.                                     |
+| `ExpectedResultEvalCase`           | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Type an expected-result fixture.                                            |
+| `ExpectedResultEvalSuite`          | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Type a defined expected-result suite.                                       |
+| `ExpectedResultRunContext`         | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Type a run callback's context.                                              |
+| `ExpectedResultJudgeContext`       | [expectedResult.ts](../packages/judge/src/expectedResult.ts) | Type the judge context with input and model helper.                         |
+| `Annotate`                         | [annotation.ts](../packages/judge/src/annotation.ts)         | Type an annotation callback.                                                |
+| `JudgeModel`                       | [judgeModel.ts](../packages/judge/src/judgeModel.ts)         | Type a schema-based model judgment call.                                    |
+| `definePairwiseAgentEvalSuite`     | [pairwise.ts](../packages/judge/src/pairwise.ts)             | Define and register a comparison suite.                                     |
+| `chatTurns`                        | [chatTurns.ts](../packages/judge/src/chatTurns.ts)           | Drive a scoped chat conversation and return its transcript.                 |
+| `ChatTurnsInput`                   | [chatTurns.ts](../packages/judge/src/chatTurns.ts)           | Type a chat suite's input; each scope requires its own fields.              |
+| `ChatScope`                        | [chatTurns.ts](../packages/judge/src/chatTurns.ts)           | Every chat scope `chatTurns` drives.                                        |
+| `BriefingChatAnchor`               | [chatTurns.ts](../packages/judge/src/chatTurns.ts)           | Point a briefing chat at a passage, or at all nulls for the whole briefing. |
+| `PairwiseAgentEvalSuiteDefinition` | [suite.ts](../packages/judge/src/suite.ts)                   | Type a pairwise definition before registration.                             |
+| `PairwiseAgentEvalSuite`           | [suite.ts](../packages/judge/src/suite.ts)                   | Type a defined pairwise suite.                                              |
+| `isPairwiseAgentEvalSuite`         | [suite.ts](../packages/judge/src/suite.ts)                   | Identify a pairwise suite export.                                           |
+| `EvalCase`                         | [suite.ts](../packages/judge/src/suite.ts)                   | Type a pairwise fixture.                                                    |
+| `CaseGrading`                      | [suite.ts](../packages/judge/src/suite.ts)                   | Type case-specific instructions for the grader.                             |
+| `EvalMode`                         | [suite.ts](../packages/judge/src/suite.ts)                   | Select a Win or Serve identity.                                             |
+| `SuiteProfile`                     | [suite.ts](../packages/judge/src/suite.ts)                   | Describe the test identity and its starting state.                          |
+| `EvalContext`                      | [suite.ts](../packages/judge/src/suite.ts)                   | Type setup and run context for the current arm.                             |
+| `EvalApi`                          | [suite.ts](../packages/judge/src/suite.ts)                   | Type the signed-in API client.                                              |
+| `AgentRunResult`                   | [suite.ts](../packages/judge/src/suite.ts)                   | Read a background run's status, artifact, or error.                         |
+| `AgentRunStatus`                   | [suite.ts](../packages/judge/src/suite.ts)                   | Type a run's lifecycle state.                                               |

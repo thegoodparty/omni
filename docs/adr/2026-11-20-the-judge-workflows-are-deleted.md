@@ -1,6 +1,6 @@
 ---
 title: The judge sweep's six workflows are deleted; nothing replaces the PR guard yet
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-11-20
 code: []
@@ -9,7 +9,7 @@ scope:
   - .github/scripts/judge-*.sh
   - packages/gp-api/src/chats/evals/judge/**
 supersedes: ['2026-11-12-ci-jobs-running-pr-code-assume-pull-request-role.md']
-superseded_by:
+superseded_by: 2026-11-21-the-pr-guard-dispatches-judge-eval.md
 ---
 
 # The judge sweep's six workflows are deleted; nothing replaces the PR guard yet
