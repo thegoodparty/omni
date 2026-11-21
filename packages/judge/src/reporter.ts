@@ -1,4 +1,4 @@
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, writeFileSync } from 'node:fs'
 import type { Reporter, TestModule } from 'vitest/node'
 import type { suiteVerdictAnnotation } from './annotation'
 import type { NotJudgedAttempt } from './pairwise'
@@ -99,6 +99,20 @@ export const renderPairwiseVerdicts = (
 
 export default class PairwiseReporter implements Reporter {
   onTestRunEnd: NonNullable<Reporter['onTestRunEnd']> = (modules) => {
+    const verdictsFile = process.env.JUDGE_VERDICTS_FILE
+    if (verdictsFile) {
+      const verdicts = modules.flatMap((module) =>
+        [...module.children.allSuites()].flatMap((suite) => {
+          const { pairwiseVerdict } = suite.meta() as {
+            pairwiseVerdict?: ReturnType<typeof suiteVerdictAnnotation>
+          }
+          if (!pairwiseVerdict) return []
+          const { label } = JSON.parse(pairwiseVerdict.message) as SuiteVerdict
+          return [{ suite: suite.fullName, label }]
+        }),
+      )
+      writeFileSync(verdictsFile, JSON.stringify(verdicts))
+    }
     const table = renderPairwiseVerdicts(modules)
     if (!table) return
     const summary = process.env.GITHUB_STEP_SUMMARY

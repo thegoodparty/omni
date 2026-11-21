@@ -1,0 +1,288 @@
+name: Universal judge guard (shadow)
+
+# Judges a PR's agent changes on its own. It picks the suites the diff can reach
+# (an exact-path floor, plus a model picker for shared code that only adds), then
+# runs them inline against dev and this PR's preview, and puts the verdict in the
+# job summary and one upserted PR comment. The job is the check, "Universal judge
+# (shadow)", and it stays green whatever the verdict.
+#
+# KILL SWITCH: the job runs only while the repository variable
+# JUDGE_GUARD_ENABLED is exactly `true`. With it unset, nothing runs: no
+# checkout, no picker, no model call, no spend. See docs/agent-evals.md's guard
+# section.
+#
+# SHADOW ONLY. This check is never added to the `main` ruleset's required checks
+# by anything in this file, and the eval step is `continue-on-error`.
+#
+# `pull_request`, not `pull_request_target`: a PR runs its own copy of this file
+# and can change it. That is how every other CI workflow works, and judge-eval.yml
+# already runs PR code with these secrets. A fork PR gets no secrets and is
+# skipped.
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+# A workflow run joins its concurrency group before any job `if:` is evaluated,
+# so a draft, fork or disabled-switch push that the job skips would otherwise
+# cancel a run that already holds the group. Those fall back to a per-run group.
+concurrency:
+  group: >-
+    ${{ (vars.JUDGE_GUARD_ENABLED == 'true'
+    && github.event.pull_request.draft == false
+    && github.event.pull_request.head.repo.fork == false)
+    && format('judge-guard-pr-{0}', github.event.pull_request.number)
+    || format('judge-guard-noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # the guard comment
+
+jobs:
+  guard:
+    name: Universal judge (shadow)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    if: >-
+      vars.JUDGE_GUARD_ENABLED == 'true' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.fork == false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Derive the path-matched floor
+        id: floor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+
+          # Self-tested before it is trusted on a real PR: a classifier broken
+          # by an edit fails this run with a clear reason instead of quietly
+          # misjudging every PR after it.
+          bash .github/scripts/judge-path-floor.self-test.sh
+          bash .github/scripts/judge-cases-only.self-test.sh
+
+          git fetch --no-tags origin main
+          git diff --name-status -M origin/main...HEAD > /tmp/guard-name-status.txt
+          git diff --name-only origin/main...HEAD > /tmp/guard-changed-paths.txt
+          git diff origin/main...HEAD > /tmp/guard-diff.txt
+
+          suites="$(bash .github/scripts/judge-path-floor.sh < /tmp/guard-name-status.txt)"
+          bash .github/scripts/judge-path-floor.sh --eval-files < /tmp/guard-name-status.txt > /tmp/guard-eval-files.txt
+
+          # The case scout's PRs only append cases to `*.eval.ts` files, so a
+          # run would compare the same agent code on both arms.
+          cases_only="$(PR_AUTHOR="$PR_AUTHOR" bash .github/scripts/judge-cases-only.sh < /tmp/guard-changed-paths.txt)"
+          echo "cases_only=$cases_only" >> "$GITHUB_OUTPUT"
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
+          if [ "$cases_only" = "true" ]; then
+            echo "::notice::only the case scout's eval files changed; no picker and no run"
+          elif [ -n "$suites" ]; then
+            echo "::notice::floor matched: $suites"
+          else
+            echo "::notice::floor matched no suite; asking the picker about shared code"
+          fi
+
+      # The picker always runs, floor or not: the case it exists for is a change
+      # to shared code, where the floor found nothing. The exception is the case
+      # scout's own PR, where its "when unsure, add it" rule would buy a run of
+      # two identical arms. `continue-on-error`: a workspace install failure must
+      # cost this run the picker's output, not the run, which falls back to the
+      # floor.
+      - uses: ./.github/actions/setup-node-workspace
+        if: steps.floor.outputs.cases_only != 'true'
+        continue-on-error: true
+        with:
+          app: judge-eval
+          build-contracts: 'true'
+
+      - name: Run the picker
+        id: picker
+        if: steps.floor.outputs.cases_only != 'true'
+        continue-on-error: true
+        env:
+          GUARD_CHANGED_PATHS_FILE: /tmp/guard-changed-paths.txt
+          GUARD_DIFF_FILE: /tmp/guard-diff.txt
+          GUARD_EVAL_FILES_FILE: /tmp/guard-eval-files.txt
+          GUARD_FLOOR: ${{ steps.floor.outputs.suites }}
+          GUARD_RAW_OUTPUT_FILE: /tmp/guard-picker-raw-output.txt
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        working-directory: packages/judge
+        run: npx tsx src/guard/runPickerCli.ts
+
+      # The raw text the model sent when its answer failed the shape, so a human
+      # can see why. Short retention: it is debugging output from a public PR.
+      - name: Save the picker's raw output
+        if: steps.picker.outputs.raw_output_saved == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: guard-picker-raw-output-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          path: /tmp/guard-picker-raw-output.txt
+          retention-days: 7
+
+      # The final suite set is the picker's, or the floor alone when the picker
+      # crashed outright (its outputs are then unset). Nothing reached stops the
+      # job here, with the reason in the job summary.
+      - name: Decide what to run
+        id: plan
+        env:
+          CASES_ONLY: ${{ steps.floor.outputs.cases_only }}
+          FLOOR: ${{ steps.floor.outputs.suites }}
+          PICKER_STATUS: ${{ steps.picker.outputs.picker_status }}
+          PICKER_SUITES: ${{ steps.picker.outputs.final_suites }}
+          PICKER_SUMMARY: ${{ steps.picker.outputs.summary }}
+        run: |
+          set -euo pipefail
+          if [ "$CASES_ONLY" = "true" ]; then
+            suites=""
+            reason='This PR only changes eval files and comes from the case scout, so both arms run the same agent code. There is nothing to compare.'
+          elif [ -z "$PICKER_STATUS" ]; then
+            suites="$FLOOR"
+            reason='Couldn'"'"'t check shared code. Comment `/judge-eval <suite>` for a run.'
+          else
+            suites="$PICKER_SUITES"
+            reason="$PICKER_SUMMARY"
+          fi
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
+          if [ -z "$suites" ]; then
+            tick="'"
+            printf '## No suite reached\n\n```text\n%s\n```\n' "${reason//\`/$tick}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Polls the same `/v1/version` contract judge-eval.yml uses. Either SHA
+      # counts: gp-api tags a preview image with the merge commit.
+      - name: Wait for the candidate's preview to serve the PR head
+        id: preview
+        if: steps.plan.outputs.suites != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CANDIDATE: https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org
+        run: |
+          set -euo pipefail
+          echo "Confirming $CANDIDATE is serving $HEAD_SHA or its merge commit"
+          deadline=$((SECONDS + 600))
+          got=""
+          merge=""
+          while [ $SECONDS -lt $deadline ]; do
+            got="$(curl -fsS --max-time 8 "$CANDIDATE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            merge="$(gh pr view "$PR_NUMBER" --json potentialMergeCommit --jq '.potentialMergeCommit.oid // empty' 2>/dev/null || true)"
+            if [ -n "$got" ] && { [ "$got" = "$HEAD_SHA" ] || { [ -n "$merge" ] && [ "$got" = "$merge" ]; }; }; then
+              echo "preview serving $got after ${SECONDS}s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::The candidate's preview is serving ${got:-nothing}, which is neither $HEAD_SHA nor its merge commit ${merge:-unknown}, after 600s."
+          exit 1
+
+      # `continue-on-error` is what keeps the check green in shadow.
+      - name: Judge
+        id: judge
+        if: steps.plan.outputs.suites != '' && steps.preview.outcome == 'success'
+        continue-on-error: true
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUITES: ${{ steps.plan.outputs.suites }}
+          JUDGE_BASE_URL: https://gp-api-dev.goodparty.org
+          JUDGE_CANDIDATE_URL: https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org
+          JUDGE_MODEL: anthropic/claude-sonnet-5-5
+          JUDGE_REQUIRE_PAIRWISE: 'true'
+          JUDGE_VERDICTS_FILE: /tmp/guard-verdicts.json
+        run: |
+          set -euo pipefail
+          filters=()
+          IFS=, read -ra requested <<< "$SUITES"
+          for suite in "${requested[@]}"; do
+            file="$(grep -F "/$suite.eval.ts" /tmp/guard-eval-files.txt | head -n 1)"
+            filters+=("${file#packages/gp-api/}")
+          done
+          npm run eval -w packages/gp-api -- "${filters[@]}" \
+            --reporter=github-actions --reporter=../judge/src/reporter.ts
+
+      - name: Determine the verdict
+        id: verdict
+        if: ${{ !cancelled() && steps.plan.outputs.suites != '' }}
+        continue-on-error: true
+        env:
+          GUARD_SUITES: ${{ steps.plan.outputs.suites }}
+          GUARD_VERDICTS_FILE: /tmp/guard-verdicts.json
+          GUARD_PREVIEW_READY: ${{ steps.preview.outcome == 'success' }}
+        working-directory: packages/judge
+        run: npx tsx src/guard/guardVerdictCli.ts
+
+      # One comment per PR, upserted by marker+author, so repeated pushes update
+      # one comment rather than piling one on per push. Only posted when a suite
+      # was reached.
+      - name: Upsert the guard comment
+        if: ${{ !cancelled() && steps.plan.outputs.suites != '' }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          SUITES: ${{ steps.plan.outputs.suites }}
+          OUTCOME: ${{ steps.verdict.outputs.outcome }}
+          NOTE: ${{ steps.verdict.outputs.note }}
+          PICKER_SUMMARY: ${{ steps.picker.outputs.summary }}
+        with:
+          script: |
+            const marker = '<!-- universal-judge-guard -->'
+            const issue_number = context.payload.pull_request.number
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const outcome = process.env.OUTCOME || 'judge crashed'
+            const body = [
+              marker,
+              '## Universal judge guard (shadow)',
+              '',
+              `**Suites reached:** \`${process.env.SUITES}\``,
+              '',
+              `**Verdict:** ${outcome}`,
+              '',
+              process.env.NOTE || 'The judge reported no verdict.',
+              '',
+              // Model-written text, rendered inert: nothing inside a fenced
+              // block becomes a link, a mention or HTML.
+              '```text',
+              (process.env.PICKER_SUMMARY || '').replace(/`/g, "'"),
+              '```',
+              '',
+              `[Job summary](${runUrl}#summary)`,
+            ].join('\n')
+
+            await core.summary.addRaw(body).write()
+
+            const existing = await github.paginate(
+              github.rest.issues.listComments,
+              { ...context.repo, issue_number, per_page: 100 },
+            )
+            // Author first, marker second: anyone can post this marker on a
+            // public repo, and this token can edit any user's comment.
+            const mine = existing.find(
+              (c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker),
+            )
+
+            const post = async (call, args) => {
+              try {
+                await call({ ...context.repo, ...args })
+              } catch (err) {
+                if (err.status !== 403) throw err
+                core.warning(
+                  `could not comment on #${issue_number} (HTTP 403 — the conversation ` +
+                    'is most likely locked).',
+                )
+              }
+            }
+
+            if (mine) {
+              await post(github.rest.issues.updateComment, { comment_id: mine.id, body })
+            } else {
+              await post(github.rest.issues.createComment, { issue_number, body })
+            }
