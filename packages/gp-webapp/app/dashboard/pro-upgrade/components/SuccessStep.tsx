@@ -302,6 +302,7 @@ const SuccessStep = (): React.JSX.Element => {
         <PlanReceiptCard
           receipt={planReceipt}
           plan={planName === 'Team' ? 'team' : 'pro'}
+          isUpgrade={fromPro}
         />
       ) : (
         <ProReceiptCard enabled={Boolean(data?.isPro)} />

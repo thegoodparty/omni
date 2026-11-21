@@ -68,9 +68,11 @@ const Row = ({
 export const PlanReceiptCard = ({
   receipt,
   plan,
+  isUpgrade = false,
 }: {
   receipt: PlanReceipt | undefined
   plan: ProUpgradePlan
+  isUpgrade?: boolean
 }): React.JSX.Element | null => {
   const [open, setOpen] = useState(false)
   if (!receipt) return null
@@ -108,7 +110,11 @@ export const PlanReceiptCard = ({
           <div className="h-px bg-base-border" />
           <Row label="Date" value={formatReceiptDate(paidAt)} />
           <Row
-            label={`${plan === 'team' ? 'Team' : 'Pro'} plan with ${formatPlanCents(PLAN_PRICING.includedCreditCents)} outreach credit`}
+            label={
+              isUpgrade
+                ? 'Team plan upgrade'
+                : `${plan === 'team' ? 'Team' : 'Pro'} plan with ${formatPlanCents(PLAN_PRICING.includedCreditCents)} outreach credit`
+            }
             value={amount}
           />
           {receipt.cardBrand && receipt.cardLast4 && (

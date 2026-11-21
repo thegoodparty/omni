@@ -179,6 +179,12 @@ describe('SuccessStep with per-campaign pricing on', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
 
+    fireEvent.click(await screen.findByRole('button', { name: /Your receipt/ }))
+    expect(screen.getByText('Team plan upgrade')).toBeInTheDocument()
+    expect(
+      screen.queryByText(/with \$175 outreach credit/),
+    ).not.toBeInTheDocument()
+
     fireEvent.click(screen.getByRole('button', { name: 'Invite your team' }))
     expect(router.push).toHaveBeenCalledWith('/dashboard/team?invite=1')
   })
