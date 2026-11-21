@@ -84,12 +84,26 @@ export class OutreachTextHandoffService extends createPrismaBase(
       }
     }
 
+    if (moved.length > 0) {
+      this.logger.info(
+        { outreachIds: moved },
+        'Text hand-offs flagged as overdue',
+      )
+    }
+
     recordManagedPanelHandoffAlarm(
       'needs_human',
       await this.model.count({
         where: {
           status: OutreachHandoffStatus.queued,
           needsHumanAt: { not: null },
+          // The alarm ends with the wave: once the wave job closes it without
+          // replies there is nothing left to upload, and counting it forever
+          // would page with no way to clear it.
+          OR: [
+            { outreach: { managedPanelWave: { is: null } } },
+            { outreach: { managedPanelWave: { is: { closedAt: null } } } },
+          ],
         },
       }),
     )
