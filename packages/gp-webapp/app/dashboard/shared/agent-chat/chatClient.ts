@@ -116,14 +116,21 @@ async function* parseSseStream(
       try {
         chunk = await reader.read()
       } catch {
+        // An abort is still an ending the caller has to hear about: without it
+        // the turn reads as a clean finish and an abandoned turn gets handed
+        // off as a success (a deferred create's host swap included).
+        if (signal?.aborted) {
+          yield errorEvent('aborted', 'Stream cancelled.', false)
+          return
+        }
         // The server answered 200 before this read, so a rejection here is the
         // connection going away under the body (a phone changing networks, a
         // proxy dropping the tail, a tab backgrounded into a throttled one),
         // never our parser and never a browser the response refused. End the
-        // stream without `done` so the caller reconciles with the persisted
-        // turn instead of failing the turn, and keep it out of the exception
-        // stream, which is what pages a human (ENG-11724).
-        if (!signal?.aborted) onInterrupted()
+        // stream without `done` and tell the caller, so it reconciles with the
+        // persisted turn instead of failing the turn, and keep it out of the
+        // exception stream, which is what pages a human (ENG-11724).
+        onInterrupted()
         return
       }
       if (chunk.done) break
@@ -251,6 +258,7 @@ export function createAgentChatClient(
       id,
       attachmentIds,
       signal,
+      onInterrupted,
     }) {
       let res: Response
       try {
@@ -316,14 +324,15 @@ export function createAgentChatClient(
       }
 
       try {
-        for await (const ev of parseSseStream(res.body, signal, () =>
+        for await (const ev of parseSseStream(res.body, signal, () => {
           reportClientInterruption('chat stream interrupted', {
             surface: errorSurface,
             phase: 'stream',
             step: 'iterate',
             conversationId,
-          }),
-        )) {
+          })
+          onInterrupted?.()
+        })) {
           yield ev
           if (ev.type === 'done' || ev.type === 'error') return
         }

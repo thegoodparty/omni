@@ -113,6 +113,12 @@ export interface ChatClient {
     id?: string
     attachmentIds?: string[]
     signal?: AbortSignal
+    // Reports a stream the connection ended under, after the server had
+    // already answered 200: the turn stopped arriving without `done` and
+    // without an error. Its absence is a clean finish, so a caller that
+    // reconciles with the persisted turn reads this to know the server may
+    // still be writing one. Never fired for an abort.
+    onInterrupted?: () => void
   }): AsyncIterable<ChatStreamEvent>
   softDelete(conversationId: string): Promise<void>
   // Per-message ratings. Only the scope-generic /v1/chats client implements
