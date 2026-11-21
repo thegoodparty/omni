@@ -125,6 +125,14 @@ export class AdminJobDeadLettersService implements OnModuleDestroy {
     }
   }
 
+  async queues(): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<Array<{ source_name: string }>>`
+      SELECT DISTINCT source_name FROM pgboss.job
+      WHERE name LIKE ${'%-dlq'} AND source_name IS NOT NULL
+      ORDER BY source_name`
+    return rows.map((row) => row.source_name)
+  }
+
   async get(id: string): Promise<JobDeadLetter> {
     const row = await this.findDeadLetter(id)
     if (!row) throw new NotFoundException(`No dead letter ${id}`)

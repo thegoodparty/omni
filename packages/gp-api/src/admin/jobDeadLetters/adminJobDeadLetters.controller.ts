@@ -16,6 +16,7 @@ import { AdminJobDeadLettersService } from './services/adminJobDeadLetters.servi
 import {
   AdminJobDeadLettersListQueryDto,
   JobDeadLetterSchema,
+  JobDeadLetterQueuesSchema,
   RedriveJobDeadLetterResultSchema,
 } from './schemas/adminJobDeadLetters.schema'
 
@@ -33,6 +34,12 @@ export class AdminJobDeadLettersController {
   @ResponseSchema(PaginatedResponseSchema(JobDeadLetterSchema))
   list(@Query() query: AdminJobDeadLettersListQueryDto) {
     return this.deadLetters.list(query)
+  }
+
+  @Get('queues')
+  @ResponseSchema(JobDeadLetterQueuesSchema)
+  queues() {
+    return this.deadLetters.queues()
   }
 
   @Get(':id')

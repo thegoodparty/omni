@@ -38,6 +38,10 @@ export type JobDeadLettersListQuery = z.infer<
   typeof JobDeadLettersListQuerySchema
 >
 
+export const JobDeadLetterQueuesSchema = z.array(z.string())
+
+export type JobDeadLetterQueues = z.infer<typeof JobDeadLetterQueuesSchema>
+
 export const RedriveJobDeadLetterResultSchema = z.object({
   id: z.string(),
   sourceQueue: z.string(),

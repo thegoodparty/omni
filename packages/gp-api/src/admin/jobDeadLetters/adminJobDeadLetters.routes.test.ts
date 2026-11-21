@@ -108,6 +108,27 @@ describe('admin job dead letters', () => {
     })
   })
 
+  it('lists the distinct queues dead letters failed on', async () => {
+    await deadLetterOne()
+    await deadLetterOne()
+
+    const response = await service.client.get(`${LIST_PATH}/queues`)
+
+    expect(response.status).toBe(HttpStatus.OK)
+    expect(response.data).toEqual([SOURCE_QUEUE])
+  })
+
+  it('rejects a non-admin listing the queues', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [UserRole.candidate] },
+    })
+
+    const response = await service.client.get(`${LIST_PATH}/queues`)
+
+    expect(response.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
   it('reads one dead letter with the same shape the list gives it', async () => {
     const organizationSlug = await deadLetterOne()
     const listed = await listDeadLetters()
