@@ -5,13 +5,32 @@ import type { HandledValue } from './grade'
 import type { NotJudgedAttempt } from './pairwise'
 import type { SuiteVerdict } from './stats'
 
+// A cell's text is run- or model-derived, and the table is rendered as markdown
+// in a job summary and in a PR comment. Escaping the HTML entities alone leaves
+// `@`, `#` and link syntax live, so an error message could notify a person or
+// post a link under the bot's name. One pass over the characters, so an entity's
+// own `#` is never escaped again.
+const CELL_ENTITIES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '|': '&#124;',
+  '`': '&#96;',
+  '[': '&#91;',
+  ']': '&#93;',
+  '#': '&#35;',
+  '@': '&#64;',
+  '\n': ' ',
+  '\r': '',
+}
+
 const escapeCell = (value: string) =>
-  value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('|', '&#124;')
-    .replace(/\r?\n/g, ' ')
+  [...value]
+    .map((char) => CELL_ENTITIES[char] ?? char)
+    .join('')
+    // A bare URL is autolinked without `[`, so break the `//` too. No entity
+    // contains a slash, so this cannot damage one.
+    .replaceAll('//', '&#47;&#47;')
 
 const formatP = (p: number) => (p < 0.001 ? '&lt;0.001' : p.toFixed(3))
 

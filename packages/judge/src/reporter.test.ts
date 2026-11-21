@@ -226,6 +226,47 @@ describe('PairwiseReporter', () => {
     expect(collectPairwiseResults(broken)[0]?.notJudged).toEqual([])
   })
 
+  it('neutralises mentions, links and references in a not-judged error', () => {
+    vi.stubEnv('GITHUB_STEP_SUMMARY', undefined)
+    const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+    const [suite] = [...modules[0]!.children.allSuites()] as unknown as {
+      fullName: string
+      meta: () => object
+      children: object
+    }[]
+    const hostile = [
+      {
+        children: {
+          allSuites: () => [
+            {
+              fullName: suite!.fullName,
+              meta: () => ({
+                ...suite!.meta(),
+                pairwiseNotJudged: suiteVerdictAnnotation([
+                  {
+                    caseId: 'a1-baseline',
+                    attempt: 1,
+                    side: 'base',
+                    runs: [],
+                    error:
+                      '@octocat see https://example.test/x and #123 `code`',
+                  },
+                ]),
+              }),
+              children: suite!.children,
+            },
+          ],
+        },
+      },
+    ] as unknown as TestModule[]
+    new PairwiseReporter().onTestRunEnd(hostile, [], 'failed')
+    const table = String(write.mock.calls[0]?.[0])
+    expect(table).toContain(
+      '&#64;octocat see https:&#47;&#47;example.test/x and &#35;123 &#96;code&#96;',
+    )
+    expect(table).not.toContain('@octocat')
+  })
+
   it('writes to stdout locally and stays quiet without verdicts', () => {
     vi.stubEnv('GITHUB_STEP_SUMMARY', undefined)
     const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
