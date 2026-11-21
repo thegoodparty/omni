@@ -32,15 +32,65 @@ describe('PlansPage', () => {
     mockPlan.recommendTeam = false
   })
 
+  const cardOrder = (): string[] =>
+    screen.getAllByTestId(/^plan-card-/).map((c) => c.dataset.testid ?? '')
+
   it('leads with Team on a Free campaign in a large race', () => {
     mockPlan.recommendTeam = true
     render(<PlansPage highlightTeam={false} />)
-    expect(screen.getByTestId('plan-card-team')).toHaveClass('-order-1')
+    expect(cardOrder()).toEqual([
+      'plan-card-team',
+      'plan-card-pro',
+      'plan-card-free',
+    ])
   })
 
-  it('leads with the table order when Team is not recommended', () => {
+  it('leads with Pro, then Team, then Free by default', () => {
     render(<PlansPage highlightTeam={false} />)
-    expect(screen.getByTestId('plan-card-team')).not.toHaveClass('-order-1')
+    expect(cardOrder()).toEqual([
+      'plan-card-pro',
+      'plan-card-team',
+      'plan-card-free',
+    ])
+  })
+
+  it('gives the highlighted plan the filled button and the other paid plan the outline', () => {
+    const { unmount } = render(<PlansPage highlightTeam={false} />)
+    const label = (plan: string, cents: number): string =>
+      `Join ${plan} for $${cents / 100}`
+    const pro = screen.getAllByRole('link', {
+      name: label('Pro', PLAN_PRICING.proCents),
+    })[0]
+    const team = screen.getAllByRole('link', {
+      name: label('Team', PLAN_PRICING.teamCents),
+    })[0]
+    expect(pro?.className).toContain('bg-primary')
+    expect(team?.className).not.toContain('bg-primary')
+    unmount()
+
+    render(<PlansPage highlightTeam />)
+    const teamLead = screen.getAllByRole('link', {
+      name: label('Team', PLAN_PRICING.teamCents),
+    })[0]
+    expect(teamLead?.className).toContain('bg-primary')
+  })
+
+  it('shows the heading and subtitle', () => {
+    render(<PlansPage highlightTeam={false} />)
+    expect(
+      screen.getByRole('heading', { name: 'Unlock voter data and outreach' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Pay once, good for your whole campaign\./),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText(/Upgrade to Team anytime/).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('tags the credit as a Bonus', () => {
+    render(<PlansPage highlightTeam={false} />)
+    expect(screen.getAllByText('Bonus').length).toBeGreaterThan(0)
   })
 
   it('shows the three plans with prices and credit from PLAN_PRICING', () => {
@@ -148,14 +198,5 @@ describe('PlansPage', () => {
     render(<PlansPage highlightTeam={false} />)
 
     expect(screen.queryAllByRole('link', { name: /Join/ })).toHaveLength(0)
-  })
-
-  it('puts Team first on mobile when highlighted', () => {
-    render(<PlansPage highlightTeam />)
-
-    expect(screen.getByTestId('plan-card-team').className).toContain('-order-1')
-    expect(screen.getByTestId('plan-card-pro').className).not.toContain(
-      '-order-1',
-    )
   })
 })
