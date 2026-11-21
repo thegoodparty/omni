@@ -410,10 +410,13 @@ export class CrmCampaignsService {
       pro_candidate: isPro ? HubSpot.ProCandidate.YES : HubSpot.ProCandidate.NO,
       pro_subscription_status: proSubscriptionStatus,
       pro_upgrade_date: isProUpdatedAtMs,
-      win_plan: campaign.plan,
-      win_plan_pricing_model: campaign.planPricingModel ?? '',
+      win_plan: campaign.planEndedAt ? 'free' : campaign.plan,
+      win_plan_pricing_model:
+        campaign.planEndedAt || campaign.plan === 'free'
+          ? ''
+          : (campaign.planPricingModel ?? ''),
       win_plan_ends_at:
-        campaign.plan === 'free'
+        campaign.planEndedAt || campaign.plan === 'free'
           ? ''
           : (formatDateForCRM(planEndsAt(campaign)?.getTime()) ?? ''),
       running: runForOffice ? HubSpot.Running.YES : HubSpot.Running.NO,

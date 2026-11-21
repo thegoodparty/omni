@@ -241,6 +241,22 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties', () => {
     })
   })
 
+  it('reports an expired one-time plan as free and clears its pricing model and end', async () => {
+    const expired = {
+      ...campaign,
+      plan: 'pro',
+      planPricingModel: 'one_time',
+      planEndedAt: new Date('2024-11-19T00:00:00Z'),
+    } as unknown as Campaign
+    const result = await calculate(buildService(noLatency), expired)
+
+    expect(result).toMatchObject({
+      win_plan: 'free',
+      win_plan_pricing_model: '',
+      win_plan_ends_at: '',
+    })
+  })
+
   it('returns identical output regardless of which dependency is slowest', async () => {
     const slowUser = await calculate(
       buildService({ ...noLatency, user: 30 }),
