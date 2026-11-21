@@ -60,9 +60,11 @@ import { useDictationAppend } from '../../../shared/dictation/useDictationAppend
 import { reportClientError } from '@shared/observability/reportClientError'
 import { useOrganization } from '@shared/organization-picker'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
-import type {
-  AgentChatClient,
-  ChatMessageDto,
+import {
+  isConversationGone,
+  type AgentChatClient,
+  type ChatConversationDto,
+  type ChatMessageDto,
 } from '../../../shared/agent-chat/chatClient'
 import {
   COS_INTRO_MESSAGES,
@@ -79,7 +81,11 @@ import {
   type ManagedPanelWidgetContext,
 } from './managedPanelWidgets'
 import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
-import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
+import {
+  chatHistoryKey,
+  HISTORY_KEY,
+  useChatHistory,
+} from '../../data/use-chat-history'
 import {
   isToolRefusal,
   ListProposalSchema,
@@ -132,6 +138,14 @@ interface Props {
   onConversationCreated?: (conversationId: string) => void
   /** Open a past conversation picked from the input pill's history popover. */
   onSelectConversation?: (conversationId: string) => void
+  /**
+   * Fires once when the requested conversation no longer exists (404) and this
+   * body has dropped it. A parent that keeps passing the dead id as the
+   * override (the Campaign Manager resumes its newest conversation) should
+   * clear it: an override left in place blocks the queued file and kickoff
+   * effects forever, so they are silently dropped.
+   */
+  onConversationGone?: (conversationId: string) => void
   bodyClassName?: string
   /**
    * Scope config. All default to Chief of Staff so existing CoS/Community
@@ -345,6 +359,7 @@ function ChiefOfStaffChatThread({
   active = true,
   onConversationCreated,
   onSelectConversation,
+  onConversationGone,
   bodyClassName,
   chatApi = chiefOfStaffChatApi,
   analyticsLabel = 'chief-of-staff-chat',
@@ -798,24 +813,53 @@ function ChiefOfStaffChatThread({
         setMessages(msgs)
       }
     } catch (err) {
-      reportClientError(err, {
-        surface: analyticsLabel,
-        phase: 'init',
-        conversationIdOverride,
-      })
-      loadRequestedRef.current = false
-      setStreamError({
-        message: 'Could not load this chat. Try again.',
-        retryable: true,
-      })
+      if (isConversationGone(err)) {
+        // Gone, not broken: the thread was deleted from another tab or device,
+        // or its id was read from a list cached before an organization switch.
+        // A retry cannot bring it back, so drop the dead entry and leave a
+        // fresh chat instead of an error the user cannot act on (ENG-11670).
+        // The parent hears about it too: a surface that keeps passing the id
+        // as the override would otherwise block its queued file/kickoff.
+        queryClient.setQueryData<ChatConversationDto[]>(
+          chatHistoryKey(historyKey, orgSlug),
+          (previous) =>
+            previous?.filter(
+              (conversation) =>
+                conversation.conversationId !== conversationIdOverride,
+            ),
+        )
+        setConversationId(null)
+        onConversationGone?.(conversationIdOverride)
+      } else {
+        reportClientError(err, {
+          surface: analyticsLabel,
+          phase: 'init',
+          conversationIdOverride,
+        })
+        loadRequestedRef.current = false
+        setStreamError({
+          message: 'Could not load this chat. Try again.',
+          retryable: true,
+        })
+      }
     } finally {
       setLoading(false)
     }
     // hiddenContentSet is read for the initial playable check only; it is stable
     // for a given conversation load and intentionally not a dependency (a later
-    // hidden send must not re-run the load).
+    // hidden send must not re-run the load). The latch above does the same for
+    // the rest: queryClient, historyKey and orgSlug are read only by the 404
+    // prune, and no dep can re-run a load this body already attempted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationIdOverride, chatApi, setMessages])
+  }, [
+    conversationIdOverride,
+    chatApi,
+    setMessages,
+    queryClient,
+    historyKey,
+    orgSlug,
+    onConversationGone,
+  ])
 
   useEffect(() => {
     if (!active) return

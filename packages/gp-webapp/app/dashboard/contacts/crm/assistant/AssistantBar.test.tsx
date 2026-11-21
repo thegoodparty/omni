@@ -5,6 +5,11 @@ import { render } from 'helpers/test-utils/render'
 import AssistantBar from './AssistantBar'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 
+// The history list is cached per organization (see data/use-chat-history).
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-1' }),
+}))
+
 const chatApi = {
   createConversation: vi.fn(),
   listMessages: vi.fn(),

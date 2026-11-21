@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { FetchError, createFetchError } from 'ofetch'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS } from 'helpers/analyticsHelper'
+import { reportClientError } from '@shared/observability/reportClientError'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
 import type {
+  ChatConversationDto,
   ChatMessageDto,
   ChatMessageSegment,
   ChatStreamEvent,
@@ -18,6 +21,7 @@ import {
 } from '@goodparty_org/contracts'
 import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
 import { buildChiefOfStaffNextSteps, COS_INTRO_MESSAGES } from './chatConstants'
+import { chatHistoryKey, HISTORY_KEY } from '../../data/use-chat-history'
 
 const createMock = vi.fn()
 const listMessagesMock = vi.fn()
@@ -135,6 +139,16 @@ function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
   })()
 }
 
+// The error `clientRequest` actually throws on a 4xx: ofetch's FetchError built
+// from the request and response it came from, so `status` reads 404 off the
+// response rather than being assigned by hand.
+const goneFetchError = (conversationId: string): FetchError =>
+  createFetchError({
+    request: new Request(`http://localhost/api/v1/chats/${conversationId}`),
+    options: { headers: new Headers() },
+    response: new Response(null, { status: 404 }),
+  }) as FetchError
+
 // Build a persisted transcript row. The engine reconciles against the server
 // transcript once a turn's stream ends (listMessages), so streaming tests must
 // resolve listMessages to the finished turn or the commit has nothing to swap in.
@@ -171,6 +185,7 @@ beforeEach(() => {
   linkAttachmentMock.mockReset()
   downloadAttachmentMock.mockReset()
   trackEventMock.mockReset()
+  vi.mocked(reportClientError).mockClear()
   toastMock.mockReset()
   toastMock.error.mockReset()
   window.localStorage.clear()
@@ -457,6 +472,102 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(createMock).not.toHaveBeenCalled()
     // Intro messages are not shown when replaying an existing conversation.
     expect(screen.queryByText(COS_INTRO_MESSAGES[0]!)).not.toBeInTheDocument()
+  })
+
+  // A conversation that no longer exists is the expected end of a thread, not a
+  // failure: gp-api 404s it, a retry cannot bring it back, and reporting it put a
+  // conversation id in every alert signature (ENG-11670).
+  it('opens a fresh chat instead of an error when the conversation is gone (404)', async () => {
+    listMessagesMock.mockRejectedValue(goneFetchError('conv_gone'))
+    createMock.mockResolvedValue({ conversationId: 'conv_new' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Fresh start.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    const onConversationGone = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_gone"
+        onConversationGone={onConversationGone}
+      />,
+    )
+
+    await waitFor(() => expect(listMessagesMock).toHaveBeenCalled())
+    expect(
+      screen.queryByText('Could not load this chat. Try again.'),
+    ).not.toBeInTheDocument()
+    expect(vi.mocked(reportClientError)).not.toHaveBeenCalled()
+    // The parent gets the dead id back so it can stop passing it as the
+    // override — otherwise its queued file/kickoff effects stay blocked.
+    await waitFor(() =>
+      expect(onConversationGone).toHaveBeenCalledWith('conv_gone'),
+    )
+
+    // The composer still works, and mints the replacement conversation.
+    await user.type(screen.getByLabelText(/ask a question/i), 'start over?')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(streamMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv_new' }),
+    )
+  })
+
+  // The list can still hold a conversation the server no longer has (deleted
+  // from another tab or device). Reopening it would 404 forever, so the load
+  // has to drop that one entry and leave the rest of the list alone.
+  it('drops a gone conversation from the cached history', async () => {
+    const live = (conversationId: string): ChatConversationDto => ({
+      conversationId,
+      scope: 'chief_of_staff',
+      title: conversationId,
+      ownerUserId: 1,
+      deletedAt: null,
+      createdAt: '2026-08-13T00:00:00.000Z',
+      updatedAt: '2026-08-13T00:00:00.000Z',
+    })
+    const historyKey = chatHistoryKey(HISTORY_KEY, 'eo-test-org')
+    testQueryClient.setQueryData(historyKey, [
+      live('conv_gone'),
+      live('conv_live'),
+    ])
+    listMessagesMock.mockRejectedValue(goneFetchError('conv_gone'))
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_gone" />)
+
+    await waitFor(() =>
+      expect(testQueryClient.getQueryData(historyKey)).toEqual([
+        live('conv_live'),
+      ]),
+    )
+    // Gone is not broken: nothing reported, and the dead id is not the
+    // conversation this body keeps either.
+    expect(vi.mocked(reportClientError)).not.toHaveBeenCalled()
+    testQueryClient.removeQueries({ queryKey: historyKey })
+  })
+
+  it('still reports a load failure that is not a 404', async () => {
+    listMessagesMock.mockRejectedValue(new Error('socket hang up'))
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_flaky" />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Could not load this chat. Try again.'),
+      ).toBeInTheDocument(),
+    )
+    expect(vi.mocked(reportClientError)).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        phase: 'init',
+        conversationIdOverride: 'conv_flaky',
+      }),
+    )
   })
 
   it('fires CitationOpened when a citation chip is clicked', async () => {

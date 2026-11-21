@@ -15,6 +15,11 @@ interface SurfaceProps {
   initialConversationId?: string | null
 }
 const surfaceProps: SurfaceProps[] = []
+// The chat history is cached per organization (see chief-of-staff/data/use-chat-history).
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-1', electedOfficeId: null }),
+}))
+
 vi.mock('../chief-of-staff/components/chat/ChiefOfStaffChatSurface', () => ({
   default: (props: SurfaceProps) => {
     surfaceProps.push(props)

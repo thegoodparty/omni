@@ -7,6 +7,7 @@ import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { CampaignManagerChatProvider } from './CampaignManagerChatProvider'
 import ElectionResultHomeCard from './ElectionResultHomeCard'
 import { CAMPAIGN_MANAGER_HISTORY_KEY } from './campaignManagerChat'
+import { chatHistoryKey } from '../chief-of-staff/data/use-chat-history'
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 
 interface SurfaceProps {
@@ -19,6 +20,11 @@ interface SurfaceProps {
   onOpenChange?: (open: boolean) => void
 }
 const surfaceProps: SurfaceProps[] = []
+// The chat history is cached per organization (see chief-of-staff/data/use-chat-history).
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-1', electedOfficeId: null }),
+}))
+
 vi.mock('../chief-of-staff/components/chat/ChiefOfStaffChatSurface', () => ({
   default: (props: SurfaceProps) => {
     surfaceProps.push(props)
@@ -77,9 +83,10 @@ const chip = (label: string): ChatSuggestion => {
 
 const setup = () => {
   surfaceProps.length = 0
-  testQueryClient.setQueryData(CAMPAIGN_MANAGER_HISTORY_KEY, [
-    { conversationId: 'conv-1' },
-  ])
+  testQueryClient.setQueryData(
+    chatHistoryKey(CAMPAIGN_MANAGER_HISTORY_KEY, 'campaign-1'),
+    [{ conversationId: 'conv-1' }],
+  )
   render(
     <CampaignManagerChatProvider>
       <div />
@@ -203,7 +210,10 @@ describe('the campaign manager asks how the election went', () => {
 describe('the Home card asks while the question is open', () => {
   const renderHome = () => {
     surfaceProps.length = 0
-    testQueryClient.setQueryData(CAMPAIGN_MANAGER_HISTORY_KEY, [])
+    testQueryClient.setQueryData(
+      chatHistoryKey(CAMPAIGN_MANAGER_HISTORY_KEY, 'campaign-1'),
+      [],
+    )
     render(
       <CampaignManagerChatProvider>
         <ElectionResultHomeCard />

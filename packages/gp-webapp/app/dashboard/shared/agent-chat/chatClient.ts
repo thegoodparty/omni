@@ -17,9 +17,18 @@ import {
   ORG_SLUG_COOKIE,
   ORG_SLUG_HEADER,
 } from '@shared/organizations/constants'
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportClientError } from '@shared/observability/reportClientError'
 import type { ChatAnchor } from '@goodparty_org/contracts'
+
+// A 404 from the conversation routes means gp-api's `findOwnedConversation`
+// found nothing for this user, org and scope: the thread was soft-deleted
+// (another tab or device) or the browser held its id from before an org switch.
+// That is the expected end of a conversation, not a defect in the app, so the
+// surfaces open a fresh chat instead of reporting it.
+export const isConversationGone = (error: unknown): boolean =>
+  error instanceof FetchError && error.status === 404
 
 // --- scope-generic chat contracts (integration seam) ------------------------
 // Mirrors the planned `@goodparty_org/contracts` chat shapes; see the note in
