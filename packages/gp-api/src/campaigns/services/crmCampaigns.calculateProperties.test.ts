@@ -209,7 +209,7 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties', () => {
     })
   })
 
-  it('derives the plan end from the election date and clears empty plan fields on a free plan', async () => {
+  it('clears the plan end and pricing model on a free plan', async () => {
     const free = {
       ...campaign,
       plan: 'free',
