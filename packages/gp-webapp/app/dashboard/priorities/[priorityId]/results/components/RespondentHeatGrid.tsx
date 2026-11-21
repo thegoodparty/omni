@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { PolygonLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
+import {
+  createMap,
+  MAP_UNAVAILABLE_MESSAGE,
+} from 'app/dashboard/shared/mapCanvas'
 import { boundsOfPoints, toGridCells, type GridCell } from './respondentGrid'
 
 // The contact map's style, so every map in the product reads as one.
@@ -34,20 +38,28 @@ export const RespondentHeatGrid = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const overlayRef = useRef<MapboxOverlay | null>(null)
+  const [mapUnavailable, setMapUnavailable] = useState(false)
   const cells = useMemo(() => toGridCells(points), [points])
   const bounds = useMemo(() => boundsOfPoints(points), [points])
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    const map = new maplibregl.Map({
-      container,
-      style: STYLE_URL,
-      attributionControl: false,
-      ...(bounds
-        ? { bounds, fitBoundsOptions: { padding: FIT_PADDING_PX } }
-        : { center: [-98.5, 39.8], zoom: 3 }),
-    })
+    const map = createMap(
+      {
+        container,
+        style: STYLE_URL,
+        attributionControl: false,
+        ...(bounds
+          ? { bounds, fitBoundsOptions: { padding: FIT_PADDING_PX } }
+          : { center: [-98.5, 39.8], zoom: 3 }),
+      },
+      'respondent-heat-grid',
+    )
+    if (!map) {
+      setMapUnavailable(true)
+      return
+    }
     let swapped = false
     map.on('error', (event) => {
       const status = (event.error as { status?: number } | undefined)?.status
@@ -95,6 +107,14 @@ export const RespondentHeatGrid = ({
     })
     // bounds: a new map instance has a fresh overlay with no layers on it.
   }, [cells, bounds])
+
+  if (mapUnavailable) {
+    return (
+      <div className="flex h-80 w-full items-center justify-center rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">
+        {MAP_UNAVAILABLE_MESSAGE}
+      </div>
+    )
+  }
 
   return (
     <div
