@@ -36,6 +36,12 @@ export const FeedbackSynthesisCompleteEventSchema = z.object({
     // pipeline image deploys separately from gp-api and an older pipeline
     // build sends no such field at all.
     promptSource: z.enum(['hosted', 'fallback']).optional(),
+    // Why the run fell back, when it did: `mismatch` (the hosted prompt and
+    // the variables the pipeline sends disagree) or `unavailable` (the prompt
+    // could not be fetched at all — credential, network, or missing slug).
+    // Optional for the same reason `promptSource` is: an older pipeline build
+    // sends neither.
+    promptFallbackReason: z.enum(['mismatch', 'unavailable']).optional(),
     issues: z.array(
       z.object({
         rank: z.number().int().min(1),
