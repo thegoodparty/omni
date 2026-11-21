@@ -96,7 +96,10 @@ export const membershipPlanCopy = (
   pitchJoin: string
 } => ({
   bannerFree: {
-    body: `Unlock voter data and outreach with ${pitch.name} for ${pitch.price}.`,
+    body:
+      pitch.plan === 'team'
+        ? `Unlock voter data and outreach for your whole team for ${pitch.price}. Good for your whole campaign.`
+        : `Unlock voter data and outreach with ${pitch.name} for ${pitch.price}. Good for your whole campaign.`,
     cta: MEMBERSHIP_COPY.banner.free.cta,
   },
   chipJoinTail: `for ${pitch.price}`,

@@ -115,6 +115,9 @@ describe('SuccessStep with per-campaign pricing on', () => {
     expect(
       screen.getByText('$299.00', { selector: 'span.font-medium' }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText('Pro plan with $175 outreach credit'),
+    ).toBeInTheDocument()
     expect(screen.getByText('Visa •••• 4242')).toBeInTheDocument()
     expect(screen.getByText('Good through')).toBeInTheDocument()
     expect(screen.getByText('November 17, 2027')).toBeInTheDocument()
@@ -175,6 +178,12 @@ describe('SuccessStep with per-campaign pricing on', () => {
       await screen.findByText(/Still good through November 17, 2027\./),
     ).toBeInTheDocument()
     expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Your receipt/ }))
+    expect(screen.getByText('Team plan upgrade')).toBeInTheDocument()
+    expect(
+      screen.queryByText(/with \$175 outreach credit/),
+    ).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Invite your team' }))
     expect(router.push).toHaveBeenCalledWith('/dashboard/team?invite=1')
