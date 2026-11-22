@@ -86,4 +86,59 @@ describe('PUT /v1/campaigns/mine/district office change limit', () => {
       officeChangeCount: 4,
     })
   })
+
+  it('lets staff change another campaign past the limit', async () => {
+    await seed({
+      positionId: 'pos-1',
+      overrideDistrictId: 'district-2',
+      officeChangeCount: 4,
+    })
+    const owner = await service.prisma.user.create({
+      data: { email: 'district-limit-owner@example.com' },
+    })
+    await service.prisma.organization.update({
+      where: { slug: ORG_SLUG },
+      data: { ownerId: owner.id },
+    })
+    await service.prisma.campaign.update({
+      where: { id: CAMPAIGN_ID },
+      data: { userId: owner.id },
+    })
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-98002', ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        id: 98002,
+        userId: service.user.id,
+        slug: 'staff-own-campaign',
+        details: {},
+        organizationSlug: 'campaign-98002',
+      },
+    })
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+    vi.spyOn(
+      service.app.get(OrganizationsService),
+      'resolveOverrideDistrictId',
+    ).mockResolvedValue('district-3')
+
+    const result = await service.client.put(
+      '/v1/campaigns/mine/district',
+      {
+        slug: 'district-limit',
+        L2DistrictType: 'City',
+        L2DistrictName: 'Oakland',
+      },
+      { headers: { 'x-organization-slug': 'campaign-98002' } },
+    )
+
+    expect(result.status).toBe(200)
+    expect(await org()).toMatchObject({
+      overrideDistrictId: 'district-3',
+      officeChangeCount: 4,
+    })
+  })
 })
