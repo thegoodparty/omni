@@ -18,7 +18,7 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { useOrganizationRole } from '@shared/organization-picker'
 import { PaymentPortalButton } from '@shared/PaymentPortalButton'
 import { SUPPORT_EMAIL } from '@shared/utils/supportContact'
-import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
+import { planCheckoutHref } from 'app/dashboard/plans/planCheckoutHref'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { PlanBadge } from 'app/dashboard/shared/plan/PlanBadge'
 import {
@@ -242,13 +242,7 @@ export const AccountInformationCard = ({
           </p>
           <div>
             <Button asChild variant="outline">
-              <Link
-                href={`${proUpgradeHref({
-                  source: 'navigation',
-                  channel: 'generic',
-                  cta: TEAM_UPGRADE_CTA,
-                })}&plan=team`}
-              >
+              <Link href={planCheckoutHref('team', 'Join Team')}>
                 {TEAM_UPGRADE_CTA}
               </Link>
             </Button>

@@ -154,10 +154,7 @@ export const ProPitchDialog = ({
         {
           source,
           channel,
-          cta:
-            planPitch.enabled && !invite
-              ? `Join ${planPitch.name}`
-              : copy.pitchJoin,
+          cta: planPitch.enabled ? `Join ${planPitch.name}` : copy.pitchJoin,
         },
         invite ? { plan: 'team', returnTo: TEAM_SETTINGS_PATH } : undefined,
       ),
