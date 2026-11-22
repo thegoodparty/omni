@@ -318,10 +318,29 @@ describe('ProPitchDialog', () => {
       )
 
       expect(router.push).toHaveBeenCalledWith(
-        expect.stringContaining('cta=Join+Team'),
+        expect.stringMatching(/[?&]cta=Join\+Team(&|$)/),
+      )
+    })
+
+    it('sends the unpriced plan name as the cta from the invite pitch', async () => {
+      mockPlanFlag.enabled = true
+      render(
+        <ProPitchDialog
+          source="account_settings"
+          channel="generic"
+          open
+          onOpenChange={vi.fn()}
+          invite
+        />,
+      )
+
+      await userEvent.click(screen.getByRole('button', { name: /Join Team/ }))
+
+      expect(router.push).toHaveBeenCalledWith(
+        expect.stringMatching(/[?&]cta=Join\+Team(&|$)/),
       )
       expect(router.push).toHaveBeenCalledWith(
-        expect.not.stringContaining('399'),
+        expect.stringMatching(/[?&]plan=team(&|$)/),
       )
     })
 

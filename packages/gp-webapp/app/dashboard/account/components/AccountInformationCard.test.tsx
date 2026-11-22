@@ -72,9 +72,9 @@ describe('AccountInformationCard plans', () => {
       screen.queryByRole('button', { name: /Manage Subscription/ }),
     ).not.toBeInTheDocument()
     const link = screen.getByRole('link', { name: 'Upgrade to Team for $100' })
-    expect(link).toHaveAttribute('href', expect.stringContaining('plan=team'))
-    expect(link.getAttribute('href')).toContain(
-      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=',
+    expect(link).toHaveAttribute(
+      'href',
+      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team',
     )
 
     await userEvent.click(screen.getByText('Why this date?'))

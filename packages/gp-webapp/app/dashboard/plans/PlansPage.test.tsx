@@ -148,7 +148,7 @@ describe('PlansPage', () => {
     })
     expect(pro[0]).toHaveAttribute(
       'href',
-      expect.stringMatching(/^\/dashboard\/pro-upgrade\?.*&plan=pro$/),
+      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Pro&plan=pro',
     )
   })
 
@@ -160,7 +160,7 @@ describe('PlansPage', () => {
     })
     expect(team[0]).toHaveAttribute(
       'href',
-      expect.stringMatching(/^\/dashboard\/pro-upgrade\?.*&plan=team$/),
+      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team',
     )
   })
 
@@ -173,7 +173,7 @@ describe('PlansPage', () => {
     })
     expect(team[0]).toHaveAttribute(
       'href',
-      expect.stringMatching(/&plan=team$/),
+      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team',
     )
   })
 
