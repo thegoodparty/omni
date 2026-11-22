@@ -8,6 +8,8 @@ import {
 import { getOrganization } from '@/app/dashboard/organizations/actions'
 import { CampaignSection } from '../../components/CampaignSection'
 import { ViewLayout } from '../../components/ViewLayout'
+import { OfficeChangesCard } from '../../components/OfficeChangesCard'
+import { Box } from '@radix-ui/themes'
 import { status } from '@poppanator/http-constants'
 import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
 
@@ -24,7 +26,7 @@ export default async function CampaignDetailPage({
   params,
 }: CampaignDetailPageProps) {
   const { id, campaignId } = await params
-  const [, campaignIdNum] = validateNumericParams(id, campaignId)
+  const [userIdNum, campaignIdNum] = validateNumericParams(id, campaignId)
 
   let campaign: EnrichedCampaign
   try {
@@ -44,6 +46,16 @@ export default async function CampaignDetailPage({
         campaign={campaign}
         district={organization?.district ?? null}
       />
+      {organization?.officeChangeLimit !== undefined && (
+        <Box mt="4">
+          <OfficeChangesCard
+            organizationSlug={organization.slug}
+            userId={userIdNum}
+            officeChangeCount={organization.officeChangeCount ?? 0}
+            officeChangeLimit={organization.officeChangeLimit}
+          />
+        </Box>
+      )}
     </ViewLayout>
   )
 }

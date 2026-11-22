@@ -20,6 +20,11 @@ import { useUser } from '@shared/hooks/useUser'
 import { identifyUser } from '@shared/utils/analytics'
 import { Campaign } from 'helpers/types'
 import { Race, RacePosition } from './ballotOffices/types'
+import { useSnackbar } from 'helpers/useSnackbar'
+import {
+  isOfficeChangeLimitReached,
+  OFFICE_CHANGE_LIMIT_MESSAGE,
+} from 'app/dashboard/shared/officeChangeLimit'
 
 interface BallotSearch {
   zip?: string
@@ -51,6 +56,7 @@ export default function OfficeStep({
 }: OfficeStepProps): React.JSX.Element {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { errorSnackbar } = useSnackbar()
   const existingRaceId = campaign?.details?.raceId
   const existingElectionId = campaign?.details?.electionId
   const hasOrgPositionMetadata = Boolean(campaign?.organization?.positionId)
@@ -178,10 +184,17 @@ export default function OfficeStep({
     // break the page-reload highlight if we persisted it here.
     const ballotReadyPositionId = brPositionId ?? position?.id
     if (resolvedOrgSlug && ballotReadyPositionId) {
-      await clientRequest('PATCH /v1/organizations/:slug', {
-        slug: resolvedOrgSlug,
-        ballotReadyPositionId,
-      })
+      try {
+        await clientRequest('PATCH /v1/organizations/:slug', {
+          slug: resolvedOrgSlug,
+          ballotReadyPositionId,
+        })
+      } catch (err) {
+        if (!isOfficeChangeLimitReached(err)) throw err
+        errorSnackbar(OFFICE_CHANGE_LIMIT_MESSAGE)
+        setProcessing(false)
+        return
+      }
     }
 
     if (adminMode && campaign) {

@@ -2,8 +2,11 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
   UseInterceptors,
@@ -19,6 +22,7 @@ import {
 import {
   OrganizationsService,
   FriendlyOrganization,
+  OFFICE_CHANGE_LIMIT,
 } from './services/organizations.service'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { User } from '../generated/prisma'
@@ -124,11 +128,13 @@ const AdminListOrganizationsResponseSchema = z.object({
 })
 
 // The single-org admin read, extended the same way the list shape above is:
-// the door-knocking campaign override is readable exactly where it is
-// writable, and nowhere else. It stays off APIOrganizationSchema because that
-// shape is what a candidate gets back about their own organization, and a
-// control over vendor spend is not part of the answer to "what is my org?".
-const AdminOrganizationDetailSchema = APIOrganizationSchema
+// the office change count is readable exactly where staff can reset it. It
+// stays off APIOrganizationSchema because that shape is what a candidate gets
+// back about their own organization.
+const AdminOrganizationDetailSchema = APIOrganizationSchema.extend({
+  officeChangeCount: z.number(),
+  officeChangeLimit: z.number(),
+})
 
 type AdminOrganizationDetail = z.infer<typeof AdminOrganizationDetailSchema>
 
@@ -181,6 +187,14 @@ const toAPIOrganization = (
   }
   return result
 }
+
+const toAdminOrganizationDetail = (
+  org: FriendlyOrganization,
+): AdminOrganizationDetail => ({
+  ...toAPIOrganization(org, organizationStatus(org, new Date())),
+  officeChangeCount: org.officeChangeCount,
+  officeChangeLimit: OFFICE_CHANGE_LIMIT,
+})
 
 @Controller('organizations')
 @UsePipes(ZodValidationPipe)
@@ -277,7 +291,7 @@ export class OrganizationsController {
     @Param('slug') slug: string,
   ): Promise<AdminOrganizationDetail> {
     const org = await this.organizationsService.adminGetOrganization(slug)
-    return toAPIOrganization(org, organizationStatus(org, new Date()))
+    return toAdminOrganizationDetail(org)
   }
 
   @Patch('/admin/:slug')
@@ -292,6 +306,18 @@ export class OrganizationsController {
       updates,
     )
 
-    return toAPIOrganization(org, organizationStatus(org, new Date()))
+    return toAdminOrganizationDetail(org)
+  }
+
+  @Post('/admin/:slug/office-changes/reset')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AdminOrM2MGuard)
+  @ResponseSchema(AdminOrganizationDetailSchema)
+  async adminResetOfficeChanges(
+    @Param('slug') slug: string,
+  ): Promise<AdminOrganizationDetail> {
+    const org =
+      await this.organizationsService.adminResetOfficeChangeCount(slug)
+    return toAdminOrganizationDetail(org)
   }
 }

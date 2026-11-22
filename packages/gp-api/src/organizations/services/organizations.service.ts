@@ -9,6 +9,7 @@ import {
 import {
   BadGatewayException,
   BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -33,10 +34,14 @@ import { getUserFullName } from '@/users/util/users.util'
 import { isHeldOffice } from '@/campaigns/util/eligibility.util'
 import { isPreparedOffice } from '@/electedOffice/util/electedOffice.util'
 
+export const OFFICE_CHANGE_LIMIT = 4
+export const OFFICE_CHANGE_LIMIT_REACHED = 'OFFICE_CHANGE_LIMIT_REACHED'
+
 export type FriendlyOrganization = {
   slug: string
   hasDistrictOverride: boolean
   customPositionName: string | null
+  officeChangeCount: number
   testModeCreatedAt: Date | null
   position: {
     id: string
@@ -256,19 +261,55 @@ export class OrganizationsService extends createPrismaBase(
     updates: PatchOrganizationDto,
   ) {
     const org = await this.getOrganization(userId, slug)
-    return this.applyPatch(org, updates)
+    return this.applyPatch(org, updates, { limitOfficeChanges: true })
   }
 
   async adminPatchOrganization(
     slug: string,
     updates: AdminPatchOrganizationDto,
   ) {
-    return this.applyPatch(await this.adminGetOrganization(slug), updates)
+    return this.applyPatch(await this.adminGetOrganization(slug), updates, {
+      limitOfficeChanges: false,
+    })
+  }
+
+  async adminResetOfficeChangeCount(slug: string) {
+    await this.adminGetOrganization(slug)
+    const updated = await this.client.organization.update({
+      where: { slug },
+      data: { officeChangeCount: 0 },
+      include: { campaign: true, electedOffice: true },
+    })
+    return this.makeFriendly(updated)
+  }
+
+  /**
+   * Spends one of the org's self-service office changes, or throws once they
+   * are used up. The voter file a Pro user downloads is scoped to the org's
+   * position/district, so unlimited changes would hand out unlimited
+   * districts. The decrement is a conditional update so two concurrent
+   * changes can't both slip past the cap.
+   */
+  async consumeOfficeChange(
+    slug: string,
+    tx: Prisma.TransactionClient = this.client,
+  ) {
+    const { count } = await tx.organization.updateMany({
+      where: { slug, officeChangeCount: { lt: OFFICE_CHANGE_LIMIT } },
+      data: { officeChangeCount: { increment: 1 } },
+    })
+    if (count === 0) {
+      throw new ForbiddenException({
+        message: `This office has been changed ${OFFICE_CHANGE_LIMIT} times. Contact support to change it again.`,
+        code: OFFICE_CHANGE_LIMIT_REACHED,
+      })
+    }
   }
 
   private async applyPatch(
     org: FriendlyOrganization,
     updates: AdminPatchOrganizationDto,
+    { limitOfficeChanges }: { limitOfficeChanges: boolean },
   ) {
     // `undefined` leaves the stored link alone. Writing `org.position?.id`
     // instead would null a positionId that is merely unresolvable right now
@@ -300,16 +341,28 @@ export class OrganizationsService extends createPrismaBase(
     const clearsStaleCustomName =
       'ballotReadyPositionId' in updates && !('customPositionName' in updates)
 
-    const updated = await this.client.organization.update({
-      where: { slug: org.slug },
-      data: {
-        positionId,
-        overrideDistrictId: updates.overrideDistrictId,
-        customPositionName: clearsStaleCustomName
-          ? null
-          : updates.customPositionName,
-      },
-      include: { campaign: true, electedOffice: true },
+    const updated = await this.client.$transaction(async (tx) => {
+      if (limitOfficeChanges && positionId !== undefined) {
+        const current = await tx.organization.findUniqueOrThrow({
+          where: { slug: org.slug },
+          select: { positionId: true },
+        })
+        // Picking the first office is free; moving off one is a change.
+        if (current.positionId && current.positionId !== positionId) {
+          await this.consumeOfficeChange(org.slug, tx)
+        }
+      }
+      return tx.organization.update({
+        where: { slug: org.slug },
+        data: {
+          positionId,
+          overrideDistrictId: updates.overrideDistrictId,
+          customPositionName: clearsStaleCustomName
+            ? null
+            : updates.customPositionName,
+        },
+        include: { campaign: true, electedOffice: true },
+      })
     })
 
     return this.makeFriendly(updated)
@@ -798,6 +851,7 @@ export class OrganizationsService extends createPrismaBase(
       slug: org.slug,
       hasDistrictOverride: !!org.overrideDistrictId,
       customPositionName: org.customPositionName,
+      officeChangeCount: org.officeChangeCount,
       testModeCreatedAt: org.testModeCreatedAt,
       position: position
         ? {

@@ -35,11 +35,18 @@ vi.mock('@shared/observability/reportClientError', () => ({
   reportClientError: vi.fn(),
 }))
 
+const mockErrorSnackbar = vi.fn()
 vi.mock('helpers/useSnackbar', () => ({
-  useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
+  useSnackbar: () => ({
+    errorSnackbar: mockErrorSnackbar,
+    successSnackbar: vi.fn(),
+  }),
 }))
 
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
+import { reportClientError } from '@shared/observability/reportClientError'
+import { OFFICE_CHANGE_LIMIT_MESSAGE } from './officeChangeLimit'
 import { ElectedOfficeSelectionModal } from './ElectedOfficeSelectionModal'
 
 beforeEach(() => {
@@ -125,5 +132,39 @@ describe('ElectedOfficeSelectionModal', () => {
         },
       ),
     )
+  })
+
+  it('explains the office change limit instead of a generic error', async () => {
+    const limitError = new FetchError('Forbidden')
+    Object.assign(limitError, {
+      status: 403,
+      data: { code: 'OFFICE_CHANGE_LIMIT_REACHED' },
+    })
+    vi.mocked(clientRequest).mockRejectedValueOnce(limitError)
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(
+      <ElectedOfficeSelectionModal
+        show
+        onClose={onClose}
+        organizationSlug="eo-1"
+      />,
+    )
+
+    await searchAndAwaitResults(user)
+    await user.click(
+      within(
+        screen.getByRole('radiogroup', { name: 'Available offices' }),
+      ).getByRole('radio', { name: /City Council/i }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(mockErrorSnackbar).toHaveBeenCalledWith(
+        OFFICE_CHANGE_LIMIT_MESSAGE,
+      ),
+    )
+    expect(reportClientError).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

@@ -54,6 +54,10 @@ dialog shows as-is.
 
 "Change" next to the email on the user page (`users/[id]/components/ChangeEmailDialog.tsx`, `write_users`) calls gp-api's M2M `PUT /v1/users/:id/email`, which moves Clerk, the database and the HubSpot contact together, and keeps the old address on the contact as a secondary email. The edit form's email field stays read-only. When HubSpot already has another contact with the address, the dialog links both contacts so staff can merge them in HubSpot.
 
+## Office changes card
+
+`users/[id]/components/OfficeChangesCard.tsx` sits on the campaign and elected office pages and shows how many of the owner's self-service office changes are used (`officeChangeCount` of `officeChangeLimit`, from gp-api's `/organizations/admin/:slug`). gp-api refuses a change past the limit because the downloadable voter file follows the office. Reset (`write_campaigns`) calls `POST /organizations/admin/:slug/office-changes/reset`. Rules: gp-api `src/organizations/AGENTS.md`, "Self-service office changes are capped".
+
 ## Server action errors
 
 A server action that throws reaches the browser with a redacted message in

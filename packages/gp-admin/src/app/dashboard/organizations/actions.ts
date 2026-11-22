@@ -5,6 +5,8 @@ import { revalidatePath } from 'next/cache'
 import type { AdminOrganization } from '@/shared/gpApi'
 import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
+import { extractApiErrorMessage } from '@/lib/utils/sdkError'
+import { SdkError } from '@/shared/gpApi'
 
 export type {
   AdminOrganization,
@@ -50,4 +52,28 @@ export async function updateOrganizationPositionName(
     // the corrected position right away.
     await client.campaigns.update(campaignId, {})
   })
+}
+
+export async function resetOfficeChanges(
+  slug: string,
+  userId: number
+): Promise<{ error: string | null }> {
+  const { has } = await auth()
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+    return { error: 'Missing write_campaigns permission' }
+  }
+  try {
+    await gpAction((client) => client.organizations.resetOfficeChanges(slug))
+    revalidatePath(`/dashboard/users/${userId}`, 'layout')
+    return { error: null }
+  } catch (error) {
+    return {
+      error:
+        error instanceof SdkError
+          ? extractApiErrorMessage(error, 'Failed to reset office changes')
+          : error instanceof Error
+            ? error.message
+            : 'Failed to reset office changes',
+    }
+  }
 }

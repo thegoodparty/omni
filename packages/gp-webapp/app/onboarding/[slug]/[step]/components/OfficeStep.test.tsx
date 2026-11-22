@@ -5,11 +5,19 @@ import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import OfficeStep from './OfficeStep'
 import type { Campaign } from 'helpers/types'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
+import { clientRequest } from 'gpApi/typed-request'
+import { FetchError } from 'ofetch'
+import { OFFICE_CHANGE_LIMIT_MESSAGE } from 'app/dashboard/shared/officeChangeLimit'
 
 // Mock all external dependencies
 
 vi.mock('gpApi/typed-request', () => ({
   clientRequest: vi.fn().mockResolvedValue({ data: {}, ok: true }),
+}))
+
+const mockErrorSnackbar = vi.fn()
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ errorSnackbar: mockErrorSnackbar }),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -154,6 +162,25 @@ describe('OfficeStep', () => {
       })
     })
     invalidateSpy.mockRestore()
+  })
+
+  it('stops and explains when the office change limit is reached', async () => {
+    const limitError = new FetchError('Forbidden')
+    Object.assign(limitError, {
+      status: 403,
+      data: { code: 'OFFICE_CHANGE_LIMIT_REACHED' },
+    })
+    vi.mocked(clientRequest).mockRejectedValueOnce(limitError)
+    render(<OfficeStep campaign={baseCampaign} />)
+
+    await selectOfficeAndSave()
+
+    await waitFor(() => {
+      expect(mockErrorSnackbar).toHaveBeenCalledWith(
+        OFFICE_CHANGE_LIMIT_MESSAGE,
+      )
+    })
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
 
   it('passes campaign slug when saving in admin mode', async () => {

@@ -535,11 +535,12 @@ export class CampaignsController {
       L2DistrictName: l2DistrictName,
     }: SetDistrictDTO,
   ) {
-    if (
+    const staffEditingOtherCampaign = Boolean(
       slug &&
       campaign?.slug !== slug &&
-      userHasRole(user, [UserRole.admin, UserRole.sales])
-    ) {
+      userHasRole(user, [UserRole.admin, UserRole.sales]),
+    )
+    if (staffEditingOtherCampaign) {
       campaign = await this.campaigns.findFirstOrThrow({
         where: { slug },
       })
@@ -557,13 +558,16 @@ export class CampaignsController {
       'Updating campaign with district',
     )
 
-    return this.applyDistrictUpdate(campaign, l2DistrictType, l2DistrictName)
+    return this.applyDistrictUpdate(campaign, l2DistrictType, l2DistrictName, {
+      limitOfficeChanges: !staffEditingOtherCampaign,
+    })
   }
 
   private async applyDistrictUpdate(
     campaign: Campaign,
     l2DistrictType: string,
     l2DistrictName: string,
+    { limitOfficeChanges }: { limitOfficeChanges: boolean },
   ) {
     const campaignOrg = await this.organizations.findUnique({
       where: { slug: OrganizationsService.campaignOrgSlug(campaign.id) },
@@ -576,6 +580,18 @@ export class CampaignsController {
         L2DistrictType: l2DistrictType,
         L2DistrictName: l2DistrictName,
       })
+
+    // Moving off a district the org already scoped to (its own override, or
+    // its position's district) spends an office change, like re-picking the
+    // office does.
+    if (
+      limitOfficeChanges &&
+      campaignOrg &&
+      overrideDistrictId !== campaignOrg.overrideDistrictId &&
+      (campaignOrg.overrideDistrictId || campaignOrg.positionId)
+    ) {
+      await this.organizations.consumeOfficeChange(campaignOrg.slug)
+    }
 
     const updated = await this.campaigns.updateJsonFields(campaign.id, {
       overrideDistrictId,
@@ -608,6 +624,8 @@ export class CampaignsController {
       'M2M: Updating campaign with district',
     )
 
-    return this.applyDistrictUpdate(campaign, l2DistrictType, l2DistrictName)
+    return this.applyDistrictUpdate(campaign, l2DistrictType, l2DistrictName, {
+      limitOfficeChanges: false,
+    })
   }
 }

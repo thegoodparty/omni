@@ -2125,3 +2125,180 @@ describe('GET /v1/organizations when the election API is unavailable', () => {
     })
   })
 })
+
+describe('office change limit', () => {
+  const mockPositions = () => {
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getPositionByBallotReadyId').mockImplementation(
+      async (brId: string) => ({
+        id: `pos-${brId}`,
+        brPositionId: brId,
+        brDatabaseId: `db-${brId}`,
+        state: 'TX',
+        name: 'Mayor',
+      }),
+    )
+    vi.spyOn(electionsService, 'getPositionById').mockImplementation(
+      async (id: string) => ({
+        id,
+        brPositionId: id.replace('pos-', ''),
+        brDatabaseId: `db-${id}`,
+        state: 'TX',
+        name: 'Mayor',
+      }),
+    )
+  }
+
+  const pick = (slug: string, brId: string) =>
+    service.client.patch(`/v1/organizations/${slug}`, {
+      ballotReadyPositionId: brId,
+    })
+
+  const countFor = async (slug: string) =>
+    (
+      await service.prisma.organization.findUniqueOrThrow({
+        where: { slug },
+      })
+    ).officeChangeCount
+
+  it('lets the first office pick through without spending a change', async () => {
+    mockPositions()
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-limit-1', ownerId: service.user.id },
+    })
+
+    expect((await pick('campaign-limit-1', 'br-a')).status).toBe(200)
+    expect(await countFor('campaign-limit-1')).toBe(0)
+  })
+
+  it('does not spend a change when the same office is saved again', async () => {
+    mockPositions()
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-limit-2',
+        ownerId: service.user.id,
+        positionId: 'pos-br-a',
+      },
+    })
+
+    expect((await pick('campaign-limit-2', 'br-a')).status).toBe(200)
+    expect(await countFor('campaign-limit-2')).toBe(0)
+  })
+
+  it('refuses the fifth office change with OFFICE_CHANGE_LIMIT_REACHED', async () => {
+    mockPositions()
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-limit-3',
+        ownerId: service.user.id,
+        positionId: 'pos-br-0',
+      },
+    })
+
+    for (const brId of ['br-1', 'br-2', 'br-3', 'br-4']) {
+      expect((await pick('campaign-limit-3', brId)).status).toBe(200)
+    }
+    expect(await countFor('campaign-limit-3')).toBe(4)
+
+    const refused = await pick('campaign-limit-3', 'br-5')
+    expect(refused.status).toBe(403)
+    expect(refused.data).toMatchObject({
+      code: 'OFFICE_CHANGE_LIMIT_REACHED',
+    })
+    const org = await service.prisma.organization.findUniqueOrThrow({
+      where: { slug: 'campaign-limit-3' },
+    })
+    expect(org.positionId).toBe('pos-br-4')
+    expect(org.officeChangeCount).toBe(4)
+  })
+
+  it('counts unlinking an office as a change', async () => {
+    mockPositions()
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-limit-4',
+        ownerId: service.user.id,
+        positionId: 'pos-br-a',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/campaign-limit-4',
+      { ballotReadyPositionId: null, customPositionName: 'Dog catcher' },
+    )
+    expect(result.status).toBe(200)
+    expect(await countFor('campaign-limit-4')).toBe(1)
+  })
+
+  it('does not limit staff edits through the admin patch', async () => {
+    mockPositions()
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-limit-5',
+        ownerId: service.user.id,
+        positionId: 'pos-br-a',
+        officeChangeCount: 4,
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/admin/campaign-limit-5',
+      { ballotReadyPositionId: 'br-b' },
+    )
+    expect(result.status).toBe(200)
+    expect(await countFor('campaign-limit-5')).toBe(4)
+  })
+
+  it('shows the count on the admin read and lets an admin reset it', async () => {
+    mockPositions()
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: ['admin'] },
+    })
+    const otherUser = await service.prisma.user.create({
+      data: { email: 'office-limit-target@goodparty.org' },
+    })
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-limit-6',
+        ownerId: otherUser.id,
+        officeChangeCount: 4,
+      },
+    })
+
+    const read = await service.client.get(
+      '/v1/organizations/admin/campaign-limit-6',
+    )
+    expect(read.data).toMatchObject({
+      officeChangeCount: 4,
+      officeChangeLimit: 4,
+    })
+
+    const reset = await service.client.post(
+      '/v1/organizations/admin/campaign-limit-6/office-changes/reset',
+    )
+    expect(reset.status).toBe(200)
+    expect(reset.data.officeChangeCount).toBe(0)
+    expect(await countFor('campaign-limit-6')).toBe(0)
+  })
+
+  it('refuses the reset to a non-admin', async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-limit-7',
+        ownerId: service.user.id,
+        officeChangeCount: 4,
+      },
+    })
+
+    const reset = await service.client.post(
+      '/v1/organizations/admin/campaign-limit-7/office-changes/reset',
+    )
+    expect(reset.status).toBe(403)
+    expect(await countFor('campaign-limit-7')).toBe(4)
+  })
+})
