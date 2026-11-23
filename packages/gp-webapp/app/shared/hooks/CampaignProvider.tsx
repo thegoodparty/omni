@@ -53,8 +53,9 @@ export const CampaignProvider = ({
   })
 
   // enabled:false blocks refetches but not the cache: after an owner-org →
-  // volunteer/Serve-org switch the picker's invalidateQueries leaves the prior
-  // org's campaign in query.data, so short-circuit it for a volunteer.
+  // volunteer/Serve-org switch the org list re-read leaves this query disabled
+  // with the prior query.data still in the cache, so short-circuit it for a
+  // volunteer.
   const campaign = hasNoCampaign ? null : (query.data ?? null)
   const contextValue = useMemo<CampaignContextValue>(
     () => [campaign],
