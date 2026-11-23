@@ -1099,6 +1099,30 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
   })
 
+  it('does not page when reads fail beside one that succeeds', async () => {
+    for (const [index, projectId] of ['job-a', 'job-b', 'job-ok'].entries()) {
+      const outreach = await createJob(projectId, 1111 + index)
+      await setOutreachDate(outreach.id, subHours(NOW, index + 1))
+    }
+    fetchQuestionResponseRows.mockImplementation((jobId) =>
+      jobId === 'job-ok'
+        ? Promise.resolve([])
+        : Promise.reject(
+            new BadGatewayException('Failed to fetch Peerly report link'),
+          ),
+    )
+    const logSpy = loggerInfoSpy()
+
+    await expect(
+      service.jobs.runSchedule('outreachOptOutReconcile'),
+    ).resolves.toEqual({ deadLetters: [] })
+
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsFailed: 2, jobsPolled: 1 }),
+      expect.any(String),
+    )
+  })
+
   it('pages, without re-reading, when every read in a pass fails', async () => {
     for (const [index, projectId] of ['job-a', 'job-b'].entries()) {
       const outreach = await createJob(projectId, 1111 + index)
