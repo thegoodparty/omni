@@ -45,6 +45,13 @@ NOTIFY wake-ups, and the tracing, dashboard and alerts below.
 
 - `schema`: identifiers only. Payloads are logged, so never put PII or a
   credential in one; pass an id and load the rest in the worker.
+  Validate an id with `z.guid()` unless you know a standard generator made
+  it. `z.uuid()` also demands an RFC version and variant digit (the 4th group
+  must start with 8, 9, a or b), and some stored ids fail that. Prod
+  `elected_office` ids from a 2024 bulk batch have a `c` there, and one such
+  row dead-lettered the whole briefing fan-out because `sendMany` validates
+  the batch before inserting. Use `z.string().min(1)` for a TEXT column with
+  no format constraint.
 - `worker`: keep it thin, fetch the service that owns the work and call it.
   `get` reaches any provider in the app.
 - `alertAfterWaitingMinutes`: when a job has waited this long to start,
