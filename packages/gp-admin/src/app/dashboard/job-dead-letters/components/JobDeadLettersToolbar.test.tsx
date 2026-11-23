@@ -44,6 +44,18 @@ describe('JobDeadLettersToolbar', () => {
     )
   })
 
+  it('still lists the active filter after its last dead letter is gone', async () => {
+    renderToolbar('emptiedQueue')
+
+    await userEvent.click(
+      screen.getByRole('combobox', { name: /source queue/i })
+    )
+
+    expect(
+      await screen.findByRole('option', { name: 'emptiedQueue' })
+    ).toBeInTheDocument()
+  })
+
   it('clears the filter when All queues is picked', async () => {
     renderToolbar('contactUploadProcess')
 

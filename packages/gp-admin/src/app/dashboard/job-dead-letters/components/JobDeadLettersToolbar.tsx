@@ -20,6 +20,15 @@ export function JobDeadLettersToolbar({
   const router = useRouter()
   const searchParams = useSearchParams()
 
+  // Emptying a queue's dead letters drops it from the options while it is
+  // still the active filter, and a Radix Select with a value it has no item
+  // for renders blank. Keeping it listed leaves the filter visible and
+  // clearable instead of showing an empty trigger.
+  const options =
+    sourceQueue && !queues.includes(sourceQueue)
+      ? [sourceQueue, ...queues]
+      : queues
+
   // Filtering is the selection itself: a staff member picks a queue and the
   // list is already that queue. The old text field plus Apply button made two
   // steps of one, and landing back on page 4 of a now-shorter list was the
@@ -55,7 +64,7 @@ export function JobDeadLettersToolbar({
           />
           <Select.Content position="popper">
             <Select.Item value={ALL_QUEUES}>All queues</Select.Item>
-            {queues.map((queue) => (
+            {options.map((queue) => (
               <Select.Item key={queue} value={queue}>
                 {queue}
               </Select.Item>
