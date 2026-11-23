@@ -909,8 +909,10 @@ export class MeetingBriefingsService extends createPrismaBase(
       update: {
         description,
         // A hint an AgentRun wrote names no ExperimentRun, and leaving the old
-        // pointer in place would credit the wrong run.
-        ...(experimentRunId !== undefined && { experimentRunId }),
+        // pointer in place would credit the wrong run. The column is nullable,
+        // so an omitted id has to clear it rather than leave the previous
+        // PMF run's pointer behind.
+        experimentRunId: experimentRunId ?? null,
       },
     })
   }

@@ -178,6 +178,46 @@ describe('meeting_schedule on gp-api agents', () => {
     expect(hint?.description).toBe(FOUND.discovered_schedule_location)
   })
 
+  // A hint can already point at a PMF Engine run, written before the switch
+  // flipped. The gp-api run rewrites the description, and the stale pointer
+  // would credit the schedule it replaced.
+  it('clears the PMF run pointer when an AgentRun writes over its hint', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    const pmfRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey: 'schedule.json',
+        params: { elected_office_id: electedOffice.id },
+      },
+    })
+    await service.prisma.meetingResourceLocation.create({
+      data: {
+        electedOfficeId: electedOffice.id,
+        type: MeetingResourceLocationType.SCHEDULE,
+        description: 'https://www.burnsvillemn.gov/old-schedule',
+        experimentRunId: pmfRun.runId,
+      },
+    })
+    scriptedModel()
+
+    await dispatchSchedule()
+    await service.jobs.settle()
+
+    const hint = await service.prisma.meetingResourceLocation.findUniqueOrThrow({
+      where: {
+        electedOfficeId_type: {
+          electedOfficeId: electedOffice.id,
+          type: MeetingResourceLocationType.SCHEDULE,
+        },
+      },
+    })
+    expect(hint.description).toBe(FOUND.discovered_schedule_location)
+    expect(hint.experimentRunId).toBeNull()
+  })
+
   it('reads the schedule back from the AgentRun when that engine holds it', async () => {
     vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
     scriptedModel()
@@ -304,6 +344,9 @@ describe('meeting_schedule on gp-api agents', () => {
 
   it('started no run the second time a schedule already exists for the org', async () => {
     vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    // Automation on, so the duplicate-run guard is the only thing between this
+    // hook and a second run.
+    vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
     await service.prisma.agentRun.create({
       data: {
         agentName: 'meeting_schedule',
