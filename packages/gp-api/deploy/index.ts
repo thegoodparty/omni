@@ -804,14 +804,14 @@ jwIDAQAB
         dev: 'robocall-free-offer-2026-11',
         prod: 'robocall-free-offer-2026-11',
       }),
-      // The nightly case scout (src/caseScout/AGENTS.md). On in dev; prod
-      // waits on a graded dev week. The bucket belongs to gp-ai's case-scout
-      // module. Off, the send switch holds each night's handoff in the bucket
-      // for a person to read and sends nothing to Delegate.
+      // The nightly case scout (src/caseScout/AGENTS.md). On in dev and prod.
+      // The bucket belongs to gp-ai's case-scout module. The send switch is
+      // off everywhere, so each night's handoff is held in the bucket for a
+      // person to read and nothing goes to Delegate. Previews never run it.
       CASE_SCOUT_ENABLED: select({
         preview: 'false',
         dev: 'true',
-        prod: 'false',
+        prod: 'true',
       }),
       CASE_SCOUT_SEND_TO_DELEGATE: select({
         preview: 'false',
@@ -819,7 +819,11 @@ jwIDAQAB
         prod: 'false',
       }),
       CASE_SCOUT_BUCKET: caseScoutName,
-      CASE_SCOUT_SPEND_CAP_USD: '50',
+      CASE_SCOUT_SPEND_CAP_USD: select({
+        preview: '50',
+        dev: '50',
+        prod: '65',
+      }),
       CASE_SCOUT_SESSION_CAP: '75',
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
