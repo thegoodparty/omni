@@ -236,7 +236,11 @@ E2E or QA test user is signed in.
   `app/dashboard/error.tsx`, `app/global-error.tsx`) report what they catch,
   and code that catches an error it still wants seen calls
   `reportClientError` (`app/shared/observability/reportClientError.tsx`),
-  the one way to push an error to Faro.
+  the one way to push an error to Faro. A failure the browser raises about
+  something we asked it for, which no change of ours can prevent, is a log
+  line instead (`faro.api.pushLog`) so it stays queryable without reading as
+  an exception we shipped: the service worker registration refusal in
+  `app/shared/AppServiceWorker.tsx` is the one such case today.
 - **Find an error.** Grafana, Frontend, Frontend Apps, `gp-webapp-prod`,
   Errors. Stack traces are source-mapped when the build uploaded its maps
   (`scripts/upload-faro-sourcemaps.mjs`), and each error carries the user, the
