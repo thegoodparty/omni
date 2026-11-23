@@ -916,37 +916,7 @@ describe('evaluation error handling', () => {
       'gp-api-fleet-down',
       'ses-bounce-rate',
       'ses-complaint-rate',
-      'gp-ai-slack-notifier-failing',
     ])
-  })
-})
-
-describe('gp-ai-slack-notifier-failing', () => {
-  const alert = GLOBAL_ALERTS.find(
-    (a) => a.slug === 'gp-ai-slack-notifier-failing',
-  )
-
-  it('is registered', () => {
-    expect(alert).toBeDefined()
-  })
-
-  it('counts the notifier Lambda errors, not every Lambda in the account', () => {
-    const model = JSON.parse(alertQueryModel(alert!, 'prod'))
-    expect(model).toMatchObject({
-      namespace: 'AWS/Lambda',
-      metricName: 'Errors',
-      dimensions: { FunctionName: ['shared-slack-notifier'] },
-      statistic: 'Sum',
-    })
-  })
-
-  it('fires on the latest delivery attempt failing', () => {
-    expect(alert?.threshold).toBe(0)
-    expect(alert?.for).toBe('0m')
-  })
-
-  it('looks back past the longest quiet spell between deliveries', () => {
-    expect(alert?.timeRangeSeconds).toBe(7 * 24 * 60 * 60)
   })
 })
 

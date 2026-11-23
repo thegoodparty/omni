@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.0"
+  # >= 1.7 for the removed blocks that drop the old Slack subscription.
+  required_version = ">= 1.7.0"
 
   required_providers {
     aws = {
@@ -61,27 +62,16 @@ data "aws_ecr_repository" "ai_projects" {
   name = "gp-ai-projects"
 }
 
-data "terraform_remote_state" "shared_slack_notifier" {
-  backend = "s3"
-
-  config = {
-    bucket = "goodparty-terraform-state-us-west-2"
-    key    = "shared/slack-notifier/terraform.tfstate"
-    region = "us-west-2"
-  }
-}
-
 module "autopilot_agent_fargate" {
   source = "../../../modules/autopilot-agent-fargate"
 
-  environment                      = "prod"
-  vpc_id                           = var.vpc_id
-  private_subnet_ids               = var.private_subnet_ids
-  ecr_repository_url               = data.aws_ecr_repository.ai_projects.repository_url
-  docker_image_tag                 = var.docker_image_tag
-  docker_image_tag_playwright      = var.docker_image_tag_playwright
-  shared_slack_notifier_lambda_arn = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
-  failure_notification_email       = var.failure_notification_email
+  environment                 = "prod"
+  vpc_id                      = var.vpc_id
+  private_subnet_ids          = var.private_subnet_ids
+  ecr_repository_url          = data.aws_ecr_repository.ai_projects.repository_url
+  docker_image_tag            = var.docker_image_tag
+  docker_image_tag_playwright = var.docker_image_tag_playwright
+  failure_notification_email  = var.failure_notification_email
 }
 
 output "cluster_name" {

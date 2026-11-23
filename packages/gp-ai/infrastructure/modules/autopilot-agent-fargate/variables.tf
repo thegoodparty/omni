@@ -34,12 +34,6 @@ variable "failure_notification_email" {
   default     = ""
 }
 
-variable "shared_slack_notifier_lambda_arn" {
-  description = "ARN of the shared Slack notifier Lambda function"
-  type        = string
-  default     = ""
-}
-
 variable "task_cpu" {
   description = "CPU units for ECS Fargate tasks. Shared by both variants — only memory scales for the Playwright/qa task."
   type        = string

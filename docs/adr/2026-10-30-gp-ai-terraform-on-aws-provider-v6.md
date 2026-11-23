@@ -21,8 +21,8 @@ linux_amd64, darwin_arm64 and darwin_amd64. Read the region from
 
 ## Context
 
-The serve-analyze trigger and `shared/slack-notifier` Lambdas need to move
-from `nodejs22.x` to `nodejs24.x` with the rest of omni's Node 24 move. The
+The serve-analyze trigger Lambda needed to move from `nodejs22.x` to
+`nodejs24.x` with the rest of omni's Node 24 move. The
 provider only accepts `nodejs24.x` from 6.21.0, and 5.100.0 is the last 5.x
 release. None of the 47 resource types these roots manage changed schema
 version between 5.100.0 and 6.71.0, so state written by v6 stays readable by

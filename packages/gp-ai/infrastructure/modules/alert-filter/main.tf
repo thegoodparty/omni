@@ -78,12 +78,6 @@ variable "loki_user" {
   default     = ""
 }
 
-variable "shared_slack_notifier_lambda_arn" {
-  description = "ARN of the shared Slack notifier Lambda to subscribe to failure notifications (empty disables)"
-  type        = string
-  default     = ""
-}
-
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
@@ -334,22 +328,6 @@ resource "aws_sns_topic_policy" "failures" {
   })
 }
 
-resource "aws_sns_topic_subscription" "shared_slack_notifier" {
-  count     = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  topic_arn = aws_sns_topic.failures.arn
-  protocol  = "lambda"
-  endpoint  = var.shared_slack_notifier_lambda_arn
-}
-
-resource "aws_lambda_permission" "allow_sns_invoke_slack" {
-  count         = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  statement_id  = "AllowSNSInvokeFromAlertFilterFailures"
-  action        = "lambda:InvokeFunction"
-  function_name = var.shared_slack_notifier_lambda_arn
-  principal     = "sns.amazonaws.com"
-  source_arn    = aws_sns_topic.failures.arn
-}
-
 # THIS ALARM MUST NOT DEPEND ON THE FILTER, which is why it is a CloudWatch
 # alarm to SNS rather than a Grafana rule: the filter breaking is exactly the
 # state in which a Grafana-delivered warning about the filter would not arrive.
@@ -440,4 +418,26 @@ output "failure_sns_topic_arn" {
 output "mode" {
   value       = var.mode
   description = "Whether the filter is enforcing its decisions or only recording them"
+}
+
+# The shared Slack notifier is gone (its incoming webhook was revoked, and
+# Swain decided the alert filter no longer reports failures there). These are
+# Terraform-managed, not deleted here: the release train refuses any plan that
+# deletes (scripts/ci-apply-root.sh), so the subscription and its invoke
+# permission are forgotten from state with destroy = false. They keep working
+# in AWS until an admin deletes them once (the PR body has the commands).
+removed {
+  from = aws_sns_topic_subscription.shared_slack_notifier
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_lambda_permission.allow_sns_invoke_slack
+
+  lifecycle {
+    destroy = false
+  }
 }

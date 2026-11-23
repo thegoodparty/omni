@@ -29,8 +29,7 @@ workflow trigger's `verification: { format: 'standard-webhooks' }`: `webhook-id`
 
 Only prod. `SWARM_ALERT_WEBHOOK_URL` and `SWARM_ALERT_WEBHOOK_SECRET` live in
 `AI_SECRETS_PROD`; dev has neither and is not meant to report to the swarm, so
-the dev roots subscribe nothing and keep email alone. Every other gp-ai
-member's failure topic still goes to `shared-slack-notifier`, unchanged.
+the dev roots subscribe nothing and keep email alone.
 
 ## Context
 
@@ -44,8 +43,8 @@ is a hard plan failure, not an empty result.
 
 The old subscription is dropped with a `removed { lifecycle { destroy = false } }`
 block rather than unsubscribed, because the release train refuses any plan with a
-delete (`scripts/ci-apply-root.sh`). It stays in AWS, still delivering to
-`shared-slack-notifier`, until an operator removes it by hand.
+delete (`scripts/ci-apply-root.sh`). It stays in AWS until an operator removes it
+by hand.
 
 ## Alternatives rejected
 
@@ -56,8 +55,8 @@ delete (`scripts/ci-apply-root.sh`). It stays in AWS, still delivering to
   (`timestamped-hmac-sha256`), but Standard Webhooks is the spec its
   `standard-webhooks` mode verifies against, and a spec-compliant sender works
   with any other receiver that speaks it.
-- **Point the shared Slack notifier at the swarm.** It serves five other members,
-  and its webhook key is a Slack credential.
+- **Point the shared Slack notifier at the swarm.** It served five other members
+  at the time, and its webhook key was a Slack credential.
 
 ## Revisit if
 

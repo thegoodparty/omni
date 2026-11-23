@@ -173,8 +173,7 @@ def run_status(
     # Surface every terminal failure as a structured log line + CloudWatch
     # metric. Without this, contract violations and agent failures land in
     # gp-api's experiment_run table silently — nobody knows until a user
-    # complains. The metric is alarmed in infrastructure/modules/broker/main.tf
-    # → SNS → shared-slack-notifier → Slack.
+    # complains. The metric is alarmed in infrastructure/modules/broker/main.tf.
     logger.warning(
         "run_status terminal status=%s reason_code=%s run_id=%s "
         "experiment_id=%s organization_slug=%s duration_seconds=%s detail=%s",

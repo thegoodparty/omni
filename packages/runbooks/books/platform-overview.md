@@ -677,7 +677,6 @@ Per-stage: `{stage}-campaign-queue.fifo` + DLQ for develop, master, PR previews.
 | ---------------------------------- | ------------------------------------------------------------- |
 | `serve-analyze-trigger-{dev,prod}` | Trigger serve-analyze ECS tasks                               |
 | `ddhq-matcher-trigger-{dev,prod}`  | Trigger DDHQ matcher ECS tasks                                |
-| `shared-slack-notifier`            | Slack notifications for deploys                               |
 | `databricks-s3-ingest` (x2)        | S3 → Databricks ingestion                                     |
 | `s3-ballotready`                   | BallotReady S3 processing                                     |
 | agent-experiment worker            | PMF Engine: runs the matching runbook for an `experiment_run` |

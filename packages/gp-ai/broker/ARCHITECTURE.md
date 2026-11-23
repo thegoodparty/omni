@@ -221,7 +221,7 @@ Note: runner → broker traffic inside the VPC is HTTP (no TLS). Not a leak — 
 - **Debugging a failed run**: `broker/RUNBOOK.md` section 5
 - **ECS Exec** into broker for live debug: `enable_execute_command = true` on the service; connect with `aws ecs execute-command --cluster broker-{env} --task <task> --container broker --command "sh" --interactive`
 - **SSM Session Manager plugin** required on local machine for ECS Exec
-- **Slack alerts**: broker + runner failure topics both publish to `pmf-engine-failures-{env}` SNS, subscribed by `shared-slack-notifier` Lambda
+- **Failure alarms**: broker + runner alarms publish to the `pmf-engine-failures-{env}` SNS topic
 
 ---
 

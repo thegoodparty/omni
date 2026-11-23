@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.0"
+  # >= 1.7 for the removed blocks that drop the old Slack subscription.
+  required_version = ">= 1.7.0"
 
   required_providers {
     aws = {
@@ -69,18 +70,8 @@ data "terraform_remote_state" "autopilot_agent_fargate" {
   }
 }
 
-# Routes the module's handler-error alarm to Slack (same notifier every other
-# gp-ai bot's failure topic uses).
-data "terraform_remote_state" "shared_slack_notifier" {
-  backend = "s3"
-
-  config = {
-    bucket = "goodparty-terraform-state-us-west-2"
-    key    = "shared/slack-notifier/terraform.tfstate"
-    region = "us-west-2"
-  }
-}
-
+# Routes the module's handler-error alarm to email. The shared Slack notifier
+# used to receive these too; it is gone (its webhook was revoked in 2026-07).
 module "autopilot_bot" {
   source = "../../../modules/autopilot-bot"
 
@@ -97,8 +88,6 @@ module "autopilot_bot" {
   autopilot_list_ids      = var.autopilot_list_ids
   autopilot_bot_user_id   = var.autopilot_bot_user_id
   autopilot_slack_channel = var.autopilot_slack_channel
-
-  shared_slack_notifier_lambda_arn = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
 
   # Dev is expected to get its ClickUp webhook registered soon after this
   # lands (ENG-11104), so leave the no-deliveries alarm armed (module default).

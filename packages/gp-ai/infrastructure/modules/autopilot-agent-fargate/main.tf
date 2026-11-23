@@ -444,21 +444,24 @@ resource "aws_sns_topic_policy" "agent_failures" {
   })
 }
 
-resource "aws_sns_topic_subscription" "shared_slack_notifier" {
-  count     = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  topic_arn = aws_sns_topic.agent_failures.arn
-  protocol  = "lambda"
-  endpoint  = var.shared_slack_notifier_lambda_arn
+# The shared Slack notifier is gone (its incoming webhook was revoked, and
+# Swain decided autopilot-agent no longer reports failures there). These are
+# Terraform-managed, not deleted here: the release train refuses any plan that
+# deletes (scripts/ci-apply-root.sh), so the subscription and its invoke
+# permission are forgotten from state with destroy = false. They keep working
+# in AWS until an admin deletes them once (the PR body has the commands).
+removed {
+  from = aws_sns_topic_subscription.shared_slack_notifier
+
+  lifecycle {
+    destroy = false
+  }
 }
 
-resource "aws_lambda_permission" "allow_sns_invoke_slack" {
-  count = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  # Statement ids are unique per function, and the engineer-agent module
-  # already holds "AllowSNSInvokeFromAgentFailures" on this same shared
-  # notifier lambda — reusing it fails the apply with ResourceConflictException.
-  statement_id  = "AllowSNSInvokeFromAutopilotAgentFailures"
-  action        = "lambda:InvokeFunction"
-  function_name = var.shared_slack_notifier_lambda_arn
-  principal     = "sns.amazonaws.com"
-  source_arn    = aws_sns_topic.agent_failures.arn
+removed {
+  from = aws_lambda_permission.allow_sns_invoke_slack
+
+  lifecycle {
+    destroy = false
+  }
 }

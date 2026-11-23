@@ -99,12 +99,6 @@ variable "github_app_installation_id" {
   default     = "117364330"
 }
 
-variable "shared_slack_notifier_lambda_arn" {
-  description = "ARN of the shared Slack notifier Lambda to subscribe to failure notifications (empty disables)"
-  type        = string
-  default     = ""
-}
-
 variable "failure_notification_email" {
   description = "Email address for failure notifications (empty disables)"
   type        = string
@@ -497,26 +491,6 @@ resource "aws_sns_topic_subscription" "bot_failures_email" {
   endpoint  = var.failure_notification_email
 }
 
-resource "aws_sns_topic_subscription" "shared_slack_notifier" {
-  count     = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  topic_arn = aws_sns_topic.bot_failures.arn
-  protocol  = "lambda"
-  endpoint  = var.shared_slack_notifier_lambda_arn
-}
-
-resource "aws_lambda_permission" "allow_sns_invoke_slack" {
-  count = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  # The notifier lambda is ONE shared function across environments
-  # (shared/slack-notifier state), and permission statement ids are unique per
-  # function — an un-suffixed id lets whichever environment applies first win
-  # and fails the other with ResourceConflictException (prod, run 34764275079).
-  statement_id  = "AllowSNSInvokeFromAutopilotBotFailures-${var.environment}"
-  action        = "lambda:InvokeFunction"
-  function_name = var.shared_slack_notifier_lambda_arn
-  principal     = "sns.amazonaws.com"
-  source_arn    = aws_sns_topic.bot_failures.arn
-}
-
 resource "aws_cloudwatch_metric_alarm" "handler_errors" {
   alarm_name          = "autopilot-bot-handler-errors-${var.environment}"
   alarm_description   = "autopilot-bot ${var.environment} logged handler errors (fail-loud 4xx/5xx, a routed dispatch that refused to fire, or an async worker hard timeout — 'Task timed out': check for a stranded DynamoDB claim). Check /aws/lambda/autopilot-bot-${var.environment} logs. Stranded claim: scan table autopilot-dedup-${var.environment} for the task's pk and delete-item it to unblock a re-entry."
@@ -587,4 +561,26 @@ output "lambda_function_name" {
 output "failure_sns_topic_arn" {
   value       = aws_sns_topic.bot_failures.arn
   description = "SNS topic that receives autopilot-bot handler error alarms"
+}
+
+# The shared Slack notifier is gone (its incoming webhook was revoked, and
+# Swain decided autopilot-bot no longer reports failures there). These are
+# Terraform-managed, not deleted here: the release train refuses any plan that
+# deletes (scripts/ci-apply-root.sh), so the subscription and its invoke
+# permission are forgotten from state with destroy = false. They keep working
+# in AWS until an admin deletes them once (the PR body has the commands).
+removed {
+  from = aws_sns_topic_subscription.shared_slack_notifier
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_lambda_permission.allow_sns_invoke_slack
+
+  lifecycle {
+    destroy = false
+  }
 }

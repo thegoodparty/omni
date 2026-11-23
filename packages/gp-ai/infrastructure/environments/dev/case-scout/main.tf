@@ -255,17 +255,3 @@ removed {
     destroy = false
   }
 }
-
-removed {
-  from = module.case_scout.aws_sns_topic_subscription.shared_slack_notifier
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = module.case_scout.aws_lambda_permission.allow_sns_invoke_slack
-  lifecycle {
-    destroy = false
-  }
-}

@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.5.0"
+  # >= 1.7 for the removed blocks that drop the old Slack subscription.
+  required_version = ">= 1.7.0"
 
   backend "s3" {
     bucket       = "goodparty-terraform-state-us-west-2"
@@ -65,8 +66,6 @@ module "pmf_engine_fargate" {
   broker_security_group_id = try(data.terraform_remote_state.broker.outputs.security_group_id, "")
   broker_url               = data.terraform_remote_state.broker.outputs.broker_url
   vpce_security_group_id   = try(data.terraform_remote_state.vpc_endpoints.outputs.vpce_security_group_id, "")
-
-  shared_slack_notifier_lambda_arn = "arn:aws:lambda:us-west-2:333022194791:function:shared-slack-notifier"
 }
 
 output "cluster_arn" {
