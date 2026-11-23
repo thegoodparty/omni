@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{Bug analysis: short symptom}}</title>
+<style>
+body{margin:0;background:#f7f7f9;color:#18181b;font:16px/1.45 system-ui}
+main{max-width:860px;margin:auto;padding:24px}
+h1{font-size:clamp(24px,5vw,34px);line-height:1.15;margin:6px 0 18px}
+h2{font-size:19px;margin:0 0 8px}
+.status{font-size:12px;letter-spacing:.04em;color:#52525b}
+.section{background:#fff;border:1px solid #e4e4e7;border-radius:12px;padding:14px 18px;margin:12px 0}
+.severity{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:10px}
+.sev{border:1px solid #e4e4e7;border-radius:8px;padding:10px;background:#f4f4f5;font-size:14px}
+.sev.on{background:#fee2e2;border:2px solid #b91c1c;color:#7f1d1d}
+.sev.on.medium{background:#fef3c7;border-color:#b45309;color:#78350f}
+.sev.on.low{background:#dcfce7;border-color:#15803d;color:#14532d}
+ol{margin:0;padding-left:24px}li{padding:3px 0}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0}
+.box{border:1.5px solid #a1a1aa;border-radius:8px;padding:8px 10px;background:#fff;font-size:14px}
+.box.ok{border-color:#15803d;background:#f0fdf4}
+.box.fail{border-color:#b91c1c;background:#fee2e2}
+.box.unknown{border-color:#b45309;background:#fffbeb;border-style:dashed}
+.line{position:relative;flex:1 1 40px;min-width:40px;height:2px;background:#a1a1aa}
+.line i{position:absolute;top:-4px;left:0;width:10px;height:10px;border-radius:50%;background:#4338ca;animation:move 2s linear infinite}
+@keyframes move{from{left:0}to{left:calc(100% - 10px)}}
+@media (prefers-reduced-motion:reduce){.line i{animation:none;left:calc(50% - 5px)}}
+details{background:#fff;border:1px solid #e4e4e7;border-radius:12px;padding:10px 18px;margin:12px 0}
+summary{cursor:pointer;font-weight:600}
+details pre{white-space:pre-wrap}
+pre{background:#f4f4f5;border-radius:6px;padding:10px;overflow:auto;font-size:13px}
+code{background:#f4f4f5;padding:1px 4px;border-radius:3px}
+small,footer{color:#52525b}a{color:#4338ca}
+</style></head>
+<body><main>
+<small class="status">{{INCOMPLETE INVESTIGATION or ROOT CAUSE CONFIRMED}} · {{area}}</small>
+<h1>{{One-sentence symptom}}</h1>
+
+<section class="section" id="impact">
+  <h2>Impact</h2>
+  <div class="severity">
+    <!-- Keep all three. Add class "on" to the one that applies (plus "medium" or "low" for those). Never add an "Applies here" label; the highlight alone marks it. Do not edit the definitions. -->
+    <div class="sev on"><strong>High</strong><br>Financial harm or a core task blocked with no workaround.</div>
+    <div class="sev"><strong>Medium</strong><br>A task is disrupted, but a workaround exists.</div>
+    <div class="sev"><strong>Low</strong><br>Minor friction; users can still finish the task.</div>
+  </div>
+  <p><strong>{{High/Medium/Low}} · {{N}} confirmed affected · total {{N or unknown}}.</strong> {{One sentence of user-facing harm.}}</p>
+</section>
+
+<section class="section" id="five-whys">
+  <h2>Five Whys</h2>
+  <ol>
+    <li><strong>{{Why question?}}</strong> {{One or two plain-language sentences a non-engineer can follow, with no code or field names (put identifiers in Evidence), plus a link to evidence. Label Confirmed or Unknown.}}</li>
+    <li>…</li><li>…</li><li>…</li><li>…</li>
+  </ol>
+  <!-- Optional, placed below the whys. Only if it clarifies the cause. 3 to 5 steps. A dot travels left to right along each line, looping. Keep it this simple. -->
+  <div class="flow" aria-label="Data flow">
+    <div class="box ok">{{Step}}</div><div class="line"><i></i></div>
+    <div class="box fail">{{Failed step}}</div><div class="line"><i></i></div>
+    <div class="box unknown">{{Unverified step}}</div>
+  </div>
+</section>
+
+<section class="section" id="proposed-solution">
+  <h2>Resolution</h2>
+  <p>{{Behavior to change, where, how to verify normal and failure paths. If incomplete: the exact commands below, each with who runs it and what each result means.}}</p>
+  <pre>{{literal read-only SQL / stripe command / Loki query}}</pre>
+  <p><strong>Cleanup (owned by the bug responder):</strong> {{identify, repair, verify; or why none is needed}}</p>
+  <p>{{Confirmed RCA only: ask reviewers for a thumbs up or a pinned comment. Incomplete: no approval request.}}</p>
+</section>
+<details id="evidence">
+  <summary>Evidence</summary>
+  <!-- Collapsed by default. Complete enough that an agent can act without going back to the sources: every query run (exact text, tool, environment, time window) with its result summary and any decisive raw lines; ticket facts and quotes used; code references (repo path, line, commit); record and request ids; what was attempted and unavailable. Customer ids are fine, secrets and tokens never. -->
+  <h3>{{Group, e.g. Ticket facts}}</h3><pre>{{...}}</pre>
+  <h3>{{Group, e.g. Telemetry}}</h3><pre>{{...}}</pre>
+  <h3>{{Group, e.g. Code}}</h3><pre>{{...}}</pre>
+  <h3>Not available / unverified</h3><pre>{{what was tried, why it failed}}</pre>
+</details>
+<footer>{{links to ticket, PR, evidence}}</footer>
+</main></body></html>
