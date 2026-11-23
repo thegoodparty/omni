@@ -948,6 +948,48 @@ describe('CampaignStrategyService', () => {
 
       expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(1)
     })
+
+    // The persister commits oppositionPersistedAt before the side effects run.
+    // onArtifact is the only path that bootstraps, so returning early on the
+    // marker skipped it forever when a crash landed between the two.
+    it('still bootstraps the tracker on a retry whose rows are already persisted', async () => {
+      // Opposition landing last is the case that loses the bootstrap: both
+      // markers are set, so the plan is complete but nothing bootstrapped it.
+      prisma.campaignStrategy.findFirst.mockResolvedValue(
+        planRow({
+          oppositionRunId: 'opp-run',
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+
+      await service.onOppositionResearchArtifact({
+        runId: 'opp-run',
+        raceId: 'br-general',
+        artifact: { opponents: [] },
+      })
+
+      expect(persister.persistOpponents).not.toHaveBeenCalled()
+      expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(1)
+    })
+
+    // A transient fault on the event's user lookup or the bootstrap's reads used
+    // to escape persistSection into the caller's catch, marking a run whose rows
+    // had already committed as FAILED and rethrowing into a retry that skipped
+    // the bootstrap.
+    it('does not fail a run whose section rows already committed', async () => {
+      prisma.campaign.findUnique.mockRejectedValue(new Error('db down'))
+      s3.getFile.mockResolvedValue(JSON.stringify({ opponents: [] }))
+
+      await expect(
+        service.onExperimentRunCompleted(
+          run({ runId: 'opp-run', experimentType: 'opposition_research' }),
+        ),
+      ).resolves.toBeUndefined()
+
+      expect(experimentRuns.markFailed).not.toHaveBeenCalled()
+      expect(service['logger'].error).toHaveBeenCalled()
+    })
   })
 
   describe('campaign story alignment', () => {

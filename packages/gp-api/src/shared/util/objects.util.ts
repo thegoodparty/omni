@@ -69,13 +69,16 @@ export const isJsonObject = (
 const camelKey = (key: string) =>
   key.replace(/_([a-z0-9])/g, (_match, char: string) => char.toUpperCase())
 
+// An undefined value is an absent one, not a null: the params builder leaves an
+// optional field out that way (`campaign_story: undefined`), and the agent's own
+// schema declares it `.optional()` but not `.nullable()`. Coercing it to null
+// made every dispatch with no campaign story fail its input check.
 export const snakeToCamelKeys = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(snakeToCamelKeys)
   if (!isJsonObject(value)) return value
   return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      camelKey(key),
-      snakeToCamelKeys(item ?? null),
-    ]),
+    Object.entries(value).flatMap(([key, item]) =>
+      item === undefined ? [] : [[camelKey(key), snakeToCamelKeys(item)]],
+    ),
   )
 }

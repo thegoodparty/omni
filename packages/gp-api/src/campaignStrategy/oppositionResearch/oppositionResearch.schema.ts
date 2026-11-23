@@ -39,7 +39,8 @@ const StrategyContextSchema = z.object({
 
 // The primary stage's roster only, or null when the race has no primary. The
 // dispatcher's byte budget drops campaign_story before a roster, so it arrives
-// absent rather than null in that case.
+// absent rather than null in that case (the snake_case to camelCase conversion
+// drops an undefined field instead of writing null for it).
 const PrimaryContextSchema = z.object({
   candidateCount: z.number().int(),
   candidates: z.array(CandidateSchema),

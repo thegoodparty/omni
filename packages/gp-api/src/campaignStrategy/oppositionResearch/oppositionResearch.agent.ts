@@ -17,8 +17,8 @@ export const oppositionResearchAgent = defineAgent({
   model: 'claude-sonnet-4-6',
   prompt: OPPOSITION_RESEARCH_PROMPT,
   tools: { webSearch, fetchPage, renderPage },
-  // The plan links this run by its id before dispatch, so in production the
-  // section lands where the plan renders it. A judge run has no plan pointing
+  // The plan links this run's id immediately after dispatch, so in production
+  // the section lands where the plan renders it. A judge run has no plan pointing
   // at it and this is a no-op: the run route hands back the artifact instead.
   //
   // Resolved lazily, not imported: the campaign strategy service imports this

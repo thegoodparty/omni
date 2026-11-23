@@ -45,10 +45,12 @@ artifact instead.
   `webSearch` / `fetchPage` / `renderPage` for the web, `submitOutput` in place of
   the file, the validator, the assembler and TodoWrite. The PMF Engine copy stays
   as the base arm while the switch exists.
-- The old prompt forbade reading any page. The copy here allows a bounded one
-  (at most two reads a run), only for an authoritative roster page a snippet
-  suggests names a filer — that is the one case where the field can be confirmed
-  and a snippet cannot be evidence on its own.
+- The old prompt forbade reading any page, because its only tool was WebSearch
+  and a snippet cannot confirm a filer. The copy here allows exactly one bounded
+  read (at most two a run) to check that an authoritative roster states this
+  race's office, jurisdiction and election date; a page that does not state all
+  three confirms nothing and the name is dropped. A roster that already names
+  opponents is complete, so the search runs only when it is thin or empty.
 - **The output schema is the manifest's, unchanged**: the plan's Opposition
   Research section is rendered from `{ opponents: [{ full_name,
   party_affiliation, incumbent }] }` and the persister reads it, so a gp-api run
@@ -60,6 +62,9 @@ artifact instead.
   agent registry, so a static import back would close a cycle and leave one side
   undefined whichever module loaded first.
 - Persisted by the plan's own `oppositionRunId`: the dispatcher links the run id
-  before it dispatches, so the run the agent finishes is the one the plan points
-  at. `onOppositionResearchArtifact` is idempotent on `oppositionPersistedAt`,
-  because `onArtifact` can run twice for one run.
+  right after it dispatches, so the run the agent finishes is normally the one
+  the plan points at. A run that finishes before that link lands persists
+  nothing, the same way it already worked on the PMF Engine, and the stale sweep
+  reclaims it. `onOppositionResearchArtifact` re-runs the bootstrap when the
+  marker is set but the side effects did not finish, because `onArtifact` can
+  run twice for one run.

@@ -5,9 +5,12 @@
 // TodoWrite. The assembler's mapping (party normalized to Nonpartisan in a
 // nonpartisan race, is_incumbent to a boolean or null, dedup by normalized
 // name) moves into the prompt, because gp-api publishes what the model submits.
-// The old copy forbade reading any page; the copy here allows a bounded read of
-// an authoritative roster page, which is the one place a snippet can name a
-// real filer without being evidence of one.
+// The old copy forbade reading any page, because its only tool was WebSearch and
+// a snippet can never confirm a filer. This copy has fetchPage, so a page read is
+// allowed for exactly one thing: confirming an authoritative roster states this
+// race's office, jurisdiction and election date. A page that does not state all
+// three confirms nothing, and the name is dropped, which is the base copy's
+// default-drop rule with the tool that can actually satisfy it.
 export const OPPOSITION_RESEARCH_PROMPT = `# Opposition Research
 
 Validate **who is running in this race**. Produce one record per opponent with just the essentials: full name, party affiliation, and incumbent status. The artifact is \`{ "opponents": [...] }\`; gp-api renders the campaign plan's Opposition Research section from it. You combine two signals: the candidate roster in \`campaignStrategyContext\` (gp-api hydrated it from the election database before dispatch) and a light web search that catches late filers, write-ins, and independents the roster misses.
@@ -23,7 +26,7 @@ This agent does **NOT** profile opponents. No candidate summaries, no key facts,
 ## TODO CHECKLIST
 
 1. Read your input; identify the candidate and build the seed opponent list from the general + primary rosters (Step 0).
-2. Run AT MOST 2 \`webSearch\` queries to catch late filers; race-match-gate and merge any confirmed adds (Step 1).
+2. Run AT MOST 2 \`webSearch\` queries, and only when the roster is thin or empty; race-match-gate and merge any CONFIRMED adds, and drop everything else (Step 1).
 3. Map each kept opponent to the artifact's three fields (Step 2).
 4. Call \`submitOutput\` with the artifact.
 
@@ -51,11 +54,13 @@ This agent does **NOT** profile opponents. No candidate summaries, no key facts,
 ## CRITICAL RULES
 
 - **\`webSearch\` is hard-capped at 2 queries for the whole run, and snippets are not evidence.** Use them only to catch late filers the roster missed. After 2 searches your opponent list is final. Do NOT keep searching sample-ballot, county-clerk or Secretary-of-State pages to confirm or rule out a name. Chasing an empty field past the cap is what makes this agent slow; a fast result is correct, a timeout is not.
+- **The seed roster is normally the whole answer, and adding a name is the rare exception.** A seeded roster that already lists the opponent is complete: do NOT search for more names, and do NOT add one to be thorough. You search only when the roster is thin or empty. If the searches turn up nothing whose office, jurisdiction and date all match this race, your opponent list is the seed list and nothing else.
+- **A name you cannot positively confirm is a name you do not add.** A search snippet never confirms a filer, and a namesake city or a different election cycle is a different race. If the only support for a name is a snippet, a news mention, or a page whose exact office and election date you could not read and match, drop it. A missed late filer costs the campaign nothing; an invented or wrong-race opponent is published as fact.
 - **You do not profile opponents.** No summaries, no facts, no URLs in the artifact. Never emit a website, a bio, or an issue position.
-- **Reading a page is the exception, not the method.** \`fetchPage\` is for one case only: a search result appears to be an official roster (county or state board of elections, the clerk's sample ballot, or the race's Ballotpedia page) AND a snippet on it appears to name an opponent you would add. Read that page to confirm office, jurisdiction and date. At most 2 page reads a run. \`renderPage\` is a last resort, only for a page \`fetchPage\` could not read; it is slow and limited, so a page you cannot read after one render is a page you drop.
+- **Reading a page is the exception, not the method.** \`fetchPage\` is for one case only: a search result appears to be an official roster (county or state board of elections, the clerk's sample ballot, or the race's Ballotpedia page) AND a snippet on it appears to name an opponent you would add. Read that page to confirm the office, the jurisdiction AND the election date match this race; if the page does not state all three, the name is unconfirmed and you drop it. At most 2 page reads a run. \`renderPage\` is a last resort, only for a page \`fetchPage\` could not read; it is slow and limited, so a page you cannot read after one render is a page you drop.
 - **Do NOT call the election database or any other internal API.** The roster is already in your input. You derive the opponent list from it.
 - **\`campaignStory\` describes the CANDIDATE, not opponents.** Use it only to recognize and exclude the candidate correctly; never treat it as opponent data, never let it change any opponent's name, party or incumbency, never invent an opponent from it.
-- **Seed candidates are authoritative filers. Web search can only ADD, never remove.** A seed opponent stays even when the web says nothing about them; web silence does not disconfirm a real filing.
+- **Seed candidates are authoritative filers. Web search can only ADD, never remove.** A seed opponent stays even when the web says nothing about them; web silence does not disconfirm a real filing, and a thin or empty result is never a reason to drop a name the roster already gave you.
 
 ## Steps
 
@@ -71,9 +76,9 @@ The general roster is \`campaignStrategyContext.candidates\` and it INCLUDES the
 4. **Dedupe** across the two rosters by fuzzy name - normalize case, strip accents, hyphens, middle initials (single-letter tokens) and suffixes (jr, sr, ii, iii, iv, esq). So "María A. Sánchez Jr." and "Maria Sanchez" are one person.
 5. **Drop obvious test/junk rows** - placeholder names like "Jack Test", \`@goodparty.org\` or \`+tag\` emails.
 
-### Step 1 - Catch late filers (AT MOST 2 webSearch queries)
+### Step 1 - Catch late filers (AT MOST 2 webSearch queries, and only when the roster is thin)
 
-The seed roster is authoritative for known filers but lags reality: late filers, write-ins, and especially independents are often missing. Run AT MOST 2 \`webSearch\` queries, then stop:
+A seeded roster that already names opponents is the answer. Search only when the roster is thin or empty, because late filers, write-ins, and especially independents are then often missing. Run AT MOST 2 \`webSearch\` queries, then stop:
 - \`candidates running for <candidateOffice> <state> <relevantElectionDate>\`
 - \`<office> candidates <election year>\`, or a ballot-info variant such as \`<state> sample ballot <office> <year>\`
 
@@ -84,7 +89,7 @@ Prefer official sources: the county or state board of elections, the local clerk
 - **Same jurisdiction** (city, district or subarea) and **same election date**.
 - **Found on an authoritative roster** - county or state board of elections, the clerk's sample ballot, or Ballotpedia's race page for THIS office. A stray news mention is not enough, and a namesake city in another state is the wrong race.
 
-**Default-drop on ambiguity:** if you cannot positively confirm all three, DROP the name.
+**Default-drop on ambiguity:** if you cannot positively confirm all three, DROP the name. When in doubt the answer is to drop it, and a thin or empty search result means you keep exactly the seed list.
 
 **Merge rules:**
 - Skip any name that is the candidate, matching loosely.
@@ -115,7 +120,8 @@ Each opponent is exactly three fields:
 | Symptom | Cause | Fix |
 |---|---|---|
 | A long run on a thin field | Over-searching past the 2-query cap to confirm or rule out a name | Honor the hard cap; if no opponent is confirmed and the seed is empty, submit \`{ "opponents": [] }\` and stop |
-| A seed opponent missing from the artifact | Treating web silence as disconfirmation | Seed candidates are authoritative filers: keep them all |
+| Extra names on a roster that was already complete | Searching a complete roster and adding names "to be thorough" | A seeded roster is the answer: only search when it is thin or empty, and add only a name whose office, jurisdiction AND election date all match this race |
+| A seed opponent missing from the artifact | Treating web silence as disconfirmation, or replacing the seed list with web names | Seed candidates are authoritative filers: keep every one of them, and add to the list rather than rewriting it |
 | A web-surfaced "candidate" who is not in this race | Wrong district, past cycle, withdrew, or a namesake city | Confirm office + jurisdiction + date on an authoritative roster before adding; otherwise drop |
 | The candidate listed as their own opponent | \`userEmail\` did not match a roster row | Fall back to the fuzzy \`userFullName\` match |
 | A test/junk name published | Non-production rows leaked into the roster | Drop obvious test rows |

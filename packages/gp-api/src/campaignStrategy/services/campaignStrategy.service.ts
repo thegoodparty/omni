@@ -451,11 +451,21 @@ export class CampaignStrategyService extends createPrismaBase(
     artifact: unknown
   }): Promise<void> {
     const plan = await this.planForSection('opposition', run.runId)
-    // onArtifact can run twice for one run (a crash after it, before the run is
-    // marked complete), and the marker is what makes the second call a no-op
-    // rather than a second write and a second event. The PMF Engine's consumer
-    // needs no such guard: it sees each terminal result once.
-    if (!plan || plan.oppositionPersistedAt) return
+    if (!plan) return
+    // onArtifact runs before the run is stamped finished and can run again after
+    // a crash, so a set marker means the rows are already written. The bootstrap
+    // still has to run: this call is the only path that bootstraps, and it may
+    // be the attempt after one whose write committed but whose side effects did
+    // not. It is idempotent, so repeating it is a no-op.
+    if (plan.oppositionPersistedAt) {
+      await this.afterSectionPersisted(plan, {
+        section: 'opposition',
+        runId: run.runId,
+        durationSeconds: null,
+        costUsd: null,
+      })
+      return
+    }
 
     await this.persistSection(plan, {
       section: 'opposition',
@@ -483,7 +493,11 @@ export class CampaignStrategyService extends createPrismaBase(
 
   // One section's write path for both engines: the rows the plan renders, the
   // Segment event, and the tracker bootstrap that waits on both sections, so
-  // the two engines cannot drift.
+  // the two engines cannot drift. The caller wraps this in a try that marks the
+  // run FAILED, so the reads after the write are caught here instead: once the
+  // persister has committed the rows, a transient DB fault on an event's user
+  // lookup or the bootstrap's reads must not report a section that landed as
+  // failed, and must not fail the job into a retry that skips the bootstrap.
   private async persistSection(
     plan: CampaignStrategy,
     section: {
@@ -512,29 +526,55 @@ export class CampaignStrategyService extends createPrismaBase(
       )
     }
 
-    const userId = await this.resolveCampaignUserId(plan.campaignId)
-    if (userId !== null) {
-      void this.analytics
-        .track(
-          userId,
-          section.section === 'opposition'
-            ? EVENTS.CampaignPlanV2.OppositionResearchGenerationCompleted
-            : EVENTS.CampaignPlanV2.OpportunitiesChallengesGenerationCompleted,
-          {
-            campaignId: plan.campaignId,
-            planId: plan.id,
-            generationEngine: 'cap',
-            runId: section.runId,
-            durationSeconds: section.durationSeconds,
-            costUsd: section.costUsd,
-            // Both engines only reach here for a section that completed.
-            outcome: 'COMPLETED',
-          },
-        )
-        .catch(() => undefined)
-    }
+    await this.afterSectionPersisted(plan, section)
+  }
 
-    await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
+  // The side effects that follow a section's rows. Separated from the write so
+  // the already-persisted path can still run the tracker bootstrap: the marker
+  // is set by the write, so routing a retry through persistSection would return
+  // before the bootstrap and leave a completed plan without its tracker.
+  private async afterSectionPersisted(
+    plan: CampaignStrategy,
+    section: {
+      section: 'opposition' | 'opportunities'
+      runId: string
+      durationSeconds: number | null
+      costUsd: number | null
+    },
+  ): Promise<void> {
+    try {
+      const userId = await this.resolveCampaignUserId(plan.campaignId)
+      if (userId !== null) {
+        void this.analytics
+          .track(
+            userId,
+            section.section === 'opposition'
+              ? EVENTS.CampaignPlanV2.OppositionResearchGenerationCompleted
+              : EVENTS.CampaignPlanV2
+                  .OpportunitiesChallengesGenerationCompleted,
+            {
+              campaignId: plan.campaignId,
+              planId: plan.id,
+              generationEngine: 'cap',
+              runId: section.runId,
+              durationSeconds: section.durationSeconds,
+              costUsd: section.costUsd,
+              // Both engines only reach here for a section that completed.
+              outcome: 'COMPLETED',
+            },
+          )
+          .catch(() => undefined)
+      }
+
+      await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
+    } catch (err) {
+      // The rows are committed. A failure here must not surface as the section
+      // failing, so it is logged for the next poll to retry, not rethrown.
+      this.logger.error(
+        { err, planId: plan.id, runId: section.runId },
+        'section persisted but its completion side effects failed',
+      )
+    }
   }
 
   // Materialize the tracker's static rows at plan-generation start so they
