@@ -297,6 +297,23 @@ describe('admin job dead letters', () => {
     expect((await getDeadLetter(id)).status).toBe(HttpStatus.NOT_FOUND)
   })
 
+  it('refuses to delete a live job that is not a dead letter', async () => {
+    const [inserted] = await service.prisma.$queryRaw<Array<{ id: string }>>`
+      INSERT INTO pgboss.job (name, data, state)
+      VALUES (${SOURCE_QUEUE}, '{}'::jsonb, 'created')
+      RETURNING id::text AS id`
+    const id = inserted?.id
+
+    const res = await service.client.delete(`${LIST_PATH}/${id}`)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(
+      await service.prisma.$queryRaw<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM pgboss.job
+        WHERE id = ${id}::uuid`,
+    ).toEqual([{ count: 1 }])
+  })
+
   it('answers an unknown id with 404 on delete', async () => {
     const res = await service.client.delete(`${LIST_PATH}/${randomUUID()}`)
 
