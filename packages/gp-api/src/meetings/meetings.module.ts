@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
+import { AgentsModule } from '@/agents/agents.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
@@ -19,6 +20,7 @@ import { UserAgendaUploadService } from './services/userAgendaUpload.service'
 @Module({
   imports: [
     AgentExperimentsModule,
+    AgentsModule,
     forwardRef(() => ElectedOfficeModule),
     ElectionsModule,
     OrganizationsModule,

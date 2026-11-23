@@ -6,6 +6,11 @@ import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 // questions are `grading`. A case marked unscored there is a normal case here
 // whose condition says it is a control.
 //
+// This suite is also the migration's comparison: dev dispatches
+// meeting_schedule to the PMF Engine and a preview names it in
+// AGENTS_ON_GP_API, so the two arms run the two engines on one input
+// (docs/agent-evals.md).
+//
 // Serve: the schedule is persisted for an elected official's office.
 //
 // The org is the run's own test user's, never a case's: the suite writes the
@@ -43,6 +48,8 @@ export default definePairwiseAgentEvalSuite<MeetingScheduleEvalInput>(
         grading: {
           condition:
             "No stressor planted. The office names a mid-size Minnesota city's council and no hint is supplied, the first-run shape most offices have. The city states its rule in words on its own site: regular meetings at 5:30 p.m. on the first and third Tuesdays after the first Monday of each month, with work sessions on the second Tuesday after the first Monday. Two recurrence strings can encode that rule differently and still mean the same dates, so read the rule and the paraphrase for meaning, not the string. The judge sees no page: read grounding as the rule, the paraphrase, the time, the location and the source notes agreeing with each other and resting on an official-domain source.",
+          handledWhen:
+            "the run reports found with a rule, a time, a location and at least one official-domain source, and the location it writes back is a page that lists the schedule rather than one meeting's own page; not_found for a city that states its schedule on its own site is no.",
           dimensions: {
             grounding:
               'Does every claim in the artifact trace to evidence this run actually had in its sources? Judge traceability only, not whether the claim is true in the world.',
@@ -180,6 +187,8 @@ export default definePairwiseAgentEvalSuite<MeetingScheduleEvalInput>(
         grading: {
           condition:
             'Control: the old list marked this case unscored, so a difference reported here is one called with nothing to find. No stressor. A Colorado city whose Council Meetings page states its rule in one sentence (first and third Tuesdays of each month at 6 p.m., Council Chambers at City Hall), with that page supplied as the hint, so discovery is one fetch and the hint should be written back unchanged. This case exists to show how often and how strongly a difference is called when there is nothing to find.',
+          handledWhen:
+            'the run reports found with a rule matching the page (first and third Tuesdays at 18:00) and writes the supplied page back as the location; not_found, a different body, or a per-meeting deep link instead of that page is no.',
         },
       },
     ],
