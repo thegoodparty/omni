@@ -1,0 +1,19 @@
+{
+  "name": "swarm-alert-forwarder",
+  "version": "1.0.0",
+  "description": "Lambda that forwards gp-ai failure SNS topics to the agent-swarm webhook",
+  "main": "index.js",
+  "scripts": {
+    "build": "rm -rf dist && tsc",
+    "clean": "rm -rf dist swarm-alert-forwarder.zip",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

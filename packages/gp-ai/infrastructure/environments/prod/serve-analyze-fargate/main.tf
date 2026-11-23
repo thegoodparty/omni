@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.0"
+  # >= 1.7 for the removed blocks that drop the old Slack subscription.
+  required_version = ">= 1.7.0"
 
   required_providers {
     aws = {
@@ -59,14 +60,13 @@ data "aws_ecr_repository" "ai_projects" {
   name = "gp-ai-projects"
 }
 
-data "terraform_remote_state" "shared_slack_notifier" {
-  backend = "s3"
+# Prod only: the swarm webhook URL and signing secret live in AI_SECRETS_PROD,
+# and dev is not meant to report pipeline failures to the swarm at all.
+module "swarm_alert_forwarder" {
+  source = "../../../modules/swarm-alert-forwarder"
 
-  config = {
-    bucket = "goodparty-terraform-state-us-west-2"
-    key    = "shared/slack-notifier/terraform.tfstate"
-    region = "us-west-2"
-  }
+  environment = "prod"
+  consumer    = "serve-analyze"
 }
 
 module "serve_analyze_fargate" {
@@ -79,7 +79,7 @@ module "serve_analyze_fargate" {
   docker_image_tag                 = var.docker_image_tag
   sqs_queue_arn                    = "arn:aws:sqs:us-west-2:333022194791:master-Queue.fifo"
   sqs_queue_url                    = "https://sqs.us-west-2.amazonaws.com/333022194791/master-Queue.fifo"
-  shared_slack_notifier_lambda_arn = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
+  swarm_alert_forwarder_lambda_arn = module.swarm_alert_forwarder.lambda_function_arn
   failure_notification_email       = var.failure_notification_email
 }
 

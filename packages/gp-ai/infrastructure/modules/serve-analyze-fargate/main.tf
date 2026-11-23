@@ -39,8 +39,8 @@ variable "failure_notification_email" {
   default     = ""
 }
 
-variable "shared_slack_notifier_lambda_arn" {
-  description = "ARN of the shared Slack notifier Lambda function (leave empty to disable Slack notifications)"
+variable "swarm_alert_forwarder_lambda_arn" {
+  description = "ARN of the swarm alert forwarder Lambda to subscribe to the failure topic (leave empty to disable swarm alerts)"
   type        = string
   default     = ""
 }
@@ -247,10 +247,6 @@ resource "aws_ecs_task_definition" "pipeline" {
         {
           name      = "SERVE_API_KEY"
           valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:SERVE_API_KEY::"
-        },
-        {
-          name      = "SLACK_WEBHOOK_URL"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:SLACK_WEBHOOK_URL::"
         },
         {
           name      = "BRAINTRUST_API_KEY"
@@ -671,10 +667,31 @@ output "state_machine_arn" {
   description = "Step Functions state machine ARN"
 }
 
-# Subscribe to shared Slack notifier Lambda if provided
-resource "aws_sns_topic_subscription" "shared_slack_notifier" {
-  count     = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
+# Subscribe the swarm alert forwarder if provided
+resource "aws_sns_topic_subscription" "swarm_alert_forwarder" {
+  count     = var.swarm_alert_forwarder_lambda_arn != "" ? 1 : 0
   topic_arn = aws_sns_topic.pipeline_failures.arn
   protocol  = "lambda"
-  endpoint  = var.shared_slack_notifier_lambda_arn
+  endpoint  = var.swarm_alert_forwarder_lambda_arn
+}
+
+resource "aws_lambda_permission" "allow_sns_invoke_swarm_forwarder" {
+  count         = var.swarm_alert_forwarder_lambda_arn != "" ? 1 : 0
+  statement_id  = "AllowSNSInvokeFromPipelineFailures-${var.environment}"
+  action        = "lambda:InvokeFunction"
+  function_name = var.swarm_alert_forwarder_lambda_arn
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.pipeline_failures.arn
+}
+
+# Slack used to be the destination for these failures; the swarm triages them as
+# bugs now. The release train refuses any plan that deletes, so the old
+# subscription is forgotten here rather than unsubscribed: it stays in AWS, still
+# delivering to shared-slack-notifier, until an operator deletes it by hand.
+removed {
+  from = aws_sns_topic_subscription.shared_slack_notifier
+
+  lifecycle {
+    destroy = false
+  }
 }
