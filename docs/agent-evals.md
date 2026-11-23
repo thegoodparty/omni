@@ -89,6 +89,17 @@ The five `cases/<agent>.json` files those lists were are still in
 are the case scout's inbox, which its publisher appends to, and the scout's
 bench reads them back. A change to one changes no verdict.
 
+## Agents with no suite
+
+- `compliance_setup`: it buys domains and submits to Peerly, so a judge run
+  would spend real money. The run route refuses it by name.
+- `district_issue_pulse` and `district_issue_snapshot`: nothing dispatches
+  them; they are to be deleted.
+- Four `meeting_briefing` cases (`a2-thin`, `a5-injection`, `a7-stale` and
+  their control) need an agenda packet staged as a file, and suites cannot
+  pass input files yet. Without the packet every pair ties, so they wait for
+  input-file support.
+
 ## Run evals
 
 Evals never run in `npm test` or `npm run verify`: only `vitest.evals.config.ts` picks up `*.eval.ts`. From the repo root:

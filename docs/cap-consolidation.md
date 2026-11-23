@@ -68,7 +68,7 @@ In this order. A step starts when the one before it is done, and done means
 successful production traffic, not a merged PR.
 
 1. **`trending_issues` live in prod.** The template for every later agent:
-   the definition, its web tools, the judge's in-process arm, and the
+   the definition, its web tools, its judge suite, and the
    `AGENTS_ON_GP_API` switch. The switch is a plain environment variable in
    the task definition, not a secret: `environmentVariables` in
    `packages/gp-api/deploy/index.ts` sets it per environment, so the flip is
@@ -77,7 +77,7 @@ successful production traffic, not a merged PR.
    agent in the registry (`deploy/agentsOnGpApi.ts`), never a subset: the
    judge's candidate arm is a preview, and an agent a preview left out would
    run the PMF Engine on both arms
-   ([`judge-eval-framework-plan.md`](judge-eval-framework-plan.md)).
+   ([`agent-evals.md`](agent-evals.md)).
    Done when prod runs complete, land on the dashboard, never re-dispatch,
    never dead-letter, and show in Grafana Agent Observability.
 2. **Every chat agent on `AgentMessage` in prod.** ✅ Every chat scope reads
