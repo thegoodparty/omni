@@ -51,6 +51,25 @@ gp-api calls completed a handshake on 24 before the switch.
   from the patch the container runs. Dependabot's base-image PRs already
   bump the exact patch.
 
+## Follow-up
+
+The release train applies the `serve-analyze-trigger` runtime with the
+serve-analyze-fargate roots. `shared-slack-notifier` is not in CI, so after
+merge someone applies it by hand from the repo root:
+
+```bash
+cd packages/gp-ai/infrastructure/modules/serve-analyze-fargate/slack-notifier
+npm install && npm run package
+cp slack-notifier.zip ../../../shared/slack-notifier/
+cd ../../../shared/slack-notifier
+terraform init
+terraform plan -var environment=prod -out=tfplan
+terraform apply tfplan
+```
+
+The plan should change only `runtime`, plus `source_code_hash` if the zip
+differs from the last one applied.
+
 ## Revisit if
 
 Node 26 becomes active LTS, or a dependency we cannot replace drops Node 24.
