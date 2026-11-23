@@ -85,6 +85,12 @@ export const OPT_OUT_RECONCILE_BUDGET_MS = ms('20m')
 // and 87s requested together, 71s and 96s one at a time (2026-10-20).
 export const OPT_OUT_RECONCILE_CONCURRENCY = 2
 
+// One job failing on its own is most often a send Peerly no longer has,
+// which fails on every read and pages about nothing anyone can act on
+// (docs/adr/2026-11-10-paid-text-jobs-dedupe-on-a-send-key.md). A pass pages
+// only when at least this many reads failed and none succeeded.
+export const OPT_OUT_RECONCILE_MIN_FAILED_TO_PAGE = 2
+
 // Above the ~170s a big job's report has taken to build. A retry would ask
 // Peerly to build the same report again from scratch, so one attempt only.
 const OPT_OUT_REPORT_TIMEOUT_MS = ms('5m')
@@ -120,8 +126,8 @@ export const INBOUND_SWEEP_AGED_HOUR_INTERVAL = 6
 
 // Prod has only ever sent 'True'. An opt-out scrubs the person org-wide and
 // forever, so only a value that plainly means yes is applied. Any value in
-// neither set fails the job's read, which pages, rather than being applied
-// to every row of a report whose format changed.
+// neither set is skipped and pages, rather than being applied to every row
+// of a report whose format changed.
 const OPTOUT_TRUE_VALUES = new Set(['true', 'yes', 'y', '1'])
 const OPTOUT_FALSE_VALUES = new Set(['', 'false', 'no', 'n', '0'])
 
@@ -402,6 +408,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
     let finalReadsDue = 0
     let jobsTimedOut = 0
     let jobsDeferred = 0
+    let jobsWithUnrecognizedFlags = 0
 
     const due = candidates.filter((outreach) => {
       const sendAnchor = sendAnchorOf(outreach)
@@ -459,15 +466,28 @@ export class OutreachInboundSweepService extends createPrismaBase(
           return
         }
         try {
-          const polled = await this.reconcileOutreachOptOuts(
+          const unrecognizedValues = await this.reconcileOutreachOptOuts(
             outreach,
             now,
             counters,
           )
-          if (polled) {
-            counters.jobsPolled += 1
-          } else {
+          if (unrecognizedValues === null) {
             counters.jobsWithoutCapture += 1
+          } else {
+            counters.jobsPolled += 1
+          }
+          if (unrecognizedValues?.length) {
+            jobsWithUnrecognizedFlags += 1
+            // The flag is not PII, unlike the rest of the row.
+            this.logger.warn(
+              {
+                outreachId: outreach.id,
+                jobId: outreach.projectId,
+                unrecognizedValues,
+              },
+              '[Outreach Opt-out Reconcile] opt-out flag had unrecognized ' +
+                'values; none of them applied',
+            )
           }
         } catch (err) {
           const timedOut = err instanceof GatewayTimeoutException
@@ -492,8 +512,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
           )
         }
         // Stamped whatever the outcome: a report retried every hour would
-        // cost Peerly six builds for the one answer. A failed read pages
-        // through the throw after the pass instead.
+        // cost Peerly six builds for the one answer.
         await this.client.outreachOptOutReconcile.upsert({
           where: { outreachId: outreach.id },
           create: { outreachId: outreach.id, attemptedAt: now },
@@ -508,6 +527,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
         jobsDue: due.length,
         jobsPolled: counters.jobsPolled,
         jobsFailed: counters.jobsFailed,
+        jobsWithUnrecognizedFlags,
         jobsTimedOut,
         jobsDeferred,
         jobsWithoutCapture: counters.jobsWithoutCapture,
@@ -534,25 +554,36 @@ export class OutreachInboundSweepService extends createPrismaBase(
           'next pass',
       )
     }
-    if (counters.jobsFailed > 0) {
+    // An unrecognized flag is a report format change, which reaches every
+    // send; every read failing is the backstop itself down.
+    if (jobsWithUnrecognizedFlags > 0) {
       throw new BadGatewayException(
-        `[Outreach Opt-out Reconcile] ${counters.jobsFailed} job(s) failed ` +
-          'to read their opt-out flags',
+        `[Outreach Opt-out Reconcile] ${jobsWithUnrecognizedFlags} job(s) ` +
+          'had unrecognized opt-out flag values',
+      )
+    }
+    if (
+      counters.jobsFailed >= OPT_OUT_RECONCILE_MIN_FAILED_TO_PAGE &&
+      counters.jobsPolled === 0
+    ) {
+      throw new BadGatewayException(
+        `[Outreach Opt-out Reconcile] all ${counters.jobsFailed} reads ` +
+          'failed',
       )
     }
   }
 
-  // Returns false when the outreach has no captured phone list, the same
-  // case sweepOutreach skips.
+  // Returns the flag values it did not recognize, or null when the outreach
+  // has no captured phone list, the same case sweepOutreach skips.
   private async reconcileOutreachOptOuts(
     outreach: SweepableOutreach,
     now: Date,
     counters: SweepCounters,
-  ): Promise<boolean> {
+  ): Promise<string[] | null> {
     const jobId = outreach.projectId
-    if (!jobId) return false
+    if (!jobId) return null
     const phoneToPersonIds = await this.loadPhoneToPersonIds(outreach)
-    if (!phoneToPersonIds) return false
+    if (!phoneToPersonIds) return null
 
     const rows = await this.peerlyJobResults.fetchQuestionResponseRows(
       jobId,
@@ -566,15 +597,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
       counters,
     )
     await this.applyEvents(outreach, events, now, counters)
-    // The flag is not PII, so the values go in the message the catch logs.
-    if (unrecognizedValues.length > 0) {
-      throw new BadGatewayException(
-        `Peerly opt-out flag had unrecognized values: ${JSON.stringify(
-          unrecognizedValues,
-        )}`,
-      )
-    }
-    return true
+    return unrecognizedValues
   }
 
   // Returns false when the outreach has no captured phone list (built

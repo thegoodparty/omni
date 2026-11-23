@@ -861,7 +861,7 @@ describe('outreachOptOutReconcile', () => {
     }
   })
 
-  it('applies only a flag that plainly means yes, and fails the read on one it does not know', async () => {
+  it('applies only a flag that plainly means yes, and pages on one it does not know', async () => {
     const outreach = await createSweepableOutreach()
     fetchQuestionResponseRows.mockResolvedValue([
       optOutRow('3035550101', 'True'),
@@ -1063,7 +1063,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(2)
   })
 
-  it('stamps a failed job and one with no captured list, then dead-letters without re-reading', async () => {
+  it('stamps a failed job and one with no captured list, and pages for neither alone', async () => {
     const failing = await createJob('job-failing', 1111)
     await setOutreachDate(failing.id, subHours(NOW, 1))
     const uncaptured = await createSweepableOutreach({
@@ -1077,12 +1077,10 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     )
     const logSpy = loggerInfoSpy()
 
-    const { deadLetters } = await service.jobs.runSchedule(
-      'outreachOptOutReconcile',
-      { allowDeadLetters: true },
-    )
+    await expect(
+      service.jobs.runSchedule('outreachOptOutReconcile'),
+    ).resolves.toEqual({ deadLetters: [] })
 
-    expect(deadLetters).toHaveLength(1)
     expect(calledJobIds()).toEqual(['job-failing'])
     expect(logSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ jobsFailed: 1, jobsWithoutCapture: 1 }),
@@ -1095,6 +1093,28 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
       { outreachId: failing.id, attemptedAt: NOW },
       { outreachId: uncaptured.id, attemptedAt: NOW },
     ])
+
+    vi.setSystemTime(addHours(NOW, 1))
+    await service.jobs.runSchedule('outreachOptOutReconcile')
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+  })
+
+  it('pages, without re-reading, when every read in a pass fails', async () => {
+    for (const [index, projectId] of ['job-a', 'job-b'].entries()) {
+      const outreach = await createJob(projectId, 1111 + index)
+      await setOutreachDate(outreach.id, subHours(NOW, index + 1))
+    }
+    fetchQuestionResponseRows.mockRejectedValue(
+      new BadGatewayException('Failed to fetch Peerly report link'),
+    )
+
+    const { deadLetters } = await service.jobs.runSchedule(
+      'outreachOptOutReconcile',
+      { allowDeadLetters: true },
+    )
+
+    expect(deadLetters).toHaveLength(1)
+    expect(calledJobIds().sort()).toEqual(['job-a', 'job-b'])
   })
 
   it('reads a send again on each final day, and not in between', async () => {
