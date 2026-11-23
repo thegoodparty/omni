@@ -3,7 +3,7 @@ title: A civic panel that ran out of texts can be asked, with one warning that i
 status: active
 decided_by: [bryclevgp]
 date: 2026-11-23
-code: []
+code: ['#4019']
 scope:
   - packages/gp-api/src/chats/general/priority-flow/priorityFlow.prompt.ts
   - packages/gp-api/src/chats/general/priority-flow/priorityFlow.handler.ts
