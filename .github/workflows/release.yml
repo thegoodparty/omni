@@ -1221,6 +1221,13 @@ jobs:
       - name: Build serve-analyze lambda trigger
         run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
+      # The only roots that consume this zip: prod's serve-analyze and
+      # ddhq-matcher instantiate the forwarder, dev does not (its secrets are
+      # prod-only). Terraform hashes the zip, so it must exist before the prod
+      # plan runs.
+      - name: Build and test swarm alert forwarder lambda
+        run: bash packages/gp-ai/infrastructure/modules/swarm-alert-forwarder/lambda/build.sh
+
       - name: apply prod/agent-experiment-metadata
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/agent-experiment-metadata

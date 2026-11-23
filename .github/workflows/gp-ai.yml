@@ -442,6 +442,14 @@ jobs:
       - name: Build serve-analyze lambda trigger
         run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
+      # No root planned here consumes this zip — the forwarder is instantiated
+      # only by the prod serve-analyze and ddhq-matcher roots, and this job plans
+      # dev. It is built anyway because this is the only pre-merge exercise the
+      # new Lambda's compile and tests get: without it a broken build would first
+      # surface in the release train's prod apply, after merge.
+      - name: Build and test swarm alert forwarder lambda
+        run: bash packages/gp-ai/infrastructure/modules/swarm-alert-forwarder/lambda/build.sh
+
       # Each of these records its result to files and always exits 0. `wait-all`
       # short-circuits everything after it if any background step fails, and we
       # want the comment posted even when a root errors — so the assemble step
