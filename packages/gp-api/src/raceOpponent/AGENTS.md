@@ -85,9 +85,15 @@ pieces below hold on the gp-api side:
   it `completed` on either engine's success path
   (`RaceOpponentResearchPersistService.ingestAgentArtifact` for an `AgentRun`).
   Nothing flips it on an `AgentRun` failure — there is no completion callback —
-  so `SelfResearchService`'s own read (`reconciledSelfRow`) reads a failed or
-  superseded run as `failed`, which is what lets the candidate retry and what
-  keeps the opponent gate from 403ing forever.
+  so `SelfResearchService`'s own read (`reconciledSelfRow`) settles it from the
+  run the row is bound to: a failed run reads as `failed` (the candidate can
+  retry, and the opponent gate stops 403ing), and a superseded one is followed to
+  its replacement rather than read as failed, because `supersede` starts that
+  replacement in the same transaction and reporting it as failed would show a
+  failure while it works and waste a paid retry. The read does not check
+  `runsOnGpApi`: that variable picks the engine for the *next* run, and rolling
+  it back must not strand a row bound to an `AgentRun` (an `ExperimentRun` id
+  finds no `AgentRun`, so the lookup decides).
 - **No subagent fan-out.** The manifest has six researcher subagents; a gp-api
   run is one conversation, so the prompt works the six categories in sequence.
 

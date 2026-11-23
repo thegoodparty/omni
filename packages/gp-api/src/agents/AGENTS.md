@@ -282,7 +282,12 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
    service on completion for an `AgentRun`, so a failed run would leave the row
    `queued` forever and nothing would ever retry it. `self_research`'s
    `reconciledSelfRow` is that path (`selfResearch.service.ts`), and its
-   `onArtifact` marks the row `completed` for the success half.
+   `onArtifact` marks the row `completed` for the success half. Settle it from
+   the run the row is *bound to*, not from the `runsOnGpApi` switch: the switch
+   picks the engine for the next run, so checking it would strand every row
+   bound during a rollback. Follow a superseded run to its replacement rather
+   than reading it as failed, because that replacement is live and a retry
+   would spend a run it then overwrote.
 8. An agent whose manifest fans out to researcher subagents has no equivalent
    here: a run is one long conversation
    ([`docs/adr/2026-11-14-background-agent-is-one-conversation-no-stages.md`](../../../../docs/adr/2026-11-14-background-agent-is-one-conversation-no-stages.md)),

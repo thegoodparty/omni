@@ -285,4 +285,127 @@ describe('self_research on gp-api agents', () => {
 
     expect(status.data.status).toBe(RaceOpponentResearchStatus.failed)
   })
+
+  // A rollback moves the NEXT dispatch back to the PMF Engine; the run already
+  // bound to the row is still gp-api's, and nothing else settles it.
+  it('settles a run the row is bound to with the switch off', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', '')
+    await seedCampaign()
+    stubRaceContext()
+    spies.push(vi.spyOn(service.app.get(ExperimentRunsService), 'dispatchRun'))
+    const run = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'self_research',
+        organizationSlug: orgSlug,
+        status: AgentRunStatus.failed,
+        manifest: {},
+        shapeHash: 'a-shape',
+        input: {},
+      },
+    })
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { organizationSlug: orgSlug },
+    })
+    await service.prisma.raceOpponentResearch.create({
+      data: {
+        campaignId: campaign.id,
+        kind: 'self',
+        status: RaceOpponentResearchStatus.running,
+        runId: run.id,
+      },
+    })
+
+    const status = await service.client.get(STATUS_PATH, {
+      headers: { [ORG_SLUG_HEADER]: orgSlug },
+    })
+
+    expect(status.data.status).toBe(RaceOpponentResearchStatus.failed)
+  })
+
+  // A shape change supersedes the run and starts its replacement. Reading the
+  // superseded run as failed would show a failure while the replacement works,
+  // and a retry would spend a run the replacement then overwrote.
+  it('follows a superseded run to its replacement instead of failing', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'self_research')
+    await seedCampaign()
+    stubRaceContext()
+    spies.push(vi.spyOn(service.app.get(ExperimentRunsService), 'dispatchRun'))
+    const superseded = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'self_research',
+        organizationSlug: orgSlug,
+        status: AgentRunStatus.superseded,
+        manifest: {},
+        shapeHash: 'old-shape',
+        input: {},
+      },
+    })
+    const replacement = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'self_research',
+        organizationSlug: orgSlug,
+        status: AgentRunStatus.running,
+        manifest: {},
+        shapeHash: 'new-shape',
+        input: {},
+      },
+    })
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { organizationSlug: orgSlug },
+    })
+    await service.prisma.raceOpponentResearch.create({
+      data: {
+        campaignId: campaign.id,
+        kind: 'self',
+        status: RaceOpponentResearchStatus.running,
+        runId: superseded.id,
+      },
+    })
+
+    const status = await service.client.get(STATUS_PATH, {
+      headers: { [ORG_SLUG_HEADER]: orgSlug },
+    })
+
+    expect(status.data.status).toBe(RaceOpponentResearchStatus.running)
+    expect(status.data.research.runId).toBe(replacement.id)
+  })
+
+  // The campaign-details column holds '' for a field the candidate skipped, and
+  // the agent's input treats a hint as a URL or a place name to try: '' would
+  // reach the model as both, and fails the input schema besides.
+  it('drops empty hint strings from the agent input', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'self_research')
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `${orgSlug}-campaign`,
+        organizationSlug: orgSlug,
+        isPro: true,
+        details: { raceId: 'race-1', city: '', website: '' },
+      },
+    })
+    stubRaceContext()
+    stubReachability()
+    spies.push(
+      vi.spyOn(service.app.get(AgentWebService), 'request').mockResolvedValue({
+        status: 200,
+        contentType: 'text/html',
+        body: Buffer.from(PAGE_TEXT),
+      }),
+      vi.spyOn(service.app.get(ExperimentRunsService), 'dispatchRun'),
+    )
+    scriptedModel()
+
+    const res = await start()
+    await service.jobs.settle()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const run = await service.prisma.agentRun.findFirstOrThrow({
+      where: { organizationSlug: orgSlug, agentName: 'self_research' },
+    })
+    expect(run.input).toMatchObject({ city: null, websiteUrl: null })
+  })
 })

@@ -79,17 +79,22 @@ export class SelfResearchService extends createPrismaBase(
   // thing the product reads. onArtifact marks the row completed on the success
   // path, so this is the failure path: an AgentRun has no callback to flip a row
   // the PMF Engine's consumer would have flipped, and left queued the pass could
-  // never be retried and the opponent gate would 403 forever. A superseded run
-  // reads as failed too: its replacement is a different row-less run we cannot
-  // identify from here, so the honest state is "try again". One update, only
-  // when the status actually differs.
+  // never be retried and the opponent gate would 403 forever.
+  //
+  // No switch check. The env var decides where the NEXT run goes; it says
+  // nothing about which engine owns the run `row.runId` already names, and a
+  // rollback must not strand a candidate behind a row bound while the switch was
+  // on. The id lookup is what decides: an ExperimentRun's id finds no AgentRun,
+  // and the row is returned untouched.
   private async reconciledSelfRow(
     campaignId: number,
   ): Promise<RaceOpponentResearchRow | null> {
-    const row = await this.selfRow(campaignId)
+    const row = await this.model.findFirst({
+      where: { campaignId, kind: RaceOpponentFindingKind.self },
+      include: { campaign: { select: { organizationSlug: true } } },
+    })
     if (
       !row?.runId ||
-      !runsOnGpApi(SELF_RESEARCH) ||
       (row.status !== RaceOpponentResearchStatus.queued &&
         row.status !== RaceOpponentResearchStatus.running)
     ) {
@@ -100,16 +105,55 @@ export class SelfResearchService extends createPrismaBase(
       select: { status: true },
     })
     if (!run) return row
-    // A superseded run reads as failed: its replacement is a fresh run this row
-    // has no id for, so the honest state is "try again".
+    if (run.status === AgentRunStatus.superseded) {
+      return this.followReplacement(row, row.campaign.organizationSlug)
+    }
     const status =
       run.status === AgentRunStatus.completed
         ? RaceOpponentResearchStatus.completed
-        : run.status === AgentRunStatus.failed ||
-            run.status === AgentRunStatus.superseded
+        : run.status === AgentRunStatus.failed
           ? RaceOpponentResearchStatus.failed
           : null
-    if (status === null) return row
+    return status === null ? row : this.settleRow(row, status)
+  }
+
+  // A shape change supersedes a run and starts its replacement in the same
+  // transaction (AgentsService.supersede), and this row holds no id for it.
+  // Reading the superseded run as failed would show the candidate a failure
+  // while the replacement works, and a retry would spend a paid run the
+  // replacement then overwrote. So rebind and judge from the replacement; if it
+  // is superseded too, the next read follows again.
+  private async followReplacement(
+    row: RaceOpponentResearchRow,
+    organizationSlug: string,
+  ): Promise<RaceOpponentResearchRow> {
+    const replacement = await this.client.agentRun.findFirst({
+      where: {
+        organizationSlug,
+        agentName: SELF_RESEARCH,
+        status: { not: AgentRunStatus.superseded },
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: { id: true, status: true },
+    })
+    if (!replacement) return row
+    const bound = await this.model.update({
+      where: { id: row.id },
+      data: { runId: replacement.id },
+    })
+    const settled =
+      replacement.status === AgentRunStatus.failed
+        ? RaceOpponentResearchStatus.failed
+        : replacement.status === AgentRunStatus.completed
+          ? RaceOpponentResearchStatus.completed
+          : null
+    return settled === null ? bound : this.settleRow(bound, settled)
+  }
+
+  private settleRow(
+    row: RaceOpponentResearchRow,
+    status: RaceOpponentResearchStatus,
+  ): Promise<RaceOpponentResearchRow> {
     return this.model.update({
       where: { id: row.id },
       data: {
@@ -276,10 +320,14 @@ export class SelfResearchService extends createPrismaBase(
       organizationSlug: campaign.organizationSlug,
       fullName: params.full_name,
       state: params.state,
-      city: params.city ?? null,
+      // The PMF Engine's manifest accepts '' for the hint fields, and the
+      // campaign-details column holds '' for one the candidate skipped. Here a
+      // hint is a URL or a place name the model should try, so an empty one is
+      // no hint: null says that, and '' would also fail the input schema.
+      city: params.city || null,
       officeName: params.office_name,
       priorRoles: params.prior_roles ?? [],
-      websiteUrl: params.website_url ?? null,
+      websiteUrl: params.website_url || null,
       socialUrls: params.social_urls ?? [],
       coverageUrls: params.coverage_urls ?? [],
     } satisfies SelfResearchInput)
