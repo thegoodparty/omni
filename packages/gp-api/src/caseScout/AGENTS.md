@@ -45,6 +45,26 @@ session cap and the marker but are never sent to a model.
 | `services/caseScoutHandoff.service.ts`  | The handoff: hold or send, the Slack note, the marker                                                                                                                                                                             |
 | `util/handoff.util.ts`                  | The payload built from `bundle.json`, the source-id check, Standard Webhooks signing                                                                                                                                              |
 
+## Privacy: the drafter and the gate
+
+- **The drafter** treats the whole transcript (user and assistant turns,
+  tool inputs) as material, never instructions. Every person becomes a role
+  or an invented name; a child is only "a child"; a claim about a person
+  moves to another role and goes generic; exact figures that could point to
+  one race, place or person (totals, margins, counts, addresses, ages, event
+  dates) are invented or rounded; unique descriptions become ordinary ones;
+  every sentence is written fresh. The failure itself must survive.
+- **Contact patterns** catch emails, URLs, ten-digit phones and seven-digit
+  local numbers (`555-0123`, `555 0123`). Only a hyphenated one can pass, as
+  an ordinance number or a range: one whose last four digits read as a year
+  (`245-2025`), or a rising pair whose second number is a round hundred
+  (`500-1000`). A spaced or dotted year (`555 1999`) is still a phone.
+- **The second read** flags names and also unnamed descriptions that point to
+  one real person or place: the only, first or youngest holder of a role, a
+  distinctive town detail, the exact result of a past election, recount or
+  petition, an exact age, a child described past "a child". Roles, states,
+  office titles, round numbers and relative dates never count.
+
 ## Bucket (`case-scout-<env>`)
 
 | Key                                                       | Written by                            | Read by                         |
@@ -151,9 +171,9 @@ span is in the text. The gate's copy check applies the same test as
 `copiesSource` (a digit, or a word capitalized mid-sentence other than "I"),
 because copied conversation is fine without PII in it; each file keeps its own
 code, so the eval measures the gate rather than echoing it. The drafter's
-outcome and the gate rule are annotations, never the judgment. The gate suite
-expects today's misses to be caught (a seven-digit phone, a draft with no name
-that still identifies a place), so its red cases are the gate's work list.
+outcome and the gate rule are annotations, never the judgment. The gate
+suite's expected values are what a person ruled, so a red case there is a
+finding about the gate, never a case to edit.
 
 ```bash
 JUDGE_MODEL=anthropic/claude-sonnet-5-5 npm run eval -w packages/gp-api

@@ -41,7 +41,7 @@ the report's shape; it says nothing about quality.
 The CLI prints an estimate before anything runs. With the current fixtures and
 `claude-opus-4-7` at $5 / $25 per million tokens: about $1 for a run that goes
 the way the labels say (19 scoring calls, 12 drafting calls, 11 gate reads),
-and at most about $2.60 if every covered chat is drafted and every call needs
+and at most about $2.75 if every covered chat is drafted and every call needs
 its one retry. The estimate is from character counts, since the model service
 returns only text. `results.json` carries the same estimate for the calls the
 run actually made.
