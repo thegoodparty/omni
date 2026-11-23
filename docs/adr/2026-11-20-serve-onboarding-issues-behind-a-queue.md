@@ -37,8 +37,8 @@ information the UI had no other way to get.
 pg-boss is the repo's queue (`2026-11-07-background-jobs-on-pg-boss.md`), and
 its `sendMany` derives the job id from the key, so a retry, a double tap, and
 a burst landing on different tasks leave one job rather than one generation
-each. The job is capped at 5 across the fleet because each run is a paid model
-call.
+each. That key is what prevents a duplicate paid generation: the job declares
+no concurrency of its own and runs like any other.
 
 ## Alternatives rejected
 

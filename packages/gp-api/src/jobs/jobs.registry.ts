@@ -378,9 +378,6 @@ export const JOBS = {
     // minutes, so 2 is the longest a user waits for this job to start; paging
     // and scale-out then begin while they are still on the screen.
     alertAfterWaitingMinutes: 2,
-    concurrency: 2,
-    // One paid Gemini generation each; keep a burst from filling the fleet.
-    maxConcurrent: 5,
   }),
   ordinanceRefreshDispatch: defineJob({
     schema: z.object({ organizationSlug: z.string().min(1) }),
