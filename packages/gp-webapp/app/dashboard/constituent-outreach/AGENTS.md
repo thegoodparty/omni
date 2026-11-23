@@ -180,13 +180,13 @@ isServe)` / `answerHeading(isServe)`, because paper is the only thing a
   are campaign roles, so an elected official gets no assignment rather than
   one in Win's vocabulary.
 - **Org switching must not replay detail queries.** `outreachDetailQueryKey`
-  is not org-scoped, and the org picker's switch runs before `router.push`
-  unmounts this page — refreshing every mounted detail id under the incoming
-  org's slug header 404s (ENG-10991, both directions). `organization-picker.tsx`
-  drops the whole cache and then refetches only what is still observed, so a
-  detail entry is deleted rather than refetched and the observer that survives
-  rebuilds it empty. Keep any new per-org query family out of that trap: pass a
-  key with the org slug in it, as `useOutreachAudience` does.
+  is not org-scoped, and a consumer that re-renders after a switch rebuilds
+  its cache entry and re-fetches immediately, under the incoming org's slug
+  header, which 404s (ENG-10991, both directions). `organization-picker.tsx`
+  therefore keeps `outreachDetailQueryPrefix` (and `contact-notes`) out of both
+  the cache clear and the refetch that follows it. A new query family keyed by
+  its own id inherits the same trap — pass the org slug in the key instead, as
+  `useOutreachAudience` does.
 - **Nav visibility mirrors page access**: `isElectedOffice` in
   `DashboardMenu.tsx`, the same elected-office existence the server-side
   `serveAccess()` gate on the route enforces. The mobile title comes from

@@ -251,12 +251,20 @@ describe('org switch clears the query cache', () => {
       forOrg: orgCookie,
     }))
 
+    // The probe re-renders after the switch, the way the real consumers do:
+    // `setSelectedSlug` calls `refreshFlags()`, which re-renders the flagged
+    // page subtree, and the campaign refetch re-renders anything reading it.
+    // A refreshed observer is what would rebuild the entry and fetch it under
+    // the new header, so a probe that never re-renders would not prove this.
+    let rerenderRow: () => void = () => undefined
     const RowProbe = () => {
+      const [renders, setRenders] = useState(0)
+      rerenderRow = () => setRenders((count) => count + 1)
       useQuery({
         queryKey: ['outreach-detail', 999],
         queryFn: detailFetcher,
       })
-      return null
+      return <span data-testid="row-renders">{renders}</span>
     }
 
     renderProvider(<RowProbe />)
@@ -265,48 +273,73 @@ describe('org switch clears the query cache', () => {
 
     await switchToOrgTwo()
 
+    const rendersBefore = screen.getByTestId('row-renders').textContent
+    await act(async () => rerenderRow())
+    await settle()
+    expect(screen.getByTestId('row-renders').textContent).not.toBe(
+      rendersBefore,
+    )
+
     expect(detailFetcher).toHaveBeenCalledTimes(1)
-    expect(
-      testQueryClient.getQueryData(['outreach-detail', 999]),
-    ).toBeUndefined()
   })
 
-  // The two families excluded before were excluded for reasons that are now
-  // handled by clearing them: a row id or person id never repeats across orgs,
-  // so nothing of the new org's is lost by dropping them.
-  it('clears the contact-notes family too', async () => {
+  // contact-notes is the same shape as outreach-detail — per person id, read by
+  // a panel that can stay open across the switch — so it takes the same care.
+  it('never re-requests a contact-notes row that belonged to the org being left', async () => {
     const notesFetcher = vi.fn().mockResolvedValue([{ id: 'note-1' }])
 
+    let rerenderNotes: () => void = () => undefined
     const NotesProbe = () => {
+      const [renders, setRenders] = useState(0)
+      rerenderNotes = () => setRenders((count) => count + 1)
       useQuery({ queryKey: ['contact-notes', 42], queryFn: notesFetcher })
-      return null
+      return <span data-testid="notes-renders">{renders}</span>
     }
 
     renderProvider(<NotesProbe />)
 
+    await waitFor(() => expect(notesFetcher).toHaveBeenCalledTimes(1))
+
+    await switchToOrgTwo()
+
+    const rendersBefore = screen.getByTestId('notes-renders').textContent
+    await act(async () => rerenderNotes())
+    await settle()
+    expect(screen.getByTestId('notes-renders').textContent).not.toBe(
+      rendersBefore,
+    )
+
+    expect(notesFetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the org list and eligibility, re-reading them as the new org', async () => {
+    const guardedFetcher = vi.fn().mockResolvedValue({ id: 999 })
+    const GuardedProbe = () => {
+      useQuery({
+        queryKey: ['outreach-detail', 999],
+        queryFn: guardedFetcher,
+      })
+      return null
+    }
+
+    renderProvider(<GuardedProbe />)
     await waitFor(() =>
-      expect(testQueryClient.getQueryData(['contact-notes', 42])).toBeDefined(),
+      expect(
+        testQueryClient.getQueryData(['outreach-detail', 999]),
+      ).toBeDefined(),
     )
 
     await switchToOrgTwo()
 
-    expect(testQueryClient.getQueryData(['contact-notes', 42])).toBeUndefined()
-  })
-
-  it('keeps the org list and eligibility, re-reading them as the new org', async () => {
-    renderProvider(<div />)
-
-    await settle()
-    await switchToOrgTwo()
-
-    // Only what the still-mounted provider and picker rebuild for themselves
-    // survives — no org-agnostic leftover rides along with them.
+    // Only the org-scoped survivors and the per-row guard are left; no
+    // org-agnostic leftover rides along with them.
     expect(
       testQueryClient
         .getQueryCache()
         .getAll()
-        .map((query) => query.queryKey[0]),
-    ).toEqual(['organizations', 'eligibility'])
+        .map((query) => query.queryKey[0])
+        .sort(),
+    ).toEqual(['eligibility', 'organizations', 'outreach-detail'])
     expect(screen.getByText('Organization Two')).toBeInTheDocument()
   })
 

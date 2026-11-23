@@ -99,6 +99,14 @@ interface OrganizationProviderProps {
 
 export const ORGANIZATIONS_QUERY_KEY = ['organizations']
 export const ELIGIBILITY_QUERY_KEY = ['eligibility']
+// A row id never repeats across orgs, so no reader of the incoming org can ever
+// ask for one of these. They are also the one shape a cache clear cannot touch:
+// an observer that re-renders after the clear rebuilds its entry, and a rebuilt
+// entry fetches immediately — under the header of the org we just MOVED TO —
+// which 404s for a row the org we left owns (ENG-10991).
+const PER_ROW_QUERY_PREFIXES = ['outreach-detail', 'contact-notes']
+const isPerRowQuery = (queryKey: readonly unknown[]): boolean =>
+  PER_ROW_QUERY_PREFIXES.includes(String(queryKey[0]))
 
 export const OrganizationProvider = ({
   children,
@@ -176,12 +184,13 @@ export const OrganizationProvider = ({
       setCookie(ORG_SLUG_COOKIE, slug)
       void refreshFlags()
       // Nothing cached may outlive the org it was fetched for. Keys carrying no
-      // org slug — Campaign Manager's ['campaign-manager', 'chat-history'], the
-      // per-row outreach-detail and contact-notes families — are how the chat
-      // dock resumed a conversation the new org does not own (ENG-11670):
-      // invalidation left their previous-org data readable, and a switch taken
-      // from a shared path never reloads the page to clear it.
-      queryClient.removeQueries()
+      // org slug — Campaign Manager's ['campaign-manager', 'chat-history'] among
+      // them — are how the chat dock resumed a conversation the new org does not
+      // own (ENG-11670): invalidation left their previous-org data readable, and
+      // a switch taken from a shared path never reloads the page to clear it.
+      queryClient.removeQueries({
+        predicate: (query) => !isPerRowQuery(query.queryKey),
+      })
     },
     [queryClient, refreshFlags],
   )
@@ -192,14 +201,15 @@ export const OrganizationProvider = ({
   // on answering for the org the user just left until their 5-minute stale time
   // ran out. The children have rendered by the time this effect runs, so it
   // marks exactly what the render brought back and refetches it under the new
-  // org. Only the still-mounted observers survive to be marked — the per-row
-  // families are gone from the cache and their consumers read no org state, so
-  // nothing refires a departed row's read under the new header (ENG-10991).
+  // org.
   const slugAtLastClear = useRef(selectedSlug)
   useEffect(() => {
     if (slugAtLastClear.current === selectedSlug) return
     slugAtLastClear.current = selectedSlug
-    void queryClient.invalidateQueries({ refetchType: 'active' })
+    void queryClient.invalidateQueries({
+      refetchType: 'active',
+      predicate: (query) => !isPerRowQuery(query.queryKey),
+    })
   }, [selectedSlug, queryClient])
 
   const contextValue = useMemo(
