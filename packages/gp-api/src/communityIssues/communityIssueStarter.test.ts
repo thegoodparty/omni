@@ -176,6 +176,10 @@ describe('community issues onboarding start', () => {
     expect(second.status).toBe(HttpStatus.OK)
     await service.jobs.settle()
 
+    // The dispatch runs once per job, so this is what the org-slug key buys:
+    // seed guards the generation itself (inFlight, then hasTopList), so those
+    // two counts hold even with two jobs.
+    expect(dispatchSpy()).toHaveBeenCalledTimes(1)
     expect(structuredSpy()).toHaveBeenCalledTimes(1)
     expect(
       await service.prisma.communityIssue.count({
