@@ -3,7 +3,7 @@ title: Dead letters are deleted and batch-handled per entry, not as one request
 status: active
 decided_by: [swain]
 date: 2026-11-23
-code: ['#TBD']
+code: ['#4016']
 scope:
   - packages/gp-api/src/admin/jobDeadLetters/**
   - packages/gp-admin/src/app/dashboard/job-dead-letters/**
