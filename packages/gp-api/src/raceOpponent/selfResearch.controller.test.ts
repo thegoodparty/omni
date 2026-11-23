@@ -4,6 +4,7 @@ import { useTestService } from '@/test-service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { SelfResearchService } from '@/raceOpponent/services/selfResearch.service'
+import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { RaceOpponentResearch } from '@/generated/prisma'
@@ -26,6 +27,8 @@ const IDENTIFY_PATH = '/v1/campaigns/mine/race-opponent/opponents/identify'
 const REACHABLE = 'https://ballotpedia.org/Jane_Self'
 const UNREACHABLE = 'https://gone.example.com/missing'
 
+// A campaign start() can dispatch for: a race context resolves the state and
+// the office, without which both engines refuse the run's input.
 const seedCampaign = async (opts: { isPro: boolean }) => {
   await service.prisma.organization.create({
     data: { slug: SLUG, ownerId: service.user.id },
@@ -36,6 +39,7 @@ const seedCampaign = async (opts: { isPro: boolean }) => {
       slug: `${SLUG}-campaign`,
       organizationSlug: SLUG,
       isPro: opts.isPro,
+      details: { raceId: 'race-1' },
     },
   })
 }
@@ -105,6 +109,17 @@ const stubTrack = () =>
   vi
     .spyOn(service.app.get(AnalyticsService), 'track')
     .mockResolvedValue(undefined as never)
+
+// start() needs the office and state the run's input carries, and the election
+// api does not exist in a test: the same degradation the real code handles, with
+// a value instead of a miss.
+const stubRaceContext = () =>
+  vi
+    .spyOn(service.app.get(RaceContextService), 'getRaceContext')
+    .mockResolvedValue({
+      state: 'NC',
+      officialOfficeName: 'Fayetteville City Council',
+    } as never)
 
 const validFinding = (overrides: Record<string, unknown> = {}) => ({
   category: 'record',
@@ -187,6 +202,7 @@ describe('Self-research dispatch + persist + opponent gate', () => {
   describe('POST /self-research (start)', () => {
     it('dispatches self_research and claims a queued research row', async () => {
       await seedCampaign({ isPro: true })
+      stubRaceContext()
       const dispatchRun = vi
         .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
         .mockResolvedValue({ runId: 'run-1' } as never)
@@ -265,6 +281,7 @@ describe('Self-research dispatch + persist + opponent gate', () => {
 
     it('rolls the claim back to failed when dispatch throws (no orphan run)', async () => {
       await seedCampaign({ isPro: true })
+      stubRaceContext()
       vi.spyOn(
         service.app.get(ExperimentRunsService),
         'dispatchRun',
@@ -286,6 +303,7 @@ describe('Self-research dispatch + persist + opponent gate', () => {
 
     it('rolls the row to failed when the runId-bind update throws', async () => {
       await seedCampaign({ isPro: true })
+      stubRaceContext()
       vi.spyOn(
         service.app.get(ExperimentRunsService),
         'dispatchRun',
@@ -327,6 +345,41 @@ describe('Self-research dispatch + persist + opponent gate', () => {
       )
 
       expect(result.status).toBe(403)
+    })
+
+    // A campaign with no race context and no office on file cannot produce the
+    // run's input. Both engines refuse it; this answers 400 before claiming a
+    // row, so the candidate is not charged an attempt for a details problem.
+    it('400s before claiming a row when the run has no office or state', async () => {
+      await service.prisma.organization.create({
+        data: { slug: SLUG, ownerId: service.user.id },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: `${SLUG}-campaign`,
+          organizationSlug: SLUG,
+          isPro: true,
+        },
+      })
+      const dispatchRun = vi.spyOn(
+        service.app.get(ExperimentRunsService),
+        'dispatchRun',
+      )
+
+      const result = await service.client.post(
+        START_PATH,
+        {},
+        { headers: { [ORG_SLUG_HEADER]: SLUG } },
+      )
+
+      expect(result.status).toBe(400)
+      expect(dispatchRun).not.toHaveBeenCalled()
+      expect(
+        await service.prisma.raceOpponentResearch.count({
+          where: { campaign: { organizationSlug: SLUG } },
+        }),
+      ).toBe(0)
     })
   })
 

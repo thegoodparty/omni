@@ -209,6 +209,22 @@ export class SelfResearchService extends createPrismaBase(
 
     const params = await this.buildParams(campaign)
 
+    // A run cannot start without these three, and both engines refuse an input
+    // that lacks them: the manifest's input_schema requires them, and the
+    // agent's schema is the same shape. Checking here rather than letting the
+    // engine throw keeps the claim unspent and the answer a 400 instead of a
+    // 500 — a campaign with no race context and no office on file is a details
+    // problem the candidate can fix, not a server fault.
+    if (
+      params.full_name.length === 0 ||
+      params.office_name.length === 0 ||
+      !/^[A-Z]{2}$/.test(params.state)
+    ) {
+      throw new BadRequestException(
+        'Self-research needs your name, your office and your state. Add them to your campaign details, then start the pass.',
+      )
+    }
+
     // Claim the row BEFORE the external dispatch (DB-claim-before-external-call):
     // queued with runId still null and attempts incremented. If dispatch then
     // fails, the claim is rolled back to failed (scoped to this exact row) so the
