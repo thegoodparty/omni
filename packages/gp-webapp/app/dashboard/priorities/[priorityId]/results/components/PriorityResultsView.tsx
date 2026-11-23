@@ -9,6 +9,9 @@ import type {
   ThemeVoices,
 } from '@goodparty_org/contracts'
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   cn,
@@ -37,6 +40,7 @@ import { AnswerSeatsArc, AnswerSeatsLegend } from '../../components/AnswerSeats'
 import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
 import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
 import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
+import { SERVE_CITIZENS_PANEL_COPY } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
 import { PollThemeDetail } from 'app/dashboard/outreach/v2/poll/results/PollThemeDetail'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 import {
@@ -92,6 +96,10 @@ export const PriorityResultsView = ({
   results: PriorityResults
 }) => {
   const { respondents, readStatus } = results
+  const place = useServePlace()
+  // A civic panel short of its goal shows what it heard with a warning
+  // rather than holding it back.
+  const shown = readStatus.good || readStatus.shortCivicPanel === true
   const [openTheme, setOpenTheme] = useState<PriorityTheme | null>(null)
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -99,7 +107,7 @@ export const PriorityResultsView = ({
   useEffect(() => {
     trackEvent(EVENTS.Priorities.ResultsViewed, {
       priorityId,
-      heldBack: !readStatus.good,
+      heldBack: !shown,
       readStatus: READ_STATUS_PROPERTY[readStatus.status],
       answers: readStatus.answers,
       answersFloor: readStatus.needed,
@@ -108,11 +116,11 @@ export const PriorityResultsView = ({
       respondentCount: respondents.total,
       joinedCivicPanel: respondents.joinedCivicPanel,
       representationShown: results.groups.length > 0,
-      ...(readStatus.good ? { themes: results.themes.length } : {}),
+      ...(shown ? { themes: results.themes.length } : {}),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priorityId])
-  if (openTheme && readStatus.good) {
+  if (openTheme && shown) {
     return (
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
         <PollThemeDetail
@@ -163,7 +171,29 @@ export const PriorityResultsView = ({
         />
       </div>
 
-      {readStatus.good ? (
+      {!readStatus.good && shown ? (
+        <Alert
+          variant="info"
+          icon={<InfoIcon className="size-4" />}
+          data-testid="results-short-civic-panel"
+        >
+          <AlertTitle>{SERVE_CITIZENS_PANEL_COPY.shortOfGoal.title}</AlertTitle>
+          <AlertDescription>
+            <p>{SERVE_CITIZENS_PANEL_COPY.shortOfGoal.line(place)}</p>
+            {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
+              <div className="mt-3">
+                <Button asChild size="small">
+                  <Link href={getAnswersHref(priorityId)}>
+                    {READ_STATUS_COPY.getAnswers}
+                  </Link>
+                </Button>
+              </div>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {shown ? (
         <HeardSections
           priorityId={priorityId}
           results={results}

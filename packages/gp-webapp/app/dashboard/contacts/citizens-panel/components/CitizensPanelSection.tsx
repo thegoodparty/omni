@@ -2,7 +2,14 @@
 
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRightIcon, Skeleton } from '@styleguide'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  ArrowRightIcon,
+  Skeleton,
+} from '@styleguide'
+import { InfoIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { useContactsTable } from '../../crm/ContactsTableProvider'
@@ -10,7 +17,11 @@ import {
   civicPanelHref,
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
-import { civicPanelSummaryQueryOptions } from '../civicPanelSummary.query'
+import {
+  civicPanelSummaryQueryOptions,
+  managedCivicPanelQueryOptions,
+} from '../civicPanelSummary.query'
+import { useServePlace } from '../managedPanelCopy'
 import { CitizensPanelEmpty } from './CitizensPanelStats'
 import { CivicPanelSeats } from './CivicPanelSeats'
 
@@ -24,6 +35,11 @@ export const CitizensPanelSection = () => {
     ...civicPanelSummaryQueryOptions(orgSlug),
     enabled: show && Boolean(orgSlug),
   })
+  const managed = useQuery({
+    ...managedCivicPanelQueryOptions(orgSlug),
+    enabled: show && Boolean(orgSlug),
+  })
+  const place = useServePlace()
 
   if (!show) return null
 
@@ -71,6 +87,16 @@ export const CitizensPanelSection = () => {
         >
           {COPY.joinedOfGoal(query.data.members, query.data.progress.goal)}
         </p>
+      ) : null}
+      {hasMembers && managed.data?.status === 'exhausted' ? (
+        <Alert
+          variant="info"
+          icon={<InfoIcon className="size-4" />}
+          data-testid="citizens-panel-short-of-goal"
+        >
+          <AlertTitle>{COPY.shortOfGoal.title}</AlertTitle>
+          <AlertDescription>{COPY.shortOfGoal.line(place)}</AlertDescription>
+        </Alert>
       ) : null}
       {hasMembers && composition && composition.places.length > 0 ? (
         <CivicPanelSeats

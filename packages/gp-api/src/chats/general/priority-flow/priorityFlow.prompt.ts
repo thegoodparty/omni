@@ -3,6 +3,7 @@ import {
   HIGH_CONFIDENCE_MIN_REPLIES,
   HIGH_CONFIDENCE_MIN_SHARE,
   MAX_CHECK_RAISES,
+  PANEL_MIN_MEMBERS_FOR_BALANCE,
   PROPOSAL_SENT_MARKER,
   READ_REPRESENTATIVENESS_LABELS,
   REPORT_BACK_MARKER,
@@ -494,6 +495,7 @@ const buildGoodReadBlock = (
     '- Aim the outreach with the filters for that group: an age band, or men or women. For "people in some parts of your district", set areaTarget to unreached on the proposal and keep the other filters as they are; the app draws the area. Count the audience the usual way: if the area changes the count, the tool says the right one. White, Black, Hispanic or Latino, and Asian residents have no filter: never filter on ethnicity or a stand-in for it (language, surname, a neighborhood), and offer more of the same outreach to the whole audience instead.',
     '- Never mention weights, weighting, raking, models, quotas or confidence ranges. The official sees the status and the groups, nothing more.',
     '- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.',
+    `- When <priority> says Short civic panel: yes, every answer came from their civic panel, which is short of its goal, and what it said can be shared before a good read: follow READING WHAT CAME BACK, but first say "${SHORT_CIVIC_PANEL_WARNING}", ${SHORT_CIVIC_PANEL_PLACE}. Then still say which groups to hear from next and offer outreach aimed at them.`,
     '- Reporting back to the people a text asked is not sharing a read: when they open one, follow REPORTING BACK.',
     civicPanelBlock
       ? '- If their civic panel comes up, follow THEIR CIVIC PANEL ON THIS PRIORITY.'
@@ -549,6 +551,15 @@ const SET_UP_TURNS = [
 
 // Waiting on a civic panel GoodParty is filling: it is how they hear from
 // people on this priority, so the check waits for it.
+// One warning, worded as the app words it on the civic panel page, Where
+// this stands and the results page, so the official hears it the same way
+// everywhere.
+export const SHORT_CIVIC_PANEL_WARNING =
+  'It is short of its goal, so what you hear may not reflect all of <place>.'
+
+const SHORT_CIVIC_PANEL_PLACE =
+  'with <place> the city or district in <priority>, as residents would say it'
+
 const deferToCivicPanel = (until: string): string =>
   `- Their civic panel is how they hear from people on this priority. When a check is warranted, recommend waiting until it is ready and then asking it: say in one line how many residents have joined of the goal and that you will ask their civic panel on this priority ${until}. Never ask whether to wait. Record the check deferred on its step, side main, with that timing in when, and carry on with the step. Never offer the round one text: build it as ROUND ONE says only if they ask for a text to residents.`
 
@@ -602,6 +613,19 @@ const buildCivicPanelBlock = (
         ),
       ].join('\n')
     case 'exhausted':
+      if (panel.members >= PANEL_MIN_MEMBERS_FOR_BALANCE) {
+        return [
+          ...head,
+          '- Every resident a text can reach has an invite, and their civic panel is short of its goal. When it comes up, say so plainly, with how many joined of the goal. Whether to keep filling it at the door or on calls is their call.',
+          neverSell(
+            'GoodParty already sent its invites for free, so there is nothing left to send.',
+          ),
+          `- It has enough members to ask, so asking it is how they hear from people on this priority. When a check is warranted, never ask which way to hear from people and never ask whether to. Say in one line that you recommend asking their civic panel, because its members signed up to weigh in on questions like this one, then say "${SHORT_CIVIC_PANEL_WARNING}", ${SHORT_CIVIC_PANEL_PLACE}, and present its card:`,
+          ASK_THE_CIVIC_PANEL_CARD,
+          '- A check deferred until their civic panel was ready is due now: bring it back once, the same way.',
+          '- Build the round one text as ROUND ONE says, or calls or door knocking as steps 1 to 5 of BUILD THE CHECK BEFORE YOU OFFER IT say, side main, only when the official asks for them.',
+        ].join('\n')
+      }
       return [
         ...head,
         '- Every resident a text can reach has an invite, and their civic panel is short of its goal. When it comes up, say so plainly, with how many joined of the goal.',
@@ -741,6 +765,9 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
             : []),
           ...(ctx.readStatus.followUpSent
             ? ['Follow-up text: already went out. A check gets no third text.']
+            : []),
+          ...(ctx.readStatus.shortCivicPanel
+            ? ['Short civic panel: yes.']
             : []),
         ]),
     '</priority>',

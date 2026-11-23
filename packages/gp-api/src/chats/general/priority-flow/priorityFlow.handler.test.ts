@@ -39,7 +39,10 @@ import {
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
 import { HELD_BACK_NOTE } from '../chat-tools/readOutreachFeedback.tool'
-import { PRIORITY_CIVIC_PANEL_LEAD } from './priorityFlow.prompt'
+import {
+  PRIORITY_CIVIC_PANEL_LEAD,
+  SHORT_CIVIC_PANEL_WARNING,
+} from './priorityFlow.prompt'
 import { MANAGED_PANEL_SET_UP_LINE } from '../chief-of-staff/services/managedCivicPanel.tools'
 
 const USER_ID = 11
@@ -1221,10 +1224,32 @@ describe('PriorityFlowHandler', () => {
         expect(exhausted).toContain(
           'Civic panel: every resident a text can reach has an invite, and it is short of its goal.',
         )
-        expect(exhausted).toContain('so what they hear may lean')
         expect(exhausted).not.toContain(
           'GoodParty is building their civic panel',
         )
+      })
+
+      it('recommends asking an exhausted civic panel from 30 members, with the warning', () => {
+        const prompt = buildWithPanels().buildSystemPrompt(
+          withPanel({ ...building, status: 'exhausted', nextSendDate: null }),
+        )
+        expect(prompt).toContain('you recommend asking their civic panel')
+        expect(prompt).toContain(SHORT_CIVIC_PANEL_WARNING)
+        expect(prompt).toContain('Whether to keep filling it')
+        expect(prompt).not.toContain('so what they hear may lean')
+      })
+
+      it('keeps round one first for an exhausted civic panel under 30 members', () => {
+        const prompt = buildWithPanels().buildSystemPrompt(
+          withPanel({
+            ...building,
+            status: 'exhausted',
+            members: 12,
+            nextSendDate: null,
+          }),
+        )
+        expect(prompt).toContain('so what they hear may lean')
+        expect(prompt).not.toContain(SHORT_CIVIC_PANEL_WARNING)
       })
 
       it('recommends asking a ready civic panel and presents its card, with no choice of paths', () => {
@@ -2106,6 +2131,16 @@ describe('PriorityFlowHandler', () => {
       expect(good).toContain(
         'Groups heard from: 12 of 12. Status: Every group heard. Hear more from: nobody in particular. Good read: yes.',
       )
+    })
+
+    it('lets the agent share what a short civic panel said, with the warning', () => {
+      const prompt = withReadStatus().buildSystemPrompt(
+        at({ ...thin, shortCivicPanel: true }),
+      )
+      expect(prompt).toContain('Short civic panel: yes.')
+      expect(prompt).toContain(SHORT_CIVIC_PANEL_WARNING)
+      const plain = withReadStatus().buildSystemPrompt(at(thin))
+      expect(plain).not.toContain('Short civic panel: yes.')
     })
 
     it('holds results back until a good read', () => {

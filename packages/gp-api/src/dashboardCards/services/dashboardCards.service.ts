@@ -25,6 +25,7 @@ import {
   managedCivicPanelProgressCardSourceId,
   MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
   MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA,
+  PANEL_MIN_MEMBERS_FOR_BALANCE,
   type ManagedCivicPanel,
   type ManagedPanelProgressPhase,
   DASHBOARD_CARD_SNOOZE_DAYS,
@@ -187,6 +188,19 @@ export const managedPanelProgressCardContent = (
         `${members} residents said yes. Ask them what they think ` +
         `whenever you want to hear from ${hearFrom}.`,
       ...see,
+    }
+  }
+  // Enough members to ask, though short of the goal: the warning words
+  // match the civic panel page's and the priority's.
+  if (
+    panel.status === 'exhausted' &&
+    members >= PANEL_MIN_MEMBERS_FOR_BALANCE
+  ) {
+    return {
+      title: 'Your civic panel can weigh in now',
+      summary: `${joined}. What you hear may not reflect all of ${place ?? 'your district'}.`,
+      ctaLabel: MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
+      ctaHref: CIVIC_PANEL_PAGE_HREF,
     }
   }
   if (panel.status === 'exhausted') {

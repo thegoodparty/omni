@@ -617,7 +617,10 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
         timeZone: resolveSendWindowTimeZone(ctx.state),
-        goodRead: ctx.readStatus?.good,
+        goodRead:
+          ctx.readStatus === undefined
+            ? undefined
+            : ctx.readStatus.good || ctx.readStatus.shortCivicPanel === true,
       })
       if (this.reportBack) {
         tools.read_report_back = buildReadReportBackTool({

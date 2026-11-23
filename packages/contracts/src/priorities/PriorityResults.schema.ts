@@ -227,6 +227,11 @@ export const PriorityReadStatusSchema = z.object({
   // The follow-up text has gone out. With it, a short read is closed with
   // doors and calls, never a third text.
   followUpSent: z.boolean().optional(),
+  // Every send that went out on the priority asked a civic panel GoodParty
+  // has run out of texts for, short of its goal but with enough members to
+  // ask. Before a good read, what it heard is shown with a warning rather
+  // than held back: better to hear from someone than no one.
+  shortCivicPanel: z.boolean().optional(),
 })
 export type PriorityReadStatus = z.infer<typeof PriorityReadStatusSchema>
 
