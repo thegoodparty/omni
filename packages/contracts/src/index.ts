@@ -877,6 +877,8 @@ export {
 } from './backgroundAgentRuns/BackgroundAgentRun.schema'
 
 export {
+  DeleteJobDeadLetterResultSchema,
+  type DeleteJobDeadLetterResult,
   JobDeadLetterSchema,
   type JobDeadLetter,
   JobDeadLetterQueuesSchema,
