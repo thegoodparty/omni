@@ -10,9 +10,8 @@ import {
 
 // The detector: the case scout's PII gate alone, fed hand-written drafts. A
 // draft goes in and the judgment is whether the gate blocked it and which
-// rule did. Each expected value is what a person rules correct, even where
-// today's gate misses it (a seven-digit phone, a draft that identifies a
-// place with no name in it), so a red case here is a finding about the gate.
+// rule did. Each expected value is what a person rules correct, so a red case
+// here is a finding about the gate.
 // caseScoutDeidentifier.eval.ts grades the whole exit path instead.
 //
 // Every draft below is invented. omni is public, so a name, an address and a
