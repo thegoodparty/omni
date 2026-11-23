@@ -3,12 +3,14 @@ import {
   Controller,
   Get,
   Query,
+  UnauthorizedException,
   UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { PublicAccess } from 'src/authentication/decorators/PublicAccess.decorator'
+import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
@@ -17,7 +19,7 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
-import { Organization } from '../generated/prisma'
+import { Organization, User } from '../generated/prisma'
 import { OnboardingStatsRateLimitGuard } from './guards/onboardingStatsRateLimit.guard'
 import {
   GetOnboardingStatsQueryDTO,
@@ -47,8 +49,19 @@ export class OnboardingContactsController {
   @UseGuards(OnboardingStatsRateLimitGuard)
   async getOnboardingStats(
     @Query() query: GetOnboardingStatsQueryDTO,
+    @ReqUser() user: User | undefined,
     @ReqOrganization() organization?: Organization,
   ) {
+    // A request with no parameters and no session is a tab whose session ended,
+    // not a bad request: the webapp only asks param-less when it still believes
+    // it has an organization, and this route can only attach one from a
+    // session. Answering 400 made the client report it as a defect and fire the
+    // "new front-end error" alert again (ENG-11674); the bare 401 is what the
+    // webapp's request layer already reads as "sign in again".
+    if (!user && !query.districtId && !query.ballotReadyPositionId) {
+      throw new UnauthorizedException()
+    }
+
     let districtId = query.districtId
 
     if (!districtId && query.ballotReadyPositionId) {
@@ -70,6 +83,10 @@ export class OnboardingContactsController {
       districtId = district?.id
     }
 
+    // Only an identifiable caller reaches here: an anonymous request that named
+    // a position resolving to nothing, or a live session whose org names no
+    // district. Both are bad requests about the caller's own data, not a
+    // missing session, so the 400 stands.
     if (!districtId) {
       throw new BadRequestException(
         'Could not resolve a district from the provided' +

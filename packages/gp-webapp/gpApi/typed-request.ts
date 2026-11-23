@@ -5,6 +5,7 @@ import {
   ORG_SLUG_HEADER,
 } from '@shared/organizations/constants'
 import { APIEndpoints } from './api-endpoints'
+import { isMissingSessionError, requestSignIn } from './unauthorized'
 
 /**
  * Extracts the path parameters from a route.
@@ -126,7 +127,7 @@ export const createRequest =
     }
   }
 
-export const clientRequest = createRequest(async (opts) => {
+const browserRequest = createRequest(async (opts) => {
   opts.baseURL = '/api'
   opts.credentials = 'include'
 
@@ -137,3 +138,21 @@ export const clientRequest = createRequest(async (opts) => {
 
   return opts
 })
+
+/**
+ * Browser request. A 401 that came back with no session sends the user to sign in
+ * instead of leaving every query on the page to fail — see `unauthorized.ts`.
+ * The error is still thrown, so callers keep their own handling.
+ */
+export const clientRequest = async <Route extends keyof APIEndpoints>(
+  route: Route,
+  payload: RequestPayloadOf<Route>,
+  overrides?: RequestOptions,
+): Promise<Response<APIEndpoints[Route]['Response']>> => {
+  try {
+    return await browserRequest(route, payload, overrides)
+  } catch (error) {
+    if (isMissingSessionError(error)) requestSignIn()
+    throw error
+  }
+}

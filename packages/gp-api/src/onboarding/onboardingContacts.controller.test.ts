@@ -1,5 +1,5 @@
-import { BadRequestException } from '@nestjs/common'
-import { Organization } from '../generated/prisma'
+import { BadRequestException, UnauthorizedException } from '@nestjs/common'
+import { Organization, User } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -14,6 +14,7 @@ describe('OnboardingContactsController', () => {
   let resolveDataset: ReturnType<typeof vi.fn>
 
   const organization = { slug: 'org-slug' } as Organization
+  const user = { id: 123 } as User
   const stats = { totalConstituents: 1000 }
 
   beforeEach(() => {
@@ -34,6 +35,7 @@ describe('OnboardingContactsController', () => {
   it('uses an explicit districtId without touching the resolvers', async () => {
     const result = await controller.getOnboardingStats(
       { districtId: 'd-1' },
+      user,
       organization,
     )
 
@@ -50,6 +52,7 @@ describe('OnboardingContactsController', () => {
 
     const result = await controller.getOnboardingStats(
       { ballotReadyPositionId: 'br-pos-1' },
+      user,
       organization,
     )
 
@@ -69,7 +72,7 @@ describe('OnboardingContactsController', () => {
       level: 'local',
     })
 
-    const result = await controller.getOnboardingStats({}, organization)
+    const result = await controller.getOnboardingStats({}, user, organization)
 
     expect(getDistrictAndLevelForOrgSlug).toHaveBeenCalledWith('org-slug')
     expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-3', {
@@ -85,23 +88,26 @@ describe('OnboardingContactsController', () => {
     })
 
     await expect(
-      controller.getOnboardingStats({}, organization),
+      controller.getOnboardingStats({}, user, organization),
     ).rejects.toBeInstanceOf(BadRequestException)
     expect(fetchStatsByDistrictId).not.toHaveBeenCalled()
   })
 
-  it('rejects anonymous param-less requests without an organization', async () => {
+  it('answers anonymous param-less requests with a bare 401', async () => {
+    // No session and nothing to resolve a district from: the caller's session
+    // is gone, which is an auth answer, not a bad request (ENG-11674).
     await expect(
-      controller.getOnboardingStats({}, undefined),
-    ).rejects.toBeInstanceOf(BadRequestException)
+      controller.getOnboardingStats({}, undefined, undefined),
+    ).rejects.toBeInstanceOf(UnauthorizedException)
     expect(getDistrictAndLevelForOrgSlug).not.toHaveBeenCalled()
+    expect(fetchStatsByDistrictId).not.toHaveBeenCalled()
   })
 
   it('reads the table the request organization resolves to', async () => {
     resolveDataset.mockResolvedValue({ base: 'constituents' })
     const serveOrg = { slug: 'eo-council', ownerId: 7 } as Organization
 
-    await controller.getOnboardingStats({ districtId: 'd-4' }, serveOrg)
+    await controller.getOnboardingStats({ districtId: 'd-4' }, user, serveOrg)
 
     expect(resolveDataset).toHaveBeenCalledWith(serveOrg)
     expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-4', {
@@ -110,7 +116,11 @@ describe('OnboardingContactsController', () => {
   })
 
   it('reads voters for an anonymous request', async () => {
-    await controller.getOnboardingStats({ districtId: 'd-5' }, undefined)
+    await controller.getOnboardingStats(
+      { districtId: 'd-5' },
+      undefined,
+      undefined,
+    )
 
     expect(resolveDataset).not.toHaveBeenCalled()
     expect(fetchStatsByDistrictId).toHaveBeenCalledWith('d-5', {
