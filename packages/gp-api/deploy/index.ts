@@ -812,9 +812,9 @@ jwIDAQAB
         preview: 'false',
         dev: 'true',
         // In prod the nightly read scans agent_message: created_at has no
-        // index. Accepted on purpose: it is one read a night at 09:17 UTC,
-        // and a read never blocks chat writes. If the first nights run
-        // slow, the follow-up is a concurrent index build.
+        // index. A 120-second statement timeout caps it, so a slow scan
+        // fails the job loudly instead of loading the primary. If nights
+        // run slow, the follow-up is a concurrent index build.
         prod: 'true',
       }),
       CASE_SCOUT_SEND_TO_DELEGATE: select({

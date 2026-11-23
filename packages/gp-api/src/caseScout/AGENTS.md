@@ -210,9 +210,10 @@ drafter's output.
   and `draftedCase.schema.test.ts` pins the mirror to the real schema. The real
   schema still loads the same five files, which is why it stays.
 - **The nightly read scans `agent_message`.** `created_at` has no index, so
-  in prod `readSince` scans the table. Accepted: one read a night, and a read
-  never blocks chat writes. If the first nights run slow, add the index with
-  a concurrent build, never a plain `CREATE INDEX`, which locks chat writes.
+  `readSince` scans the table, capped by a 120-second statement timeout set in
+  its transaction: a slow scan is cancelled and the job fails loudly. If
+  nights run slow, add the index with a concurrent build, never a plain
+  `CREATE INDEX`, which locks chat writes.
 - **Never log chat text.** Logs and job payloads carry ids and counts only.
   Model spans record neither inputs nor outputs.
 - **Prompts are graded.** The quality bench
