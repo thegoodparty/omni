@@ -47,7 +47,10 @@ Step Functions failure path publishes plain text.
 The swarm rejects timestamps more than 300 seconds off, so a retry that lands
 late re-signs rather than reusing the original headers.
 
-Any non-2xx throws, so SNS retries the delivery.
+Any non-2xx throws, so Lambda records the invocation as an error and retries it
+twice asynchronously; the swarm copy of the alert is dropped after that, since
+there is no dead-letter queue. The email subscription on the same topic still
+delivers regardless.
 
 ## Configuration
 

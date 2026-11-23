@@ -163,7 +163,7 @@ describe('deliver', () => {
     expect(ids[0]).not.toBe(ids[1])
   })
 
-  it('throws on a non-2xx response so SNS retries', async () => {
+  it('throws on a non-2xx response so Lambda retries the invocation', async () => {
     vi.stubGlobal(
       'fetch',
       vi
