@@ -9,7 +9,6 @@ import {
 } from '@/generated/prisma'
 import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
-import { ChatCaseSchema } from '@/chats/evals/judge/cases'
 import { SCORING_MODEL } from '../caseScout.prompts'
 import {
   BundleSchema,
@@ -19,6 +18,7 @@ import {
   SessionScoreSchema,
   SourcesSchema,
 } from '../schemas/caseScoutBucket.schema'
+import { DraftedCaseSchema } from '../schemas/draftedCase.schema'
 import type { ScoreResponse } from '../schemas/caseScoutModel.schema'
 import { CaseScoutBucketService } from '../services/caseScoutBucket.service'
 import { CaseScoutCaseListsService } from '../services/caseScoutCaseLists.service'
@@ -277,7 +277,6 @@ beforeEach(() => {
   vi.stubEnv('CASE_SCOUT_LAMBDA_FUNCTION_NAME', 'case-scout-test')
   vi.stubEnv('CASE_SCOUT_SPEND_CAP_USD', '')
   vi.stubEnv('CASE_SCOUT_SESSION_CAP', '')
-  vi.stubEnv('CASE_SCOUT_JUDGE_RECORDS_BUCKET', '')
   vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
 
   objects = fakeS3(service.app.get(CaseScoutBucketService))
@@ -393,7 +392,7 @@ describe('caseScoutNightly', () => {
       'conv-golden-b:msg-b1',
     ])
     for (const draft of bundle().drafts) {
-      expect(ChatCaseSchema.safeParse(draft.case).success).toBe(true)
+      expect(DraftedCaseSchema.safeParse(draft.case).success).toBe(true)
     }
   })
 
@@ -637,7 +636,6 @@ describe('caseScoutDraft', () => {
         'conv-sev-1-3:msg-sev-1': newCase('fresh-b', 'Rejected failure'),
         'conv-sev-2-3:msg-sev-2': newCase('existing-case', 'collides'),
       })[sessionId] ?? new Error('unexpected')
-    vi.stubEnv('CASE_SCOUT_JUDGE_RECORDS_BUCKET', '')
 
     await service.jobs.runSchedule('caseScoutNightly')
 

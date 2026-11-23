@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
-# Fixture test for judge-cases-only.sh. judge-guard.yml runs this before
-# trusting the classifier on a real PR, the same way it runs
-# judge-path-floor.self-test.sh: a classifier broken by an edit fails the run
-# instead of quietly skipping every PR's sweep, or none.
+# Fixture test for judge-cases-only.sh. judge-guard.yml runs it before trusting
+# the classifier on a real PR.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/judge-cases-only.sh"
-cases='packages/gp-api/src/chats/evals/judge/cases'
+src=packages/gp-api/src
 failures=0
 
 expect() {
-  local want="$1" label="$2" got
-  shift 2
+  local want="$1" author="$2" label="$3" got
+  shift 3
   if [ "$#" -eq 0 ]; then
-    got="$(printf '' | bash "$script")"
+    got="$(printf '' | PR_AUTHOR="$author" bash "$script")"
   else
-    got="$(printf '%s\n' "$@" | bash "$script")"
+    got="$(printf '%s\n' "$@" | PR_AUTHOR="$author" bash "$script")"
   fi
   if [ "$got" = "$want" ]; then
     echo "ok   cases_only=$got  $label"
@@ -26,21 +24,20 @@ expect() {
   fi
 }
 
-expect true 'one case list' \
-  "$cases/campaign_assistant.json"
-expect true 'two case lists' \
-  "$cases/campaign_assistant.json" \
-  "$cases/chief_of_staff.json"
-expect false 'a case list and an agent prompt together' \
-  "$cases/campaign_assistant.json" \
-  packages/gp-api/src/chats/general/campaign-manager/campaignManagerPrompt.ts
-expect false 'judge code beside the case-list directory' \
-  packages/gp-api/src/chats/evals/judge/cases.ts
-expect false 'a sibling directory whose name starts the same way' \
-  packages/gp-api/src/chats/evals/judge/cases-archive/old.json
-expect false 'an agent prompt alone' \
-  packages/gp-api/src/chats/general/chief-of-staff/prompt.ts
-expect false 'empty diff'
+expect true 'app/delegate-gp' 'one eval file from the scout' \
+  "$src/chats/general/chief-of-staff/chief_of_staff.eval.ts"
+expect true 'delegate-gp[bot]' 'two eval files from the scout bot' \
+  "$src/chats/general/chief-of-staff/chief_of_staff.eval.ts" \
+  "$src/chats/general/campaign-manager/campaign_assistant.eval.ts"
+expect false 'someone' 'an eval file from a person' \
+  "$src/chats/general/chief-of-staff/chief_of_staff.eval.ts"
+expect false '' 'no author'  "$src/meetings/meeting_briefing.eval.ts"
+expect false 'app/delegate-gp' 'an eval file and agent code together' \
+  "$src/chats/general/chief-of-staff/chief_of_staff.eval.ts" \
+  "$src/chats/general/chief-of-staff/prompt.ts"
+expect false 'app/delegate-gp' 'agent code alone' \
+  "$src/chats/general/chief-of-staff/prompt.ts"
+expect false 'app/delegate-gp' 'empty diff'
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)"

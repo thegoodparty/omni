@@ -10,6 +10,13 @@ Judge Case Iteration TDD; decision record:
 **On in dev only.** Nothing runs unless `CASE_SCOUT_ENABLED=true`, which
 only dev sets; prod and previews ship it `false`.
 
+**The five `cases/<agent>.json` files are the scout's inbox only.** The
+publisher appends a scout-drafted case to the agent's list, and the scout's
+bench reads them back to check that a draft parses once appended. No judge runs
+them: the harness that did is deleted, so the files carry no verdicts and a
+change to one has no effect on any gate. They go when the publisher moves to
+the Delegate webhook.
+
 **The publisher is not here, on purpose.** gp-api reads transcripts, so it
 must never hold the GitHub App key. It writes the night's files to the scout's
 bucket and invokes gp-ai's `case-scout-<env>` Lambda (`publisher.py`), which
@@ -102,9 +109,7 @@ processed, so a later night reads it.
 ## Config
 
 `CASE_SCOUT_ENABLED`, `CASE_SCOUT_BUCKET`, `CASE_SCOUT_LAMBDA_FUNCTION_NAME`,
-`CASE_SCOUT_SPEND_CAP_USD`, `CASE_SCOUT_SESSION_CAP`,
-`CASE_SCOUT_JUDGE_RECORDS_BUCKET` (dev only: noisy-case proposals read the
-judge's sweep records; unset skips them). Set in `deploy/index.ts`, with the
+`CASE_SCOUT_SPEND_CAP_USD`, `CASE_SCOUT_SESSION_CAP`. Set in `deploy/index.ts`, with the
 task role's grants on the bucket and the Lambda. Only prod drops staff and
 test accounts (`OTEL_SERVICE_ENVIRONMENT`), as the Python reader did.
 
@@ -158,7 +163,8 @@ drafter's output.
 
 - **`ChatCaseSchema` cannot be imported here.** `src/chats/evals/**` is left
   out of the production build, so `schemas/draftedCase.schema.ts` mirrors it
-  and `draftedCase.schema.test.ts` pins the mirror to the real schema.
+  and `draftedCase.schema.test.ts` pins the mirror to the real schema. The real
+  schema still loads the same five files, which is why it stays.
 - **Never log chat text.** Logs and job payloads carry ids and counts only.
   Model spans record neither inputs nor outputs.
 - **Prompts are graded.** The quality bench

@@ -29,7 +29,7 @@ import {
 
 // The one agent this route refuses by name: it buys domains and submits to
 // Peerly, so a judge run of it spends real money
-// (judge-eval-framework-plan.md, "Not converted").
+// (docs/agent-evals.md, "Agents with no suite").
 const REFUSED_AGENTS: string[] = ['compliance_setup']
 
 // The PMF Engine agents whose manifest DECLARES organization_slug as a param,

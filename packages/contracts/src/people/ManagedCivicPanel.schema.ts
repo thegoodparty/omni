@@ -41,7 +41,7 @@ export type ApproveManagedCivicPanelInput = z.infer<
   typeof ApproveManagedCivicPanelInputSchema
 >
 
-export const MANAGED_CIVIC_PANEL_ACTIONS = ['pause', 'resume', 'stop'] as const
+export const MANAGED_CIVIC_PANEL_ACTIONS = ['pause', 'resume'] as const
 export const UpdateManagedCivicPanelInputSchema = z
   .object({ action: z.enum(MANAGED_CIVIC_PANEL_ACTIONS) })
   .strict()

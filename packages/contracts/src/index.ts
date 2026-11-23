@@ -608,8 +608,8 @@ export {
 export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 export { isStateCode } from './campaigns/StateCode'
 export { campaignWasEverPro } from './campaigns/CampaignEverPro'
-export { PLAN_PRICING, TEAM_GATE_START } from './payments/PlanPricing.const'
-export { planEndsAt } from './payments/PlanEndsAt'
+export { PLAN_PRICING } from './payments/PlanPricing.const'
+export { planEndsAt, planLastDay } from './payments/PlanEndsAt'
 export {
   PlanReceiptSchema,
   type PlanReceipt,
@@ -860,24 +860,6 @@ export {
   type AgentRunDetail,
 } from './agentRuns/AgentRun.schema'
 export {
-  JUDGE_KEY_PREFIX,
-  JUDGE_RUN_ID_MAX_LENGTH,
-  JUDGE_RUN_ID_PREFIX,
-  JudgeOverrideSchema,
-  judgeOverrideKeys,
-  judgeRunId,
-} from './agentRuns/JudgeOverride.schema'
-export type { JudgeOverride } from './agentRuns/JudgeOverride.schema'
-export {
-  JUDGE_REPLAY_KEY_PREFIX,
-  JudgeReplaySchema,
-  judgeReplayBaseKey,
-  judgeReplaySeedKey,
-  judgeReplaySweepKey,
-} from './agentRuns/JudgeReplay.schema'
-export type { JudgeReplay } from './agentRuns/JudgeReplay.schema'
-
-export {
   BackgroundAgentRunListItemSchema,
   type BackgroundAgentRunListItem,
   BackgroundAgentRunsListQuerySchema,
@@ -893,6 +875,20 @@ export {
   AgentMessageRoleSchema,
   type AgentMessageRole,
 } from './backgroundAgentRuns/BackgroundAgentRun.schema'
+
+export {
+  DeleteJobDeadLetterResultSchema,
+  type DeleteJobDeadLetterResult,
+  JobDeadLetterSchema,
+  type JobDeadLetter,
+  JobDeadLetterQueuesSchema,
+  type JobDeadLetterQueues,
+  JOB_DEAD_LETTERS_MAX_LIMIT,
+  JobDeadLettersListQuerySchema,
+  type JobDeadLettersListQuery,
+  RedriveJobDeadLetterResultSchema,
+  type RedriveJobDeadLetterResult,
+} from './jobs/JobDeadLetter.schema'
 
 export {
   BRIEFING_DATE_RANGE_VALUES,

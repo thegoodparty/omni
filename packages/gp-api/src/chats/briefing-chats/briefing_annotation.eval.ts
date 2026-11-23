@@ -1,5 +1,5 @@
 import {
-  briefingChatTurns,
+  chatTurns,
   definePairwiseAgentEvalSuite,
   type BriefingChatAnchor,
   type EvalContext,
@@ -120,7 +120,8 @@ export default definePairwiseAgentEvalSuite<BriefingEvalInput>(
     mode: 'serve',
     profile: { positionId: 'Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb24vMTczMjcw' },
     run: ({ turns, highlight }, ctx) =>
-      briefingChatTurns(ctx, {
+      chatTurns(ctx, {
+        scope: 'briefing_annotation',
         meetingDate: MEETING_DATE,
         anchor: highlight ? passageAnchor() : TOP_LEVEL_ANCHOR,
         turns,

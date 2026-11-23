@@ -4,7 +4,6 @@ import { PositionsModule } from '@/electionDb/positions/positions.module'
 import { CaseScoutBucketService } from './services/caseScoutBucket.service'
 import { CaseScoutCaseListsService } from './services/caseScoutCaseLists.service'
 import { CaseScoutDraftService } from './services/caseScoutDraft.service'
-import { CaseScoutJudgeRecordsService } from './services/caseScoutJudgeRecords.service'
 import { CaseScoutMessagesService } from './services/caseScoutMessages.service'
 import { CaseScoutModelService } from './services/caseScoutModel.service'
 import { CaseScoutNightlyService } from './services/caseScoutNightly.service'
@@ -17,7 +16,6 @@ import { CaseScoutScoreService } from './services/caseScoutScore.service'
     CaseScoutBucketService,
     CaseScoutCaseListsService,
     CaseScoutDraftService,
-    CaseScoutJudgeRecordsService,
     CaseScoutMessagesService,
     CaseScoutModelService,
     CaseScoutNightlyService,

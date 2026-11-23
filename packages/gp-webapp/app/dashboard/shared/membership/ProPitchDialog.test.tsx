@@ -255,24 +255,93 @@ describe('ProPitchDialog', () => {
       expect(
         screen.getByText('Join Pro to unlock voter data and outreach'),
       ).toBeInTheDocument()
-      expect(screen.getByText(/\$299 for your campaign/)).toBeInTheDocument()
+      expect(screen.getByText('$299')).toBeInTheDocument()
+      expect(
+        screen.getByText(/, one payment for your whole campaign/),
+      ).toBeInTheDocument()
+      expect(screen.getByLabelText('PRO')).toBeInTheDocument()
+      expect(screen.queryByText('TEAM')).toBeNull()
+      expect(screen.queryByText('Logins for your team')).toBeNull()
       expect(document.body.textContent).not.toMatch(/\$10\b|\/mo/)
+      expect(
+        screen.getByRole('button', { name: 'Join Pro for $299' }),
+      ).toBeInTheDocument()
       expect(
         screen.getByRole('link', { name: 'See all plans' }),
       ).toHaveAttribute('href', '/dashboard/plans')
     })
 
-    it('pitches Team above the voter threshold', () => {
+    it('lists the four Pro rows with the credit on texts and robocalls', () => {
+      mockPlanFlag.enabled = true
+      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold)
+
+      const rows = screen.getAllByRole('listitem')
+      expect(
+        rows.map((row) => row.querySelector('.font-semibold')?.textContent),
+      ).toEqual([
+        'Voter data',
+        'Texts and robocalls',
+        'Door knocking and phone banking',
+        'Campaign verification',
+      ])
+      expect(rows[1]).toHaveTextContent('$175 credit')
+      expect(rows[0]).not.toHaveTextContent('credit')
+    })
+
+    it('pitches Team above the voter threshold with its badge and login row first', () => {
       mockPlanFlag.enabled = true
       renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1)
 
       expect(
         screen.getByText('Join Team to unlock voter data and outreach'),
       ).toBeInTheDocument()
-      expect(screen.getByText(/\$399 for your campaign/)).toBeInTheDocument()
+      expect(screen.getByText('$399')).toBeInTheDocument()
+      expect(screen.getByText('TEAM')).toBeInTheDocument()
+      expect(screen.queryByLabelText('PRO')).toBeNull()
+      expect(screen.getAllByRole('listitem')[0]).toHaveTextContent(
+        'Logins for your team',
+      )
+      expect(
+        screen.getByRole('button', { name: 'Join Team for $399' }),
+      ).toBeInTheDocument()
       expect(
         screen.getByRole('link', { name: 'See all plans' }),
       ).toHaveAttribute('href', '/dashboard/plans?highlight=team')
+    })
+
+    it('keeps the cta attribution as the plan name', async () => {
+      mockPlanFlag.enabled = true
+      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1)
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Join Team for $399' }),
+      )
+
+      expect(router.push).toHaveBeenCalledWith(
+        expect.stringMatching(/[?&]cta=Join\+Team(&|$)/),
+      )
+    })
+
+    it('sends the unpriced plan name as the cta from the invite pitch', async () => {
+      mockPlanFlag.enabled = true
+      render(
+        <ProPitchDialog
+          source="account_settings"
+          channel="generic"
+          open
+          onOpenChange={vi.fn()}
+          invite
+        />,
+      )
+
+      await userEvent.click(screen.getByRole('button', { name: /Join Team/ }))
+
+      expect(router.push).toHaveBeenCalledWith(
+        expect.stringMatching(/[?&]cta=Join\+Team(&|$)/),
+      )
+      expect(router.push).toHaveBeenCalledWith(
+        expect.stringMatching(/[?&]plan=team(&|$)/),
+      )
     })
 
     it('keeps the legacy copy and no plans link with the flag off', () => {

@@ -1,0 +1,14 @@
+-- The Universal Judge's chat arms read per-turn observations back over HTTP
+-- while they still ran as a separate sweep. That sweep is gone, and with it the
+-- route, the service and the model, so no code in this deploy names this table.
+--
+-- This drops a table in the same deploy that stops writing it, which the
+-- two-deploy rule in prisma/AGENTS.md otherwise forbids. The rule exists
+-- because a task serving the previous deploy still writes through Prisma, and
+-- the write fails once the table is gone. Here that is bounded on both sides:
+-- the previous deploy's writer is gated on IS_NON_PROD_DEPLOY, so the prod
+-- tasks running during the rollout never reach it, and the one dev or preview
+-- task that does has its write wrapped in a fire-and-forget `.catch` that logs,
+-- so a turn never fails on it. The rows are judge telemetry, unread since the
+-- route went, so nothing is lost either.
+DROP TABLE "judge_turn_telemetry";

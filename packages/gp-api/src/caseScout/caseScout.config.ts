@@ -54,9 +54,6 @@ export const caseScoutBucketName = (): string =>
 export const publisherFunctionName = (): string =>
   requiredEnv('CASE_SCOUT_LAMBDA_FUNCTION_NAME')
 
-export const judgeRecordsBucketName = (): string | undefined =>
-  process.env.CASE_SCOUT_JUDGE_RECORDS_BUCKET || undefined
-
 // The chat agents the scout scores. Any other scope is skipped before a model
 // call; covering the next agent is one entry here.
 export const COVERED_SCOPES: ReadonlySet<string> = new Set<ChatScope>([

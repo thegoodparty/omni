@@ -74,6 +74,10 @@ npm run lint -w packages/gp-admin          # eslint .
 npm run test:coverage -w packages/gp-admin # vitest run --coverage
 ```
 
+## Job dead letters page
+
+`src/app/dashboard/job-dead-letters/` is staff recovery for pg-boss dead letters (gp-api `/admin/job-dead-letters`, reason and invariants in gp-api `src/jobs/AGENTS.md` § Dead letters). `org:admin` only — both the page and the gp-api guard, because a re-drive runs the job again and may re-send whatever it sends. The list shows the queue each job failed on, its last error, retries spent and when it died, filtered by a source queue dropdown that applies on change; the detail page shows the payload and last error. Re-drive and delete are confirm dialogs, and rows are multi-selectable for bulk re-drive or delete, which loop gp-api's one-job endpoints and report how many finished if one fails. The queue a re-drive goes back to is the dead letter's own recorded source queue, never one staff type, and a dead letter with none is listed read-only with the button disabled. gp-api answers 404 for a dead letter that is already gone and 409 when the source queue no longer exists or still holds a job under the same key; the dialog shows the message rather than letting it throw.
+
 ## Email sends page
 
 `src/app/dashboard/email-sends/` lists paused email sends (gp-api `/admin/outreach/email`, keyed on the Outreach id) with SES's bounce and complaint rates since the last resume, and a Results column of the send's recorded counts (sent, delivered, bounced, marked as spam, opened (approximate), clicked). Resume and Cancel are `org:admin` only; Resume is hidden for `ses_tenant`, which only AWS can clear.

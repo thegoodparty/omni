@@ -4,8 +4,8 @@ import { chatTurns, definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 // case cannot drive a conversation in another agent's scope.
 type ChiefOfStaffEvalInput = { turns: readonly string[] }
 
-// chief_of_staff, on the pairwise suites. Converted from the old judge's chat
-// case list (src/chats/evals/judge/cases/chief_of_staff.json): the cases keep
+// chief_of_staff, on the pairwise suites. Converted from the old judge's case
+// list (src/chats/evals/judge/cases/chief_of_staff.json): the cases keep
 // their ids, `question` became `turns`, and `condition` and `handledWhen` moved
 // under `grading`. The one case the old list marked unscored is a normal case
 // here whose condition starts with 'Control:', so a difference called on it is

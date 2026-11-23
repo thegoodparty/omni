@@ -234,7 +234,7 @@ const runRoutesAnswer = async (
 // and fails when an origin resolves but serves nothing — a preview that has not
 // rolled out yet, or a URL that is not an arm at all. `resolveApiRoot` probes
 // both shapes and throws rather than guessing, so its refusal IS the
-// unreachability report, and it names what it read the way judge.yml's gate does.
+// unreachability report.
 export const probeArm = async (baseUrl: string): Promise<ArmReachability> => {
   try {
     await resolveApiRoot(baseUrl)

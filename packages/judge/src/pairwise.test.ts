@@ -115,6 +115,7 @@ describe('definePairwiseAgentEvalSuite', () => {
     'grades %s through both orders and gates the suite as %s',
     async (winner, label) => {
       let users = 0
+      const reasoning = `first\n${'a'.repeat(31)}`
       const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
         const request = new Request(input)
         const { hostname, pathname } = new URL(request.url)
@@ -153,7 +154,7 @@ describe('definePairwiseAgentEvalSuite', () => {
                   : prompt.includes(`OUTPUT A\n${winner}.invalid`)
                     ? 'A'
                     : 'B',
-              reasoning: 'fake grade',
+              reasoning,
               dimensions: Object.keys(DEFAULT_DIMENSIONS).map((name) => ({
                 name,
                 A: 4,
@@ -185,6 +186,21 @@ describe('definePairwiseAgentEvalSuite', () => {
           expect.stringContaining('fake-engine'),
           'pairwise-run',
         )
+        // The producer redacts per string and posts the result unredacted, so a
+        // 31-character word after a newline survives the pattern that would
+        // otherwise eat the `n` of the `\n` and leave invalid JSON.
+        const readings = annotate.mock.calls.filter(
+          ([, type]) =>
+            type === 'pairwise-order' || type === 'pairwise-decision',
+        )
+        if (winner !== 'failure') {
+          expect(readings).toHaveLength(18)
+          for (const [message] of readings)
+            expect(() => JSON.parse(message)).not.toThrow()
+          const orders = readings.filter(([, type]) => type.includes('order'))
+          for (const [message] of orders)
+            expect(JSON.parse(message).reasoning).toBe(reasoning)
+        }
         if (label === 'WORSE' || label === "CAN'T JUDGE")
           await expect(hooks.after?.()).rejects.toThrow(label)
         else await expect(hooks.after?.()).resolves.toBeUndefined()

@@ -20,6 +20,8 @@ import { AdminBackgroundAgentRunsController } from './backgroundAgentRuns/adminB
 import { AdminBackgroundAgentRunsService } from './backgroundAgentRuns/services/adminBackgroundAgentRuns.service'
 import { AdminBriefingsController } from './briefings/adminBriefings.controller'
 import { AdminBriefingsService } from './briefings/services/adminBriefings.service'
+import { AdminJobDeadLettersController } from './jobDeadLetters/adminJobDeadLetters.controller'
+import { AdminJobDeadLettersService } from './jobDeadLetters/services/adminJobDeadLetters.service'
 
 @Module({
   imports: [
@@ -42,12 +44,14 @@ import { AdminBriefingsService } from './briefings/services/adminBriefings.servi
     AdminAgentRunsController,
     AdminBackgroundAgentRunsController,
     AdminBriefingsController,
+    AdminJobDeadLettersController,
   ],
   providers: [
     AdminCampaignsService,
     AdminAgentRunsService,
     AdminBackgroundAgentRunsService,
     AdminBriefingsService,
+    AdminJobDeadLettersService,
   ],
 })
 export class AdminModule {}

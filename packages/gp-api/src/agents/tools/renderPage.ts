@@ -5,7 +5,6 @@ import {
 } from './agentBrowser.service'
 import { looksLikeHtml, markdownFromHtml } from './agentWeb.service'
 import { PAGE_CHARS, publishedIn } from './fetchPage'
-import { AgentPageReplayService } from './judgeReplay'
 import { defineTool, type ToolContext } from './tool'
 
 const renderPageInput = z.object({
@@ -34,20 +33,6 @@ const readable = (
 }
 
 const rendered = async (url: string, ctx: ToolContext) => {
-  const replayed = ctx.judgeReplay
-    ? await ctx.get(AgentPageReplayService).lookupFetch(ctx.judgeReplay, url)
-    : undefined
-  if (replayed) {
-    if (replayed.status < 200 || replayed.status >= 300) {
-      return { ok: false, reason: 'http_error', status: replayed.status }
-    }
-    return readable(
-      url,
-      replayed.finalUrl,
-      replayed.status,
-      replayed.body.toString('utf8'),
-    )
-  }
   const page = await ctx.get(AgentBrowserService).render(ctx, url)
   if (!page.ok) return page
   if (page.status < 200 || page.status >= 300) {

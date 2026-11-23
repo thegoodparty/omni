@@ -9,23 +9,14 @@ import type { EvalContext } from './suite'
 //   POST /v1/chats                     { scope, anchor? } -> { conversationId }
 //   POST /v1/chats/:id/messages?scope= { content }        -> text/event-stream
 //
-// briefing_annotation is the exception: its conversation is created together
-// with the annotation it hangs off, so it opens on its own pair of routes.
+// briefing_annotation opens on its own route, because its conversation is
+// made together with the annotation it hangs off; POST /v1/chats refuses that
+// scope on purpose. Its turns go to the shared route like every other scope.
 //
-//   POST /v1/briefing-chats              { meetingDate, anchor }
-//   POST /v1/briefing-chats/:annotationId/messages
+//   POST /v1/briefing-chats            { meetingDate, anchor } -> { conversationId }
 //
 // The org header is already on the arm's client (`arm.ts`), so every path here
 // is relative to the arm's API root and scoped to the org bootstrap created.
-
-// The four scopes POST /v1/chats accepts. briefing_annotation is absent on
-// purpose: that scope's handler refuses a conversation opened without its
-// annotation, and `briefingChatTurns` is how one is opened.
-export type ChatScope =
-  | 'chief_of_staff'
-  | 'campaign_assistant'
-  | 'ordinance_flow'
-  | 'priority_flow'
 
 export type BriefingChatAnchor = {
   jsonPath: string | null
@@ -33,20 +24,24 @@ export type BriefingChatAnchor = {
   end: number | null
 }
 
-export type ChatTurnsInput = {
-  scope: ChatScope
-  turns: readonly string[]
-  // ordinance_flow and priority_flow refuse a conversation with no anchor: the
-  // thread is keyed to the ordinance step or the priority it works on.
-  anchor?: ChatAnchor
-}
+// One input per scope. ordinance_flow and priority_flow refuse a conversation
+// with no anchor: the thread is keyed to the ordinance step or the priority.
+// A briefing anchor of all nulls opens on the whole briefing.
+export type ChatTurnsInput =
+  | { scope: 'chief_of_staff' | 'campaign_assistant'; turns: readonly string[] }
+  | {
+      scope: 'ordinance_flow' | 'priority_flow'
+      anchor: ChatAnchor
+      turns: readonly string[]
+    }
+  | {
+      scope: 'briefing_annotation'
+      meetingDate: string
+      anchor: BriefingChatAnchor
+      turns: readonly string[]
+    }
 
-export type BriefingChatTurnsInput = {
-  meetingDate: string
-  // All null opens on the whole briefing; a set pointer opens on that passage.
-  anchor: BriefingChatAnchor
-  turns: readonly string[]
-}
+export type ChatScope = ChatTurnsInput['scope']
 
 type ChatFrame = { type?: unknown; delta?: unknown; message?: unknown }
 
@@ -112,34 +107,32 @@ const converse = async (
   return exchanges.join('\n\n')
 }
 
-export const chatTurns = async (
+const openConversation = async (
   ctx: EvalContext,
-  { scope, turns, anchor }: ChatTurnsInput,
+  input: ChatTurnsInput,
 ): Promise<string> => {
-  const { conversationId } = await ctx.api.post<{ conversationId: string }>(
-    '/v1/chats',
-    { scope, ...(anchor === undefined ? {} : { anchor }) },
-  )
-  return converse(ctx, {
-    scope,
-    conversationId,
-    path: `/v1/chats/${conversationId}/messages?scope=${encodeURIComponent(scope)}`,
-    turns,
-  })
+  const created =
+    input.scope === 'briefing_annotation'
+      ? await ctx.api.post<{ conversationId: string }>('/v1/briefing-chats', {
+          meetingDate: input.meetingDate,
+          anchor: input.anchor,
+        })
+      : await ctx.api.post<{ conversationId: string }>('/v1/chats', {
+          scope: input.scope,
+          ...('anchor' in input ? { anchor: input.anchor } : {}),
+        })
+  return created.conversationId
 }
 
-export const briefingChatTurns = async (
+export const chatTurns = async (
   ctx: EvalContext,
-  { meetingDate, anchor, turns }: BriefingChatTurnsInput,
+  input: ChatTurnsInput,
 ): Promise<string> => {
-  const { annotationId, conversationId } = await ctx.api.post<{
-    annotationId: string
-    conversationId: string
-  }>('/v1/briefing-chats', { meetingDate, anchor })
+  const conversationId = await openConversation(ctx, input)
   return converse(ctx, {
-    scope: 'briefing_annotation',
+    scope: input.scope,
     conversationId,
-    path: `/v1/briefing-chats/${annotationId}/messages`,
-    turns,
+    path: `/v1/chats/${conversationId}/messages?scope=${encodeURIComponent(input.scope)}`,
+    turns: input.turns,
   })
 }

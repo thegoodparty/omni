@@ -17,8 +17,8 @@ interface PlansPageProps {
 
 const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
   const { plan: currentPlan, onSubscription, recommendTeam } = usePlan()
-  const leadWithTeam =
-    highlightTeam || (currentPlan === 'free' && recommendTeam)
+  const highlighted: PlanKey =
+    highlightTeam || (currentPlan === 'free' && recommendTeam) ? 'team' : 'pro'
   const offerFor = (plan: PlanKey): { href: string | null } | null => {
     const column = planColumnsFor(currentPlan, onSubscription).find(
       (c) => c.plan === plan,
@@ -26,7 +26,7 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
     if (plan === 'free' || !column?.cta) return null
     if (planRank(plan) <= planRank(currentPlan)) return null
     if (onSubscription) return { href: null }
-    return { href: planCheckoutHref(plan, column.cta) }
+    return { href: planCheckoutHref(plan, `Join ${column.name}`) }
   }
 
   return (
@@ -44,15 +44,26 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
             >
               <ArrowLeftIcon className="size-5" aria-hidden />
             </Link>
-            <h1 className="text-base font-semibold">{PLANS_COPY.title}</h1>
+            <span className="text-base font-semibold">{PLANS_COPY.title}</span>
           </div>
-          <p className="text-sm">
-            {onSubscription ? PLANS_COPY.subscriptionNote : PLANS_COPY.intro}
-          </p>
+          <div className="flex flex-col gap-1.5 md:items-center md:text-center">
+            <h1 className="text-xl font-semibold md:text-2xl">
+              {PLANS_COPY.heading}
+            </h1>
+            <p className="text-sm text-muted-foreground md:text-base">
+              {onSubscription
+                ? PLANS_COPY.subscriptionNote
+                : PLANS_COPY.subtitle}
+              {!onSubscription && (
+                <span className="md:hidden"> {PLANS_COPY.upgradeAnytime}.</span>
+              )}
+            </p>
+          </div>
           <div className="hidden md:block">
             <PlansTable
               currentPlan={currentPlan}
               onSubscription={onSubscription}
+              highlighted={highlighted}
               offerFor={offerFor}
             />
           </div>
@@ -60,7 +71,7 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
             <PlanCards
               currentPlan={currentPlan}
               onSubscription={onSubscription}
-              highlightTeam={leadWithTeam}
+              highlighted={highlighted}
               offerFor={offerFor}
             />
           </div>

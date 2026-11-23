@@ -2,6 +2,7 @@
 
 import { Badge, Flex } from '@radix-ui/themes'
 import type { EnrichedCampaign } from '@/app/dashboard/campaigns/actions'
+import { planLastDay } from '@goodparty_org/contracts'
 import { formatDate } from '@/lib/utils/date'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
@@ -16,6 +17,14 @@ const PRICING_MODEL_LABELS = {
   subscription: 'Subscription',
   one_time: 'One time',
 } as const
+
+const formatLastDay = (endsAt: Date | string) =>
+  planLastDay(endsAt).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
 
 export function PlanCard({ campaign }: { campaign: EnrichedCampaign }) {
   const plan = campaign.plan ?? 'free'
@@ -37,7 +46,9 @@ export function PlanCard({ campaign }: { campaign: EnrichedCampaign }) {
           : '—'}
       </DataRow>
       <DataRow label="Paid at">{formatDate(campaign.planPaidAt)}</DataRow>
-      <DataRow label="Good through">{formatDate(goodThrough)}</DataRow>
+      <DataRow label="Good through">
+        {goodThrough ? formatLastDay(goodThrough) : '—'}
+      </DataRow>
       <DataRow label="Ended at">{formatDate(campaign.planEndedAt)}</DataRow>
       <DataRow label="Outreach credit">
         {`$${((campaign.outreachCreditCents ?? 0) / 100).toFixed(2)}`}

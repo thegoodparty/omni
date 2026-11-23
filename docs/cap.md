@@ -107,8 +107,8 @@ persisted in normalized Postgres tables.
 that reads real runs' artifacts and traces out of S3 and gates prompt changes — a
 mechanical performance gate that can block, and an LLM-as-judge quality rubric that
 only advises. Across both kinds, the **Universal Judge** compares a PR's branch
-with its base for any registered agent: comment `/judge` on a PR. How to ask and how
-to read the verdict: `packages/gp-api/src/chats/evals/judge/README.md`.
+with its base for any registered agent: comment `/judge-eval <suites>` on a PR. How
+to ask and how to read the verdict: `docs/agent-evals.md`.
 
 ## Glossary
 

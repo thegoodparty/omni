@@ -79,9 +79,12 @@ via a Clerk invitation). No other code path may create one.
 call it, so the webapp renders what the route enforces. Order: `eo-` org
 (`ELECTED_OFFICE`, 400), test org (`TEST_ORGANIZATION`, 409), then with
 `win_per_campaign_pricing` on (read for the org owner, never the viewer) a
-campaign with `createdAt >= TEAM_GATE_START` (contracts) and `plan !== 'team'`
-(`TEAM_PLAN_REQUIRED`, 403 body `{ code, message }`; `planEndedAt` is ignored).
-Older campaigns, Serve orgs and flag off are untouched.
+campaign with `createdAt >=` the flag's `on` payload `{ teamGateStart: <ISO date> }`
+(set in Amplitude, no deploy) and `plan !== 'team'` (`TEAM_PLAN_REQUIRED`, 403
+body `{ code, message }`; `planEndedAt` is ignored). One
+`FeaturesService.getFeatureWithPayload` call returns the enabled state and the
+payload. Older campaigns, a missing or malformed payload, Serve orgs and flag
+off are untouched.
 
 **`DELETE team/members/me` is self-removal (ENG-11137).** Any member —
 volunteer or manager — can leave; it reuses `removeMember` with the caller

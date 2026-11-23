@@ -3,7 +3,6 @@ import type { PinoLogger } from 'nestjs-pino'
 import { AgentBrowserService } from './agentBrowser.service'
 import { AgentWebService } from './agentWeb.service'
 import { fetchPage } from './fetchPage'
-import type { AgentPageReplayService } from './judgeReplay'
 import { renderPage } from './renderPage'
 import type { ToolContext } from './tool'
 
@@ -41,8 +40,7 @@ describe.runIf(process.env.RENDER_PAGE_LIVE === '1')('renderPage live', () => {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       const logger = { warn: vi.fn(), info: vi.fn() } as unknown as PinoLogger
       const browser = new AgentBrowserService(logger)
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      const web = new AgentWebService({} as AgentPageReplayService)
+      const web = new AgentWebService()
       const ctx: ToolContext = {
         runId: `live-${Date.now()}`,
         stepKey: '0:renderPage:0',

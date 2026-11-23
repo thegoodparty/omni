@@ -8,6 +8,8 @@ interface PlanCtaProps {
   // Null when the plan can't be bought from here: Free, or one at or below
   // the current plan. A null href inside it shows the button disabled.
   offer: { href: string | null } | null
+  // The highlighted plan takes the filled button; the other paid plan, outline.
+  highlighted: boolean
   className?: string
 }
 
@@ -15,13 +17,14 @@ export const PlanCta = ({
   column,
   isCurrent,
   offer,
+  highlighted,
   className,
 }: PlanCtaProps): React.JSX.Element | null => {
-  const variant = column.plan === 'team' ? 'outline' : 'default'
+  const variant = highlighted ? 'default' : 'outline'
   if (isCurrent) {
     return (
       <div className="flex flex-col items-center gap-2">
-        <Badge variant="outline">{PLANS_COPY.currentBadge}</Badge>
+        <Badge variant="soft">{PLANS_COPY.currentBadge}</Badge>
         {column.cta && (
           <Button disabled variant={variant} className={className}>
             {column.cta}
