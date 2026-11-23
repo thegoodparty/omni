@@ -4,8 +4,6 @@
 Vitest for agents. It brings a base URL and a candidate URL into comparable runs
 and grades the pairs.
 
-Plan: `docs/judge-eval-framework-plan.md`. This package is phase 2.
-
 For choosing, writing, and running suites, see [Writing agent evals](../../docs/agent-evals.md).
 
 ## Rules, enforced by construction
