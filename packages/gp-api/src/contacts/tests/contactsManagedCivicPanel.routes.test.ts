@@ -314,7 +314,7 @@ describe('POST /v1/contacts/civic-panel/managed', () => {
       where: { organizationSlug: slug },
       data: { freeTextsUsed: 4000 },
     })
-    await act(slug, 'stop')
+    await setStatus(slug, ManagedCivicPanelStatus.stopped)
     const newInvite = `Another invite.\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply STOP to opt out.`
 
     const res = await approve(slug, {
@@ -476,10 +476,6 @@ describe('PATCH /v1/contacts/civic-panel/managed', () => {
   const VALID: [ManagedCivicPanelStatus, string, ManagedCivicPanelStatus][] = [
     ['building', 'pause', 'paused'],
     ['paused', 'resume', 'building'],
-    ['building', 'stop', 'stopped'],
-    ['paused', 'stop', 'stopped'],
-    ['ready', 'stop', 'stopped'],
-    ['exhausted', 'stop', 'stopped'],
   ]
 
   it.each(VALID)('moves %s on %s to %s', async (from, action, to) => {
@@ -502,7 +498,6 @@ describe('PATCH /v1/contacts/civic-panel/managed', () => {
     ['exhausted', 'pause'],
     ['exhausted', 'resume'],
     ['stopped', 'resume'],
-    ['stopped', 'stop'],
   ]
 
   it.each(INVALID)(
@@ -530,13 +525,12 @@ describe('PATCH /v1/contacts/civic-panel/managed', () => {
     expect(resumed.data.panel?.pausedAt).toBeNull()
   })
 
-  it('stamps stoppedAt on stop', async () => {
+  it('400s stop and leaves the panel building', async () => {
     const slug = await seedOrg()
     await approve(slug)
 
-    const res = await act(slug, 'stop')
-
-    expect(res.data.panel?.stoppedAt).not.toBeNull()
+    expect((await act(slug, 'stop')).status).toBe(HttpStatus.BAD_REQUEST)
+    expect((await get(slug)).data.panel?.status).toBe('building')
   })
 
   it('404s with no enrollment', async () => {
@@ -560,7 +554,7 @@ describe('managed civic panel org scoping', () => {
     await approve(sibling)
 
     expect((await get(mine)).data).toEqual({ panel: null })
-    expect((await act(mine, 'stop')).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await act(mine, 'pause')).status).toBe(HttpStatus.NOT_FOUND)
     expect((await get(sibling)).data.panel?.status).toBe('building')
   })
 
@@ -584,7 +578,7 @@ describe('managed civic panel org scoping', () => {
     })
 
     expect((await get(theirs)).status).toBe(HttpStatus.NOT_FOUND)
-    expect((await act(theirs, 'stop')).status).toBe(HttpStatus.NOT_FOUND)
+    expect((await act(theirs, 'pause')).status).toBe(HttpStatus.NOT_FOUND)
     expect((await approve(theirs)).status).toBe(HttpStatus.NOT_FOUND)
     const row = await service.prisma.managedCivicPanel.findUniqueOrThrow({
       where: { organizationSlug: theirs },
@@ -631,7 +625,7 @@ describe('census tract names on approval', () => {
     expect(fill.mock.calls[0]?.[1]).toEqual(tracts)
 
     await approve(slug)
-    await act(slug, 'stop')
+    await setStatus(slug, ManagedCivicPanelStatus.stopped)
     expect(fill).toHaveBeenCalledTimes(1)
     await approve(slug)
     await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(2))
@@ -700,12 +694,12 @@ describe('managed civic panel analytics', () => {
     const track = spyTrack()
     const slug = await seedOffice()
     await approve(slug)
-    await act(slug, 'stop')
+    await setStatus(slug, ManagedCivicPanelStatus.stopped)
 
     await approve(slug)
 
     // Every event is fire-and-forget, so wait for each rather than clearing
-    // the spy between requests: a late one from the stop would land after.
+    // the spy between requests: a late one from the first would land after.
     await vi.waitFor(() =>
       expect(tracked(track, EVENTS.Contacts.CivicPanelInviteApproved)).toEqual(
         expect.arrayContaining([
@@ -717,7 +711,6 @@ describe('managed civic panel analytics', () => {
     await vi.waitFor(() =>
       expect(tracked(track, EVENTS.Contacts.CivicPanelStatusChanged)).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ from: 'building', to: 'stopped' }),
           expect.objectContaining({
             from: 'stopped',
             to: 'building',

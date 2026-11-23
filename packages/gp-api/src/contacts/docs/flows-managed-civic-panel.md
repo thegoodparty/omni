@@ -100,8 +100,9 @@ or another kind of outreach; the priority page shows it under the read
 webapp's `priorities/[priorityId]/AGENTS.md`. The civic panel page's rail shows
 `ManagedPanelControls` (the Invites card): the status, the next send day
 and ready week while building, Pause while building and Resume while
-paused, each the `PATCH` below. The webapp never sends `stop`; the route
-keeps it, and a stopped enrollment still reads and re-approves as below.
+paused, each the `PATCH` below. Nothing stops a panel any more: a panel
+stopped before that, with a wave already sent, was moved to `paused` so it
+can resume; one that never sent a wave still reads and re-approves as below.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)
@@ -180,8 +181,8 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   Constituents section and the cards never count to a different goal
   than the one that turns the civic panel ready. Idempotent per office: an enrollment that is not
   stopped comes back unchanged; a stopped one is approved again in place.
-- `PATCH { action }`: `pause` from building, `resume` from paused, `stop`
-  from building, paused, ready or exhausted. Anything else is a 409; no enrollment is a 404. Each write is conditional on the status it leaves from.
+- `PATCH { action }`: `pause` from building, `resume` from paused.
+  Anything else is a 409; no enrollment is a 404; any other action is a 400. Each write is conditional on the status it leaves from.
   A 409 means the status moved since the page loaded, so the Invites card
   reads the enrollment again and redraws instead of offering Try again.
 
