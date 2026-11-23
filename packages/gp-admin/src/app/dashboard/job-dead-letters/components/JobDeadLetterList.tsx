@@ -18,13 +18,6 @@ interface JobDeadLetterListProps {
   deadLetters: JobDeadLetter[]
 }
 
-const allSelected = (
-  deadLetters: JobDeadLetter[],
-  selected: Set<string>
-): boolean =>
-  deadLetters.length > 0 &&
-  deadLetters.every((deadLetter) => selected.has(deadLetter.id))
-
 export function JobDeadLetterList({ deadLetters }: JobDeadLetterListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
@@ -37,13 +30,13 @@ export function JobDeadLetterList({ deadLetters }: JobDeadLetterListProps) {
   }
 
   // Selection is by id, so it survives a refresh that keeps a row and drops
-  // one that was handled. A row no longer on the page is not selected for
-  // anything, since every action is taken from what is visible.
-  const visibleIds = new Set(deadLetters.map((deadLetter) => deadLetter.id))
+  // one that was handled. Every action is taken from what is visible, so a
+  // row no longer on the page is not selected for anything.
   const selected = deadLetters.filter((deadLetter) =>
     selectedIds.has(deadLetter.id)
   )
-  const everySelected = allSelected(deadLetters, selectedIds)
+  const everySelected =
+    deadLetters.length > 0 && selected.length === deadLetters.length
 
   const toggle = (id: string) => {
     setSelectedIds((current) => {
@@ -61,11 +54,7 @@ export function JobDeadLetterList({ deadLetters }: JobDeadLetterListProps) {
     setSelectedIds(
       everySelected
         ? new Set()
-        : new Set(
-            [...selectedIds]
-              .filter((id) => visibleIds.has(id))
-              .concat(deadLetters.map((deadLetter) => deadLetter.id))
-          )
+        : new Set(deadLetters.map((deadLetter) => deadLetter.id))
     )
   }
 
