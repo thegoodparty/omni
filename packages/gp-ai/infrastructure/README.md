@@ -52,8 +52,9 @@ infrastructure/
 ├── modules/                        # Reusable Terraform modules
 │   ├── serve-analyze-fargate/      # ECS Fargate pipeline module
 │   │   ├── main.tf                 # ECS cluster, task definition, Lambda trigger
-│   │   ├── lambda-trigger/         # TypeScript Lambda for ALB/S3 triggers
-│   │   └── slack-notifier/         # Lambda for Slack failure alerts
+│   │   └── lambda-trigger/         # TypeScript Lambda for ALB/S3 triggers
+│   ├── swarm-alert-forwarder/      # Lambda forwarding prod failure topics to the
+│   │                              #   Delegate swarm webhook (standard-webhooks)
 │   ├── alb/                        # Application Load Balancer module
 │   │   ├── main.tf
 │   │   ├── variables.tf
@@ -63,12 +64,9 @@ infrastructure/
 │       ├── variables.tf
 │       └── outputs.tf
 │
-├── shared/                         # Shared resources (deploy once)
-│   ├── ecr/                        # Docker image repository
-│   │   ├── main.tf                 # ECR repository + lifecycle policy
-│   │   └── README.md               # ECR documentation
-│   └── slack-notifier/             # Shared Slack notifier Lambda
-│       └── main.tf                 # Lambda for failure alerts
+├── shared/
+│   └── slack-notifier/             # Shared Slack notifier Lambda (applied by
+│                                   #   hand; not part of the release train)
 │
 ├── deploy.sh                       # Deployment script
 └── README.md                       # This file
@@ -112,7 +110,8 @@ Application Load Balancer              S3 Notification
                        ↓
           EventBridge monitors task
                        ↓
-        Failure alerts → SNS → Slack
+     Failure alerts → SNS → email, and (prod) the
+                 swarm alert forwarder
 ```
 
 **Current Services:**
@@ -134,6 +133,8 @@ Application Load Balancer              S3 Notification
 - **S3 Bucket**: Input/output data storage
 - **Lambda Trigger**: Handles ALB and S3 events
 - **SNS Topic**: Pipeline failure notifications
+- **Swarm Alert Forwarder** (prod only): Lambda that posts those failures to the
+  Delegate swarm webhook, so the swarm triages them as bugs
 - **EventBridge Rules**: Task failure monitoring
 - **IAM Roles**: ECS execution and task roles
 - **Security Groups**: ECS task network access
@@ -446,7 +447,7 @@ AWS_PROFILE=work terraform apply  # ECS cluster/S3/SNS/EventBridge
 For detailed monitoring setup, see:
 - `infrastructure/modules/serve-analyze-fargate/FAILURE_MONITORING.md`
 - `infrastructure/modules/serve-analyze-fargate/MONITORING_SUMMARY.md`
-- `infrastructure/modules/serve-analyze-fargate/SLACK_SETUP.md`
+- `infrastructure/modules/swarm-alert-forwarder/README.md`
 
 ## Security
 
@@ -559,7 +560,6 @@ aws s3 cp test.csv s3://serve-analyze-data-dev/input/test-$(date +%s).csv --prof
 ### Documentation
 - ✅ **FAILURE_MONITORING.md**: Complete failure detection and recovery guide
 - ✅ **MONITORING_SUMMARY.md**: Quick reference for monitoring
-- ✅ **SLACK_SETUP.md**: Slack integration for failure alerts
 - ✅ **S3_TRIGGER_DEPLOYMENT.md**: S3 event trigger deployment guide
 - ✅ **USAGE.md**: End-to-end usage examples
 - ✅ **ENVIRONMENTS.md**: Environment comparison and deployment flow

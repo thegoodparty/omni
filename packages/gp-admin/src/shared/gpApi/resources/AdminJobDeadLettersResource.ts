@@ -1,4 +1,5 @@
 import type {
+  DeleteJobDeadLetterResult,
   JobDeadLetter,
   JobDeadLetterQueues,
   JobDeadLettersListQuery,
@@ -23,6 +24,11 @@ export class AdminJobDeadLettersResource extends BaseResource {
 
   get = (id: string): Promise<JobDeadLetter> =>
     this.getRequest<JobDeadLetter>(`${this.resourceBasePath}/${id}`)
+
+  delete = (id: string): Promise<DeleteJobDeadLetterResult> =>
+    this.deleteRequest<DeleteJobDeadLetterResult>(
+      `${this.resourceBasePath}/${id}`
+    )
 
   redrive = (id: string): Promise<RedriveJobDeadLetterResult> =>
     this.postRequest<RedriveJobDeadLetterResult>(

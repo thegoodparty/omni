@@ -174,7 +174,10 @@ export const civicPanelStanding = (
     case 'paused':
       return { title: hero.paused.title, line: joined }
     case 'exhausted':
-      return { title: hero.exhausted.title, line: joined }
+      return {
+        title: SERVE_CITIZENS_PANEL_COPY.shortOfGoal.title,
+        line: `${joined}, so what you hear may not reflect all of ${place ?? 'your district'}.`,
+      }
     case 'ready':
       return {
         title: hero.ready.title,

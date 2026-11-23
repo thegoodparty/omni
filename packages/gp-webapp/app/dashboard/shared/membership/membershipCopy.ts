@@ -59,6 +59,31 @@ export const MEMBERSHIP_COPY = {
   },
 } as const
 
+// Flag on: the pitch rows, one line each (design: GpdPitchProDesk). Team adds
+// its logins row first.
+export const PLAN_PITCH_ROWS = {
+  team: {
+    title: 'Logins for your team',
+    body: 'Your campaign manager and volunteers each get their own login.',
+  },
+  voterData: {
+    title: 'Voter data',
+    body: 'Find the voters who matter and build targeted lists.',
+  },
+  outreach: {
+    title: 'Texts and robocalls',
+    body: 'Introduce yourself and share your message.',
+  },
+  doors: {
+    title: 'Door knocking and phone banking',
+    body: 'Routes and call lists for you and your volunteers.',
+  },
+  verification: {
+    title: 'Campaign verification',
+    body: 'We register your campaign with the carriers so your texts go through.',
+  },
+} as const
+
 // Flag on (win_per_campaign_pricing): the pitched plan and its price come from
 // PLAN_PRICING through the PlanPitch, never literals.
 export const membershipPlanCopy = (
@@ -71,13 +96,16 @@ export const membershipPlanCopy = (
   pitchJoin: string
 } => ({
   bannerFree: {
-    body: `Unlock voter data and outreach with ${pitch.name} for ${pitch.price}.`,
+    body:
+      pitch.plan === 'team'
+        ? `Unlock voter data and outreach for your whole team for ${pitch.price}. Good for your whole campaign.`
+        : `Unlock voter data and outreach with ${pitch.name} for ${pitch.price}. Good for your whole campaign.`,
     cta: MEMBERSHIP_COPY.banner.free.cta,
   },
   chipJoinTail: `for ${pitch.price}`,
   pitchTitle: `Join ${pitch.name} to unlock voter data and outreach`,
-  pitchPill: `${pitch.price} for your campaign, with ${pitch.credit} in outreach credit`,
-  pitchJoin: `Join ${pitch.name}`,
+  pitchPill: `${pitch.price}, one payment for your whole campaign`,
+  pitchJoin: `Join ${pitch.name} for ${pitch.price}`,
 })
 
 // Invite on a gated campaign opens the Team pitch (design: Invite). From Pro

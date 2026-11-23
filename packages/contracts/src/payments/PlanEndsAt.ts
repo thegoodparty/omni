@@ -28,3 +28,9 @@ export const planEndsAt = (campaign: {
     election.getTime() + PLAN_PRICING.accessDaysAfterElection * MS_PER_DAY,
   )
 }
+
+// Access ends at the planEndsAt instant, so the last day the plan is good
+// through is the one before it. Backing off one millisecond keeps a staff
+// override set to the end of a day (23:59:59Z) on that same day.
+export const planLastDay = (endsAt: Date | string): Date =>
+  new Date(new Date(endsAt).getTime() - 1)

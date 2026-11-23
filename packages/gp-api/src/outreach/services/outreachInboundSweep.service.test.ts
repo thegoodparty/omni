@@ -29,6 +29,7 @@ import {
 import {
   INBOUND_SWEEP_AGED_HOUR_INTERVAL,
   INBOUND_SWEEP_FRESH_WINDOW_DAYS,
+  OPT_OUT_FINAL_READ_DAYS,
   OPT_OUT_RECONCILE_BUDGET_MS,
   OPT_OUT_RECONCILE_CONCURRENCY,
   OPT_OUT_RECONCILE_INTERVAL_HOURS,
@@ -860,6 +861,26 @@ describe('outreachOptOutReconcile', () => {
     }
   })
 
+  it('applies only a flag that plainly means yes, and pages on one it does not know', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchQuestionResponseRows.mockResolvedValue([
+      optOutRow('3035550101', 'True'),
+      optOutRow('3035550102', 'None'),
+    ])
+
+    const { deadLetters } = await service.jobs.runSchedule(
+      'outreachOptOutReconcile',
+      { allowDeadLetters: true },
+    )
+
+    expect(deadLetters).toHaveLength(1)
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.optedOutAt).not.toBeNull()
+    const person2 = await findInteraction(outreach.id, 'person-2')
+    expect(person2.optedOutAt).toBeNull()
+  })
+
   it('skips a flag already recorded from the reply text', async () => {
     const outreach = await createSweepableOutreach()
     // person-2 already replied, so the STOP reply cannot claim the row's one
@@ -1042,7 +1063,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(2)
   })
 
-  it('stamps a failed job and one with no captured list, so neither is retried before the interval', async () => {
+  it('stamps a failed job and one with no captured list, and pages for neither alone', async () => {
     const failing = await createJob('job-failing', 1111)
     await setOutreachDate(failing.id, subHours(NOW, 1))
     const uncaptured = await createSweepableOutreach({
@@ -1056,7 +1077,9 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     )
     const logSpy = loggerInfoSpy()
 
-    await service.jobs.runSchedule('outreachOptOutReconcile')
+    await expect(
+      service.jobs.runSchedule('outreachOptOutReconcile'),
+    ).resolves.toEqual({ deadLetters: [] })
 
     expect(calledJobIds()).toEqual(['job-failing'])
     expect(logSpy).toHaveBeenLastCalledWith(
@@ -1074,6 +1097,82 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     vi.setSystemTime(addHours(NOW, 1))
     await service.jobs.runSchedule('outreachOptOutReconcile')
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not page when reads fail beside one that succeeds', async () => {
+    for (const [index, projectId] of ['job-a', 'job-b', 'job-ok'].entries()) {
+      const outreach = await createJob(projectId, 1111 + index)
+      await setOutreachDate(outreach.id, subHours(NOW, index + 1))
+    }
+    fetchQuestionResponseRows.mockImplementation((jobId) =>
+      jobId === 'job-ok'
+        ? Promise.resolve([])
+        : Promise.reject(
+            new BadGatewayException('Failed to fetch Peerly report link'),
+          ),
+    )
+    const logSpy = loggerInfoSpy()
+
+    await expect(
+      service.jobs.runSchedule('outreachOptOutReconcile'),
+    ).resolves.toEqual({ deadLetters: [] })
+
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsFailed: 2, jobsPolled: 1 }),
+      expect.any(String),
+    )
+  })
+
+  it('pages, without re-reading, when every read in a pass fails', async () => {
+    for (const [index, projectId] of ['job-a', 'job-b'].entries()) {
+      const outreach = await createJob(projectId, 1111 + index)
+      await setOutreachDate(outreach.id, subHours(NOW, index + 1))
+    }
+    fetchQuestionResponseRows.mockRejectedValue(
+      new BadGatewayException('Failed to fetch Peerly report link'),
+    )
+
+    const { deadLetters } = await service.jobs.runSchedule(
+      'outreachOptOutReconcile',
+      { allowDeadLetters: true },
+    )
+
+    expect(deadLetters).toHaveLength(1)
+    expect(calledJobIds().sort()).toEqual(['job-a', 'job-b'])
+  })
+
+  it('reads a send again on each final day, and not in between', async () => {
+    const SEND = subDays(NOW, 5)
+    const between = await createJob('job-between', 1111)
+    await setOutreachDate(between.id, SEND)
+    await setOutreachUpdatedAt(between.id, SEND)
+    const pastSweep = await createJob('job-past-sweep', 2222)
+    await setOutreachDate(pastSweep.id, subDays(NOW, 15))
+    await setOutreachUpdatedAt(pastSweep.id, subDays(NOW, 15))
+    const logSpy = loggerInfoSpy()
+
+    await service.jobs.runSchedule('outreachOptOutReconcile')
+    expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsDue: 0, jobsAwaitingFinalRead: 1 }),
+      expect.any(String),
+    )
+
+    for (const [index, days] of OPT_OUT_FINAL_READ_DAYS.entries()) {
+      const finalDay = addHours(addDays(SEND, days), 1)
+      vi.setSystemTime(finalDay)
+      await service.jobs.runSchedule('outreachOptOutReconcile')
+      expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(index + 1)
+      expect(logSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ finalReadsDue: 1 }),
+        expect.any(String),
+      )
+
+      vi.setSystemTime(addHours(finalDay, OPT_OUT_RECONCILE_INTERVAL_HOURS))
+      await service.jobs.runSchedule('outreachOptOutReconcile')
+      expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(index + 1)
+    }
+    expect(new Set(calledJobIds())).toEqual(new Set(['job-between']))
   })
 
   it('reads only sends inside the window, counting a recent update as inside', async () => {

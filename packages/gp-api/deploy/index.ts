@@ -558,9 +558,9 @@ export = async () => {
     (name) => pulumi.interpolate`arn:aws:s3:::${name}`,
   )
 
-  // The case scout's bucket and publisher Lambda, both named case-scout-<env>
-  // and owned by gp-ai Terraform. Previews get neither. The bucket is SSE-S3
-  // with no bucket policy, so the grants below are all it needs.
+  // The case scout's bucket, case-scout-<env>, owned by gp-ai Terraform.
+  // Previews get none. The bucket is SSE-S3 with no bucket policy, so the
+  // grants below are all it needs.
   const caseScoutName = select({
     preview: '',
     dev: 'case-scout-dev',
@@ -581,13 +581,6 @@ export = async () => {
             Effect: 'Allow' as const,
             Action: ['s3:ListBucket'],
             Resource: [`arn:aws:s3:::${caseScoutName}`],
-          },
-          {
-            Effect: 'Allow' as const,
-            Action: ['lambda:InvokeFunction'],
-            Resource: [
-              `arn:aws:lambda:${region}:${accountId}:function:${caseScoutName}`,
-            ],
           },
         ]
 
@@ -811,17 +804,21 @@ jwIDAQAB
         dev: 'robocall-free-offer-2026-11',
         prod: 'robocall-free-offer-2026-11',
       }),
-      // The nightly case scout (src/caseScout/AGENTS.md). On in dev, where
-      // the publisher never opens a PR; prod waits on a graded dev week. The
-      // bucket and the publisher Lambda belong to gp-ai's case-scout module;
-      // gp-api only reads, writes and invokes them.
+      // The nightly case scout (src/caseScout/AGENTS.md). On in dev; prod
+      // waits on a graded dev week. The bucket belongs to gp-ai's case-scout
+      // module. Off, the send switch holds each night's handoff in the bucket
+      // for a person to read and sends nothing to Delegate.
       CASE_SCOUT_ENABLED: select({
         preview: 'false',
         dev: 'true',
         prod: 'false',
       }),
+      CASE_SCOUT_SEND_TO_DELEGATE: select({
+        preview: 'false',
+        dev: 'false',
+        prod: 'false',
+      }),
       CASE_SCOUT_BUCKET: caseScoutName,
-      CASE_SCOUT_LAMBDA_FUNCTION_NAME: caseScoutName,
       CASE_SCOUT_SPEND_CAP_USD: '50',
       CASE_SCOUT_SESSION_CAP: '75',
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
@@ -914,7 +911,7 @@ jwIDAQAB
       // candidate arm runs gp-api's engine; prod names only the agents the
       // Universal Judge has read as same or better, and dev adds
       // `top_community_issues`, which the eval framework judges
-      // (docs/cap-consolidation.md, docs/judge-eval-framework-plan.md,
+      // (docs/cap-consolidation.md, docs/agent-evals.md,
       // deploy/agentsOnGpApi.ts).
       AGENTS_ON_GP_API: agentsOnGpApi(environment),
     },

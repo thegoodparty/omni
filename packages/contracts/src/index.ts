@@ -609,7 +609,7 @@ export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 export { isStateCode } from './campaigns/StateCode'
 export { campaignWasEverPro } from './campaigns/CampaignEverPro'
 export { PLAN_PRICING } from './payments/PlanPricing.const'
-export { planEndsAt } from './payments/PlanEndsAt'
+export { planEndsAt, planLastDay } from './payments/PlanEndsAt'
 export {
   PlanReceiptSchema,
   type PlanReceipt,
@@ -877,6 +877,8 @@ export {
 } from './backgroundAgentRuns/BackgroundAgentRun.schema'
 
 export {
+  DeleteJobDeadLetterResultSchema,
+  type DeleteJobDeadLetterResult,
   JobDeadLetterSchema,
   type JobDeadLetter,
   JobDeadLetterQueuesSchema,
@@ -2095,3 +2097,16 @@ export {
   type ContactFieldSource,
   type ContactSourcesResponse,
 } from './contactUploads/ContactUpload.schema'
+
+export {
+  CASE_SCOUT_HANDOFF_VERSION,
+  CASE_SCOUT_SUITES,
+  CaseScoutSuiteSchema,
+  type CaseScoutSuite,
+  CaseScoutHandoffCaseSchema,
+  type CaseScoutHandoffCase,
+  CaseScoutHandoffNeedsSetupSchema,
+  type CaseScoutHandoffNeedsSetup,
+  CaseScoutHandoffSchema,
+  type CaseScoutHandoff,
+} from './caseScout/CaseScoutHandoff.schema'

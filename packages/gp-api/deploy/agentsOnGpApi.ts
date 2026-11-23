@@ -5,10 +5,10 @@
 // prod names only an agent the Universal Judge has read as same or better
 // (docs/cap-consolidation.md); dev also names `top_community_issues`, which
 // the eval framework judges against the PMF Engine
-// (docs/judge-eval-framework-plan.md). A preview names every agent gp-api has,
+// (docs/agent-evals.md). A preview names every agent gp-api has,
 // because a preview is the judge's candidate arm and an agent it left out would
 // run the PMF Engine on both arms — comparing that engine with itself
-// (docs/judge-eval-framework-plan.md).
+// (docs/agent-evals.md).
 //
 // deploy/ is outside src/'s tsconfig, so this list repeats AGENTS' keys rather
 // than importing them. src/agents/agentsOnGpApi.test.ts holds the two equal;

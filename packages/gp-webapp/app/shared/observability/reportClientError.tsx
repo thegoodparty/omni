@@ -1,4 +1,5 @@
 import { faro, LogLevel } from '@grafana/faro-web-sdk'
+import { isMissingSessionError } from 'gpApi/unauthorized'
 
 const faroContext = (
   customAttributes?: Partial<Record<string, unknown>>,
@@ -14,6 +15,13 @@ export const reportClientError = (
   error: unknown,
   customAttributes?: Partial<Record<string, unknown>>,
 ) => {
+  // A request that went out without a session is a signed-out state, not a
+  // defect in what we shipped: the request layer already sends the user to sign
+  // in (gpApi/unauthorized.ts), and reporting it here filed a "new front-end
+  // error" alert each time a session Clerk had ended surfaced as a failed fetch
+  // (ENG-11674). A 401 a route raises with a live session is still reported.
+  if (isMissingSessionError(error)) return
+
   const reportable =
     error instanceof Error
       ? error

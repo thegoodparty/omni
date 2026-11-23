@@ -85,9 +85,20 @@ list marked `scored: false` is a normal case whose `condition` starts with
 `Control:`. Run one with `/judge-eval <file stem>`.
 
 The five `cases/<agent>.json` files those lists were are still in
-`packages/gp-api/src/chats/evals/judge/cases/`, but nothing judges them: they
-are the case scout's inbox, which its publisher appends to, and the scout's
-bench reads them back. A change to one changes no verdict.
+`packages/gp-api/src/chats/evals/judge/cases/`, but nothing judges them: the
+case scout reads them for case-id collisions and existing conditions, and the
+scout's bench reads them back. A change to one changes no verdict.
+
+## Agents with no suite
+
+- `compliance_setup`: it buys domains and submits to Peerly, so a judge run
+  would spend real money. The run route refuses it by name.
+- `district_issue_pulse` and `district_issue_snapshot`: nothing dispatches
+  them; they are to be deleted.
+- Four `meeting_briefing` cases (`a2-thin`, `a5-injection`, `a7-stale` and
+  their control) need an agenda packet staged as a file, and suites cannot
+  pass input files yet. Without the packet every pair ties, so they wait for
+  input-file support.
 
 ## Run evals
 
@@ -111,7 +122,7 @@ npm run eval -w packages/gp-api -- trending_issues --reporter=default --reporter
 
 `JUDGE_MODEL` is a provider/model ID. For example, `anthropic/claude-sonnet-5-5` uses `ANTHROPIC_API_KEY`. An unmapped prefix falls back to the AI SDK gateway and uses `AI_GATEWAY_API_KEY`. The [judge resolver](../packages/judge/src/model.ts) does not expose a base-URL setting for Bifrost.
 
-On a PR, comment `/judge-eval <suite>` using the pairwise file stem, for example `/judge-eval trending_issues`. The [workflow](../.github/workflows/judge-eval.yml) compares dev and the PR preview. Look for the verdict table in the job summary and a one-line PR comment linking to it. A WORSE or CAN'T JUDGE verdict fails the check. So does a case with no judged pairs, an unknown suite, or another test or workflow error.
+On a PR, comment `/judge-eval <suite>` using the pairwise file stem, for example `/judge-eval trending_issues`. The [workflow](../.github/workflows/judge-eval.yml) compares dev and the PR preview. The verdict table is in the job summary, in the job log, and in the upserted PR comment; the per-case reasoning is in the `judge-eval-results` artifact (`gh run download <id> -n judge-eval-results`). A WORSE or CAN'T JUDGE verdict fails the check. So does a case with no judged pairs, an unknown suite, or another test or workflow error.
 
 ## The PR guard
 
@@ -141,6 +152,16 @@ A PR runs its own copy of the guard and can change it, as with every CI workflow
 
 A new directory of shared code that suites depend on needs a row in `codeMap.ts`;
 its test fails when a pairwise suite has no row of its own.
+
+## Get results as an agent
+
+The job summary is not in the API, and `gh run view --log` does not include it. The reporter prints the same verdict table to stdout, so read it from the log:
+
+```bash
+gh run view <run> --log | grep -A100 "Pairwise eval verdicts"
+```
+
+This works for `/judge-eval` runs and for `Universal judge guard (shadow)` runs that reached a suite. If the grep prints nothing, no verdict table was produced: the guard reached no suite, the preview wait failed, or the judge crashed. For a guard run, read its PR comment with `gh pr view <pr> --comments` (marker `<!-- universal-judge-guard -->`). Never tell a reader to open the Summary tab; an agent cannot.
 
 ## Read the results
 

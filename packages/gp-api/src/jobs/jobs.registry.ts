@@ -347,7 +347,11 @@ export const JOBS = {
   // (each one an S3 read, election-db lookups and a dispatch), so their jobs
   // keep that fleet-wide.
   meetingBriefingDispatch: defineJob({
-    schema: z.object({ electedOfficeId: z.uuid() }),
+    // `elected_office.id` is TEXT with no format constraint, and prod holds
+    // rows whose id is v7-shaped but not an RFC 4122 UUID. Every row the
+    // fan-out selects must be able to become a job, or `sendMany` throws on
+    // the whole batch and the day's briefings never dispatch (ENG-11627).
+    schema: z.object({ electedOfficeId: z.string().min(1) }),
     worker: (job, { get }) =>
       get(MeetingBriefingsService).dispatchDailyBriefing(job),
     alertAfterWaitingMinutes: 60,
@@ -805,8 +809,8 @@ export const JOBS = {
     schema: z.object({ runId: RunIdSchema }),
     worker: (job, { get }) => get(CaseScoutDraftService).draftNight(job),
     alertAfterWaitingMinutes: 60,
-    // Up to five drafts and gates of 60-second calls, then a publish the
-    // Lambda may spend 300 seconds on.
+    // Up to five drafts and gates of 60-second calls, then the handoff's
+    // 30-second webhook call and the Slack note.
     timeoutMinutes: 30,
     maxConcurrent: 1,
   }),
@@ -1364,14 +1368,18 @@ export const SCHEDULES = {
     timeoutMinutes: 55,
   }),
   // Hourly, dev and prod only: Peerly's own opt-out flags, each job's report
-  // read at most every six hours. No report starts after 20 minutes and none
-  // runs past 5, so a pass is done well inside its timeout.
+  // read at most every six hours, and again on days 12 and 13. No report
+  // starts after 20 minutes and none runs past 5, so a pass is done well
+  // inside its timeout. Every read is stamped, and a run that throws (an
+  // unrecognized flag, or every read failing) has one attempt: a retry
+  // would only skip the stamped jobs and pass, so it dead-letters at once.
   outreachOptOutReconcile: defineSchedule({
     cron: '45 * * * *',
     worker: (job, { get }) =>
       get(OutreachInboundSweepService).reconcileOptOutFlags(job),
     alertAfterWaitingMinutes: 60,
     timeoutMinutes: 45,
+    attempts: 1,
   }),
   // Hourly: P2P outreach statuses moved forward from their Peerly jobs.
   outreachCompletionSweep: defineSchedule({

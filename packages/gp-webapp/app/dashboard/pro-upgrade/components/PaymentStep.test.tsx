@@ -134,7 +134,9 @@ describe('PaymentStep', () => {
     ).toBeInTheDocument()
 
     expect(requestBody?.embedded).toBe(true)
-    expect(requestBody?.returnUrl).toMatch(/\/dashboard\/pro-upgrade\/success$/)
+    expect(requestBody?.returnUrl).toBe(
+      `${window.location.origin}/dashboard/pro-upgrade/success`,
+    )
 
     // Order summary reads the live amount from the session, not a hardcode.
     expect(screen.getByText('Pro subscription')).toBeInTheDocument()

@@ -63,6 +63,50 @@ beforeEach(() => {
 })
 
 describe('CitizensPanelSection', () => {
+  it('warns that a civic panel that ran out of texts is short of its goal', async () => {
+    api.mock('GET /v1/contacts/civic-panel', {
+      status: 200,
+      data: summary({ members: 182 }),
+    })
+    api.mock('GET /v1/contacts/civic-panel/managed', {
+      status: 200,
+      data: {
+        panel: {
+          id: 'mp-1',
+          status: 'exhausted',
+          inviteMessage: 'Hi.',
+          consentVersion: 'v1',
+          approvedAt: new Date('2026-10-22T18:00:00Z'),
+          approvedByUserId: 1,
+          goalMembers: 240,
+          freeTextCap: 15000,
+          freeTextsUsed: 120,
+          readyAt: null,
+          pausedAt: null,
+          stoppedAt: null,
+          createdAt: new Date('2026-10-22T18:00:00Z'),
+          updatedAt: new Date('2026-10-22T18:00:00Z'),
+          progress: {
+            members: 182,
+            goalMembers: 240,
+            wavesSent: 4,
+            nextWaveAt: null,
+            firstSendDate: '2026-11-04',
+            readyWeekOf: '2099-11-09',
+          },
+        },
+      },
+    })
+
+    render(<CitizensPanelSection />)
+
+    const warning = await screen.findByTestId('citizens-panel-short-of-goal')
+    expect(warning).toHaveTextContent('Your civic panel is short of its goal')
+    expect(warning).toHaveTextContent(
+      'What you hear may not reflect all of your district.',
+    )
+  })
+
   // The members' numbers live on the civic panel page, so the section stays
   // short on a phone.
   it('links to the civic panel page and leaves its numbers there', async () => {

@@ -50,6 +50,7 @@ export function RedriveDeadLetterButton({
       <Button
         size={size}
         variant="outline"
+        className="whitespace-nowrap"
         disabled={!sourceQueue}
         title={
           sourceQueue

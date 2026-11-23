@@ -881,6 +881,26 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
     expect(card?.summary.split(' ').length).toBeLessThanOrEqual(20)
   })
 
+  it('says a short civic panel can weigh in now, with the warning, from 30 members', async () => {
+    const orgSlug = 'eo-progress-exhausted-askable'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    await joinMembers(orgSlug, 30)
+    await setPanel(orgSlug, { status: ManagedCivicPanelStatus.exhausted })
+
+    const [card] = await progressCards(orgSlug)
+
+    expect(card).toMatchObject({
+      title: 'Your civic panel can weigh in now',
+      ctaLabel: 'Reach the rest another way',
+      sourceItemId: 'exhausted',
+    })
+    expect(card?.summary).toMatch(
+      /^30 of \d+ residents have joined\. What you hear may not reflect all of .+\.$/,
+    )
+    expect(card?.summary.split(' ').length).toBeLessThanOrEqual(20)
+  })
+
   it('goes once the office stops its panel', async () => {
     const orgSlug = 'eo-progress-stopped'
     await seedElectedOffice(orgSlug)

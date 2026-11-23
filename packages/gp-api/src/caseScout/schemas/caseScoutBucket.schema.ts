@@ -1,19 +1,16 @@
 import { z } from 'zod'
 import { DraftedCaseSchema } from './draftedCase.schema'
 
-// The objects in case-scout-<env>. bundle.json, sources.json, record.json and
-// the ledger lines are read by the Python publisher
-// (packages/gp-ai/case_scout/publisher.py), so their field names and shapes
-// are a contract with it, pinned by the shared fixtures in
-// ../fixtures/publisherContract. manifest.json and scores/ are gp-api's own.
+// The objects in case-scout-<env>, all gp-api's own. What leaves the bucket
+// is the handoff (CaseScoutHandoffSchema in @goodparty_org/contracts), built
+// from bundle.json.
 
 export const RUN_ID_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 export const RunIdSchema = z.string().regex(RUN_ID_PATTERN)
 
 const SeveritySchema = z.int().min(0).max(3)
 
-// Written by the publisher (Python) or by an earlier reader; read leniently,
-// the way bucket.py's read_marker does.
+// Read leniently: earlier markers were written by other code.
 export const MarkerSchema = z.object({
   lastSessionStart: z.string().nullish(),
   processedSessionIds: z.array(z.string()).nullish(),
@@ -26,6 +23,21 @@ export const NewMarkerSchema = z.strictObject({
   processedSessionIds: z.array(z.string()),
 })
 export type NewMarker = z.infer<typeof NewMarkerSchema>
+
+export const WrittenMarkerSchema = NewMarkerSchema.extend({
+  updatedByRun: RunIdSchema,
+})
+export type WrittenMarker = z.infer<typeof WrittenMarkerSchema>
+
+// Written once the swarm's webhook answered 2xx, so a retry never sends the
+// night twice.
+export const DeliverySchema = z.strictObject({
+  runId: RunIdSchema,
+  webhookId: z.string(),
+  sentAt: z.iso.datetime(),
+  status: z.int(),
+})
+export type Delivery = z.infer<typeof DeliverySchema>
 
 export const ManifestSessionSchema = z.strictObject({
   sessionId: z.string().min(1),
@@ -163,8 +175,8 @@ export const RecordSchema = z.strictObject({
 })
 export type RunRecord = z.infer<typeof RecordSchema>
 
-// Outcomes this side writes. The publisher adds merged, rejected and
-// prClosedStale lines of its own, which ledger.util.ts reads leniently.
+// Outcomes this side writes. ledger.util.ts also reads PR outcome lines
+// (merged, rejected, prClosedStale) leniently where the ledger holds them.
 export const DraftOutcome = {
   proposed: 'proposed',
   covered: 'covered',
@@ -194,13 +206,3 @@ export const LedgerLineSchema = z.strictObject({
   createdAt: z.iso.datetime(),
 })
 export type LedgerLine = z.infer<typeof LedgerLineSchema>
-
-// What the Lambda's `publish` action returns (case_scout/lambda/handler.py).
-export const PublishResponseSchema = z.object({
-  statusCode: z.int(),
-  body: z.string(),
-})
-export const PublishBodySchema = z.object({
-  status: z.string(),
-  prUrl: z.string().nullish(),
-})

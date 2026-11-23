@@ -186,6 +186,32 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       expect(prompt).toContain("A PRIORITY'S RESULTS BEFORE A GOOD READ")
     })
 
+    it('marks a read from a civic panel short of its goal, so it can be shared', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          priorities: [priority],
+          priorityReads: new Map([
+            [
+              'pri-1',
+              {
+                answers: 54,
+                needed: 96,
+                groupsHeard: 9,
+                groupsTotal: 12,
+                good: false,
+                status: 'notYetRepresentative',
+                underrepresented: ['age65plus'],
+                shortCivicPanel: true,
+              },
+            ],
+          ]),
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain('good read: no, short civic panel: yes:')
+      expect(prompt).toContain('When a priority says short civic panel: yes')
+    })
+
     it('says nothing about a good read with the flag off', () => {
       const prompt = buildChiefOfStaffSystemPrompt({
         ctx: baseCtx({ priorities: [priority] }),

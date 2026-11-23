@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -15,6 +16,7 @@ import { PaginatedResponseSchema } from '@/shared/schemas/PaginatedResponse.sche
 import { AdminJobDeadLettersService } from './services/adminJobDeadLetters.service'
 import {
   AdminJobDeadLettersListQueryDto,
+  DeleteJobDeadLetterResultSchema,
   JobDeadLetterSchema,
   JobDeadLetterQueuesSchema,
   RedriveJobDeadLetterResultSchema,
@@ -23,7 +25,7 @@ import {
 // Staff-only recovery for pg-boss dead letters (src/jobs/AGENTS.md § Dead
 // letters). The ops script scripts/jobs-dead-letter.ts does the same work
 // from a shell with DATABASE_URL; this is the console path, one job at a
-// time, and it never redrives a batch.
+// time; the console loops for a multi-select.
 @Controller('admin/job-dead-letters')
 @UseGuards(AdminOrM2MGuard)
 @UsePipes(ZodValidationPipe)
@@ -52,5 +54,11 @@ export class AdminJobDeadLettersController {
   @ResponseSchema(RedriveJobDeadLetterResultSchema)
   redrive(@Param('id', ParseUUIDPipe) id: string) {
     return this.deadLetters.redrive(id)
+  }
+
+  @Delete(':id')
+  @ResponseSchema(DeleteJobDeadLetterResultSchema)
+  delete(@Param('id', ParseUUIDPipe) id: string) {
+    return this.deadLetters.delete(id)
   }
 }

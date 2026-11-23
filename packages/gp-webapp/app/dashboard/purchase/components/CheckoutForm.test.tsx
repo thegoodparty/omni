@@ -110,4 +110,36 @@ describe('CheckoutForm', () => {
     expect(confirmMock).not.toHaveBeenCalled()
     expect(onSuccess).not.toHaveBeenCalled()
   })
+
+  it('keeps a declined confirm on the form instead of only in a toast', async () => {
+    confirmMock.mockResolvedValueOnce({
+      type: 'error',
+      error: { message: 'Afterpay needs a billing address.' },
+    })
+
+    render(<CheckoutForm onSuccess={vi.fn()} sessionId="cs_one_time" />)
+    clickSubmit()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Afterpay needs a billing address.',
+    )
+
+    confirmMock.mockResolvedValueOnce({ type: 'success' })
+    clickSubmit()
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
+  it('submits on the first click even while Stripe has not yet set canConfirm', async () => {
+    // canConfirm lags the last keystroke until the field blurs, so a click
+    // right after typing used to land on a disabled button and do nothing.
+    checkoutValue.canConfirm = false
+    const onSuccess = vi.fn()
+
+    render(<CheckoutForm onSuccess={onSuccess} sessionId="cs_one_time" />)
+    clickSubmit()
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('cs_one_time'))
+    checkoutValue.canConfirm = true
+  })
 })

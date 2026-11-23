@@ -1,12 +1,17 @@
 # Shared Slack notifier
 
-One Lambda, `shared-slack-notifier` (us-west-2), posts every gp-ai failure
-alarm to the private Slack channel `#ai-service-failures`. The failure SNS
-topics subscribe to it and find it through this root's state
+One Lambda, `shared-slack-notifier` (us-west-2), posts gp-ai failure alarms to
+the private Slack channel `#ai-service-failures`. The failure SNS topics
+subscribe to it and find it through this root's state
 (`shared/slack-notifier/terraform.tfstate`): PMF Engine, autopilot agent and
-bot, case scout, DDHQ matcher, serve-analyze, the alert filter's own failures,
-and `gp-api-preview-shared-alarms`. The source is
+bot, case scout, the alert filter's own failures, and
+`gp-api-preview-shared-alarms`. The source is
 `modules/serve-analyze-fargate/slack-notifier/index.ts`.
+
+Serve-analyze and DDHQ matcher are no longer on that list. Their prod failure
+topics subscribe to `modules/swarm-alert-forwarder` instead, which posts to a
+Delegate swarm workflow so the swarm triages those failures as bugs; dev
+subscribes nothing and reports by email alone.
 
 ## How it posts
 
@@ -19,9 +24,9 @@ and `gp-api-preview-shared-alarms`. The source is
   that user's account. The first webhook did, on 2026-07-31, and every
   delivery failed silently until 2026-11. Have a Slack admin create the
   replacement, and rotate it through `docs/secrets.md`.
-- `serve-analyze` task definitions also read `SLACK_WEBHOOK_URL` from
-  `AI_SECRETS_<ENV>` at task start, without using it. Keep the key present in
-  both bundles, or those tasks fail to start.
+- `serve-analyze` task definitions no longer read `SLACK_WEBHOOK_URL`; that
+  `valueFrom` entry is gone from the module. If the key is still in
+  `AI_SECRETS_<ENV>`, nothing here asks for it.
 
 ## Who watches the notifier
 

@@ -45,6 +45,13 @@ NOTIFY wake-ups, and the tracing, dashboard and alerts below.
 
 - `schema`: identifiers only. Payloads are logged, so never put PII or a
   credential in one; pass an id and load the rest in the worker.
+  Validate an id with `z.guid()` unless you know a standard generator made
+  it. `z.uuid()` also demands an RFC version and variant digit (the 4th group
+  must start with 8, 9, a or b), and some stored ids fail that. Prod
+  `elected_office` ids from a 2024 bulk batch have a `c` there, and one such
+  row dead-lettered the whole briefing fan-out because `sendMany` validates
+  the batch before inserting. Use `z.string().min(1)` for a TEXT column with
+  no format constraint.
 - `worker`: keep it thin, fetch the service that owns the work and call it.
   `get` reaches any provider in the app.
 - `alertAfterWaitingMinutes`: when a job has waited this long to start,
@@ -362,11 +369,11 @@ at the back of their group; fix the cause first. `delete` drops one for
 good. The alert pages once per dead letter and resolves on its own; the dead
 letter stays until it is redriven, deleted, or 14 days pass.
 
-One dead letter can also be read and redriven through gp-api's
+One dead letter can also be read, redriven and deleted through gp-api's
 `admin/job-dead-letters` (`AdminOrM2MGuard`: an admin session or an M2M
 token). `GET` lists them newest first, optionally narrowed to one
-`sourceQueue`; `GET :id` reads one; `POST :id/redrive` moves one, and there
-is no batch move.
+`sourceQueue`; `GET :id` reads one; `POST :id/redrive` moves one; `DELETE :id`
+drops one. There is no batch endpoint: the console loops over these.
 Both use the provenance pg-boss records on the dead letter itself: the list
 reports `sourceQueue` from the job's `source_name`, and the redrive routes
 back to that queue rather than to a queue the caller names. A dead letter

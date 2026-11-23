@@ -29,14 +29,15 @@ CI lives in omni at `.github/workflows/gp-ai.yml`. It always runs and gates inte
 
 ## Pointer table — when in doubt
 
-| Doing                         | Read                                                                                              |
-| ----------------------------- | ------------------------------------------------------------------------------------------------- |
-| Adding a new workspace member | `docs/architecture.md` § Adding a workspace member                                                |
-| First-time setup              | `docs/getting-started.md`                                                                         |
-| Working on a specific member  | that member's `README.md` (e.g. `broker/README.md`, `pmf_engine/README.md`)                       |
-| Cross-member shared code      | `shared/` (note: this is a workspace member, not just a directory — has its own `pyproject.toml`) |
-| Failure alarms to Slack       | `infrastructure/shared/slack-notifier/README.md` (one Lambda for every member; not CI-applied)    |
-| The case scout                | The reader and its prompts are in gp-api (`packages/gp-api/src/caseScout/AGENTS.md`); `case_scout/` here is only the publisher Lambda |
+| Doing                         | Read                                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Adding a new workspace member | `docs/architecture.md` § Adding a workspace member                                                                       |
+| First-time setup              | `docs/getting-started.md`                                                                                                |
+| Working on a specific member  | that member's `README.md` (e.g. `broker/README.md`, `pmf_engine/README.md`)                                              |
+| Cross-member shared code      | `shared/` (note: this is a workspace member, not just a directory — has its own `pyproject.toml`)                        |
+| Failure alarms to Slack       | `infrastructure/shared/slack-notifier/README.md` (one Lambda for every member; not CI-applied)                           |
+| Failure alarms to the swarm   | `infrastructure/modules/swarm-alert-forwarder/README.md` (prod serve-analyze + ddhq-matcher; CI-applied)                 |
+| The case scout                | All of it runs in gp-api (`packages/gp-api/src/caseScout/AGENTS.md`); its bucket is `infrastructure/modules/case-scout/` |
 
 ## Code style
 
@@ -65,7 +66,6 @@ packages/gp-ai/                  # uv workspace root
 ├── pmf_engine/                  # WORKSPACE MEMBER — Lambda
 ├── broker/                      # WORKSPACE MEMBER — broker service
 ├── autopilot/                   # WORKSPACE MEMBER — conductor Lambda (lambda/) + stage-runner agent (agent/)
-├── case_scout/                  # WORKSPACE MEMBER — nightly case scout's publisher Lambda (lambda/)
 │
 ├── ai_generated_campaign_plan/  # not a member — older module
 ├── api/                         # not a member — top-level entry points
@@ -88,7 +88,7 @@ packages/gp-ai/                  # uv workspace root
 - **Assume Linux.** This suite ran only on macOS until CI existed, which hid failures: an unset region, and assertions that a path is not under `/tmp` (true on macOS, where temp dirs are `/var/folders/...`, false on Linux). Don't assert on temp-dir _locations_ — assert the invariant the code actually guarantees.
 - Single test: `uv run pytest <path>::TestClass::test_case -v`.
 - Per-member: each workspace member has its own `tests/` and runs them with `cd <member> && uv run pytest tests/`.
-- **There is no repo-root `tests/` directory.** Find the real suites with `git ls-files '*test_*.py' | xargs -n1 dirname | sort -u`. The set CI runs is: `broker/tests`, `pmf_engine/tests`, `shared/tests`, `serve/v1_pipeline/tests`, `autopilot/tests`, `alert_filter/tests`, `case_scout/tests`.
+- **There is no repo-root `tests/` directory.** Find the real suites with `git ls-files '*test_*.py' | xargs -n1 dirname | sort -u`. The set CI runs is: `broker/tests`, `pmf_engine/tests`, `shared/tests`, `serve/v1_pipeline/tests`, `autopilot/tests`, `alert_filter/tests`.
 
 ## Never
 

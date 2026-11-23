@@ -17,6 +17,7 @@ import type {
 import {
   ContactStatusField,
   DoorKnockOutcome,
+  ManagedCivicPanelStatus,
   OutreachStatus,
   OutreachType,
   PollIndividualMessageSender,
@@ -851,6 +852,66 @@ describe('GET /v1/priorities/:id/read-status', () => {
     await createTextSend(3, 0)
 
     expect((await readStatus()).data.checkOut).toBe(true)
+  })
+
+  describe('a civic panel that ran out of texts', () => {
+    const exhaustedPanel = async (members: number) => {
+      await service.prisma.managedCivicPanel.create({
+        data: {
+          organizationSlug: eoOrgSlug,
+          status: ManagedCivicPanelStatus.exhausted,
+          inviteMessage: 'Reply JOIN to weigh in.',
+          consentVersion: 'v1',
+          approvedAt: new Date(),
+          goalMembers: 240,
+        },
+      })
+      await service.prisma.contactCurrentStatus.createMany({
+        data: Array.from({ length: members }, () => ({
+          organizationSlug: eoOrgSlug,
+          personId: uuidv7(),
+          field: ContactStatusField.civic_panel,
+          value: 'member',
+        })),
+      })
+    }
+
+    const askPanel = async (civicPanelMember: boolean) => {
+      const { outreach } = await createTextSend(4, 0)
+      const filter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: eoOrgSlug, civicPanelMember },
+      })
+      await service.prisma.outreach.update({
+        where: { id: outreach.id },
+        data: { voterFileFilterId: filter.id },
+      })
+    }
+
+    it('shows what it heard when every send asked it and it has 30 members', async () => {
+      await exhaustedPanel(30)
+      await askPanel(true)
+
+      const res = await readStatus()
+
+      expect(res.data.good).toBe(false)
+      expect(res.data.shortCivicPanel).toBe(true)
+      expect((await results()).data.readStatus.shortCivicPanel).toBe(true)
+    })
+
+    it('holds it back under 30 members', async () => {
+      await exhaustedPanel(29)
+      await askPanel(true)
+
+      expect((await readStatus()).data.shortCivicPanel).toBeUndefined()
+    })
+
+    it('holds it back once a send went past the civic panel', async () => {
+      await exhaustedPanel(30)
+      await askPanel(true)
+      await askPanel(false)
+
+      expect((await readStatus()).data.shortCivicPanel).toBeUndefined()
+    })
   })
 
   it('says enough answers, not representative, when the district cannot be read', async () => {

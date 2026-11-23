@@ -341,18 +341,18 @@ describe('MembershipBanner', () => {
 })
 
 describe('MembershipBanner plan copy', () => {
-  it('shows the Pro price and a plans link for a free campaign with the flag on', () => {
+  it('shows the Pro price and no plans link for a free campaign with the flag on', () => {
     mockPlanFlag.enabled = true
     setup({ state: membership({ tier: 'free' }) })
 
     expect(
-      screen.getByText('Unlock voter data and outreach with Pro for $299.'),
+      screen.getByText(
+        'Unlock voter data and outreach with Pro for $299. Good for your whole campaign.',
+      ),
     ).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/\$10\b|\/mo|a month/)
-    expect(screen.getByRole('link', { name: 'See all plans' })).toHaveAttribute(
-      'href',
-      '/dashboard/plans',
-    )
+    expect(screen.getByText('See what you get')).toBeInTheDocument()
+    expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
   })
 
   it('keeps the legacy copy with the flag off', () => {
@@ -386,6 +386,10 @@ describe('MembershipBanner plan copy', () => {
     )
 
     expect(screen.getByText('TEAM')).toBeInTheDocument()
-    expect(screen.getByText(/for \$399/)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Unlock voter data and outreach for your whole team for $399. Good for your whole campaign.',
+      ),
+    ).toBeInTheDocument()
   })
 })

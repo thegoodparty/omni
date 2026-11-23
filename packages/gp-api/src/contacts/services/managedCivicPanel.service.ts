@@ -69,17 +69,10 @@ type Action = UpdateManagedCivicPanelInput['action']
 const DISTRICT_PLACE_TTL_HOURS = 24
 
 // Which statuses each action may leave from. A ready or exhausted panel has
-// nothing left to send, so there is nothing to pause or resume, but it can
-// still be stopped.
+// nothing left to send, so there is nothing to pause or resume.
 const ALLOWED_FROM: Record<Action, ManagedCivicPanelStatus[]> = {
   pause: [ManagedCivicPanelStatus.building],
   resume: [ManagedCivicPanelStatus.paused],
-  stop: [
-    ManagedCivicPanelStatus.building,
-    ManagedCivicPanelStatus.paused,
-    ManagedCivicPanelStatus.ready,
-    ManagedCivicPanelStatus.exhausted,
-  ],
 }
 
 // The civic panel GoodParty builds for an office in the official's name.
@@ -337,9 +330,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
     const data: Prisma.ManagedCivicPanelUpdateManyMutationInput =
       action === 'pause'
         ? { status: ManagedCivicPanelStatus.paused, pausedAt: now }
-        : action === 'resume'
-          ? { status: ManagedCivicPanelStatus.building, pausedAt: null }
-          : { status: ManagedCivicPanelStatus.stopped, stoppedAt: now }
+        : { status: ManagedCivicPanelStatus.building, pausedAt: null }
     // Conditional on the status read, so a transition never lands on a
     // status that changed underneath it.
     const { count } = await this.model.updateMany({

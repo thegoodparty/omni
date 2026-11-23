@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
+  isCivicPanelOnlyList,
+  PANEL_MIN_MEMBERS_FOR_BALANCE,
   type GeoJsonShape,
   type PriorityReadStatus,
   type PriorityResults,
@@ -14,8 +16,10 @@ import {
   type PriorityTheme,
 } from '@goodparty_org/contracts'
 import {
+  CivicPanelStatus,
   ContactStatusField,
   ElectedOffice,
+  ManagedCivicPanelStatus,
   Organization,
   Outreach,
   OutreachStatus,
@@ -27,6 +31,7 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { CIVIC_PANEL_ONLY_SELECT } from '@/voters/util/civicPanelOnlySelect.util'
 import { MIN_CONFIRMED_FOR_SYNTHESIS } from '@/constituentFeedback/services/feedbackReport.service'
 import {
   CENSUS_COMPOSITION_SOURCE,
@@ -64,6 +69,8 @@ interface FollowUpState {
 interface SendRespondents {
   send: PriorityResultsSend
   respondentIds: string[]
+  // Its list can only hold civic panel members.
+  civicPanelOnly?: boolean
 }
 
 type ThemePeople = PriorityTheme & { personIds: string[] }
@@ -136,11 +143,17 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       priorityId,
       ids.length,
     )
+    const groupRead = groupReadStatus({ answers: ids.length, read })
 
     return {
       priorityId,
       readStatus: {
-        ...groupReadStatus({ answers: ids.length, read }),
+        ...groupRead,
+        ...this.shortCivicPanelState(
+          perSend,
+          groupRead.good,
+          await this.askableShortCivicPanel(organizationSlug),
+        ),
         ...this.outreachState(
           perSend.map(({ send }) => send),
           (await this.followUpsFor(organizationSlug, [priorityId])).get(
@@ -180,10 +193,11 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     priorityIds: string[],
   ): Promise<Map<string, PriorityReadStatus>> {
     if (priorityIds.length === 0) return new Map()
-    const [sends, reads, followUps] = await Promise.all([
+    const [sends, reads, followUps, shortPanel] = await Promise.all([
       this.sendsFor(organizationSlug, priorityIds),
       this.priorityReads.readsFor(organizationSlug, priorityIds),
       this.followUpsFor(organizationSlug, priorityIds),
+      this.askableShortCivicPanel(organizationSlug),
     ])
     return new Map(
       priorityIds.map((id): [string, PriorityReadStatus] => {
@@ -192,13 +206,19 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
             (sends.get(id) ?? []).flatMap((send) => send.respondentIds),
           ),
         ]
+        const groupRead = groupReadStatus({
+          answers: people.length,
+          read: reads.get(id) ?? null,
+        })
         return [
           id,
           {
-            ...groupReadStatus({
-              answers: people.length,
-              read: reads.get(id) ?? null,
-            }),
+            ...groupRead,
+            ...this.shortCivicPanelState(
+              sends.get(id) ?? [],
+              groupRead.good,
+              shortPanel,
+            ),
             ...this.outreachState(
               (sends.get(id) ?? []).map(({ send }) => send),
               followUps.get(id),
@@ -207,6 +227,41 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
         ]
       }),
     )
+  }
+
+  // A read short of good whose every send asked a civic panel that ran out
+  // of texts with enough members to ask: its answers show with a warning
+  // instead of held back.
+  private shortCivicPanelState(
+    sends: SendRespondents[],
+    good: boolean,
+    shortPanel: boolean,
+  ): Pick<PriorityReadStatus, 'shortCivicPanel'> {
+    const asked = sends.filter(({ send }) => send.channel !== 'social')
+    return shortPanel &&
+      !good &&
+      asked.length > 0 &&
+      asked.every(({ civicPanelOnly }) => civicPanelOnly === true)
+      ? { shortCivicPanel: true }
+      : {}
+  }
+
+  private async askableShortCivicPanel(
+    organizationSlug: string,
+  ): Promise<boolean> {
+    const panel = await this.client.managedCivicPanel.findUnique({
+      where: { organizationSlug },
+      select: { status: true },
+    })
+    if (panel?.status !== ManagedCivicPanelStatus.exhausted) return false
+    const members = await this.client.contactCurrentStatus.count({
+      where: {
+        organizationSlug,
+        field: ContactStatusField.civic_panel,
+        value: CivicPanelStatus.member,
+      },
+    })
+    return members >= PANEL_MIN_MEMBERS_FOR_BALANCE
   }
 
   // What has gone out on a priority: whether a check is out with residents
@@ -298,6 +353,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
         campaignId: null,
         status: { notIn: UNSENT_STATUSES },
       },
+      include: { voterFileFilter: { select: CIVIC_PANEL_ONLY_SELECT } },
       orderBy: { createdAt: 'asc' },
     })
     const perSend = await Promise.all(
@@ -308,7 +364,12 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
           ? [
               this.respondentsFor(outreach, channel).then((send) => ({
                 priorityId,
-                send,
+                send: {
+                  ...send,
+                  civicPanelOnly:
+                    outreach.voterFileFilter !== null &&
+                    isCivicPanelOnlyList(outreach.voterFileFilter),
+                },
               })),
             ]
           : []

@@ -50,3 +50,11 @@ export const RedriveJobDeadLetterResultSchema = z.object({
 export type RedriveJobDeadLetterResult = z.infer<
   typeof RedriveJobDeadLetterResultSchema
 >
+
+export const DeleteJobDeadLetterResultSchema = z.object({
+  id: z.string(),
+})
+
+export type DeleteJobDeadLetterResult = z.infer<
+  typeof DeleteJobDeadLetterResultSchema
+>
