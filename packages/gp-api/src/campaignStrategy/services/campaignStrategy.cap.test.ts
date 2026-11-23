@@ -543,6 +543,31 @@ describe('CampaignStrategyService', () => {
     expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(2)
   })
 
+  // `tracker_bootstrapped` shipped DEFAULT false with no backfill, so every plan
+  // that went ready before that column existed still reads false. An unscoped
+  // retry would start a paid initial tracker generation for each of them on its
+  // next page load; only a section persisted inside the grace window can be one
+  // whose bootstrap just failed.
+  it('does not bootstrap a plan whose sections persisted long ago', async () => {
+    const old = subHours(new Date(), 30)
+    const persisted = planRow({
+      oppositionRunId: 'opp-run',
+      opportunitiesRunId: 'oc-run',
+      oppositionPersistedAt: old,
+      opportunitiesPersistedAt: old,
+    })
+    prisma.campaignStrategy.upsert.mockResolvedValue(persisted)
+    prisma.campaignStrategy.findUnique.mockResolvedValue({
+      opportunities: [],
+      challenges: [],
+      opponents: [],
+    })
+
+    await service.getOrGenerateStrategicLandscape(campaign())
+
+    expect(trackerTasks.bootstrapForCampaign).not.toHaveBeenCalled()
+  })
+
   it('stays generating when a run is COMPLETED but its section is not persisted', async () => {
     // The race window: both runs done, but only one section's rows have landed.
     prisma.campaignStrategy.upsert.mockResolvedValue(

@@ -29,6 +29,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
+import { sectionRunIsInFlight } from '@/campaignStrategy/services/sectionRun'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   OPPOSITION_RESEARCH,
@@ -987,7 +988,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     )
     if (!discovery) return 'idle'
     if (discovery.status === 'failed') return 'failed'
-    return discovery.status === 'completed' ? 'idle' : 'discovering'
+    // The same in-flight rule the plan dispatcher uses, not a status list of its
+    // own: a superseded gp-api run can never land, so reading it as
+    // 'discovering' would leave the page polling a run that will never finish.
+    return sectionRunIsInFlight(discovery) ? 'discovering' : 'idle'
   }
 
   // The relaxed path chains a race_opponent_summary run off a completed

@@ -374,6 +374,48 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
     expect(dispatchRun).not.toHaveBeenCalled()
     vi.unstubAllEnvs()
   })
+
+  // A superseded gp-api run can never land: supersede starts a successor under a
+  // new run id that nothing points the plan at. Reading it as 'discovering' left
+  // the page polling forever, because it only re-fires collect on a
+  // discovering->idle transition.
+  it('settles to idle when the discovery run was superseded', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+      raceId: RACE_HASH,
+    })
+    const run = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'opposition_research',
+        organizationSlug: SLUG,
+        status: AgentRunStatus.superseded,
+        manifest: {},
+        shapeHash: 'a-shape',
+        input: { organizationSlug: SLUG },
+      },
+    })
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        raceId: RACE_HASH,
+        oppositionRunId: run.id,
+      },
+    })
+    stubDiscoveryDispatch()
+
+    const result = await service.client.post(
+      COLLECT_PATH,
+      {},
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data.status).toBe('idle')
+    vi.unstubAllEnvs()
+  })
 })
 
 describe('GET /v1/campaigns/mine/race-opponent', () => {

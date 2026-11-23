@@ -260,8 +260,27 @@ export class CampaignStrategyService extends createPrismaBase(
       // The bootstrap is the one step after the last persist that can fail
       // without failing the run, so a transient fault there would otherwise
       // leave a ready plan with no tracker. It claims trackerBootstrapped
-      // atomically, so re-attempting on every poll is a no-op once it lands.
-      await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
+      // atomically, so re-attempting is a no-op once it lands.
+      //
+      // Scoped to a recently persisted section on purpose. `tracker_bootstrapped`
+      // was added `DEFAULT false` with no backfill, so an unscoped retry would
+      // start a paid initial tracker generation for every plan that went ready
+      // before that column existed, on its next page load. A plan whose section
+      // persisted longer ago than the grace window never had a persist in this
+      // request to have failed, so there is nothing here to recover.
+      // Whichever section landed last is the one whose persist could have
+      // failed to finish its side effects.
+      const persistedAt = isBefore(
+        plan.oppositionPersistedAt,
+        plan.opportunitiesPersistedAt,
+      )
+        ? plan.opportunitiesPersistedAt
+        : plan.oppositionPersistedAt
+      if (
+        !isBefore(persistedAt, subMinutes(new Date(), PERSIST_GRACE_MINUTES))
+      ) {
+        await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
+      }
       return {
         status: 'ready',
         data: await this.readStrategicLandscape(plan.id),

@@ -39,7 +39,16 @@ sweep writes it on a predecessor *after* dispatching a successor that shares the
 plan's run id, so there it is in flight and re-dispatching would orphan live work.
 gp-api's `supersede` starts a successor under a new run id that nothing points the
 plan at, so that run can never land: it has to read as re-dispatchable, or the
-plan stays `generating` forever.
+plan stays `generating` forever. Every reader of a section's status calls
+`sectionRunIsInFlight` for that reason — the plan poll and the race-opponent
+discovery poll alike, since a reader with its own status list drifts back to the
+wrong rule.
+
+The tracker bootstrap runs after the last section persists, and the plan poll
+re-attempts it for a section persisted inside `PERSIST_GRACE_MINUTES`. It cannot
+run on every ready poll: `tracker_bootstrapped` shipped `DEFAULT false` with no
+backfill, so an unscoped retry would start a paid initial tracker generation for
+every plan that went ready before that column existed.
 
 A section whose run no plan links is a judge run, or one a race change already
 orphaned. Its output has nowhere to land, and the judge's run route returns the
