@@ -2,9 +2,12 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ROLES } from '@/lib/permissions'
 import { SdkError } from '@/shared/gpApi'
 import {
+  deleteJobDeadLetter,
+  deleteJobDeadLetters,
   getJobDeadLetter,
   listJobDeadLetters,
   redriveJobDeadLetter,
+  redriveJobDeadLetters,
 } from './actions'
 
 const mockHas = vi.fn()
@@ -16,6 +19,7 @@ vi.mock('@clerk/nextjs/server', () => ({
 const mockList = vi.fn()
 const mockGet = vi.fn()
 const mockRedrive = vi.fn()
+const mockDelete = vi.fn()
 vi.mock('@/shared/util/gpClient.util', () => ({
   gpAction: vi.fn(async (fn: (client: unknown) => unknown) =>
     fn({
@@ -23,6 +27,7 @@ vi.mock('@/shared/util/gpClient.util', () => ({
         list: mockList,
         get: mockGet,
         redrive: mockRedrive,
+        delete: mockDelete,
       },
     })
   ),
@@ -46,6 +51,7 @@ describe('job dead letter actions', () => {
     })
     mockGet.mockResolvedValue({ id: 'dl_1' })
     mockRedrive.mockResolvedValue({ id: 'dl_1', sourceQueue: 'contracts' })
+    mockDelete.mockResolvedValue({ id: 'dl_1' })
   })
 
   it('checks the org:admin role rather than a permission', async () => {
@@ -124,6 +130,76 @@ describe('job dead letter actions', () => {
     await expect(redriveJobDeadLetter('dl_1')).resolves.toEqual({
       error: 'Only admins can redrive a job dead letter',
     })
+    expect(mockRedrive).not.toHaveBeenCalled()
+  })
+
+  it('deletes through the SDK and reports no error', async () => {
+    await expect(deleteJobDeadLetter('dl_1')).resolves.toEqual({ error: null })
+    expect(mockDelete).toHaveBeenCalledWith('dl_1')
+  })
+
+  it('returns the role error instead of throwing for a non-admin delete', async () => {
+    mockHas.mockReturnValue(false)
+
+    await expect(deleteJobDeadLetter('dl_1')).resolves.toEqual({
+      error: 'Only admins can delete a job dead letter',
+    })
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+
+  it('returns the API message when the delete answers 404', async () => {
+    mockDelete.mockRejectedValue(
+      new SdkError(404, 'Not Found', undefined, {
+        message: 'No dead letter dl_1',
+      })
+    )
+
+    await expect(deleteJobDeadLetter('dl_1')).resolves.toEqual({
+      error: 'No dead letter dl_1',
+    })
+  })
+
+  it('reports how many were deleted when a bulk delete stops partway', async () => {
+    mockDelete
+      .mockResolvedValueOnce({ id: 'dl_1' })
+      .mockRejectedValueOnce(new Error('boom'))
+
+    await expect(
+      deleteJobDeadLetters(['dl_1', 'dl_2', 'dl_3'])
+    ).resolves.toEqual({ done: 1, error: 'boom' })
+    expect(mockDelete).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports how many were redriven when a bulk redrive stops partway', async () => {
+    mockRedrive
+      .mockResolvedValueOnce({ id: 'dl_1', sourceQueue: 'contracts' })
+      .mockResolvedValueOnce({ id: 'dl_2', sourceQueue: 'contracts' })
+      .mockRejectedValueOnce(
+        new SdkError(409, 'Conflict', undefined, {
+          message: 'Dead letter dl_3 was already redriven',
+        })
+      )
+
+    await expect(
+      redriveJobDeadLetters(['dl_1', 'dl_2', 'dl_3'])
+    ).resolves.toEqual({
+      done: 2,
+      error: 'Dead letter dl_3 was already redriven',
+    })
+  })
+
+  it('does nothing in bulk for a non-admin', async () => {
+    mockHas.mockReturnValue(false)
+
+    await expect(deleteJobDeadLetters(['dl_1'])).resolves.toEqual({
+      done: 0,
+      error: 'Only admins can delete job dead letters',
+    })
+    await expect(redriveJobDeadLetters(['dl_1'])).resolves.toEqual({
+      done: 0,
+      error: 'Only admins can redrive job dead letters',
+    })
+    expect(mockDelete).not.toHaveBeenCalled()
     expect(mockRedrive).not.toHaveBeenCalled()
   })
 })

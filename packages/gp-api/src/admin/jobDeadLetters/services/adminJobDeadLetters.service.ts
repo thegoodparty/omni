@@ -7,6 +7,7 @@ import {
 import { PinoLogger } from 'nestjs-pino'
 import { PgBoss } from 'pg-boss'
 import {
+  DeleteJobDeadLetterResult,
   JobDeadLetter,
   JobDeadLettersListQuery,
   JOB_DEAD_LETTERS_MAX_LIMIT,
@@ -182,6 +183,15 @@ export class AdminJobDeadLettersService implements OnModuleDestroy {
       'job dead letter redriven',
     )
     return { id, sourceQueue }
+  }
+
+  async delete(id: string): Promise<DeleteJobDeadLetterResult> {
+    const deadLetter = await this.findDeadLetter(id)
+    if (!deadLetter) throw new NotFoundException(`No dead letter ${id}`)
+    const boss = await this.reader()
+    await boss.deleteJob(deadLetter.name, id)
+    this.logger.info({ deadLetterId: id }, 'job dead letter deleted')
+    return { id }
   }
 
   private async findDeadLetter(id: string): Promise<DeadLetterRow | undefined> {

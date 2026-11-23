@@ -6,6 +6,8 @@ export class AdminJobDeadLettersListQueryDto extends createZodDto(
 ) {}
 
 export {
+  DeleteJobDeadLetterResultSchema,
+  type DeleteJobDeadLetterResult,
   JobDeadLetterSchema,
   type JobDeadLetter,
   JobDeadLetterQueuesSchema,

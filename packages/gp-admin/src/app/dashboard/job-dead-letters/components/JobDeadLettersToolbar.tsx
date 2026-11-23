@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Box, Button, Flex, Text, TextField } from '@radix-ui/themes'
-import { HiX } from 'react-icons/hi'
+import { Box, Flex, Select, Text } from '@radix-ui/themes'
 import { SEARCH_PARAMS } from '../types'
+
+const ALL_QUEUES = '__all__'
 
 interface JobDeadLettersToolbarProps {
   sourceQueue?: string
@@ -17,7 +17,6 @@ export function JobDeadLettersToolbar({
 }: JobDeadLettersToolbarProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [sourceQueueInput, setSourceQueueInput] = useState(sourceQueue ?? '')
 
   const pushParams = (updates: Record<string, string | undefined>) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -36,57 +35,41 @@ export function JobDeadLettersToolbar({
   }
 
   return (
-    <Box asChild p="4" className="border border-[var(--gray-5)] rounded-lg">
-      <form
-        autoComplete="off"
-        onSubmit={(event) => {
-          event.preventDefault()
-          pushParams({
-            [SEARCH_PARAMS.SOURCE_QUEUE]: sourceQueueInput.trim() || undefined,
-          })
-        }}
-      >
-        <Flex gap="3" align="end" wrap="wrap">
+    <Box p="4" className="border border-[var(--gray-5)] rounded-lg">
+      <Flex gap="3" align="end" wrap="wrap">
+        <Box>
+          <Text
+            as="label"
+            size="2"
+            weight="medium"
+            mb="1"
+            htmlFor="source-queue"
+          >
+            Source queue
+          </Text>
           <Box>
-            <Text
-              as="label"
-              size="2"
-              weight="medium"
-              mb="1"
-              htmlFor="source-queue"
+            <Select.Root
+              value={sourceQueue ?? ALL_QUEUES}
+              onValueChange={(value) =>
+                pushParams({
+                  [SEARCH_PARAMS.SOURCE_QUEUE]:
+                    value === ALL_QUEUES ? undefined : value,
+                })
+              }
             >
-              Source queue
-            </Text>
-            <TextField.Root
-              id="source-queue"
-              placeholder="e.g. doorKnockingCanvassingTotals"
-              list="source-queue-options"
-              value={sourceQueueInput}
-              onChange={(event) => setSourceQueueInput(event.target.value)}
-            />
-            <datalist id="source-queue-options">
-              {queues.map((queue) => (
-                <option key={queue} value={queue} />
-              ))}
-            </datalist>
+              <Select.Trigger id="source-queue" className="min-w-64" />
+              <Select.Content>
+                <Select.Item value={ALL_QUEUES}>All queues</Select.Item>
+                {queues.map((queue) => (
+                  <Select.Item key={queue} value={queue}>
+                    {queue}
+                  </Select.Item>
+                ))}
+              </Select.Content>
+            </Select.Root>
           </Box>
-          <Button type="submit">Apply filter</Button>
-          {sourceQueue && (
-            <Button
-              type="button"
-              variant="soft"
-              color="gray"
-              onClick={() => {
-                setSourceQueueInput('')
-                pushParams({ [SEARCH_PARAMS.SOURCE_QUEUE]: undefined })
-              }}
-            >
-              <HiX className="w-4 h-4" />
-              Clear
-            </Button>
-          )}
-        </Flex>
-      </form>
+        </Box>
+      </Flex>
     </Box>
   )
 }

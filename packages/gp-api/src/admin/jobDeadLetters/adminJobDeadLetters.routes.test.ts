@@ -202,6 +202,22 @@ describe('admin job dead letters', () => {
     )
   })
 
+  it('deletes one dead letter without requeueing it', async () => {
+    const organizationSlug = await deadLetterOne()
+    const listed = await listDeadLetters({ sourceQueue: SOURCE_QUEUE })
+    const deadLetter: { id: string } = listed.data.data[0]
+
+    const res = await service.client.delete(`${LIST_PATH}/${deadLetter.id}`)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual({ id: deadLetter.id })
+    expect((await listDeadLetters()).data.meta.total).toBe(0)
+    expect(await queuedJobsFor(organizationSlug)).toHaveLength(0)
+    expect(
+      (await service.client.delete(`${LIST_PATH}/${deadLetter.id}`)).status,
+    ).toBe(HttpStatus.NOT_FOUND)
+  })
+
   it('refuses to redrive a dead letter twice', async () => {
     const organizationSlug = await deadLetterOne()
     const listed = await listDeadLetters({ sourceQueue: SOURCE_QUEUE })
