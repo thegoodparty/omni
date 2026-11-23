@@ -2,6 +2,7 @@ import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
 import { useTestService } from '@/test-service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
+import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { addDays, format } from 'date-fns'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -196,6 +197,71 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
     // research started, because the sibling completion event then computes
     // `becamePro === false` and skips its own dispatch.
     expect(opponentCollection).toHaveBeenCalledExactlyOnceWith(campaign.id)
+  })
+
+  it('clears the stored checkout session when completion never arrives', async () => {
+    const campaign = await seedCampaign()
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: { checkoutSessionId: 'cs_test_lost_completion' } },
+    })
+    vi.spyOn(
+      service.app.get(StripeService),
+      'retrieveCheckoutSession',
+    ).mockResolvedValue({
+      id: 'cs_test_lost_completion',
+      subscription: 'sub_lost_completion',
+    } as Stripe.Checkout.Session)
+
+    const res = await deliverStripeEvent(
+      subscriptionCreatedEvent({
+        subscriptionId: 'sub_lost_completion',
+        customerId: 'cus_lost_completion',
+        status: 'active',
+        metadata: {
+          userId: String(service.user.id),
+          campaignId: String(campaign.id),
+        },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const user = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(user.metaData?.checkoutSessionId).toBeNull()
+  })
+
+  it('leaves a newer stored checkout session alone', async () => {
+    const campaign = await seedCampaign()
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: { checkoutSessionId: 'cs_test_newer' } },
+    })
+    vi.spyOn(
+      service.app.get(StripeService),
+      'retrieveCheckoutSession',
+    ).mockResolvedValue({
+      id: 'cs_test_newer',
+      subscription: null,
+    } as Stripe.Checkout.Session)
+
+    await deliverStripeEvent(
+      subscriptionCreatedEvent({
+        subscriptionId: 'sub_older',
+        customerId: 'cus_older',
+        status: 'active',
+        metadata: {
+          userId: String(service.user.id),
+          campaignId: String(campaign.id),
+        },
+      }),
+    )
+
+    const user = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(user.metaData?.checkoutSessionId).toBe('cs_test_newer')
   })
 
   it('keeps a one-time Team plan the campaign already holds', async () => {

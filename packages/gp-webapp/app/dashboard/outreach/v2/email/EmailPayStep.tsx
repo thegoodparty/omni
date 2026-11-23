@@ -6,6 +6,7 @@ import {
   type EmailSend,
   type PaymentHoldCardResponse,
 } from '@goodparty_org/contracts'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { PaymentHoldCard } from 'app/dashboard/shared/payment-hold/PaymentHoldCard'
 import { Intro } from '../social/Intro'
 import {
@@ -94,6 +95,7 @@ export const EmailPayStep = ({
   const paid = () => {
     const confirmed = confirmedRef.current
     if (!confirmed) return
+    void queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
     queryClient.setQueryData(
       emailSendQueryKey(surface.isServe, draftId),
       confirmed,

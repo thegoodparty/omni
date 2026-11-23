@@ -260,6 +260,10 @@ model Outreach {
   textHandoff                       OutreachTextHandoff?
   creditReservedCents               Int                                @default(0) @map("credit_reserved_cents")
   creditSettledAt                   DateTime?                          @map("credit_settled_at")
+  // What settle drew from the reserve; the amount a refund of the send gives back.
+  creditUsedCents                   Int                                @default(0) @map("credit_used_cents")
+  // Once-only claim for giving creditUsedCents back after a refund.
+  creditRefundedAt                  DateTime?                          @map("credit_refunded_at")
 
   @@index([campaignId])
   @@index([organizationSlug])

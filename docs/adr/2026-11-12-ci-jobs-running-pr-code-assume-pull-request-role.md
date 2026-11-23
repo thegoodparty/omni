@@ -1,6 +1,6 @@
 ---
 title: A CI job that runs pull request code assumes the pull-request role, whatever ref starts it
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-11-12
 code: ['#3780']
@@ -8,7 +8,7 @@ scope:
   - .github/workflows/judge.yml
   - .github/workflows/judge-*.yml
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-20-the-judge-workflows-are-deleted.md
 ---
 
 # A CI job that runs pull request code assumes the pull-request role, whatever ref starts it

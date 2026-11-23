@@ -118,6 +118,48 @@ export class FeaturesService {
   }
 
   /**
+   * isFeatureEnabled plus the `on` variant's payload, from one evaluation.
+   * Same placeholder and fail-closed behavior: a local box reads on with no
+   * payload, and an Amplitude outage reads off.
+   */
+  async getFeatureWithPayload(params: {
+    user: number | User
+    feature: string
+  }): Promise<{ enabled: boolean; payload: unknown }> {
+    if (!amplitudeKey.configured) {
+      return { enabled: true, payload: undefined }
+    }
+
+    const user =
+      typeof params.user === 'number'
+        ? await this.usersService.findUniqueOrThrow({
+            where: { id: params.user },
+          })
+        : params.user
+
+    try {
+      const variant = (
+        await getAmplitudeClient().fetchV2({
+          user_id: user.id.toString(),
+          user_properties: {
+            email: user.email,
+          },
+        })
+      )[params.feature]
+
+      return { enabled: variant?.value === 'on', payload: variant?.payload }
+    } catch (err) {
+      this.logger.warn({
+        err,
+        userId: user.id,
+        feature: params.feature,
+        msg: 'Amplitude flag evaluation failed; failing closed',
+      })
+      return { enabled: false, payload: undefined }
+    }
+  }
+
+  /**
    * The variant value the user is assigned for a flag, or null when the flag
    * is not assigned to them. Fails closed like isFeatureEnabled, and returns
    * null on a local placeholder key rather than a default-on value.

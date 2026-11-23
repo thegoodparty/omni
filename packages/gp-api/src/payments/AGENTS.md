@@ -14,7 +14,7 @@ Stripe-backed payments. Two controllers, both mounted under `/payments`:
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `payments.module.ts`               | Wires controllers + services; `forwardRef(() => CampaignsModule)`, depends on `StripeModule`, `UsersModule`                                    |
 | `payments.controller.ts`           | Stripe webhook + admin `fix-missing-customer-id` endpoint                                                                                      |
-| `purchase.controller.ts`           | `POST /payments/purchase/checkout-session`, `portal-session`, `create-checkout-session`, `complete-checkout-session`, `complete-free-purchase`; `GET /payments/purchase/pro-receipt` (the Pro subscription's latest paid invoice, read live from Stripe, 404 until the completion webhook has stored `details.subscriptionId`) |
+| `purchase.controller.ts`           | `POST /payments/purchase/checkout-session`, `portal-session`, `create-checkout-session`, `complete-checkout-session`, `complete-free-purchase`; `GET /payments/purchase/pro-receipt` and `plan-receipt` (both `@OwnerOnly()`: 403 for a manager or volunteer, since they carry the owner's card; the Pro subscription's latest paid invoice, read live from Stripe, 404 until the completion webhook has stored `details.subscriptionId`) |
 | `services/payments.service.ts`     | `createPayment`/`retrievePayment` over Stripe PaymentIntents; customer-id backfill (`@Timeout(0)` on boot + admin endpoint)                    |
 | `services/purchase.service.ts`     | Per-`PurchaseType` validation, amount calc, post-purchase handlers                                                                             |
 | `services/paymentEventsService.ts` | Stripe webhook event dispatcher (subscriptions, invoices, charges)                                                                             |
@@ -88,7 +88,8 @@ Where Pro state lives (all of it — there is no subscription table):
   backfill missed the user because they had no stored `checkoutSessionId`).
 - `user.metaData.checkoutSessionId` — the ONE open Pro checkout session per
   user. Written only by `createProCheckoutSession`, cleared by the completion
-  and expiry webhooks.
+  webhook, by `customer.subscription.created` when the stored session created
+  that subscription, and by the expiry webhook.
 
 **Failed renewals reach the candidate through Segment, not email code.**
 `customer.subscription.updated` fires `Account - Pro Subscription Past Due`

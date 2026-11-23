@@ -1,60 +1,92 @@
 #!/usr/bin/env bash
-# The path-matched floor for the Universal Judge guard (judge-guard.yml).
+# The path-matched floor for the PR judge guard (judge-guard.yml).
 #
-# MIRRORS, RATHER THAN SHARES, the `case "$path" in ... esac` table in
-# .github/workflows/judge.yml's `plan` job, `Resolve the agent selection`
-# step (the `auto` branch). That copy is entangled with judge.yml's own
-# `explicit`/`all` handling and its `refuse()` comment-posting on a malformed
-# selector or a reserved experiment-directory name — none of which the guard
-# needs, since the guard never refuses a PR, it just asks "did this diff
-# reach a known agent." Extracting a shared caller for both would mean
-# threading that refusal plumbing through a function neither file fully
-# wants, so this is a deliberate, tested mirror rather than a shared callee.
+# Reads `git diff --name-status -M` lines on stdin (status, then one path, or
+# two for a rename: old then new). Prints a comma-separated, de-duplicated list
+# of the suites the diff reaches, in first-touched order; empty when none.
 #
-# KEEP THIS IN SYNC WITH JUDGE.YML'S TABLE. A path added to one and not the
-# other is the drift ENG-11590 exists to avoid. judge.yml's own table carries
-# a comment pointing back here, and judge-path-floor.self-test.sh diffs the
-# two tables on every run so drift fails CI instead of going unnoticed.
+# A suite is a `packages/gp-api/src/**/<suite>.eval.ts` file. It is reached
+# when the diff touches that file or any path under that file's directory. The
+# eval files are those on main plus the diff's own additions and renames, minus
+# its deletions, so a renamed file reaches the suite under its new name and a
+# deleted one reaches nothing.
 #
-# Reads newline-separated repo paths on stdin (the shape `gh pr diff
-# --name-only` prints). Prints a comma-separated, de-duplicated list of
-# matched agent ids to stdout, in first-touched order — empty when nothing
-# matched.
+# `--eval-files` prints the eval files at the PR head instead, one per line.
+# JUDGE_MAIN_EVAL_FILES (newline-separated) replaces `git ls-files` for tests.
 set -euo pipefail
 
-touched=""
-add() { case ",$touched," in *",$1,"*) ;; *) touched="${touched:+$touched,}$1" ;; esac; }
+if [ -n "${JUDGE_MAIN_EVAL_FILES+x}" ]; then
+  main_files="$JUDGE_MAIN_EVAL_FILES"
+else
+  main_files="$(git ls-files 'packages/gp-api/src/*.eval.ts')"
+fi
 
-while IFS= read -r path; do
-  [ -n "$path" ] || continue
-  case "$path" in
-    # Chat agents. The directory name is kebab-case and the agent id is the
-    # Prisma ChatScope value, and for campaign-manager the two do not match,
-    # which is why this is a table and not a tr. Same five prefixes, same
-    # ids, as judge.yml.
-    packages/gp-api/src/chats/general/chief-of-staff/*)   add chief_of_staff ;;
-    packages/gp-api/src/chats/general/campaign-manager/*) add campaign_assistant ;;
-    packages/gp-api/src/chats/general/ordinance-flow/*)   add ordinance_flow ;;
-    packages/gp-api/src/chats/general/priority-flow/*)    add priority_flow ;;
-    packages/gp-api/src/chats/briefing-chats/*)           add briefing_annotation ;;
-    # Background agents. One directory per published experiment, and the
-    # directory name IS the agent id.
-    packages/runbooks/experiments/_schema/*) ;;
-    packages/runbooks/experiments/*/*)
-      id="${path#packages/runbooks/experiments/}"
-      id="${id%%/*}"
-      # `all`/`auto` are judge.yml's reserved selectors, not agent ids.
-      # judge.yml's own select step refuses a PR that adds a directory with
-      # one of these names, because it is about to pass the name on as a
-      # selector; the guard never passes anything on, it only reports which
-      # known agents the floor reached, so a reserved name here is simply
-      # not a match rather than a refusal.
-      case "$id" in
-        all | auto) ;;
-        *) add "$id" ;;
-      esac
+is_eval() { case "$1" in packages/gp-api/src/*.eval.ts) return 0 ;; *) return 1 ;; esac; }
+
+diff_lines="$(cat)"
+head_files="$main_files"
+reached_paths=""
+
+while IFS=$'\t' read -r status first second; do
+  [ -n "${status:-}" ] || continue
+  case "$status" in
+    D)
+      if is_eval "$first"; then
+        head_files="$(printf '%s\n' "$head_files" | grep -vFx -- "$first" || true)"
+      else
+        reached_paths="${reached_paths}${first}"$'\n'
+      fi
+      ;;
+    R* | C*)
+      if [ "${status:0:1}" = R ]; then
+        head_files="$(printf '%s\n' "$head_files" | grep -vFx -- "$first" || true)"
+        is_eval "$first" || reached_paths="${reached_paths}${first}"$'\n'
+      fi
+      if is_eval "$second"; then
+        head_files="${head_files}"$'\n'"${second}"
+      fi
+      reached_paths="${reached_paths}${second}"$'\n'
+      ;;
+    *)
+      if is_eval "$first"; then
+        head_files="${head_files}"$'\n'"${first}"
+      fi
+      reached_paths="${reached_paths}${first}"$'\n'
       ;;
   esac
-done
+done <<< "$diff_lines"
+
+head_files="$(printf '%s\n' "$head_files" | sed '/^$/d' | sort -u)"
+
+# Only pairwise suites can be judged. An expected-result suite (no
+# definePairwiseAgentEvalSuite) is dropped here, so neither the floor nor the
+# floor-only fallback can send one to the Judge step. Skipped under tests,
+# where the files are not on disk.
+if [ -z "${JUDGE_MAIN_EVAL_FILES:-}" ]; then
+  head_files="$(printf '%s\n' "$head_files" | while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] && grep -q definePairwiseAgentEvalSuite "$f" && printf '%s\n' "$f"
+  done || true)"
+fi
+
+if [ "${1:-}" = "--eval-files" ]; then
+  printf '%s\n' "$head_files"
+  exit 0
+fi
+
+touched=""
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    dir="${file%/*}/"
+    case "$path" in
+      "$file" | "$dir"*)
+        stem="${file##*/}"
+        stem="${stem%.eval.ts}"
+        case ",$touched," in *",$stem,"*) ;; *) touched="${touched:+$touched,}$stem" ;; esac
+        ;;
+    esac
+  done <<< "$head_files"
+done <<< "$reached_paths"
 
 printf '%s' "$touched"

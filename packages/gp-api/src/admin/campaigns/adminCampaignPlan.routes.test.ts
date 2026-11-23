@@ -305,7 +305,16 @@ describe('POST /v1/admin/campaigns/:id/plan/refund', () => {
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data).toEqual({
       refundedCents: PLAN_PRICING.proCents,
-      eligibility: { daysSincePurchase: 4, outreachSent: true },
+      eligibility: {
+        refundable: true,
+        reason: null,
+        purchaseId: purchase.id,
+        kind: 'plan',
+        amountCents: PLAN_PRICING.proCents,
+        purchasedAt: purchase.createdAt.toISOString(),
+        daysSincePurchase: 4,
+        outreachSent: true,
+      },
     })
     expect(refund).toHaveBeenCalledExactlyOnceWith(
       purchase.stripePaymentIntentId,
@@ -429,6 +438,127 @@ describe('POST /v1/admin/campaigns/:id/plan/refund', () => {
     expect(res.status).toBe(HttpStatus.CONFLICT)
     expect(refund).not.toHaveBeenCalled()
     expect((await readCampaign(campaign.id)).isPro).toBe(true)
+  })
+})
+
+describe('GET /v1/admin/campaigns/:id/plan/refund-eligibility', () => {
+  const eligibilityPath = (id: number) => planPath(id, '/refund-eligibility')
+  const get = (id: number) =>
+    service.client.get(eligibilityPath(id), { headers: MACHINE_HEADERS })
+
+  const paidPro = async () => {
+    const campaign = await seedCampaign({
+      isPro: true,
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.one_time,
+    })
+    const purchase = await seedPurchase(campaign.id, {
+      createdAt: subDays(new Date(), 4),
+    })
+    return { campaign, purchase }
+  }
+
+  const seedOutreach = (
+    campaign: { id: number; organizationSlug: string | null },
+    overrides: Partial<Prisma.OutreachUncheckedCreateInput>,
+  ) =>
+    service.prisma.outreach.create({
+      data: {
+        organizationSlug: campaign.organizationSlug,
+        campaignId: campaign.id,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.completed,
+        ...overrides,
+      },
+    })
+
+  it('rejects a session user', async () => {
+    const campaign = await seedCampaign()
+
+    const res = await service.client.get(eligibilityPath(campaign.id))
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('says why when the campaign has no paid purchase', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+
+    const res = await get(campaign.id)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toMatchObject({
+      refundable: false,
+      reason: 'NO_REFUNDABLE_PURCHASE',
+      purchaseId: null,
+      outreachSent: null,
+    })
+  })
+
+  it('reports days since purchase and no outreach', async () => {
+    const { campaign, purchase } = await paidPro()
+    await seedOutreach(campaign, {
+      createdAt: subDays(new Date(), 10),
+    })
+
+    const res = await get(campaign.id)
+
+    expect(res.data).toEqual({
+      refundable: true,
+      reason: null,
+      purchaseId: purchase.id,
+      kind: 'plan',
+      amountCents: PLAN_PRICING.proCents,
+      purchasedAt: purchase.createdAt.toISOString(),
+      daysSincePurchase: 4,
+      outreachSent: false,
+    })
+  })
+
+  it('counts a completed outreach created after the purchase', async () => {
+    const { campaign } = await paidPro()
+    await seedOutreach(campaign, {})
+
+    const res = await get(campaign.id)
+
+    expect(res.data.outreachSent).toBe(true)
+  })
+
+  it('does not count an outreach that never went out', async () => {
+    const { campaign } = await paidPro()
+    await seedOutreach(campaign, { status: OutreachStatus.pending })
+
+    const res = await get(campaign.id)
+
+    expect(res.data.outreachSent).toBe(false)
+  })
+
+  it('blocks a refund to Free while a subscription is attached', async () => {
+    const { campaign } = await paidPro()
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { details: { subscriptionId: 'sub_test_eligibility' } },
+    })
+
+    const res = await get(campaign.id)
+
+    expect(res.data).toMatchObject({
+      refundable: false,
+      reason: 'ACTIVE_SUBSCRIPTION',
+    })
+  })
+
+  it('matches the eligibility the refund then returns', async () => {
+    const { campaign } = await paidPro()
+    await seedOutreach(campaign, {})
+
+    const before = (await get(campaign.id)).data
+    const refunded = await service.client.post(
+      planPath(campaign.id, '/refund'),
+      {},
+      { headers: MACHINE_HEADERS },
+    )
+
+    expect(refunded.data.eligibility).toEqual(before)
   })
 })
 

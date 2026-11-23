@@ -100,9 +100,7 @@ export class OutreachCreditsService extends createPrismaBase(MODELS.Outreach) {
     tx?: Prisma.TransactionClient,
   ): Promise<OutreachCreditSettlement> {
     const reservedCents = await this.run(tx, (client) =>
-      this.close(client, outreachId, (reserved) =>
-        Math.max(0, reserved - actualCostCents),
-      ),
+      this.close(client, outreachId, actualCostCents),
     )
     const creditUsedCents = Math.min(reservedCents, actualCostCents)
     return {
@@ -115,9 +113,77 @@ export class OutreachCreditsService extends createPrismaBase(MODELS.Outreach) {
     outreachId: number,
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    await this.run(tx, (client) =>
-      this.close(client, outreachId, (reserved) => reserved, true),
-    )
+    await this.run(tx, (client) => this.close(client, outreachId, 0, true))
+  }
+
+  // Takes the reserve back off a send that has not been held or settled, so a
+  // retry reserves afresh. Unlike release it stamps nothing, which is why a
+  // later reserve still works. Zeroing the reserve is its own once-only claim.
+  async unreserve(
+    outreachId: number,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    return this.run(tx, async (client) => {
+      const [claim] = await client.$queryRaw<
+        { reserved_cents: number; campaign_id: number | null }[]
+      >`
+        UPDATE outreach o
+        SET credit_reserved_cents = 0
+        FROM (
+          SELECT id, credit_reserved_cents AS previous
+          FROM outreach
+          WHERE id = ${outreachId}
+            AND credit_settled_at IS NULL
+            AND credit_reserved_cents > 0
+          FOR UPDATE
+        ) held
+        WHERE o.id = held.id
+        RETURNING held.previous AS reserved_cents, o."campaignId" AS campaign_id
+      `
+      if (!claim) return 0
+      await this.giveBack(client, claim.campaign_id, claim.reserved_cents)
+      return claim.reserved_cents
+    })
+  }
+
+  // Gives a settled send's credit back after its card portion was refunded.
+  // Its own claim, separate from creditSettledAt, so a refund retried by a
+  // webhook or a sweep credits once. A release stamps a used amount of 0, so
+  // a send that never billed has nothing to return.
+  async refundUsed(
+    outreachId: number,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    return this.run(tx, async (client) => {
+      const [claim] = await client.$queryRaw<
+        { used_cents: number; campaign_id: number | null }[]
+      >`
+        UPDATE outreach
+        SET credit_refunded_at = NOW()
+        WHERE id = ${outreachId}
+          AND credit_settled_at IS NOT NULL
+          AND credit_used_cents > 0
+          AND credit_refunded_at IS NULL
+        RETURNING credit_used_cents AS used_cents, "campaignId" AS campaign_id
+      `
+      if (!claim) return 0
+      await this.giveBack(client, claim.campaign_id, claim.used_cents)
+      return claim.used_cents
+    })
+  }
+
+  // Credit never resurrects once the plan has ended.
+  private async giveBack(
+    tx: Prisma.TransactionClient,
+    campaignId: number | null,
+    cents: number,
+  ): Promise<void> {
+    if (campaignId === null || cents <= 0) return
+    await tx.$executeRaw`
+      UPDATE campaign
+      SET outreach_credit_cents = outreach_credit_cents + ${cents}
+      WHERE id = ${campaignId} AND plan_ended_at IS NULL
+    `
   }
 
   private run<T>(
@@ -133,16 +199,22 @@ export class OutreachCreditsService extends createPrismaBase(MODELS.Outreach) {
   private async close(
     tx: Prisma.TransactionClient,
     outreachId: number,
-    returnedCents: (reservedCents: number) => number,
+    actualCostCents: number,
     zeroReserve = false,
   ): Promise<number> {
     const [claim] = await tx.$queryRaw<
-      { credit_reserved_cents: number; campaign_id: number | null }[]
+      {
+        credit_reserved_cents: number
+        credit_used_cents: number
+        campaign_id: number | null
+      }[]
     >`
       UPDATE outreach
-      SET credit_settled_at = NOW()
+      SET credit_settled_at = NOW(),
+          credit_used_cents = LEAST(credit_reserved_cents, ${actualCostCents})
       WHERE id = ${outreachId} AND credit_settled_at IS NULL
-      RETURNING credit_reserved_cents, "campaignId" AS campaign_id
+      RETURNING credit_reserved_cents, credit_used_cents,
+        "campaignId" AS campaign_id
     `
     if (!claim) {
       const settled = await tx.outreach.findUniqueOrThrow({
@@ -152,8 +224,11 @@ export class OutreachCreditsService extends createPrismaBase(MODELS.Outreach) {
       return settled.creditReservedCents
     }
 
-    const { credit_reserved_cents: reservedCents, campaign_id: campaignId } =
-      claim
+    const {
+      credit_reserved_cents: reservedCents,
+      credit_used_cents: usedCents,
+      campaign_id: campaignId,
+    } = claim
     // A released send holds nothing, so a later settle bills the card in full
     // and a later reserve reports 0, rather than reading a refunded amount.
     if (zeroReserve) {
@@ -162,14 +237,7 @@ export class OutreachCreditsService extends createPrismaBase(MODELS.Outreach) {
         data: { creditReservedCents: 0 },
       })
     }
-    const returned = returnedCents(reservedCents)
-    if (campaignId !== null && returned > 0) {
-      await tx.$executeRaw`
-        UPDATE campaign
-        SET outreach_credit_cents = outreach_credit_cents + ${returned}
-        WHERE id = ${campaignId} AND plan_ended_at IS NULL
-      `
-    }
+    await this.giveBack(tx, campaignId, reservedCents - usedCents)
     return reservedCents
   }
 }

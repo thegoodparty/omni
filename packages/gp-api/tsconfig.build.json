@@ -14,14 +14,12 @@
     // nothing — verified: the only importers of envOverride and runEval are
     // `*.eval.test.ts` files, which never ship.
     //
-    // THIS GLOB AND .swcrc.build.json'S HAVE TO MATCH. They did not: this one
-    // dropped all of src/chats/evals from the type-check program while the
-    // emit pass dropped only src/chats/evals/judge, so envOverride.js and
-    // runEval.js reached dist WITHOUT having been type-checked by
-    // `nest build`. CI never missed it, because `npm run types` runs against
-    // tsconfig.json, which excludes neither — but a build whose emit and
-    // type-check disagree on scope is one edit away from shipping something
-    // nothing checked.
+    // THIS GLOB AND .swcrc.build.json'S HAVE TO MATCH. They did not once, and
+    // envOverride.js and runEval.js reached dist WITHOUT having been
+    // type-checked by `nest build`. CI never missed it, because `npm run
+    // types` runs against tsconfig.json, which excludes neither — but a build
+    // whose emit and type-check disagree on scope is one edit away from
+    // shipping something nothing checked.
     "src/chats/evals/**",
     // The eval suites, for the same reason: they are held by the judge runner
     // (packages/judge), never by the app, and they import that workspace

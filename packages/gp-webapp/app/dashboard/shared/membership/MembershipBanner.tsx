@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { ProBadge } from '@styleguide'
 import {
   ArrowRightIcon,
   ShieldCheckIcon,
@@ -19,7 +18,7 @@ import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
 import type { PlanPitch } from '../plan/planPitch'
 import { usePlanPitch } from '../plan/usePlanPitch'
-import { SeeAllPlansLink } from '../plan/SeeAllPlansLink'
+import { PlanBadge } from '../plan/PlanBadge'
 import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
@@ -144,7 +143,7 @@ export const MembershipBanner = (): React.JSX.Element | null => {
   const body = (
     <>
       {state.tier === 'free' ? (
-        <ProBadge size="small" />
+        <PlanBadge plan={planPitch.enabled ? planPitch.plan : 'pro'} />
       ) : (
         <ShieldCheckIcon className="size-4 text-primary" aria-hidden />
       )}
@@ -176,12 +175,6 @@ export const MembershipBanner = (): React.JSX.Element | null => {
         <div role="status" className={BANNER_CLASS_NAME}>
           {body}
         </div>
-      )}
-      {state.tier === 'free' && planPitch.enabled && (
-        <SeeAllPlansLink
-          href={planPitch.allPlansHref}
-          className="mb-2 text-[13px] font-medium text-primary underline"
-        />
       )}
       {pitchOpen && (
         <ProPitchDialog

@@ -65,9 +65,6 @@ export const delegateWebhookSecret = (): string =>
 export const handoffEnvironment = (): 'dev' | 'prod' =>
   process.env.OTEL_SERVICE_ENVIRONMENT === 'prod' ? 'prod' : 'dev'
 
-export const judgeRecordsBucketName = (): string | undefined =>
-  process.env.CASE_SCOUT_JUDGE_RECORDS_BUCKET || undefined
-
 // The chat agents the scout scores. Any other scope is skipped before a model
 // call; covering the next agent is one entry here.
 export const COVERED_SCOPES: ReadonlySet<string> = new Set<ChatScope>([

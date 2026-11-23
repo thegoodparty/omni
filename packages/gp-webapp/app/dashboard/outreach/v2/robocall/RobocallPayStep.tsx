@@ -140,6 +140,12 @@ interface RobocallPayStepProps {
   // result instead of re-running create-draft + a fresh SetupIntent and
   // re-showing the Authorize form after the hold was already placed.
   outcome: RobocallAuthorizeResponse | null
+  // The settled draft's id, lifted with the outcome: the local draft is gone
+  // after Back then Forward, and the credit lines read the row by this id.
+  settledOutreachId?: number | null
+  // The credit balance before this send, so the success screen can say what
+  // is left without reading a balance the refetch may not have updated yet.
+  creditBeforeCents?: number
   // The draft's outreach id rides the settled outcome so the flow can put it
   // on the completion event — the draft is created inside this step, so it is
   // the only thing that knows the id.
@@ -177,6 +183,8 @@ export const RobocallPayStep = ({
   audienceName,
   reachCount,
   outcome,
+  settledOutreachId = null,
+  creditBeforeCents = 0,
   onOutcome,
   onDraftCreated,
 }: RobocallPayStepProps) => {
@@ -189,7 +197,7 @@ export const RobocallPayStep = ({
   const [draft, setDraft] = useState<RobocallDraftCreateResponse | null>(null)
   const outreachCredit = useOutreachCredit()
   const creditUsedCents = useCreditUsedCents(
-    draft?.outreachId ?? null,
+    draft?.outreachId ?? settledOutreachId,
     outreachCredit.active && outcome?.status === 'authorized',
   )
   const startedRef = useRef(false)
@@ -431,12 +439,28 @@ export const RobocallPayStep = ({
               </span>
             </div>
           )}
+          {creditUsedCents > 0 && (
+            <div className="flex justify-between border-t border-border p-4 text-sm">
+              <span className="text-muted-foreground">
+                Outreach credit left after
+              </span>
+              <span className="text-foreground">
+                ${formatCents(Math.max(creditBeforeCents - creditUsedCents, 0))}
+              </span>
+            </div>
+          )}
           {authorizedCents !== null && (
             <div className="flex justify-between border-t border-border p-4">
               <span className="font-medium text-foreground">Authorized</span>
               <span className="font-semibold text-foreground">
                 ${formatCents(authorizedCents)}
               </span>
+            </div>
+          )}
+          {creditUsedCents > 0 && (
+            <div className="flex justify-between border-t border-border p-4">
+              <span className="font-medium text-foreground">Charged today</span>
+              <span className="font-semibold text-foreground">$0.00</span>
             </div>
           )}
         </Card>

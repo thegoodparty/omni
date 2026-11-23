@@ -6,6 +6,3 @@ export const PLAN_PRICING = {
   accessDaysAfterElection: 14,
   refundWindowDays: 14,
 } as const
-
-// Team invites are gated from this date on. Set at launch.
-export const TEAM_GATE_START = '2026-12-01T00:00:00.000Z'

@@ -7,6 +7,7 @@ import {
   StripeCheckoutValue,
 } from '@stripe/react-stripe-js/checkout'
 import { Button } from '@styleguide'
+import { Alert, AlertDescription } from '@styleguide/components/ui/alert'
 import { useSnackbar } from '@shared/utils/Snackbar'
 import { reportClientError } from '@shared/observability/reportClientError'
 import { useMutation } from '@tanstack/react-query'
@@ -126,6 +127,12 @@ function CheckoutFormContent({
 }): React.JSX.Element {
   const promo = usePromoCode(checkout)
   const [hasConfirmedPayment, setHasConfirmedPayment] = useState(false)
+  // Pay is never disabled on checkout.canConfirm: it lags the last keystroke
+  // until the field blurs, so a click right after typing hit a disabled button
+  // and did nothing. confirm() validates, and its error shows below.
+  // The toast is gone in 4s and sits over Back, so a declined or failed
+  // confirm also stays on the form until the next attempt.
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -156,15 +163,18 @@ function CheckoutFormContent({
         await onConfirmed?.()
       }
     },
-    onError,
+    onError: (error) => {
+      setSubmitError(error.message || 'Unexpected payment error')
+      onError(error)
+    },
   })
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setSubmitError(null)
     mutation.mutate()
   }
 
-  const canSubmit = hasConfirmedPayment || checkout.canConfirm
   const currentTotal = checkout.total.total.minorUnitsAmount / 100
   const originalTotal = checkout.total.subtotal.minorUnitsAmount / 100
 
@@ -204,9 +214,14 @@ function CheckoutFormContent({
           layout: 'tabs',
         }}
       />
+      {submitError && (
+        <Alert variant="destructive" className="mt-4">
+          <AlertDescription>{submitError}</AlertDescription>
+        </Alert>
+      )}
       <Button
         type="submit"
-        disabled={!canSubmit || mutation.isPending}
+        disabled={mutation.isPending}
         loading={mutation.isPending}
         className="mt-6 w-full whitespace-nowrap"
         size="large"

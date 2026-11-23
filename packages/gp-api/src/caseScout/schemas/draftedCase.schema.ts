@@ -1,10 +1,10 @@
 import { z } from 'zod'
 
-// ChatCaseSchema (src/chats/evals/judge/cases.ts) is the source of truth, but
-// src/chats/evals/** is left out of the production build, so a job cannot
-// import it. This mirrors its rules for the fields the scout writes, and
-// draftedCase.schema.test.ts pins the bounds and the verdicts to the real
-// schema so the two cannot drift.
+// ChatCaseSchema (src/chats/evals/judge/cases.ts) is the shape of a case in
+// the lists the scout drafts into, but src/chats/evals/** is left out of the
+// production build, so a job cannot import it. This mirrors its rules for the
+// fields the scout writes, and draftedCase.schema.test.ts pins the bounds and
+// the verdicts to the real schema so the two cannot drift.
 export const CASE_ID_PATTERN = /^[A-Za-z0-9_-]+$/
 export const MAX_CASE_ID_LENGTH = 80
 export const MAX_CONDITION_CHARS = 2_000

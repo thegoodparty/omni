@@ -7,8 +7,8 @@ export type RaceTimeframe = 'future' | 'past'
 // election has passed still resolves, to its most recent past race, and the
 // lookup only fails when the office does not exist at that zip at all.
 //
-// Imported by the judge sweep (src/chats/evals/judge), which runs outside the
-// Nest app, so this file stays free of `@/` imports and Nest providers.
+// Reached from routes that run outside the Nest app, so this file stays free
+// of `@/` imports and Nest providers.
 export const resolveFixtureRace = async (
   office: string,
   search: (timeframe: RaceTimeframe) => Promise<RaceListItem[]>,

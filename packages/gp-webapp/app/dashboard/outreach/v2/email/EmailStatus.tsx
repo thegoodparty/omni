@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useIsFetching, useQueryClient } from '@tanstack/react-query'
 import type { EmailDeliveryCounts, EmailSend } from '@goodparty_org/contracts'
 import {
   Alert,
@@ -34,6 +34,7 @@ import {
   useCreditUsedCents,
   useOutreachCredit,
 } from 'app/dashboard/outreach/util/outreachCredit'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { EmailPreview } from './EmailPreview'
 import { EmailSummary } from './EmailSummary'
 import { formatCount } from './emailFlow.util'
@@ -217,6 +218,8 @@ export const EmailStatus = ({
   const [canceling, setCanceling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const outreachCredit = useOutreachCredit()
+  // The balance is the one from before the send until the refetch lands.
+  const balanceRefreshing = useIsFetching({ queryKey: CAMPAIGN_QUERY_KEY }) > 0
   const creditUsedCents = useCreditUsedCents(
     id,
     outreachCredit.active && !surface.isServe,
@@ -329,7 +332,18 @@ export const EmailStatus = ({
         priceCents={send.priceCents ?? send.estimate?.priceCents ?? null}
         credit={
           creditUsedCents > 0
-            ? { label: 'Outreach credit used', cents: creditUsedCents }
+            ? {
+                label: 'Outreach credit used',
+                cents: creditUsedCents,
+                ...(justPaid
+                  ? {
+                      ...(balanceRefreshing
+                        ? {}
+                        : { leftCents: outreachCredit.balanceCents }),
+                      chargedTodayCents: 0,
+                    }
+                  : {}),
+              }
             : undefined
         }
         when={

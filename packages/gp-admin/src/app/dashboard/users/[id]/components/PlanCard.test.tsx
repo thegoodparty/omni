@@ -17,14 +17,31 @@ vi.mock('@/components/Toast', () => ({
 const mockSetPlan = vi.fn()
 const mockExtend = vi.fn()
 const mockRefund = vi.fn()
+const mockEligibility = vi.fn()
 vi.mock('@/app/dashboard/campaigns/planActions', () => ({
   setCampaignPlan: (...args: unknown[]) => mockSetPlan(...args),
   extendCampaignPlan: (...args: unknown[]) => mockExtend(...args),
   refundCampaignPlan: (...args: unknown[]) => mockRefund(...args),
+  getRefundEligibility: (...args: unknown[]) => mockEligibility(...args),
 }))
 
 const daysAgo = (days: number) =>
   new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+
+const eligible = (overrides: Record<string, unknown> = {}) => ({
+  data: {
+    refundable: true,
+    reason: null,
+    purchaseId: 1,
+    kind: 'plan',
+    amountCents: 29900,
+    purchasedAt: daysAgo(3).toISOString(),
+    daysSincePurchase: 3,
+    outreachSent: false,
+    ...overrides,
+  },
+  error: null,
+})
 
 const campaign = (overrides: Partial<CampaignWithLiveContext> = {}) =>
   ({
@@ -52,6 +69,7 @@ beforeEach(() => {
   Element.prototype.hasPointerCapture = () => false
   Element.prototype.scrollIntoView = () => {}
   vi.clearAllMocks()
+  mockEligibility.mockResolvedValue(eligible())
 })
 
 describe('PlanCard', () => {
@@ -150,7 +168,7 @@ describe('PlanCard', () => {
     mockRefund.mockResolvedValue({
       data: {
         refundedCents: 29900,
-        eligibility: { daysSincePurchase: 3, outreachSent: true },
+        eligibility: eligible({ outreachSent: true }).data,
       },
       error: null,
     })
@@ -158,7 +176,9 @@ describe('PlanCard', () => {
 
     await ue.click(screen.getByRole('button', { name: 'Refund' }))
     const dialog = await screen.findByRole('alertdialog')
-    expect(within(dialog).getByText(/Bought 3 days ago/)).toBeInTheDocument()
+    expect(
+      await within(dialog).findByText(/Bought 3 days ago/)
+    ).toBeInTheDocument()
     expect(within(dialog).queryByText(/outside the refund window/)).toBeNull()
 
     await ue.click(within(dialog).getByRole('button', { name: 'Refund' }))
@@ -171,13 +191,70 @@ describe('PlanCard', () => {
 
   it('warns when the purchase is outside the refund window', async () => {
     const ue = userEvent.setup()
-    render(<PlanCard campaign={campaign({ planPaidAt: daysAgo(20) })} />)
+    mockEligibility.mockResolvedValue(eligible({ daysSincePurchase: 20 }))
+    render(<PlanCard campaign={campaign()} />)
 
     await ue.click(screen.getByRole('button', { name: 'Refund' }))
 
     expect(
       await screen.findByText(/outside the refund window/)
     ).toBeInTheDocument()
+  })
+
+  it('says outreach was sent before staff confirm', async () => {
+    const ue = userEvent.setup()
+    mockEligibility.mockResolvedValue(eligible({ outreachSent: true }))
+    render(<PlanCard campaign={campaign()} />)
+
+    await ue.click(screen.getByRole('button', { name: 'Refund' }))
+
+    expect(
+      await screen.findByText(/Outreach was sent after this plan was bought/)
+    ).toBeInTheDocument()
+    expect(mockEligibility).toHaveBeenCalledWith(7)
+  })
+
+  it('says no outreach was sent', async () => {
+    const ue = userEvent.setup()
+    render(<PlanCard campaign={campaign()} />)
+
+    await ue.click(screen.getByRole('button', { name: 'Refund' }))
+
+    expect(
+      await screen.findByText(/No outreach sent since this plan was bought/)
+    ).toBeInTheDocument()
+  })
+
+  it('explains and blocks a refund that is not refundable', async () => {
+    const ue = userEvent.setup()
+    mockEligibility.mockResolvedValue(
+      eligible({ refundable: false, reason: 'ACTIVE_SUBSCRIPTION' })
+    )
+    render(<PlanCard campaign={campaign()} />)
+
+    await ue.click(screen.getByRole('button', { name: 'Refund' }))
+    const dialog = await screen.findByRole('alertdialog')
+
+    expect(
+      await within(dialog).findByText(/Cancel the Stripe subscription/)
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('button', { name: 'Refund' })
+    ).toBeDisabled()
+  })
+
+  it('blocks the refund when eligibility cannot be loaded', async () => {
+    const ue = userEvent.setup()
+    mockEligibility.mockResolvedValue({ data: null, error: 'No campaign' })
+    render(<PlanCard campaign={campaign()} />)
+
+    await ue.click(screen.getByRole('button', { name: 'Refund' }))
+    const dialog = await screen.findByRole('alertdialog')
+
+    expect(await within(dialog).findByText('No campaign')).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('button', { name: 'Refund' })
+    ).toBeDisabled()
   })
 
   it('shows a refused refund inline', async () => {

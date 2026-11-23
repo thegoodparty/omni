@@ -96,6 +96,7 @@ const setup = ({
   vi.mocked(usePlan).mockReturnValue({
     plan: held,
     isPaid: held !== 'free',
+    onSubscription: false,
     planEndsAt: null,
     creditCents: 0,
     recommendTeam: false,
@@ -143,6 +144,9 @@ describe('PaymentStep with per-campaign pricing on', () => {
       metadata: { campaignId: 42, plan: 'pro' },
     })
     expect(subscriptionHits).toBe(0)
+    expect(body?.returnUrl).toBe(
+      `${window.location.origin}/dashboard/pro-upgrade/success?plan=pro`,
+    )
     expect(screen.getByText('Pro is $299 per campaign.')).toBeInTheDocument()
     expect(
       screen.getByText('Pro plan with $175 outreach credit'),

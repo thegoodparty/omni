@@ -3,6 +3,7 @@ import {
   excerpt,
   redactSecrets,
   REDACTED,
+  redactedJson,
   renderValue,
   summarizePrompt,
 } from './annotation'
@@ -41,6 +42,11 @@ describe('redactSecrets', () => {
       'Ada Lovelace called 555-0100 from ada@example.com about 12 Maple Street.'
     expect(redactSecrets(text)).toBe(text)
   })
+
+  it('keeps a run ID, so a report can name the failed run', () => {
+    const text = '"runId": "b5474767-7a55-4029-8b43-e720f85e53b8"'
+    expect(redactSecrets(text)).toBe(text)
+  })
 })
 
 describe('excerpt', () => {
@@ -75,5 +81,36 @@ describe('renderValue', () => {
   it('prints a string as itself and anything else as JSON', () => {
     expect(renderValue('plain')).toBe('plain')
     expect(renderValue({ passed: true })).toBe('{\n  "passed": true\n}')
+  })
+})
+
+describe('redactedJson', () => {
+  // Redacting the finished JSON eats the `n` of an escaped newline, and the
+  // result no longer parses, so a reader drops the whole annotation.
+  it('stays valid JSON when a secret starts a line', () => {
+    const secret = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
+    const rendered = redactedJson({ reasoning: `first\n${secret}` })
+    expect(rendered).not.toContain(secret)
+    expect(JSON.parse(rendered)).toEqual({ reasoning: `first\n${REDACTED}` })
+  })
+
+  it('redacts every string it holds, at any depth', () => {
+    const secret = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz'
+    const rendered = redactedJson({
+      orders: [{ handledWhen: { base: secret } }],
+    })
+    expect(rendered).not.toContain(secret)
+  })
+
+  // `annotateWith` would run the pattern again over the finished text, where the
+  // `n` of a `\n` plus a 31-character word is a 32-character match and the
+  // replacement leaves an invalid escape. That is why the order and decision
+  // annotations go through `annotateRedacted`; what this pins is that the text
+  // they hand it parses as it stands, and that the second pass would not.
+  it('parses as it stands when a 31-character word starts a line', () => {
+    const word = 'a'.repeat(31)
+    const message = redactedJson({ reasoning: `first\n${word}` })
+    expect(JSON.parse(message)).toEqual({ reasoning: `first\n${word}` })
+    expect(() => JSON.parse(redactSecrets(message))).toThrow(SyntaxError)
   })
 })

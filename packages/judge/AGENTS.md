@@ -4,8 +4,6 @@
 Vitest for agents. It brings a base URL and a candidate URL into comparable runs
 and grades the pairs.
 
-Plan: `docs/judge-eval-framework-plan.md`. This package is phase 2.
-
 For choosing, writing, and running suites, see [Writing agent evals](../../docs/agent-evals.md).
 
 ## Rules, enforced by construction
@@ -29,22 +27,24 @@ Vitest runs three attempts per case. Pairwise attempts grade both output orders,
 and a case with no judged pairs fails. The run routes do not expose engine
 identity today; annotations say `not reported` when it is missing.
 
-| File                              | What                                                           |
-| --------------------------------- | -------------------------------------------------------------- |
-| `src/pairwise.ts`                 | Suite registration, per-case execution, and verdict            |
-| `src/suite.ts`                    | Suite definition types and validation                          |
-| `src/arm.ts` and `src/apiRoot.ts` | Test-user context, API-root discovery, and run-route preflight |
-| `src/runAgent.ts`                 | Agent run and polling routes                                   |
-| `src/chatTurns.ts`                | Chat turns: opens the conversation, posts each turn, reads SSE |
-| `src/grade.ts` and `src/stats.ts` | Grading, exact sign test, and handledWhen regression test      |
-| `src/reporter.ts`                 | Markdown verdict table                                         |
+| File                              | What                                                            |
+| --------------------------------- | --------------------------------------------------------------- |
+| `src/pairwise.ts`                 | Suite registration, per-case execution, and verdict             |
+| `src/suite.ts`                    | Suite definition types and validation                           |
+| `src/arm.ts` and `src/apiRoot.ts` | Test-user context, API-root discovery, and run-route preflight  |
+| `src/runAgent.ts`                 | Agent run and polling routes                                    |
+| `src/chatTurns.ts`                | Chat turns: opens the conversation, posts each turn, reads SSE  |
+| `src/grade.ts` and `src/stats.ts` | Grading, exact sign test, and handledWhen regression test       |
+| `src/reporter.ts`                 | Markdown verdict table, and the results JSON |
+| `src/guard/`                      | The PR guard's picker, code map and verdict mapping             |
 
 ## The grader
 
 One pair per attempt, three pairs per case. Each pair is judged in **both
 orders** — base as A and candidate as B, then swapped — and two orders that
 disagree are a tie. One `generateObject` call returns the winner, `handledWhen`
-as yes/partly/no per side, a 1-5 score per dimension, and one sentence of
+as yes/partly/no per side, a 1-5 score per dimension (half points allowed: Claude's native JSON output
+gives them, and an integer-only schema rejected whole verdicts), and one sentence of
 reasoning. Default questions: `task_success`, `instruction_adherence`,
 `user_utility`; a case's `grading.dimensions` adds to them.
 
@@ -80,6 +80,42 @@ direction off them claims more than the run saw. The preflight asks each arm for
 answers 404 for the missing run. Nest's `Cannot GET ...` 404 instead fails the
 suite before a single agent run or grading call is spent.
 
+## Debugging a CAN'T JUDGE
+
+1. Read the job summary's **Not judged attempts** table. Each row is one
+   attempt that never became a pair: which side failed (`base`, `candidate`, or
+   `grader`), its run IDs with status, and the error.
+2. `base`/`candidate` with no runs: the arm failed before `runAgent`, so at
+   test-user setup. Search that arm's gp-api logs for the 500 (e.g. `POST
+/v1/elected-office`).
+3. `base`/`candidate` with a run: look the run ID up in that arm's logs or its
+   `experiment_run`/agent-run row. `superseded` means a deploy requeued it.
+4. `grader`: the judge model's answer failed the grading schema or the call
+   errored. Rerun one case locally (`-t <case>`) with base and candidate both set
+   to the same URL to separate the grader from the arms, and catch
+   `NoObjectGeneratedError` for `.text` and `.cause` to see the raw answer.
+5. Full per-run records are the `pairwise-run` annotations, printed by the
+   default reporter on a local run; CI does not keep them.
+
+## Reading a verdict from CI
+
+The job summary is a page the GitHub API does not expose, so an agent reads the
+verdicts from the run's artifact instead:
+
+```bash
+gh run download <run id> -n judge-eval-results
+```
+
+That file holds, per suite, the verdict with its counts, p-values and
+`handledWhen` totals, and per case and attempt the winner, each order's arm
+arrangement, the grader's full reasoning and its `handledWhen` answers. Get the
+run id from `gh run list --workflow judge-eval.yml` or the check run's link. The
+verdict table is also printed to stdout (so it is in the job log) and posted in
+the PR's judge-eval comment, but neither carries the per-case reasoning.
+
+Run evals from a worktree, not the main checkout: `vite-tsconfig-paths` walks
+every `.worktrees/*` tsconfig there and fails to resolve them.
+
 ## Signing in
 
 `@goodparty_org/test-users` creates the user, the campaign or elected office, and
@@ -91,13 +127,23 @@ instance, shared with the e2e suite and gp-api's own lookups, so use Vitest's wo
 
 A chat agent has no run route, so `ctx.runAgent` does not reach it. `chatTurns`
 posts the case's turns to the conversation it opened as the case's own test user
-and returns the transcript; `briefingChatTurns` does the same for
-`briefing_annotation`, whose conversation is created with the annotation it
-hangs off. The turn's reply is the SSE body, so `ctx.postEventStream` reads it as
+and returns the transcript, for every scope. Only the opening differs:
+`briefing_annotation` opens on `POST /v1/briefing-chats`, because its
+conversation is created with the annotation it hangs off. The turn's reply is the SSE body, so `ctx.postEventStream` reads it as
 text: through `ctx.api.post` axios would try the whole body as JSON and hand back
 an object for any single frame that happened to parse. A reply that streamed an
 `error` frame or ended without `done` is a thrown turn, not a subject for
 grading.
+
+## The PR guard
+
+`.github/workflows/judge-guard.yml` runs `src/guard/` and the suites inline; see [Writing agent evals](../../docs/agent-evals.md#the-pr-guard).
+`reporter.ts` writes `{ suite, label }` rows to `JUDGE_VERDICTS_FILE` when set, which
+the guard maps to a verdict. It also writes the full per-case results to
+`JUDGE_RESULTS_FILE` (set by `judge-eval.yml` and uploaded as the
+`judge-eval-results` artifact) and the verdict table to `JUDGE_TABLE_FILE` (which
+becomes the PR comment).
+A new shared directory needs a row in `src/guard/codeMap.ts`.
 
 ## Tests
 

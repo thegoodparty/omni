@@ -91,8 +91,8 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
 `trending_issues` and `top_community_issues` each run on either engine;
 `AGENTS_ON_GP_API` (a comma-separated list of the two ids) picks gp-api's own
 agents (`src/agents/AGENTS.md`) per type, and a type left out stays on the PMF
-Engine. `trending_issues` is on in dev and prod; `top_community_issues` is off
-everywhere. `startRun` in the dispatch service is the
+Engine. `trending_issues` is on in dev and prod; `top_community_issues` is on in
+dev only. `startRun` in the dispatch service is the
 one dispatch fork: on gp-api's agents the run is an `AgentRun` with
 `agentName` set to the type, on the PMF Engine an `ExperimentRun` with that
 `experimentType`. Every gate and reader picks its table by
@@ -164,7 +164,16 @@ accepted.
   field in a run's input decides what it may read. The model writes the state
   and L2 district clauses itself, and the tool proves them against
   `topCommunityIssuesDatabricksScope`: the run's stored `AgentRun.input`, read
-  by run id. The dispatcher builds that input from `resolveServeContext`, so in
+  by run id. That scope decides which predicates are legal, and its district is
+  optional: when the input carries no L2 pair, `City_Ward` and every other
+  district column are outside the dimension allowlist, so a query naming one is
+  refused before it reaches the warehouse. `districtDescriptor` is prose for
+  `webSearch` and never names a column, which the prompt states outright —
+  judge runs in dev on 2026-11-21 turned 8 of 13 `queryDatabricks` calls into
+  `rejected` because the model built a district clause out of that descriptor
+  (and out of Step 4's own sample SQL) on cases whose input had no pair.
+  `topCommunityIssues.prompt.test.ts` holds every SQL example in the prompt to
+  the guard. The dispatcher builds that input from `resolveServeContext`, so in
   production it equals
   `orgDatabricksScope`; a judge run, where every case shares the fixture org,
   is scoped to the case's own district. No state, or half an L2 pair, refuses

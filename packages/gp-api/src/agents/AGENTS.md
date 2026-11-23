@@ -23,7 +23,6 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 | `tools/renderPage.ts`           | Last resort: a page in an AgentCore managed browser, as markdown (10,000 characters), five a run                 |
 | `tools/agentBrowser.service.ts` | One AgentCore Browser session per render, stopped every time; one at a time and five a run                       |
 | `tools/agentWeb.service.ts`     | Plain HTTP behind the private-address guard, on every redirect hop                                               |
-| `tools/judgeReplay.ts`          | Serves the judge's recorded pages to a judge run                                                                 |
 | `tools/queryDatabricks.ts`      | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
 | `agentRunRoutes.controller.ts`  | `POST /v1/agents/:name/runs`, `GET /v1/agents/runs/:runId` — the judge's door, dev and previews only            |
 
@@ -111,8 +110,7 @@ and the browser does its own DNS lookup; that is acceptable because the
 browser runs in AWS's network, not gp-api's, and only the page's text comes
 back. The final URL is checked
 again. The page is cut at 10 MB and the render ends at 60 seconds or on
-`ctx.signal`. A judge run reads the recorded page first, as `fetchPage`
-does. Failures are values (`blocked_host`, `render_limit`, `timeout`,
+`ctx.signal`. Failures are values (`blocked_host`, `render_limit`, `timeout`,
 `browser_unavailable`, `http_error`, `no_text`, ...), and each one is the
 `error.type` of its `execute_tool` span like any other tool's. The task
 role's grant is in `deploy/index.ts`. `renderPage.live.test.ts` renders real
@@ -228,8 +226,8 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   `top_community_issues` passes `topCommunityIssuesDatabricksScope`, which
   reads `AgentRun.input` by `ctx.runId` (never anything the model sends). The
   dispatcher built that input from the same `resolveServeContext`, so in
-  production the two agree (a test holds them equal), and a judge run, whose
-  cases share one fixture org, is scoped to each case's own district. It fails
+  production the two agree (a test holds them equal), and a judge run is
+  scoped to its own test user's district. It fails
   closed: no state or half an L2 pair is `no_scope`.
 - **The table must be one gp-api's principal can read**: `mart_gp_api`, the
   schema with a grant that survives a dbt rebuild. A manifest's `dbt.*` table
@@ -300,9 +298,6 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   `superseded` and a fresh run with the same input starts. Prompts, tools and
   models change freely.
 - The step budget is 120 steps per run across all attempts.
-- `run(name, input, { judgeReplay })` is for the judge's candidate arm only.
-  The ticket rides on the `agentRun` job (and onto a superseding run's), and
-  reaches tools as `ctx.judgeReplay`.
 - Ending: `completed` after `onArtifact`, or `failed` with `error` on the last
   attempt. A failure is surfaced by the `agentRun` queue's dead-letter and
   backed-up alerts; there is no separate output-failure metric.

@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { addDays, subMinutes } from 'date-fns'
-import type Stripe from 'stripe'
+import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
@@ -29,6 +29,8 @@ import {
 } from './emailSendFixtures'
 
 const service = useTestService()
+
+const { StripeInvalidRequestError } = Stripe.errors
 
 const saveCardAndPlan = vi.fn()
 const capture = vi.fn()
@@ -436,6 +438,38 @@ describe('email send with outreach credit', () => {
       ).state,
     ).toBe(OutreachHoldState.released)
   })
+
+  it.each([130, 149])(
+    'forgives a card remainder under 50 cents instead of capturing it (%i sent)',
+    async (sent) => {
+      // Stripe refuses a charge under its minimum: the capture it would get
+      // here is the one production raises amount_too_small for.
+      capture.mockRejectedValue(
+        new StripeInvalidRequestError({
+          type: 'invalid_request_error',
+          code: 'amount_too_small',
+          message: 'Amount must be at least 50 cents.',
+        }),
+      )
+      const { outreachId } = await finishedSend({
+        total: 400,
+        sent,
+        reserved: 100,
+        hold: { authorizedCents: 300 },
+      })
+
+      await service.app.get(PaymentHoldsService).settle({ outreachId })
+
+      expect(capture).not.toHaveBeenCalled()
+      expect(await balance()).toBe(0)
+      expect((await spine(outreachId)).creditSettledAt).not.toBeNull()
+      expect(
+        await service.prisma.outreachPaymentHold.findUniqueOrThrow({
+          where: { outreachId },
+        }),
+      ).toMatchObject({ state: OutreachHoldState.released, capturedCents: 0 })
+    },
+  )
 
   it('captures as today for a send with no reserve', async () => {
     const { outreachId } = await finishedSend({

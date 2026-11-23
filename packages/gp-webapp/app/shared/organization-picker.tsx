@@ -26,7 +26,6 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-  ProBadge,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -35,7 +34,8 @@ import {
 import { ChevronDown } from 'lucide-react'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import { usePathname, useRouter } from 'next/navigation'
-import { useCampaign } from './hooks/useCampaign'
+import { PlanBadge } from 'app/dashboard/shared/plan/PlanBadge'
+import { useBadgePlan } from 'app/dashboard/shared/plan/useBadgePlan'
 
 const SHARED_PATHS = [
   '/dashboard/profile',
@@ -232,7 +232,7 @@ export const OrganizationPicker = () => {
 
   const isMobile = useIsMobile()
 
-  const [campaign] = useCampaign()
+  const badgePlan = useBadgePlan()
   const pathname = usePathname()
 
   const { data: eligibility } = useQuery<Eligibility>({
@@ -308,7 +308,7 @@ export const OrganizationPicker = () => {
                   <p className="truncate text-sm font-opensans">
                     GoodParty.org
                   </p>
-                  {campaign?.isPro && <ProBadge size="small" />}
+                  <PlanBadge plan={badgePlan} />
                 </div>
                 <span className="truncate text-sm font-opensans font-semibold">
                   {selected.name}

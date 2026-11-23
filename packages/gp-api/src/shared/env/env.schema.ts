@@ -385,7 +385,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   CASE_SCOUT_BUCKET: { tier: 'optional' },
   CASE_SCOUT_SPEND_CAP_USD: { tier: 'optional', default: '50' },
   CASE_SCOUT_SESSION_CAP: { tier: 'optional', default: '75' },
-  CASE_SCOUT_JUDGE_RECORDS_BUCKET: { tier: 'optional' },
   // Secrets, read only when CASE_SCOUT_SEND_TO_DELEGATE is on.
   CASE_SCOUT_DELEGATE_WEBHOOK_URL: {
     tier: 'degradable',

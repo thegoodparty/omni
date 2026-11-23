@@ -12,7 +12,6 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { APP_BASE } from 'appEnv'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import { useCheckoutSession } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import CheckoutPayment from 'app/dashboard/purchase/components/CheckoutPayment'
@@ -33,10 +32,11 @@ import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // Stripe sends the candidate here when a confirm requires a redirect (e.g.
 // 3DS). The success step (task 14) reads the post-payment state; isPro is
-// flipped by the webhook, never client-side.
-const SUCCESS_RETURN_URL = `${APP_BASE}${proUpgradeStepPath(
-  PRO_UPGRADE_STEP.SUCCESS,
-)}`
+// flipped by the webhook, never client-side. Built from the live origin:
+// APP_BASE is the marketing host in prod and `undefined` on dev, and Stripe
+// redirects there verbatim.
+const successReturnUrl = (): string =>
+  `${window.location.origin}${proUpgradeStepPath(PRO_UPGRADE_STEP.SUCCESS)}`
 
 // Reads the live total from the mounted Stripe checkout so the amount can't
 // drift from the configured Stripe price. Rendered inside CheckoutProvider.
@@ -318,7 +318,7 @@ const SubscriptionPayment = (): React.JSX.Element => {
   const { goToStep, goToPreviousStep } = useProUpgradeWizard()
 
   const createSession = useCallback(
-    () => createProSubscriptionCheckoutSession(SUCCESS_RETURN_URL),
+    () => createProSubscriptionCheckoutSession(successReturnUrl()),
     [],
   )
 
@@ -355,18 +355,22 @@ const PlanPayment = (): React.JSX.Element => {
 
   // Stripe returns here after a redirecting method (Afterpay, 3DS), and the
   // URL has to say what was bought, since the page loads fresh.
-  const returnUrl = `${SUCCESS_RETURN_URL}${carryQueryString({
+  const returnQuery = carryQueryString({
     ...carry,
     plan: order.plan,
     fromPro: isUpgrade,
-  })}`
+  })
 
   const createSession = useCallback(() => {
     if (!campaignId) {
       return Promise.reject(new Error('Your campaign could not be loaded.'))
     }
-    return createPlanCheckoutSession(campaignId, order.plan, returnUrl)
-  }, [campaignId, order.plan, returnUrl])
+    return createPlanCheckoutSession(
+      campaignId,
+      order.plan,
+      `${successReturnUrl()}${returnQuery}`,
+    )
+  }, [campaignId, order.plan, returnQuery])
 
   const handlePaymentSuccess = useCallback(
     async (sessionId: string) => {

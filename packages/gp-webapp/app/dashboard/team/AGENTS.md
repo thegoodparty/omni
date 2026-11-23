@@ -41,14 +41,17 @@ can't drift.
 
 ## Patterns and gotchas
 
-- **Team gate (ENG-11695):** with `win_per_campaign_pricing` on, a campaign
-  created on or after `TEAM_GATE_START` needs the Team plan to invite.
-  `useTeamInviteGate` mirrors gp-api's `POST team/invites` predicate; for a
-  gated owner Invite opens `ProPitchDialog` with `invite` (Team, $399 from
-  Free, the $100 difference from Pro) instead of the drawer, and checkout
-  returns to `/dashboard/team`, which reopens the drawer via `?invite=1`. A
-  403 `TEAM_PLAN_REQUIRED` from the API (`isTeamPlanRequired`) swaps the drawer
-  for the same pitch; a manager gets a snackbar, since only the owner can buy.
+- **Team gate (ENG-11695, ENG-11709):** gp-api decides, the page renders.
+  `GET /v1/organizations/team` returns `invites: { allowed, reason }`, computed
+  by the code `POST team/invites` enforces and keyed on the owner's flag
+  (never re-derive it here; the cutoff lives in the flag payload).
+  `useTeamInviteGate(data?.invites)` maps it: `TEAM_PLAN_REQUIRED` makes an
+  owner's Invite open `ProPitchDialog` with `invite` (Team, $399 from Free, the
+  $100 difference from Pro; checkout returns to `/dashboard/team`, which reopens
+  the drawer via `?invite=1`) and a manager gets a snackbar, since only the
+  owner can buy. `TEST_ORGANIZATION` / `ELECTED_OFFICE` disable Invite with a
+  one-line reason. A 403 `TEAM_PLAN_REQUIRED` on submit (`isTeamPlanRequired`)
+  stays as the fallback.
 - **Nav placement (ENG-11061):** Team lives in the account menu
   (`accountManagementMenuItems.team`, id `nav-dash-team` in
   `DashboardMenu.tsx`), not the primary left rail.

@@ -1,15 +1,14 @@
 import type { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 
-// meeting_briefing, converted from the old judge's background case list
-// (src/chats/evals/judge/cases/meeting_briefing.json). The cases are unchanged in
+// meeting_briefing, converted from the old judge's case list. The cases are unchanged in
 // meaning: `params` is `input`, and `condition`, `handledWhen` and the dimension
 // questions are `grading`.
 //
 // FOUR CASES ARE NOT CONVERTED: a2-thin, a5-injection, a7-stale and the control.
 // Each one stages an agenda packet as a file in the run's inputs, and this
-// framework supplies no input files (judge-eval-framework-plan.md, "Not
-// converted"). Without the packet the stressor is not in front of the run: the
+// framework supplies no input files (docs/agent-evals.md, "Agents with no
+// suite"). Without the packet the stressor is not in front of the run: the
 // injection page is not on the open web, and the stale June packet is not what
 // a live run finds for the July date, so every pair would be a tie. They come
 // back when the framework can pass input files.

@@ -12,7 +12,7 @@ import {
   startOfWeek,
 } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   OutreachDetail,
   OutreachEventDetails,
@@ -55,6 +55,7 @@ import {
   type OutreachLaunchSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import {
   creditLines,
@@ -835,6 +836,7 @@ export const SmsFlow = ({
   // checkout would then charge for the pre-edit message and date.
   const draftGenerationRef = useRef(0)
   const [scheduled, setScheduled] = useState(false)
+  const queryClient = useQueryClient()
   const outreachCredit = useOutreachCredit()
   // The balance as it stood before the send, kept so the success screen can
   // say what is left once the campaign refetch has already taken it down.
@@ -2066,6 +2068,7 @@ export const SmsFlow = ({
   const handleScheduled = async (paid: boolean) => {
     setPaidSend(paid)
     setScheduled(true)
+    void queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
     // A text campaign completes when it is bought and scheduled, not when
     // Peerly sends it — the send is hours or days later and nothing on the
     // client is alive to see it. `sendDate` carries that gap: it is the

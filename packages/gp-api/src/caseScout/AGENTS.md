@@ -17,6 +17,11 @@ then each night's handoff is held in the bucket for a person to read.
 the one thing that leaves it is the handoff: gated, de-identified strings and
 nothing that points back at a conversation.
 
+**The five `cases/<agent>.json` files are read, never written.** The job reads
+them off main for case-id collisions and existing conditions, and the scout's
+bench reads them to check that a draft parses once appended. No judge runs
+them, so a change to one has no effect on any gate.
+
 ## Flow
 
 | Step                                          | Where                                  | What                                                                                                                                                                                                                                                                   |
@@ -29,16 +34,16 @@ Covered scopes are `chief_of_staff` and `campaign_assistant`
 (`COVERED_SCOPES` in `caseScout.config.ts`). Other sessions count toward the
 session cap and the marker but are never sent to a model.
 
-| File                                    | Holds                                                                                                                                                        |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                                                              |
-| `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist                                 |
-| `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                                                       |
-| `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy (from every role and tool input), contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
-| `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                                                  |
-| `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                                                     |
-| `services/caseScoutHandoff.service.ts`  | The handoff: hold or send, the Slack note, the marker                                                                                                        |
-| `util/handoff.util.ts`                  | The payload built from `bundle.json`, the source-id check, Standard Webhooks signing                                                                         |
+| File                                    | Holds                                                                                                                                                                                                                             |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                                                                                                                                   |
+| `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist                                                                                                      |
+| `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                                                                                                                            |
+| `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy (from every role and tool input, only when the source run carries a number or a mid-sentence capital), contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
+| `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                                                                                                                       |
+| `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                                                                                                                          |
+| `services/caseScoutHandoff.service.ts`  | The handoff: hold or send, the Slack note, the marker                                                                                                                                                                             |
+| `util/handoff.util.ts`                  | The payload built from `bundle.json`, the source-id check, Standard Webhooks signing                                                                                                                                              |
 
 ## Bucket (`case-scout-<env>`)
 
@@ -67,7 +72,7 @@ becomes `id`, the suite is the session's scope. A needs-setup line is
 `{ suite, what, severity }`. Built from `bundle.json` only, so every free-text
 string is one `outboundStrings` returns and the gate passed. Never in it:
 conversation, session or message ids, `failureSummary`, list-full drafts,
-noisy-case removals, a withheld needs-setup line. Before it is held or sent,
+a withheld needs-setup line. Before it is held or sent,
 the job checks the exact bytes for every id in the night's manifest and fails
 if one appears.
 
@@ -114,10 +119,8 @@ processed, so a later night reads it.
 ## Config
 
 `CASE_SCOUT_ENABLED`, `CASE_SCOUT_SEND_TO_DELEGATE` (off everywhere),
-`CASE_SCOUT_BUCKET`, `CASE_SCOUT_SPEND_CAP_USD`, `CASE_SCOUT_SESSION_CAP`,
-`CASE_SCOUT_JUDGE_RECORDS_BUCKET` (dev only: noisy-case proposals read the
-judge's sweep records; unset skips them). Set in `deploy/index.ts`, with the
-task role's grants on the bucket. The webhook URL and signing secret
+`CASE_SCOUT_BUCKET`, `CASE_SCOUT_SPEND_CAP_USD`, `CASE_SCOUT_SESSION_CAP`.
+Set in `deploy/index.ts`, with the task role's grants on the bucket. The webhook URL and signing secret
 (`CASE_SCOUT_DELEGATE_WEBHOOK_URL`, `CASE_SCOUT_DELEGATE_WEBHOOK_SECRET`) are
 read only when sending, so no environment declares them yet: the change that
 turns sending on adds them to `deploy/gp-api-secret-keys.ts`, after their
@@ -144,10 +147,13 @@ output; `released` is the same result, kept only when the gate let it through.
 `leaksPlanted` and `copiesSource` are code (`copiesSource`: an 8-word run
 copied from any role or tool input that carries a name, place or number);
 `revealsSensitiveFact` is one `judgeModel` call, counted only when its quoted
-span is in the text. The drafter's outcome and the gate rule are annotations,
-never the judgment. The gate suite expects today's misses to be caught (a
-seven-digit phone, a draft with no name that still identifies a place), so its
-red cases are the gate's work list.
+span is in the text. The gate's copy check applies the same test as
+`copiesSource` (a digit, or a word capitalized mid-sentence other than "I"),
+because copied conversation is fine without PII in it; each file keeps its own
+code, so the eval measures the gate rather than echoing it. The drafter's
+outcome and the gate rule are annotations, never the judgment. The gate suite
+expects today's misses to be caught (a seven-digit phone, a draft with no name
+that still identifies a place), so its red cases are the gate's work list.
 
 ```bash
 JUDGE_MODEL=anthropic/claude-sonnet-5-5 npm run eval -w packages/gp-api
@@ -174,7 +180,8 @@ drafter's output.
 
 - **`ChatCaseSchema` cannot be imported here.** `src/chats/evals/**` is left
   out of the production build, so `schemas/draftedCase.schema.ts` mirrors it
-  and `draftedCase.schema.test.ts` pins the mirror to the real schema.
+  and `draftedCase.schema.test.ts` pins the mirror to the real schema. The real
+  schema still loads the same five files, which is why it stays.
 - **Never log chat text.** Logs and job payloads carry ids and counts only.
   Model spans record neither inputs nor outputs.
 - **Prompts are graded.** The quality bench

@@ -304,6 +304,39 @@ export class PaymentEventsService {
       )
       await this.onBecamePro(campaign, user)
     }
+
+    await this.clearCheckoutSessionForSubscription(user, subscriptionId)
+  }
+
+  // The completion arm clears the stored checkout session; when it is the
+  // lost event, a paid session would stay stored and block the next Pro
+  // checkout with CHECKOUT_ALREADY_COMPLETED. Best-effort and conditional on
+  // the stored session being the one that created this subscription.
+  private async clearCheckoutSessionForSubscription(
+    user: User,
+    subscriptionId: string,
+  ) {
+    const storedSessionId = user.metaData?.checkoutSessionId
+    if (!storedSessionId) return
+    try {
+      const session =
+        await this.stripeService.retrieveCheckoutSession(storedSessionId)
+      const sessionSubscriptionId =
+        typeof session.subscription === 'string'
+          ? session.subscription
+          : session.subscription?.id
+      if (sessionSubscriptionId !== subscriptionId) return
+      await this.usersService.compareAndSwapCheckoutSessionId(
+        user.id,
+        storedSessionId,
+        null,
+      )
+    } catch (error) {
+      this.logger.error(
+        { error, userId: user.id, subscriptionId },
+        '[WEBHOOK] Failed to clear checkoutSessionId after customer.subscription.created',
+      )
+    }
   }
 
   async customerSubscriptionResumedHandler(

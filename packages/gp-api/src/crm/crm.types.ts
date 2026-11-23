@@ -235,6 +235,9 @@ export namespace HubSpot {
     pro_candidate = 'pro_candidate',
     pro_subscription_status = 'pro_subscription_status',
     pro_upgrade_date = 'pro_upgrade_date',
+    win_plan = 'win_plan',
+    win_plan_pricing_model = 'win_plan_pricing_model',
+    win_plan_ends_at = 'win_plan_ends_at',
     running = 'running',
 
     // 10DLC compliance filing details

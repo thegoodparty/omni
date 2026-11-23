@@ -19,9 +19,7 @@ import {
 
 const COPY = MANAGED_PANEL_COPY.controls
 
-// The PATCH route still takes stop, but product chose Pause as the only way
-// an official holds invites, so the card never sends it.
-type Action = Exclude<UpdateManagedCivicPanelInput['action'], 'stop'>
+type Action = UpdateManagedCivicPanelInput['action']
 
 // The panel GoodParty builds for the office: where its invites stand, when
 // the next go out and when it should be ready, and the official's say over

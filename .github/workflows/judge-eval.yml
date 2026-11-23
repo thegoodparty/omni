@@ -4,11 +4,10 @@ name: Judge eval
 # packages/judge compares two URLs and writes a job summary: dev running main (base)
 # against this PR's gp-api preview (candidate), three attempts a side.
 #
-# SEPARATE FROM judge.yml ON PURPOSE. That file drives the universal judge's
-# sweep: two arm worktrees, S3 staging, SQS dispatch, page replay. Chat suites
-# still need it, so `/judge` and `judge.yml` stay exactly as they are. This one
-# runs one process that holds two URLs and nothing else
+# ONE PROCESS THAT HOLDS TWO URLS AND NOTHING ELSE
 # (docs/adr/2026-11-19-the-judge-reaches-agents-only-through-a-base-url.md).
+# The sweep it replaced (two arm worktrees, S3 staging, SQS dispatch, page
+# replay) is deleted; this workflow is how every agent is judged now.
 #
 # BOTH ARMS ARE gp-api ORIGINS, which is what makes a migration PR judge itself:
 # dev's task definition leaves `AGENTS_ON_GP_API` unset for an agent still on the
@@ -166,7 +165,7 @@ jobs:
       # checkout and Vitest collects `packages/gp-api/src/**/*.eval.ts`
       # from it. Nothing in the checkout is deployed; the arms are two URLs.
       #
-      # AFFIRMATIVE, like judge.yml's own fork check and for the same reason:
+      # AFFIRMATIVE, and for a reason worth keeping:
       # omni is public, so a fork's PR carries no secrets, and the steps below it
       # run `npm ci` and Vitest from this checkout with ours, plus every
       # `*.eval.ts` the PR added. Written as "stop unless it is exactly false",
@@ -209,9 +208,9 @@ jobs:
           app: judge-eval
           build-contracts: 'true'
 
-      # Polls the same `/v1/version` contract gp-api.yml's own verify step and
-      # judge.yml use, against the same 10-minute budget, because a first
-      # preview deploy runs every migration before the app starts.
+      # Polls the same `/v1/version` contract gp-api.yml's own verify step
+      # uses, against the same 10-minute budget, because a first preview
+      # deploy runs every migration before the app starts.
       #
       # EITHER SHA COUNTS, and that is not laxity. The PR's head is the commit
       # checked out above, but gp-api tags a preview image with `github.sha`,
@@ -254,6 +253,8 @@ jobs:
           JUDGE_CANDIDATE_URL: https://pr-${{ needs.gate.outputs.pr_number }}.preview.goodparty.org
           JUDGE_MODEL: anthropic/claude-sonnet-5-5
           JUDGE_REQUIRE_PAIRWISE: 'true'
+          JUDGE_RESULTS_FILE: ${{ runner.temp }}/judge-eval-results.json
+          JUDGE_TABLE_FILE: ${{ runner.temp }}/judge-eval-verdicts.md
         run: |
           set -euo pipefail
           mapfile -t pairwise < <(git grep -l 'definePairwiseAgentEvalSuite' -- 'packages/gp-api/src/*.eval.ts')
@@ -283,6 +284,20 @@ jobs:
           npm run eval -w packages/gp-api -- "${filters[@]}" \
             --reporter=github-actions --reporter=../judge/src/reporter.ts
 
+      # How an agent reads a verdict. The job summary is a web page the API
+      # cannot fetch, and the per-attempt readings are printed only by Vitest's
+      # default reporter, so neither reaches a reader from a log or a check run.
+      # `if: always()` because a run that failed part-way still judged what it
+      # judged, and that is the run whose results a reader most needs.
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: judge-eval-results
+          path: ${{ runner.temp }}/judge-eval-results.json
+          if-no-files-found: ignore
+          retention-days: 30
+
       # One comment per PR, upserted by marker AND author: on a public
       # repository anyone can post the marker, and this token can edit any
       # user's comment, so matching the marker alone would have the bot adopt a
@@ -291,17 +306,33 @@ jobs:
       # `!cancelled()` because a failed run is the one whose reader most needs
       # the note saying so; a cancelled run is a superseded push, which the
       # newer run covers.
-      - name: Link the job summary
+      #
+      # The verdict table rides in the comment as well as the link, so reading
+      # a PR is enough to see the verdicts.
+      - name: Post the verdicts
         if: '!cancelled()'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          TABLE_FILE: ${{ runner.temp }}/judge-eval-verdicts.md
         with:
           script: |
+            const fs = require('fs')
             const marker = '<!-- judge-eval-results -->'
             const issue_number = Number(process.env.PR_NUMBER)
             const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            const body = `${marker} [Judge eval job summary](${url}#summary)`
+            const full = fs.existsSync(process.env.TABLE_FILE)
+              ? fs.readFileSync(process.env.TABLE_FILE, 'utf8').trim()
+              : ''
+            // GitHub caps a comment body at 65536 characters, and a run with
+            // many not-judged attempts gets there. A truncated table would
+            // misread, so an oversized one leaves the summary to say it.
+            const table =
+              full.length > 60000
+                ? `The verdict table is too long for a comment; see the job summary.`
+                : full
+            const link = `[Judge eval job summary](${url}#summary)`
+            const body = `${marker}\n\n${link}${table ? `\n${table}` : ''}`
 
             const comments = await github.paginate(
               github.rest.issues.listComments,

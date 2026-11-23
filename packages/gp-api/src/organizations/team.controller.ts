@@ -19,12 +19,13 @@ import {
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { z } from 'zod'
 import {
   AcceptInviteResponseSchema,
+  InviteBlockReason,
   InviteMemberResponseSchema,
   MyPendingInviteResponseSchema,
   TeamResponseSchema,
-  TEAM_GATE_START,
   TeamStatsResponseSchema,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
@@ -47,6 +48,13 @@ import {
 import { OrganizationTeamService } from './services/organizationTeam.service'
 import { TeamStatsService } from './services/teamStats.service'
 
+export const INVITE_GATE_TIMEOUT_MS = 1000
+
+// Set by a human on the flag's `on` variant in Amplitude.
+const TeamGatePayloadSchema = z.object({
+  teamGateStart: z.string().pipe(z.coerce.date()),
+})
+
 @Controller('organizations/team')
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
@@ -63,8 +71,72 @@ export class TeamController {
   @Get()
   @UseOrganization()
   @ResponseSchema(TeamResponseSchema)
-  getTeam(@ReqOrganization() organization: Organization) {
-    return this.team.listTeam(organization)
+  async getTeam(@ReqOrganization() organization: Organization) {
+    const [team, reason] = await Promise.all([
+      this.team.listTeam(organization),
+      this.getInviteBlockReasonWithin(organization, INVITE_GATE_TIMEOUT_MS),
+    ])
+    return { ...team, invites: { allowed: reason === null, reason } }
+  }
+
+  // A slow flag lookup must not hold up the member list. On timeout the page
+  // shows Invite as allowed; POST still enforces the gate.
+  private async getInviteBlockReasonWithin(
+    organization: Organization,
+    timeoutMs: number,
+  ): Promise<InviteBlockReason | null> {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs)
+    })
+    try {
+      return await Promise.race([
+        this.getInviteBlockReason(organization),
+        timeout,
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  // The one predicate behind both POST team/invites and the `invites` field
+  // on GET team, so the webapp renders exactly what the API will enforce.
+  private async getInviteBlockReason(
+    organization: Organization,
+  ): Promise<InviteBlockReason | null> {
+    // Team accounts are Win-only in Phase 1 (ENG-10816 non-goal: Serve
+    // staff accounts are out of scope — every elected-office surface stays
+    // owner-only via UseElectedOfficeGuard). A membership row on an eo- org
+    // would half-work: org-scoped routes would admit the member, but no
+    // Serve surface actually checks for anything but ownership — a broken
+    // state Phase 1 must not create. Invites are the only route that can
+    // create a membership row, so this is the only place it needs enforcing.
+    if (organization.slug.startsWith('eo-')) return 'ELECTED_OFFICE'
+    if (organization.testModeCreatedAt) return 'TEST_ORGANIZATION'
+
+    // Campaigns created on or after the flag payload's teamGateStart need the
+    // Team plan to invite anyone. Earlier campaigns keep inviting on any plan,
+    // and so does a flag with no usable payload. The flag is read for the org
+    // owner so a manager's view buckets with the owner.
+    const { enabled, payload } = await this.features.getFeatureWithPayload({
+      user: organization.ownerId,
+      feature: WIN_PER_CAMPAIGN_PRICING_FLAG,
+    })
+    const gate = TeamGatePayloadSchema.safeParse(payload)
+    if (enabled && gate.success) {
+      const campaign = await this.campaigns.findFirst({
+        where: { organizationSlug: organization.slug },
+        select: { createdAt: true, plan: true },
+      })
+      if (
+        campaign &&
+        campaign.createdAt >= gate.data.teamGateStart &&
+        campaign.plan !== 'team'
+      ) {
+        return 'TEAM_PLAN_REQUIRED'
+      }
+    }
+    return null
   }
 
   // Default posture (no @OwnerOnly()/@AllowVolunteer()) is exactly right:
@@ -90,47 +162,22 @@ export class TeamController {
     @ReqOrganizationRole() invitedByRole: OrganizationRole,
     @Body() input: InviteTeamMemberDto,
   ) {
-    // Team accounts are Win-only in Phase 1 (ENG-10816 non-goal: Serve
-    // staff accounts are out of scope — every elected-office surface stays
-    // owner-only via UseElectedOfficeGuard). A membership row on an eo- org
-    // would half-work: org-scoped routes would admit the member, but no
-    // Serve surface actually checks for anything but ownership — a broken
-    // state Phase 1 must not create. This is the only route that can create
-    // a membership row, so it's the only place this needs enforcing.
-    if (organization.slug.startsWith('eo-')) {
+    const reason = await this.getInviteBlockReason(organization)
+    if (reason === 'ELECTED_OFFICE') {
       throw new BadRequestException(
         'Team accounts are not available for elected offices yet',
       )
     }
-    if (organization.testModeCreatedAt) {
+    if (reason === 'TEST_ORGANIZATION') {
       throw new ConflictException(
         'Team invites are not available for test organizations',
       )
     }
-
-    // Campaigns created on or after TEAM_GATE_START need the Team plan to
-    // invite anyone. Earlier campaigns keep inviting on any plan. The flag is
-    // read for the org owner so a manager's invite buckets with the owner.
-    if (
-      await this.features.isFeatureEnabled({
-        user: organization.ownerId,
-        feature: WIN_PER_CAMPAIGN_PRICING_FLAG,
+    if (reason === 'TEAM_PLAN_REQUIRED') {
+      throw new ForbiddenException({
+        message: 'Inviting teammates requires the Team plan',
+        code: 'TEAM_PLAN_REQUIRED',
       })
-    ) {
-      const campaign = await this.campaigns.findFirst({
-        where: { organizationSlug: organization.slug },
-        select: { createdAt: true, plan: true },
-      })
-      if (
-        campaign &&
-        campaign.createdAt >= new Date(TEAM_GATE_START) &&
-        campaign.plan !== 'team'
-      ) {
-        throw new ForbiddenException({
-          message: 'Inviting teammates requires the Team plan',
-          code: 'TEAM_PLAN_REQUIRED',
-        })
-      }
     }
 
     return this.team.inviteMember({

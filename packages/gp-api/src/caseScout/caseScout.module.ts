@@ -6,7 +6,6 @@ import { CaseScoutBucketService } from './services/caseScoutBucket.service'
 import { CaseScoutCaseListsService } from './services/caseScoutCaseLists.service'
 import { CaseScoutDraftService } from './services/caseScoutDraft.service'
 import { CaseScoutHandoffService } from './services/caseScoutHandoff.service'
-import { CaseScoutJudgeRecordsService } from './services/caseScoutJudgeRecords.service'
 import { CaseScoutMessagesService } from './services/caseScoutMessages.service'
 import { CaseScoutModelService } from './services/caseScoutModel.service'
 import { CaseScoutNightlyService } from './services/caseScoutNightly.service'
@@ -19,7 +18,6 @@ import { CaseScoutScoreService } from './services/caseScoutScore.service'
     CaseScoutCaseListsService,
     CaseScoutDraftService,
     CaseScoutHandoffService,
-    CaseScoutJudgeRecordsService,
     CaseScoutMessagesService,
     CaseScoutModelService,
     CaseScoutNightlyService,
