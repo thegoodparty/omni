@@ -10,7 +10,7 @@ import {
   ExperimentRun,
   ExperimentRunStatus,
 } from '@/generated/prisma'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
@@ -71,6 +71,10 @@ const stubDiscoveryDispatch = () => {
 }
 
 describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('dispatches race_opponent_collection seeded from campaign plan opponents', async () => {
     const campaign = await seedCampaign({
       slug: SLUG,
@@ -372,7 +376,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
     expect(result.status).toBe(201)
     expect(result.data).toEqual({ runId: run.id, status: 'discovering' })
     expect(dispatchRun).not.toHaveBeenCalled()
-    vi.unstubAllEnvs()
   })
 
   // A superseded gp-api run can never land: supersede starts a successor under a
@@ -414,7 +417,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
 
     expect(result.status).toBe(201)
     expect(result.data.status).toBe('idle')
-    vi.unstubAllEnvs()
   })
 })
 

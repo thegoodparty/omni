@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subHours } from 'date-fns'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import {
@@ -193,6 +193,10 @@ describe('CampaignStrategyService', () => {
     })
   })
 
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   describe('existsForCampaign', () => {
     it('returns true when a strategy row exists', async () => {
       prisma.campaignStrategy.count.mockResolvedValue(1)
@@ -256,7 +260,6 @@ describe('CampaignStrategyService', () => {
     expect(experimentRuns.dispatchRun).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'opportunities_and_challenges' }),
     )
-    vi.unstubAllEnvs()
   })
 
   it('refuses to spend an agent run for a test-user org', async () => {
@@ -274,7 +277,6 @@ describe('CampaignStrategyService', () => {
     )
 
     expect(agents.run).not.toHaveBeenCalled()
-    vi.unstubAllEnvs()
   })
 
   it('generates for a campaign whose election date is upcoming', async () => {
@@ -776,31 +778,27 @@ describe('CampaignStrategyService', () => {
   // in flight (which is right for the PMF Engine's shared-link successor) hangs
   // the plan generating forever; it has to re-dispatch instead.
   it('re-dispatches when the plan names a superseded gp-api run', async () => {
-    process.env.AGENTS_ON_GP_API = 'opposition_research'
-    try {
-      prisma.campaignStrategy.upsert.mockResolvedValue(
-        planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
-      )
-      prisma.agentRun.findUnique.mockResolvedValue({
-        id: 'opp-run',
-        status: AgentRunStatus.superseded,
-        input: { campaignStrategyContext: { candidateCount: 2 } },
-        artifact: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      agents.run.mockResolvedValue({ runId: 'opp-retry' })
+    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
+    prisma.campaignStrategy.upsert.mockResolvedValue(
+      planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
+    )
+    prisma.agentRun.findUnique.mockResolvedValue({
+      id: 'opp-run',
+      status: AgentRunStatus.superseded,
+      input: { campaignStrategyContext: { candidateCount: 2 } },
+      artifact: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    agents.run.mockResolvedValue({ runId: 'opp-retry' })
 
-      const res = await service.getOrGenerateStrategicLandscape(campaign())
+    const res = await service.getOrGenerateStrategicLandscape(campaign())
 
-      expect(agents.run).toHaveBeenCalledWith(
-        'opposition_research',
-        expect.anything(),
-      )
-      expect(res).toEqual({ status: 'generating' })
-    } finally {
-      delete process.env.AGENTS_ON_GP_API
-    }
+    expect(agents.run).toHaveBeenCalledWith(
+      'opposition_research',
+      expect.anything(),
+    )
+    expect(res).toEqual({ status: 'generating' })
   })
 
   // gp-api's dispatch runs the agent's own Zod parse and an org lookup that the
@@ -808,23 +806,19 @@ describe('CampaignStrategyService', () => {
   // every attempt. It has to be logged, or a permanent failure reads as a
   // transient queue fault while it silently spends the attempt cap.
   it('logs a gp-api dispatch failure instead of swallowing it', async () => {
-    process.env.AGENTS_ON_GP_API = 'opposition_research'
-    try {
-      prisma.campaignStrategy.upsert.mockResolvedValue(
-        planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
-      )
-      prisma.agentRun.findUnique.mockResolvedValue(null)
-      agents.run.mockRejectedValue(new Error('userFullName is required'))
+    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
+    prisma.campaignStrategy.upsert.mockResolvedValue(
+      planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
+    )
+    prisma.agentRun.findUnique.mockResolvedValue(null)
+    agents.run.mockRejectedValue(new Error('userFullName is required'))
 
-      await service.getOrGenerateStrategicLandscape(campaign())
+    await service.getOrGenerateStrategicLandscape(campaign())
 
-      expect(service['logger'].error).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'opposition_research' }),
-        'failed to dispatch a campaign strategy section run',
-      )
-    } finally {
-      delete process.env.AGENTS_ON_GP_API
-    }
+    expect(service['logger'].error).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'opposition_research' }),
+      'failed to dispatch a campaign strategy section run',
+    )
   })
 
   it('re-dispatches a section whose previous run FAILED', async () => {

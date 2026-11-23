@@ -593,10 +593,10 @@ export class CampaignStrategyService extends createPrismaBase(
       await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
     } catch (err) {
       // The rows are committed, so this must not surface as the section
-      // failing. The poll endpoint re-attempts the bootstrap on every call
-      // while the plan reads ready, and the bootstrap claims
-      // trackerBootstrapped atomically, so a transient fault here recovers on
-      // the next poll rather than needing a job redelivery.
+      // failing. The poll endpoint re-attempts the bootstrap while the plan's
+      // last section is inside PERSIST_GRACE_MINUTES, and the bootstrap claims
+      // trackerBootstrapped atomically, so a transient fault here recovers on a
+      // near-term poll rather than needing a job redelivery.
       this.logger.error(
         { err, planId: plan.id, runId: section.runId },
         'section persisted but its completion side effects failed',

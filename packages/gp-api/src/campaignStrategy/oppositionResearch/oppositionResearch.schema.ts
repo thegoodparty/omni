@@ -52,7 +52,9 @@ export const OppositionResearchInputSchema = z.object({
   userEmail: z.string(),
   userFirstName: z.string().nullable().optional(),
   userLastName: z.string().nullable().optional(),
-  userFullName: z.string().min(1),
+  // Looser than the manifest's minLength, which the params builder violates:
+  // getUserFullName returns '' for a user with no first name and no name.
+  userFullName: z.string(),
   userPartyAffiliation: z.string().nullable().optional(),
   otherParty: z.string().nullable().optional(),
   campaignStrategyContext: StrategyContextSchema,
