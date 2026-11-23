@@ -301,6 +301,12 @@ E2E or QA test user is signed in.
   The cost: an error thrown by inline script in our own HTML has no chunk
   frame and is dropped with them. gp-webapp's app code is all chunks.
 
+  They also drop a DOM `NotFoundError` whose message is the standard's "is not
+  a child of this node": `insertBefore` or `removeChild` failing because
+  something outside React moved a node under it, which on 2026-11-11 was Chrome
+  translating an English page for a `ko-KR` browser. The frame is react-dom, in
+  our bundle, so the frame filter keeps it; the message filter drops it.
+
 ## Debugging an incident with the MCPs
 
 A workable default playbook:
