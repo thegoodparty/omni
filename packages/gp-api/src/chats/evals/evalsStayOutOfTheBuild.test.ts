@@ -11,13 +11,11 @@ import { describe, expect, it } from 'vitest'
 // excludes neither — and then throws MODULE_NOT_FOUND on the first `require`
 // inside the container. ECS reports that as a task that keeps stopping and
 // the deployment circuit breaker fails the rollout, which is a long way from
-// the import that caused it. That happened once, on the judge telemetry
-// guard, which imported judgeFixtureIdentity for a single string.
+// the import that caused it.
 //
-// The fix in that case is the one judgeTelemetry.util.ts already used for
-// JUDGE_ORG_SLUG_PREFIX: copy the constant to the shipping side and assert
-// here, from the test side, that the two agree. Test files may import the
-// harness as freely as they like, because they never ship.
+// The fix is to copy the constant to the shipping side and assert here, from
+// the test side, that the two agree. Test files may import the harness as
+// freely as they like, because they never ship.
 const SRC = resolve(__dirname, '../..')
 const EVALS = resolve(SRC, 'chats/evals')
 

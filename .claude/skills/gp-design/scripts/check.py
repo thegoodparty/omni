@@ -50,6 +50,14 @@ exists, also fails when an option has no build-shape fragment, when a fragment's
 hash no longer matches its section in <work>/page/src.html and its flow file, or
 when index.html was built without the current fragment or without the switch
 that hides build shapes by default.
+
+<work>/notes/coverage.md (options-workflow.md step 5) must exist, and every
+clause line in it (a list item or table row that quotes the task) must land
+somewhere: a screen or state key of the page in backticks, or questions
+(questions, Q<n>, Decisions needed). A backticked key the page has no screen
+or state for fails. Fixtures (docs/design-memory/fixtures.md): every email
+address on the page and in the snapshots uses a .example domain, and no
+written date ("December 8, 2026") is in the past.
 """
 import hashlib
 import html as htmllib
@@ -62,7 +70,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-from option_section import FRAGMENT_HEADER, OPTION_IDS, flow_file, option_hash, section_span
+from option_section import FRAGMENT_HEADER, OPTION_IDS, flow_bytes, flow_file, option_hash, section_span
 
 RECOMMEND_LABELS = ('recommended (no recommendation)', 'best option (no recommendation)', 'star (no ranking)')
 BANNED = [
@@ -302,6 +310,70 @@ def scaffold_ok(page_css):
     return False
 
 
+# Where a clause can land besides a key: a question, another clause it shares a place with,
+# the whole design, or a block of the page (#brief-measure).
+LANDS_ELSEWHERE = re.compile(
+    r'\bquestions?\b|\bQ\d*\b|decisions needed|whole flow|every (?:screen|option)|this design'
+    r'|\bsame as [A-Z]?\d+|\bas above\b', re.I)
+KEYLIKE = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
+
+
+def coverage_problems(index, html):
+    """Every clause in notes/coverage.md lands on a screen or state key, or in questions."""
+    path = index.resolve().parent.parent / 'notes' / 'coverage.md'
+    if not path.exists():
+        return [f'no {path}: list every clause of the task and where it lands (options-workflow.md step 5)']
+    keys = {m.group(1) for m in re.finditer(r'data-gp-snapshot="option-[abc] (?:screen|state) ([^"]+)"', html)}
+    problems = []
+    clauses = 0
+    for n, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+        row = line.strip()
+        if not re.match(r'^(?:[-*]|\||\d+[.)])\s', row) or re.match(r'^\|[\s:|-]*\|?$', row):
+            continue
+        if not re.search(r'["“][^"”]{3,}["”]', row):
+            continue
+        clauses += 1
+        ticks = [t.strip() for t in re.findall(r'`([^`]+)`', row)]
+        named = []
+        for t in ticks:
+            # "a:upload-failed" or "option-b editor" name a key of one option.
+            key = re.sub(r'^(?:option-)?[abc][: ]', '', t)
+            if KEYLIKE.match(key):
+                named.append(key)
+        unknown = [k for k in named if k not in keys and not k.startswith(('data-', 'aria-'))]
+        for k in unknown:
+            problems.append(f'coverage.md:{n}: `{k}` is not a screen or state key on the page')
+        blocks = [b for b in re.findall(r'#([a-z][\w-]*)', row) if f'id="{b}"' in html]
+        if not any(k in keys for k in named) and not blocks and not LANDS_ELSEWHERE.search(row):
+            problems.append(f'coverage.md:{n}: the clause lands nowhere: name the screen or state key in backticks, '
+                            f'or the question it became under Decisions needed')
+    if not clauses:
+        problems.append(f'{path} lists no quoted clause (options-workflow.md step 5)')
+    return problems
+
+
+MONTHS = ('January|February|March|April|May|June|July|August|September|October|November|December')
+
+
+def fixture_problems(markup):
+    """Emails use the reserved .example domain and no written date has passed (fixtures.md)."""
+    import datetime
+    problems = []
+    for addr in sorted(set(re.findall(r'\b[\w.+-]+@([\w-]+(?:\.[\w-]+)+)\b', markup))):
+        if not addr.lower().endswith('.example'):
+            problems.append(f'email domain {addr}: use the reserved .example domain (docs/design-memory/fixtures.md)')
+    today = datetime.date.today()
+    for month, day, year in sorted(set(re.findall(rf'\b({MONTHS}) (\d{{1,2}}), (\d{{4}})\b', markup))):
+        try:
+            when = datetime.datetime.strptime(f'{month} {day} {year}', '%B %d %Y').date()
+        except ValueError:
+            continue
+        if when < today:
+            problems.append(f'{month} {day}, {year} has passed: move it to the same weekday a year later '
+                            f'(docs/design-memory/fixtures.md, "Maplewood")')
+    return problems
+
+
 def main():
     args = sys.argv[1:]
     skip_build_shape = '--skip-build-shape' in args
@@ -411,6 +483,13 @@ def main():
         oids = [f'option-{picked.group(1)}']
     else:
         oids = list(OPTION_IDS)
+    # flow/shared.tsx (three options): linted once; its markers count for every option
+    # that imports it.
+    shared = src.parent.parent / 'flow' / 'shared.tsx'
+    shared_markers = []
+    if shared.exists():
+        shared_problems, shared_markers = lint(shared)
+        problems += [f'shared: {p}' for p in shared_problems]
     for oid in oids:
         span = section_span(html, oid)
         if not span:
@@ -432,12 +511,14 @@ def main():
             problems.append(f'{oid}: no flow file {flow} (copy assets/flow-template.tsx)')
         else:
             built = re.search(rf'data-gp-flow="{oid}"[^>]*\bdata-gp-built="(sha256:[0-9a-f]+)"', section)
-            current = 'sha256:' + hashlib.sha256(flow.read_bytes()).hexdigest()
+            current = 'sha256:' + hashlib.sha256(flow_bytes(flow)).hexdigest()
             if not built or built.group(1) != current:
                 problems.append(f'{oid}: index.html was not built from the current {flow.name}: rerun build.py')
             if not re.search(rf'data-gp-snapshot="{oid} screen entry"', section):
                 problems.append(f'{oid}: no snapshot of the entry screen in index.html: rerun build.py')
             flow_problems, markers = lint(flow)
+            if shared_markers and re.search(r"from\s+['\"]\./shared['\"]", flow.read_text()):
+                markers = markers + shared_markers
             problems += [f'{oid}: {p}' for p in flow_problems]
             # Every mutation and gap marker is quoted in the Mutations list.
             listed = ' '.join(visible_text(element_html(section, f'{x}-mutations') or '').split()).lower()
@@ -550,6 +631,8 @@ def main():
             problems.append(f'link to missing id: #{target}')
     if len(html) > 5 * 1024 * 1024:
         problems.append('page over 5 MB')
+    problems += coverage_problems(index, html)
+    problems += fixture_problems(markup)
 
     if problems:
         # One line per problem, with a count when the same one repeats (a hidden

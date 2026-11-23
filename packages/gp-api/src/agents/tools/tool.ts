@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 import type { WorkerContext } from '@/jobs/jobs.registry'
-import type { AgentRunReplay } from './judgeReplay'
 
 export type ToolContext = {
   runId: string
@@ -10,9 +9,6 @@ export type ToolContext = {
   organizationSlug: string
   signal: AbortSignal
   get: WorkerContext['get']
-  // Set only on a Universal Judge run: web tools serve the base arm's
-  // recorded pages first.
-  judgeReplay?: AgentRunReplay
 }
 
 // One tool of an agent, keyed by its name in the agent's `tools` map. The name

@@ -35,6 +35,7 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { isActiveCampaign } from '../util/eligibility.util'
 import { CampaignsService } from '../services/campaigns.service'
+import { holdsOneTimePlan } from './planState.util'
 
 // Checkout metadata arrives as numbers from PurchaseService and as strings
 // from the Stripe session at fulfillment, so the ids are coerced.
@@ -63,11 +64,34 @@ const heldPlan = (
 ): CampaignPlanLevel =>
   campaign.planEndedAt ? CampaignPlanLevel.free : campaign.plan
 
+// A subscriber from before the plan columns shipped has plan = free and no
+// pricing model, so the columns alone cannot see them. The subscription id and
+// isPro say they are paying; a one-time plan outranks a stray subscription on
+// the same campaign, so that campaign stays upgradeable.
 const onLiveSubscription = (
-  campaign: Pick<Campaign, 'planPricingModel' | 'planEndedAt'>,
-) =>
-  campaign.planPricingModel === PlanPricingModel.subscription &&
-  !campaign.planEndedAt
+  campaign: Pick<
+    Campaign,
+    'planPricingModel' | 'planEndedAt' | 'plan' | 'isPro' | 'details'
+  >,
+) => {
+  if (holdsOneTimePlan(campaign)) {
+    return false
+  }
+  if (
+    campaign.planPricingModel === PlanPricingModel.subscription &&
+    !campaign.planEndedAt
+  ) {
+    return true
+  }
+  const details = campaign.details
+  return (
+    campaign.isPro &&
+    typeof details === 'object' &&
+    details !== null &&
+    !Array.isArray(details) &&
+    Boolean(details.subscriptionId)
+  )
+}
 
 const parseMetadata = <T extends z.ZodType>(
   schema: T,

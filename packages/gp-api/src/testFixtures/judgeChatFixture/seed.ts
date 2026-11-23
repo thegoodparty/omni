@@ -28,13 +28,9 @@ import {
 } from './briefingRows'
 
 // THE ROWS A JUDGE CHAT CASE NEEDS, with nothing in here about who may ask
-// for them. Two callers do, and they are gated differently:
-//
-//   the in-process arm  src/chats/evals/judge/runners/seedChatOrg.ts, which
-//                       keeps assertTestProcess on top of this.
-//   a deployed arm      POST /v1/test-fixtures/judge-chat-cases, gated on
-//                       IS_NON_PROD_DEPLOY, an authenticated caller, and
-//                       scoping every row to that caller.
+// for them. The one caller is POST /v1/test-fixtures/judge-chat-cases, gated
+// on IS_NON_PROD_DEPLOY, an authenticated caller, and scoping every row to
+// that caller.
 //
 // IT LIVES ON THIS SIDE OF THE BUILD, and that is not a filing preference.
 // tsconfig.build.json and .swcrc.build.json both exclude src/chats/evals/**,
@@ -327,12 +323,12 @@ export const JUDGE_ORG_SLUG_PREFIX = 'judge-'
 // targets) otherwise stage the identical slug and tear each other down
 // mid-run — previews escape it only by each having their own gpdb_pr_<n>.
 //
-// The sweep id already starts with `judge-` (judge.yml builds it as
-// `judge-<run_id>-<run_attempt>`), so the prefix is stripped the way
-// judgeIdentifiers.judgeOrgSlug strips it, rather than minting
-// `judge-judge-…`. SweepIdSchema holds the id to [A-Za-z0-9_-], so it is
-// already slug-safe, and the trailing hyphen is load-bearing: without it
-// sweep `123-1` would prefix-match sweep `123-11`'s rows.
+// The sweep id already starts with `judge-`, in the shape the deleted sweep
+// minted (`judge-<run_id>-<run_attempt>`), so the prefix is stripped rather
+// than doubled into `judge-judge-…`. SweepIdSchema holds the id to
+// [A-Za-z0-9_-], so it is already slug-safe, and the trailing hyphen is
+// load-bearing: without it sweep `123-1` would prefix-match sweep `123-11`'s
+// rows.
 export const judgeSweepOrgSlugPrefix = (sweepId: string): string =>
   `${JUDGE_ORG_SLUG_PREFIX}${sweepId.replace(/^judge-/, '')}-`
 

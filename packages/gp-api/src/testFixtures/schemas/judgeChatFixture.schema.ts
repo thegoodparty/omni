@@ -4,13 +4,8 @@ import { createBriefingChatSchema } from '@/chats/briefing-chats/schemas/CreateB
 import { ChatAccountStateSchema } from '../judgeChatFixture/accountState'
 import { CHAT_AGENT_IDS, JUDGE_ORG_SLUG_PREFIX } from '../judgeChatFixture/seed'
 
-// The alphabet `SweepIdSchema` holds a sweep id to, restated rather than
-// imported: that schema lives in `src/chats/evals/judge/sweepEnv.ts`, and
-// tsconfig.build.json and .swcrc.build.json both drop `src/chats/evals/**`
-// from the production build — so importing it here would resolve under
-// vitest, tsc and eslint and then throw MODULE_NOT_FOUND in the container.
-// sweepEnv.test.ts asserts the two never drift, from the eval side of that
-// boundary, where importing both is fine.
+// The alphabet a sweep id is held to. Stated here rather than imported:
+// the eval harness that also held one is gone.
 //
 // Validated at all because the sweep id reaches `organization.slug` through
 // `chatOrgSlug`, and the server still derives that slug itself. A caller

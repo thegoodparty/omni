@@ -9,7 +9,10 @@ import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.servic
 const OUTREACH_ID = 55
 
 const build = async (findUnique: ReturnType<typeof vi.fn>) => {
-  const credits = { release: vi.fn().mockResolvedValue(undefined) }
+  const credits = {
+    release: vi.fn().mockResolvedValue(undefined),
+    refundUsed: vi.fn().mockResolvedValue(0),
+  }
   const moduleRef = await Test.createTestingModule({
     providers: [
       OutreachP2pSmsFreeTextsService,
@@ -33,6 +36,7 @@ describe('OutreachP2pSmsFreeTextsService.restore', () => {
     await expect(service.restore(OUTREACH_ID)).resolves.toBe(false)
 
     expect(credits.release).toHaveBeenCalledWith(OUTREACH_ID)
+    expect(credits.refundUsed).toHaveBeenCalledWith(OUTREACH_ID)
   })
 
   it('still releases the credit when the offer restore throws', async () => {
@@ -43,5 +47,6 @@ describe('OutreachP2pSmsFreeTextsService.restore', () => {
     await expect(service.restore(OUTREACH_ID)).rejects.toThrow('db down')
 
     expect(credits.release).toHaveBeenCalledWith(OUTREACH_ID)
+    expect(credits.refundUsed).toHaveBeenCalledWith(OUTREACH_ID)
   })
 })

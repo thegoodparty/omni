@@ -1,0 +1,94 @@
+'use server'
+
+import { auth } from '@clerk/nextjs/server'
+import { revalidatePath } from 'next/cache'
+import { PERMISSIONS } from '@/lib/permissions'
+import { gpAction } from '@/shared/util/gpClient.util'
+import { extractApiErrorMessage } from '@/lib/utils/sdkError'
+import type {
+  AdminExtendPlan,
+  AdminPlanRefundEligibility,
+  AdminRefundPlanResponse,
+  AdminSetPlan,
+  CampaignPlanState,
+} from '@/shared/gpApi'
+
+export type PlanActionResult<T> =
+  | { data: T; error: null }
+  | { data: null; error: string }
+
+// Returned, not thrown: Next redacts a thrown server-action error in prod, and
+// gp-api's 409 ("Cancel the Stripe subscription first") is what staff need to read.
+const runPlanAction = async <T>(
+  userId: number,
+  fallback: string,
+  call: Parameters<typeof gpAction<T>>[0]
+): Promise<PlanActionResult<T>> => {
+  const { has } = await auth()
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+    return { data: null, error: 'Missing write_campaigns permission' }
+  }
+  try {
+    const data = await gpAction(call)
+    revalidatePath(`/dashboard/users/${userId}`, 'layout')
+    return { data, error: null }
+  } catch (error) {
+    return { data: null, error: extractApiErrorMessage(error, fallback) }
+  }
+}
+
+export const setCampaignPlan = async (
+  campaignId: number,
+  userId: number,
+  input: AdminSetPlan
+): Promise<PlanActionResult<CampaignPlanState>> =>
+  runPlanAction(userId, "Couldn't change the plan", (client) =>
+    client.campaigns.setPlan(campaignId, input)
+  )
+
+export const extendCampaignPlan = async (
+  campaignId: number,
+  userId: number,
+  input: AdminExtendPlan
+): Promise<PlanActionResult<CampaignPlanState>> =>
+  runPlanAction(userId, "Couldn't change the end date", (client) =>
+    client.campaigns.extendPlan(campaignId, input)
+  )
+
+const ADMIN_ROLE = 'org:admin'
+
+// A refund moves money, so it is admin-only, unlike the other plan actions.
+export const refundCampaignPlan = async (
+  campaignId: number,
+  userId: number
+): Promise<PlanActionResult<AdminRefundPlanResponse>> => {
+  const { has } = await auth()
+  if (!has?.({ role: ADMIN_ROLE })) {
+    return { data: null, error: 'Only admins can refund a plan' }
+  }
+  return runPlanAction(userId, "Couldn't refund the plan", (client) =>
+    client.campaigns.refundPlan(campaignId)
+  )
+}
+
+// Read-only, so it skips runPlanAction's revalidate: that would refresh the
+// page under the open dialog.
+export const getRefundEligibility = async (
+  campaignId: number
+): Promise<PlanActionResult<AdminPlanRefundEligibility>> => {
+  const { has } = await auth()
+  if (!has?.({ role: ADMIN_ROLE })) {
+    return { data: null, error: 'Only admins can refund a plan' }
+  }
+  try {
+    const data = await gpAction((client) =>
+      client.campaigns.getRefundEligibility(campaignId)
+    )
+    return { data, error: null }
+  } catch (error) {
+    return {
+      data: null,
+      error: extractApiErrorMessage(error, "Couldn't check refund eligibility"),
+    }
+  }
+}

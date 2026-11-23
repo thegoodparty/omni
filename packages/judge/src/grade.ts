@@ -105,8 +105,10 @@ export const gradingSchema = (
             names.length === 1
               ? z.enum([names[0]!])
               : z.enum(names as [string, ...string[]]),
-          A: z.number().int().min(1).max(5),
-          B: z.number().int().min(1).max(5),
+          // Not .int(): Claude's native JSON output gives half points (3.5),
+          // and one fractional score would reject the whole verdict.
+          A: z.number().min(1).max(5),
+          B: z.number().min(1).max(5),
         }),
       )
       .describe(
@@ -174,6 +176,9 @@ const defaultGenerateObject: GenerateObjectFn = async ({
     model,
     schema,
     prompt,
+    // Newer Claude models refuse the forced tool call @ai-sdk/anthropic falls
+    // back to for a model id it does not know, so ask for native JSON output.
+    providerOptions: { anthropic: { structuredOutputMode: 'outputFormat' } },
   })
   return {
     object: result.object,
@@ -191,16 +196,11 @@ export type Grader = {
 
 export type GraderOptions = {
   model: LanguageModel
-  dimensions?: Dimension[]
   generateObjectFn?: GenerateObjectFn
 }
 
 export const createGrader = ({
   model,
-  dimensions = Object.entries(DEFAULT_DIMENSIONS).map(([name, question]) => ({
-    name,
-    question,
-  })),
   generateObjectFn = defaultGenerateObject,
 }: GraderOptions): Grader => {
   const gradeOrder = async (request: OrderRequest): Promise<GradedOrder> => {

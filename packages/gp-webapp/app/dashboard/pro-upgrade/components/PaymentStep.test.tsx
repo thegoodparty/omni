@@ -36,6 +36,12 @@ const {
   }
 })
 
+// The per-campaign flag decides the checkout; the plan checkout has its own
+// spec (PlanPaymentStep.test.tsx), so this file pins the legacy side.
+vi.mock('app/shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: false }),
+}))
+
 vi.mock('./ProUpgradeWizard', () => ({
   useProUpgradeWizard: vi.fn(),
 }))
@@ -128,7 +134,9 @@ describe('PaymentStep', () => {
     ).toBeInTheDocument()
 
     expect(requestBody?.embedded).toBe(true)
-    expect(requestBody?.returnUrl).toMatch(/\/dashboard\/pro-upgrade\/success$/)
+    expect(requestBody?.returnUrl).toBe(
+      `${window.location.origin}/dashboard/pro-upgrade/success`,
+    )
 
     // Order summary reads the live amount from the session, not a hardcode.
     expect(screen.getByText('Pro subscription')).toBeInTheDocument()

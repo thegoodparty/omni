@@ -23,7 +23,6 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 | `tools/renderPage.ts`           | Last resort: a page in an AgentCore managed browser, as markdown (10,000 characters), five a run                 |
 | `tools/agentBrowser.service.ts` | One AgentCore Browser session per render, stopped every time; one at a time and five a run                       |
 | `tools/agentWeb.service.ts`     | Plain HTTP behind the private-address guard, on every redirect hop                                               |
-| `tools/judgeReplay.ts`          | Serves the judge's recorded pages to a judge run                                                                 |
 | `tools/queryDatabricks.ts`      | `databricksTool({ tables, maxRows, dimensions, scope })`: one scoped, aggregate-only read off the manifest scope |
 | `agentRunRoutes.controller.ts`  | `POST /v1/agents/:name/runs`, `GET /v1/agents/runs/:runId` — the judge's door, dev and previews only            |
 
@@ -140,11 +139,12 @@ tools: {
 table is not fixed by its definition but chosen per run, as the people marts
 are (`PeopleDatasetService` picks `gp_api_voters` or `gp_api_constituents` per
 org). The resolver runs once per query and an empty list refuses every query;
-the description then says "the table named in your input" rather than listing
-one, because a table the run chooses cannot be named at definition time. Put
-the chosen name in the run's input so the model reads it from its first message,
-and have the resolver read it back from the stored `AgentRun.input` by
-`ctx.runId` — never from anything the model sends in a tool call.
+the description then says "the table this organization reads" rather than
+listing one, because a table the run chooses cannot be named at definition
+time. Resolve it from `ctx.organizationSlug` through the service that owns the
+choice, as `topCommunityIssuesDatabricksTables` does — never from anything the
+model sends in a tool call, and never from a field a caller has to remember to
+pass, because then one caller that forgets starts runs no query can serve.
 
 - **Aggregate-only, on the constituent-data tool's rules.** The chat tools
   (`query_constituent_data`, `district_insights`) hold model-written voter SQL to
@@ -232,8 +232,9 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   closed: no state or half an L2 pair is `no_scope`.
 - **The table must be one gp-api's principal can read**: `mart_gp_api`, the
   schema with a grant that survives a dbt rebuild. A manifest's `dbt.*` table
-  gets a mart view first, and where the table varies by org the run carries the
-  name (`top_community_issues` reads the org's own people mart).
+  gets a mart view first, and where the table varies by org the tool resolves
+  it from the run's org (`top_community_issues` reads the org's own people
+  mart).
 - **Nothing is rewritten.** gp-api has no Spark re-emitter it can trust (Spark
   reads a double-quoted identifier as a string), so the model writes the filter
   itself and the tool proves it rather than splicing SQL.
@@ -271,9 +272,7 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
    PMF Engine, so the switch flips per environment. Keep the test-user and
    test-mode check `ExperimentRunsService.dispatchRun` makes; `run` does not
    make it.
-5. Add it to `IN_PROCESS_AGENTS` in the judge
-   (`src/chats/evals/judge/runners/backgroundInProcess.ts`): its candidate
-   arm then runs on gp-api against the PMF Engine's base arm.
+5. Add a pairwise migration suite. See [Writing agent evals](../../../../docs/agent-evals.md).
 6. Delete its `qa/` manifest under `packages/runbooks/experiments/`. QA
    checkers are not migrated.
 
@@ -283,8 +282,9 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   `AgentRun` (`agentName`, `organizationSlug`, status `queued`, `manifest`
   and its `shapeHash`, `input`) with the input as its first `AgentMessage`
   row, then sends the `agentRun` job.
-- The `agentRun` job (one queue for every agent, `maxConcurrent: 10`
-  fleet-wide, 120-minute attempts, 5 attempts) loads the run's messages and
+- The `agentRun` job (one queue for every agent, capped at 100 running
+  runs fleet-wide, with this many slots on every task too, so the cap alone
+  decides; 120-minute attempts, 5 attempts) loads the run's messages and
   calls the loop. Every message the loop writes is one `AgentMessage` row, in
   order: the assistant message (its text and tool calls) and, when tools ran,
   the tool message holding their results. Only assistant rows carry the model
@@ -299,9 +299,6 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
   `superseded` and a fresh run with the same input starts. Prompts, tools and
   models change freely.
 - The step budget is 120 steps per run across all attempts.
-- `run(name, input, { judgeReplay })` is for the judge's candidate arm only.
-  The ticket rides on the `agentRun` job (and onto a superseding run's), and
-  reaches tools as `ctx.judgeReplay`.
 - Ending: `completed` after `onArtifact`, or `failed` with `error` on the last
   attempt. A failure is surfaced by the `agentRun` queue's dead-letter and
   backed-up alerts; there is no separate output-failure metric.

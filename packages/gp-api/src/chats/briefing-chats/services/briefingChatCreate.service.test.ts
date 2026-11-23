@@ -167,9 +167,10 @@ describe('BriefingChatCreateService.findOrCreate', () => {
     expect(second.conversationId).not.toBe(first.conversationId)
   })
 
-  // The scope registry's routes check ownership by (owner, scope,
-  // organizationSlug), so a new briefing conversation carries both. Rows from
-  // before this have a NULL slug; the /v1/briefing-chats routes never read it.
+  // Every turn and history read goes through /v1/chats/:conversationId, which
+  // checks ownership by (owner, scope, organizationSlug), so a new briefing
+  // conversation carries both. Rows from before this carry a NULL slug and are
+  // filled in by the 20261120100000 backfill migration.
   it.each([
     ['top-level', TOP_LEVEL_ANCHOR],
     ['anchored', ANCHORED],

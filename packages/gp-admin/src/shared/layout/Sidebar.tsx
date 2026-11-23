@@ -14,7 +14,11 @@ export default function Sidebar() {
   const { has, orgId } = useAuth()
 
   const filteredNavItems = orgId
-    ? navItems.filter((item) => has?.({ permission: item.permission }))
+    ? navItems.filter(
+        (item) =>
+          (item.permission ? has?.({ permission: item.permission }) : true) &&
+          (item.role ? has?.({ role: item.role }) : true)
+      )
     : []
 
   return (

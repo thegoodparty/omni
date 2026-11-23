@@ -49,7 +49,6 @@ Older roles to consolidate onto the two above. None may be copied:
   Target: the pull-request role.
 - `web-app-e2e-tests`: the E2E shards in `gp-webapp.yml` and `release.yml`.
   Target: the pull-request role on pull requests, the deploy role on `main`.
-- `github-actions-judge-sweep`: `judge.yml`. Target: the deploy role.
 
 ## Revisit if
 

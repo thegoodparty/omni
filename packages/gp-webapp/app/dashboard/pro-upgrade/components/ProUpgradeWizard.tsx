@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useMemo } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   FullScreenStepChrome,
@@ -16,6 +17,12 @@ import {
   proUpgradeStepPath,
   type ProUpgradeStep,
 } from '../proUpgradeStep'
+import {
+  carryQueryString,
+  parseProUpgradeCarry,
+  type ProUpgradeCarry,
+} from '../proUpgradePlanParams'
+import { ProUpgradeCarryContext } from './proUpgradeCarryContext'
 import {
   ProUpgradeWizardContext,
   useProUpgradeWizard,
@@ -66,6 +73,23 @@ const ProUpgradeWizard = ({
 }: ProUpgradeWizardProps): React.JSX.Element => {
   const router = useRouter()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const { plan: heldPlan } = usePlan()
+  // Read once: later step URLs carry the same values back, but state is what
+  // survives a step that was pushed without them.
+  const [carry, setCarry] = useState<ProUpgradeCarry>(() =>
+    parseProUpgradeCarry(searchParams),
+  )
+  const carryRef = useRef(carry)
+  const markFromPro = useCallback(() => {
+    carryRef.current = { ...carryRef.current, fromPro: true }
+    setCarry(carryRef.current)
+  }, [])
+  const stepHref = useCallback(
+    (step: ProUpgradeStep) =>
+      `${proUpgradeStepPath(step)}${carryQueryString(carryRef.current)}`,
+    [],
+  )
   const stepOrder = PRO_UPGRADE_STEP_ORDER
   const currentStep = stepFromPathname(pathname, stepOrder)
   const orderIndex = currentStep ? stepOrder.indexOf(currentStep) : -1
@@ -76,14 +100,14 @@ const ProUpgradeWizard = ({
   }, [currentStep])
 
   const goToStep = useCallback(
-    (step: ProUpgradeStep) => router.push(proUpgradeStepPath(step)),
-    [router],
+    (step: ProUpgradeStep) => router.push(stepHref(step)),
+    [router, stepHref],
   )
 
   const goToNextStep = useCallback(() => {
     if (orderIndex < 0 || orderIndex >= stepOrder.length - 1) return
-    router.push(proUpgradeStepPath(stepOrder[orderIndex + 1]!))
-  }, [orderIndex, stepOrder, router])
+    router.push(stepHref(stepOrder[orderIndex + 1]!))
+  }, [orderIndex, stepOrder, router, stepHref])
 
   const goToPreviousStep = useCallback(() => {
     // The off-order filing-instructions route is only ever entered from the
@@ -92,13 +116,13 @@ const ProUpgradeWizard = ({
     // (bookmark, emailed link). Guidance is the first ordered step, so it
     // falls through to router.back() instead.
     if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
-      router.push(proUpgradeStepPath(PRO_UPGRADE_STEP.STATUS))
+      router.push(stepHref(PRO_UPGRADE_STEP.STATUS))
     } else if (orderIndex > 0) {
-      router.push(proUpgradeStepPath(stepOrder[orderIndex - 1]!))
+      router.push(stepHref(stepOrder[orderIndex - 1]!))
     } else {
       router.back()
     }
-  }, [currentStep, orderIndex, stepOrder, router])
+  }, [currentStep, orderIndex, stepOrder, router, stepHref])
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
   const handleChromeExit = useCallback(() => {
@@ -130,15 +154,29 @@ const ProUpgradeWizard = ({
     [currentStep, goToStep, goToNextStep, goToPreviousStep, exit, complete],
   )
 
+  const carryValue = useMemo(
+    () => ({ ...carry, markFromPro }),
+    [carry, markFromPro],
+  )
+
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
-      <FullScreenStepChrome
-        overline="Upgrade to Pro"
-        position={stepPosition(currentStep)}
-        onExit={handleChromeExit}
-      >
-        {children}
-      </FullScreenStepChrome>
+      <ProUpgradeCarryContext.Provider value={carryValue}>
+        <FullScreenStepChrome
+          overline={
+            carry.plan === 'team' ? 'Upgrade to Team' : 'Upgrade to Pro'
+          }
+          position={
+            // Design: Pro to Team is one step, so there is no stepper.
+            carry.plan === 'team' && heldPlan === 'pro'
+              ? null
+              : stepPosition(currentStep)
+          }
+          onExit={handleChromeExit}
+        >
+          {children}
+        </FullScreenStepChrome>
+      </ProUpgradeCarryContext.Provider>
     </ProUpgradeWizardContext.Provider>
   )
 }

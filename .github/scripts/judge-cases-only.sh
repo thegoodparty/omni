@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# Whether a PR changes nothing but Universal Judge case lists, for
-# judge-guard.yml.
+# Whether a PR is the case scout's own, for judge-guard.yml.
 #
-# Such a PR (the case scout's nightly PR, or its flaky-case removals) leaves
-# every agent's code identical on main and on the PR, so a guard sweep would
-# compare two copies of the same code and could only report the judge's own
-# noise. The guard skips the picker and the sweep for it and posts "No agent
-# reached". A PR that changes a case list and agent code together is not
-# case-list-only, and is swept as usual.
-#
-# Reads newline-separated repo paths on stdin (the shape `gh pr diff
-# --name-only` prints). Prints `true` when there is at least one path and
-# every path is under the case-list directory, `false` otherwise.
+# The case scout's PRs only append cases to `*.eval.ts` files, so a guard run
+# would compare the same agent code on both arms. Reads the changed paths on
+# stdin (the shape `gh pr diff --name-only` prints) and the PR author in
+# PR_AUTHOR. Prints `true` when there is at least one path, every path is a
+# `*.eval.ts` file and the author is the scout's bot, `false` otherwise.
 set -euo pipefail
 
-cases_dir='packages/gp-api/src/chats/evals/judge/cases/'
-seen=false
+case "${PR_AUTHOR:-}" in
+  'app/delegate-gp' | 'delegate-gp[bot]') ;;
+  *)
+    echo false
+    exit 0
+    ;;
+esac
 
+seen=false
 while IFS= read -r path; do
   [ -n "$path" ] || continue
   seen=true
   case "$path" in
-    "$cases_dir"*) ;;
+    *.eval.ts) ;;
     *)
       echo false
       exit 0

@@ -94,6 +94,7 @@ import type {
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  PlanReceipt,
   ProReceipt,
   SmsOutreachReplies,
   SmsOutreachResults,
@@ -197,6 +198,7 @@ import type {
   RaceOpponentThreatTier,
   OrganizationRole,
   SetChatMessageFeedbackRequest,
+  InviteBlockReason,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -222,7 +224,7 @@ import type {
   UpdateCivicPanelInput,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
-import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
+import type { AnnotationAnchor } from 'app/shared/briefings/types'
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type {
   ChatConversationListResponse,
@@ -2348,12 +2350,10 @@ export type APIEndpoints = {
     Response: Race
   }
 
-  // Briefing chat routes — cross-repo contract with gp-api PR #1607.
-  // Request/response shapes mirror gp-api's createBriefingChatSchema,
-  // getConversationResponseSchema, and sendMessageSchema. SSE message
-  // streaming is intentionally not modeled here because clientRequest
-  // can't consume an SSE body — see chat-api.ts streamMessage for the
-  // raw fetch path.
+  // The annotation-keyed half of briefing chat. Turns and history are
+  // conversation-keyed and go through the shared `/v1/chats/:id` routes (see
+  // app/dashboard/shared/agent-chat/chatClient.ts); SSE streaming is not
+  // modeled here because clientRequest can't consume an SSE body.
   'POST /v1/briefing-chats': {
     Request: {
       meetingDate: string
@@ -2362,13 +2362,6 @@ export type APIEndpoints = {
     Response: {
       annotationId: string
       conversationId: string
-    }
-  }
-  'GET /v1/briefing-chats/:annotationId': {
-    Request: {}
-    Response: {
-      conversationId: string
-      messages: ChatMessage[]
     }
   }
   'DELETE /v1/briefing-chats/:annotationId': {
@@ -2399,6 +2392,14 @@ export type APIEndpoints = {
   'GET /v1/payments/purchase/pro-receipt': {
     Request: {}
     Response: ProReceipt
+  }
+
+  // The plan success screen's "Your receipt", amounts in CENTS. 404 when the
+  // campaign has no paid plan purchase. Card fields and receiptUrl are null
+  // when a promo code covered the plan in full.
+  'GET /v1/payments/purchase/plan-receipt': {
+    Request: {}
+    Response: PlanReceipt
   }
 
   'GET /v1/community-issues': {
@@ -3200,6 +3201,7 @@ export type PendingInvite = {
 export type TeamResponse = {
   members: TeamMember[]
   pendingInvites: PendingInvite[]
+  invites?: { allowed: boolean; reason: InviteBlockReason | null }
 }
 
 export type InviteMemberResponse =

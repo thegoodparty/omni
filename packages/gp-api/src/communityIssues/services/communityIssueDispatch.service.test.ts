@@ -8,7 +8,6 @@ import {
 import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentsService } from '@/agents/agents.service'
 import { useTestService } from '@/test-service'
@@ -1165,36 +1164,8 @@ describe('top_community_issues on the gp-api engine', () => {
       districtDescriptor: 'FAYETTEVILLE CITY WARD 2, NC',
       l2DistrictType: 'City_Ward',
       l2DistrictName: 'FAYETTEVILLE CITY WARD 2',
-      // The org's own people mart, from PeopleDatasetService: this org has no
-      // consumer-data flag, so it reads voters.
-      peopleTable: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
       today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     })
-  })
-
-  // The run reads whatever mart PeopleDatasetService picks for its org, so the
-  // agent and every other people read agree. A Serve org whose owner carries
-  // the consumer-data flag reads the constituents mart.
-  it("carries the org's PeopleDatasetService mart, not a fixed table", async () => {
-    const orgSlug = `ci-top-mart-${Date.now()}`
-    await seedOrgWithOffice(orgSlug)
-    mockDispatchRun()
-    const agentsSpy = mockAgentsRun()
-    vi.spyOn(
-      service.app.get(PeopleDatasetService),
-      'resolve',
-    ).mockResolvedValue({ base: 'constituents' })
-
-    await service.app
-      .get(CommunityIssueDispatchService)
-      .dispatchForCohort([orgSlug])
-
-    expect(agentsSpy).toHaveBeenCalledWith(
-      'top_community_issues',
-      expect.objectContaining({
-        peopleTable: 'goodparty_data_catalog.mart_gp_api.gp_api_constituents',
-      }),
-    )
   })
 
   it('the signup check skips top_community_issues when its completed AgentRun exists', async () => {

@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  OnApplicationBootstrap,
-} from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   AgentMessageRole,
   ChatFeedbackKind,
@@ -44,7 +40,7 @@ export type RatedFeedback = Prisma.ChatMessageFeedbackGetPayload<{
 const toDTO = (row: RatedFeedback): ChatMessageFeedbackDTO => ({
   id: row.id,
   conversationId: row.conversationId,
-  messageId: row.agentMessageId ?? '',
+  messageId: row.agentMessageId,
   feedback: row.feedback,
   comment: row.comment,
   createdAt: row.createdAt,
@@ -52,28 +48,9 @@ const toDTO = (row: RatedFeedback): ChatMessageFeedbackDTO => ({
 })
 
 @Injectable()
-export class ChatMessageFeedbackService
-  extends createPrismaBase(MODELS.ChatMessageFeedback)
-  implements OnApplicationBootstrap
-{
-  // Temporary, removed with the `agent_message_id` NOT NULL follow-up: the
-  // migration that left the column nullable counted the rows without one, but
-  // `prisma migrate deploy` never surfaces a Postgres NOTICE, so that number
-  // reached no log. Every task reports it at boot instead. Not awaited: a slow
-  // or failing count must not delay or fail the container's startup.
-  onApplicationBootstrap(): void {
-    void (async () => {
-      try {
-        const unkeyed = await this.model.count({
-          where: { agentMessageId: null },
-        })
-        this.logger.info({ unkeyed }, 'chat_message_feedback unkeyed count')
-      } catch (err) {
-        this.logger.warn({ err }, 'chat_message_feedback unkeyed count failed')
-      }
-    })()
-  }
-
+export class ChatMessageFeedbackService extends createPrismaBase(
+  MODELS.ChatMessageFeedback,
+) {
   // Ratings the caller left on one thread, keyed by message id, so a replayed
   // transcript restores its own action-bar state. Scoped to the caller: one
   // user never sees another's rating.
@@ -85,13 +62,7 @@ export class ChatMessageFeedbackService
       where: { conversationId, submitterUserId: userId },
       select: FEEDBACK_COLUMNS,
     })
-    // A rating with no message key belongs to no visible turn, so it restores
-    // no action-bar state.
-    return new Map(
-      rows.flatMap((row) =>
-        row.agentMessageId === null ? [] : [[row.agentMessageId, row] as const],
-      ),
-    )
+    return new Map(rows.map((row) => [row.agentMessageId, row] as const))
   }
 
   async setForMessage(

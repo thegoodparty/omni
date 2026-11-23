@@ -13,6 +13,22 @@ describe('cityFromDistrictName', () => {
     expect(cityFromDistrictName(district)).toBe(place)
   })
 
+  it.each([
+    ['MONA SHORES PUBLIC SCHLS', 'MONA SHORES PUBLIC SCHOOLS'],
+    ['LEE CNTY SCHL BD DIST 1', 'LEE CNTY SCHOOL BD DIST 1'],
+    ['Laker Schls', 'Laker Schools'],
+    ['Schlater City', 'Schlater'],
+  ])('spells out school in %s', (district, place) => {
+    expect(cityFromDistrictName(district)).toBe(place)
+  })
+
+  it('reads a school district as Schools once cased', () => {
+    const place = cityFromDistrictName('TRAVERSE CITY AREA PUBLIC SCHLS')
+    expect(place && cityNameCase(place)).toBe(
+      'Traverse City Area Public Schools',
+    )
+  })
+
   it.each(['05', ''])('names no place for %s', (district) => {
     expect(cityFromDistrictName(district)).toBeNull()
   })

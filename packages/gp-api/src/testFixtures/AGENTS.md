@@ -133,7 +133,7 @@ Test state borrows a real office for its district and voter data, never its
 election date. Two rules keep a real election passing from breaking anything:
 
 - **Resolution never depends on the date.** `findRace` (via
-  `util/fixtureRace.util.ts`, which the judge sweep also imports) takes the
+  `util/fixtureRace.util.ts`) takes the
   office's next upcoming race, else its most recent past one. It fails only
   when the office does not exist at that zip.
 - **The date is a preset, computed on the server's clock.**
@@ -202,19 +202,16 @@ Locally, `npm run seed:activity` drives both (`docs/development.md`).
 
 ## Judge chat cases
 
-`TestFixturesJudgeController` + `JudgeChatFixtureService` stage the Universal
-Judge's chat fixture for an arm that drives a **deployed PR preview over
-HTTP** and so has no Prisma client of its own. They decide nothing about the
-fixture: `seedChatOrgRows` in
-`src/chats/evals/judge/runners/seedChatOrg.ts` is the same function the
-in-process vitest arm calls, so both arms seed the same rows.
+`TestFixturesJudgeController` + `JudgeChatFixtureService` stage a chat fixture
+for a caller that drives a **deployed PR preview over HTTP** and so has no
+Prisma client of its own.
 
 `POST` takes `{ agentId, sweepId, slugKey, accountState? }` and answers the
-`SeededChatOrg` the in-process arm gets. The **slug is derived**
-(`chatOrgSlug`), never passed, which is what keeps attempt i of both arms on
-one organization and keeps a caller from naming one. Setup is idempotent by
-tearing the same slug down first — the seeder creates rather than upserts, and
-the in-process arm wants that collision.
+seeded organization's slug and the district its seeded position resolved to.
+The **slug is derived** (`chatOrgSlug`), never passed, which is what keeps
+attempt i of two callers on one organization and keeps a caller from naming
+one. Setup is idempotent by tearing the same slug down first — the seeder
+creates rather than upserts.
 
 Unless `accountState.district` is `false`, setup also checks that the seeded
 position resolves to a district on this deployment
@@ -223,24 +220,13 @@ it does not resolve, setup removes the fixture and answers 503, because the
 constituent tools would quietly not register and the case would record a
 district the agent never had.
 
-`sweepId` is in the slug — `judge-<sweepId>-<agentId>-<caseId>-<digest>` —
-because two sweeps against one database (dev, which every PR's base arm
-targets) otherwise stage the identical organization and the second's
-teardown-first step removes the first's fixture mid-run. It costs the
-identical-config refusal nothing: one sweep's two arms are handed the same
-value, so their system prompts still match. The id is validated against the
-same alphabet `sweepEnv.SweepIdSchema` holds it to, restated rather than
-imported because `src/chats/evals/**` is dropped from the production build.
-It does **not** make `briefing_annotation` concurrency-safe — see the judge
-README.
-
 `DELETE` is scoped twice over: the request schema refuses a slug without the
 `judge-` prefix, and the delete itself matches on that prefix **and** the
 caller's own `ownerId` in one where clause. There is no request that reaches
 a real organization. It answers `{ organizationSlug, removed }` rather than
 404ing, so a retried teardown and somebody else's judge slug look the same.
 
-Teardown that never runs (a cancelled sweep) leaves rows that
+Teardown that never runs (a cancelled caller) leaves rows that
 `organization.slug startsWith 'judge-'` finds — the handle is on the row
 itself, so nothing extra is needed to sweep them.
 

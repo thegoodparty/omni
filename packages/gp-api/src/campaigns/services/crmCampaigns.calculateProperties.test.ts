@@ -54,6 +54,9 @@ const campaign = {
   organizationSlug: 'campaign-42',
   isActive: false,
   isPro: true,
+  plan: 'pro',
+  planPricingModel: 'one_time',
+  planEndsAtOverride: new Date('2028-12-13T00:00:00Z'),
   userId: 7,
   data: {
     currentStep: 3,
@@ -181,6 +184,9 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties', () => {
       pro_candidate: HubSpot.ProCandidate.YES,
       pro_subscription_status: HubSpot.ProSubStatus.ACTIVE,
       pro_upgrade_date: formatDateForCRM('2024-01-10'),
+      win_plan: 'pro',
+      win_plan_pricing_model: 'one_time',
+      win_plan_ends_at: formatDateForCRM('2028-12-13'),
       running: HubSpot.Running.YES,
       n10_dlc_filing_email: 'tcr@example.com',
       n10_dlc_filing_phone: '5551234567',
@@ -200,6 +206,54 @@ describe('CrmCampaignsService.calculateCRMCompanyProperties', () => {
       voter_data_adoption: HubSpot.VoterDataAdoption.UNLOCKED,
       votegoal: '3000',
       win_number: '1000',
+    })
+  })
+
+  it('clears the plan end and pricing model on a free plan', async () => {
+    const free = {
+      ...campaign,
+      plan: 'free',
+      planPricingModel: null,
+      planEndsAtOverride: null,
+    } as unknown as Campaign
+    const result = await calculate(buildService(noLatency), free)
+
+    expect(result).toMatchObject({
+      win_plan: 'free',
+      win_plan_pricing_model: '',
+      win_plan_ends_at: '',
+    })
+  })
+
+  it('sends election date plus the access window for a paid plan with no override', async () => {
+    const legacyPro = {
+      ...campaign,
+      plan: 'pro',
+      planPricingModel: 'subscription',
+      planEndsAtOverride: null,
+    } as unknown as Campaign
+    const result = await calculate(buildService(noLatency), legacyPro)
+
+    expect(result).toMatchObject({
+      win_plan: 'pro',
+      win_plan_pricing_model: 'subscription',
+      win_plan_ends_at: formatDateForCRM('2024-11-19'),
+    })
+  })
+
+  it('reports an expired one-time plan as free and clears its pricing model and end', async () => {
+    const expired = {
+      ...campaign,
+      plan: 'pro',
+      planPricingModel: 'one_time',
+      planEndedAt: new Date('2024-11-19T00:00:00Z'),
+    } as unknown as Campaign
+    const result = await calculate(buildService(noLatency), expired)
+
+    expect(result).toMatchObject({
+      win_plan: 'free',
+      win_plan_pricing_model: '',
+      win_plan_ends_at: '',
     })
   })
 

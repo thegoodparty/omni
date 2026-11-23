@@ -1988,13 +1988,18 @@
       // The map is republished by hand, so it has no next refresh to promise.
       if (MAP) {
         var surf = ProductMap.surfaces()
-        var drawn = surf.filter(function (f) {
-          return !f.building
+        var listed = surf.filter(function (f) {
+          return f.kind === 'list'
+        }).length
+        var pending = surf.filter(function (f) {
+          return f.building
         }).length
         fresh.innerHTML =
-          drawn +
+          surf.length - listed - pending +
           ' flows and pages drawn · ' +
-          (surf.length - drawn) +
+          listed +
+          ' areas with events only · ' +
+          pending +
           ' still being built · ' +
           EVENTS.length +
           ' events · data as of <b>' +

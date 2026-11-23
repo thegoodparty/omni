@@ -10,8 +10,8 @@ describe('agentsOnGpApi', () => {
     expect(agentsOnGpApi('preview').split(',')).toEqual(Object.keys(AGENTS))
   })
 
-  it('leaves dev and prod to the agents the judge has cleared', () => {
-    expect(agentsOnGpApi('dev')).toBe('trending_issues')
+  it('names top_community_issues in dev and leaves prod to trending_issues', () => {
+    expect(agentsOnGpApi('dev')).toBe('trending_issues,top_community_issues')
     expect(agentsOnGpApi('prod')).toBe('trending_issues')
   })
 })

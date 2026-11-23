@@ -176,6 +176,56 @@ describe('GET /v1/contacts/civic-panel', () => {
     expect(res.data.joinedBy).toEqual({ text: 0, door: 0, phone: 0, hand: 0 })
   })
 
+  it('leaves the panel invite and thank-you texts out of reached', async () => {
+    const slug = await seedOrg('eo')
+    const invited = randomUUID()
+    const thanked = randomUUID()
+    const asked = randomUUID()
+    for (const id of [invited, thanked, asked]) {
+      await setPanel(slug, id, CivicPanelStatus.member)
+    }
+    const panel = await seedManaged(slug, 50, ManagedCivicPanelStatus.ready)
+    const textOf = (data: {
+      asksToJoinCivicPanel?: boolean
+      managedPanelConfirmationForId?: string
+    }) =>
+      service.prisma.outreach.create({
+        data: {
+          organizationSlug: slug,
+          campaignId: null,
+          outreachType: 'text',
+          status: 'completed',
+          ...data,
+        },
+      })
+    const invite = await textOf({ asksToJoinCivicPanel: true })
+    const thanks = await textOf({ managedPanelConfirmationForId: panel.id })
+    const ask = await textOf({})
+    for (const [personId, outreachId] of [
+      [invited, invite.id],
+      [thanked, thanks.id],
+      [asked, ask.id],
+    ] as const) {
+      await service.prisma.contactInteractionText.create({
+        data: {
+          organizationSlug: slug,
+          personId,
+          outreachId,
+          occurredAt: subDays(new Date(), 2),
+        },
+      })
+    }
+
+    const res = await summary(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toMatchObject({
+      members: 3,
+      reachedRecently: 1,
+      askableNow: 2,
+    })
+  })
+
   it("does not count another office's outreach as reaching a member", async () => {
     const slug = await seedOrg('eo')
     const other = await seedOrg('eo')

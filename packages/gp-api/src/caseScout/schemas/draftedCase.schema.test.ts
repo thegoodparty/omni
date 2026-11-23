@@ -21,7 +21,8 @@ import {
 } from './draftedCase.schema'
 
 // The mirror exists only because the production build leaves out
-// src/chats/evals; these pin it to the real ChatCaseSchema.
+// src/chats/evals; these pin it to the real ChatCaseSchema, which is still what
+// the files the scout appends to are parsed as.
 const base = {
   caseId: 'a-case',
   condition: 'A condition.',

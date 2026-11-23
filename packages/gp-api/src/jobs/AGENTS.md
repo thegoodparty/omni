@@ -53,6 +53,8 @@ NOTIFY wake-ups, and the tracing, dashboard and alerts below.
   Set it to the longest a user or a downstream step can wait.
 - `concurrency`: per task. Autoscaling adds tasks, so without
   `maxConcurrent` the fleet runs up to `concurrency` times the task count.
+  When no task count should be part of the limit, set it to `maxConcurrent`
+  and the cap alone governs: `agentRun` does (§ Fleet-wide cap).
 - `maxConcurrent` (optional): at most this many jobs of the queue run at
   once across the whole fleet, however many tasks there are. Use it when a
   job shares something that does not scale with tasks: a vendor rate limit,
@@ -327,6 +329,19 @@ so the cap holds under concurrent fetches. FIFO per group is unchanged.
   it. `jobs-backed-up` still pages when it has waited past
   `alertAfterWaitingMinutes`, since a cap too low for the work is a
   problem; set the wait with the cap in mind.
+- **A queue whose cap is the only limit wants `concurrency` equal to it.**
+  `agentRun` runs 100 a task and 100 fleet-wide
+  (`docs/adr/2026-11-19-the-agent-run-cap-is-the-cap-per-task.md`): the cap
+  is how many paid model loops the platform will run at once, and a run is
+  20 to 50 minutes of waiting on the provider, so a task count in the middle
+  of it only decides which task holds a wait. Every other queue's
+  `concurrency` × tasks is what its work needs.
+- **The consequence: one task can be handed the whole cap.** 100 jobs is
+  100 pg-boss workers, so a single task may run 100 model loops at once, and
+  jobs held by the cap are not backlog a new task could start (§ Scaling),
+  so this queue does not scale the fleet out. What bounds it is the cap and
+  the task's memory, not the task count: a loop holds its whole conversation
+  in memory (up to 120 steps, a reply of up to 64k output tokens each).
 
 ## Dead letters
 
@@ -346,6 +361,21 @@ npm run jobs:dead-letter -w packages/gp-api -- delete <job name> <job id>
 at the back of their group; fix the cause first. `delete` drops one for
 good. The alert pages once per dead letter and resolves on its own; the dead
 letter stays until it is redriven, deleted, or 14 days pass.
+
+One dead letter can also be read and redriven through gp-api's
+`admin/job-dead-letters` (`AdminOrM2MGuard`: an admin session or an M2M
+token). `GET` lists them newest first, optionally narrowed to one
+`sourceQueue`; `GET :id` reads one; `POST :id/redrive` moves one, and there
+is no batch move.
+Both use the provenance pg-boss records on the dead letter itself: the list
+reports `sourceQueue` from the job's `source_name`, and the redrive routes
+back to that queue rather than to a queue the caller names. A dead letter
+that records no source queue is listed and refused (404) instead of being
+guessed at. The move is pg-boss's own single statement, so it is atomic and
+a second redrive of the same dead letter finds it gone (404) rather than
+queueing it twice. A source queue that no longer exists, or that still holds
+a job under the dead letter's `singletonKey`, answers 409 and leaves the dead
+letter in place.
 
 ## Scaling
 
@@ -514,3 +544,6 @@ and polling settings, which is how to prove a change to how workers fetch.
 - Each task holds its own pg pool for pg-boss: 10 connections, 3 on
   previews, plus one held open for NOTIFY. Dev and prod tasks hold one
   more for the queue reporter lock.
+- A running job holds no pool connection: one is borrowed to fetch it and
+  again to complete it. However many workers a queue's `concurrency` spawns,
+  they do not pin that many connections while their handlers run.

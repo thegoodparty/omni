@@ -20,11 +20,10 @@ import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 
-// The briefing route passes no `scope` (scope also decides attachment
-// injection and which product a citation is attributed to), so its turns used
-// to reach Grafana Agent Observability as the generic 'chat' agent. The turn
-// names its own agent instead; this drives the real model loop and reads the
-// spans the AI SDK exports.
+// A briefing turn runs through the shared conversation-keyed route, so the
+// turn names its own agent (scope also decides attachment injection and which
+// product a citation is attributed to). This drives the real model loop and
+// reads the spans the AI SDK exports.
 
 const service = useTestService()
 
@@ -65,10 +64,9 @@ type ProviderSlot = { anthropicProvider: unknown }
 
 describe('briefing chat turns in Agent Observability', () => {
   let exporter: InMemorySpanExporter
-  let provider: BasicTracerProvider
   let originalProvider: unknown
-  let annotationId: string
   let conversationId: string
+  let headers: { headers: Record<string, string> }
 
   beforeEach(async () => {
     const slug = `agents-${service.user.id}-${Math.random().toString(36).slice(2, 10)}`
@@ -97,9 +95,13 @@ describe('briefing chat turns in Agent Observability', () => {
       },
     })
     const conversation = await service.prisma.chatConversation.create({
-      data: { ownerUserId: service.user.id },
+      data: {
+        ownerUserId: service.user.id,
+        scope: ChatScope.briefing_annotation,
+        organizationSlug: slug,
+      },
     })
-    const annotation = await service.prisma.annotation.create({
+    await service.prisma.annotation.create({
       data: {
         authorUserId: service.user.id,
         kind: AnnotationKind.chat,
@@ -108,8 +110,8 @@ describe('briefing chat turns in Agent Observability', () => {
         chatConversationId: conversation.id,
       },
     })
-    annotationId = annotation.id
     conversationId = conversation.id
+    headers = { headers: { 'X-Organization-Slug': slug } }
 
     vi.spyOn(service.app.get(S3Service), 'getFile').mockResolvedValue(
       ARTIFACT_CONTENT,
@@ -126,7 +128,7 @@ describe('briefing chat turns in Agent Observability', () => {
     }
 
     exporter = new InMemorySpanExporter()
-    provider = new BasicTracerProvider({
+    const provider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(exporter)],
     })
     trace.setGlobalTracerProvider(provider)
@@ -141,8 +143,9 @@ describe('briefing chat turns in Agent Observability', () => {
 
   it('files the generation under briefing_annotation, not the generic chat agent', async () => {
     const res = await service.client.post(
-      `/v1/briefing-chats/${annotationId}/messages`,
+      `/v1/chats/${conversationId}/messages?scope=${ChatScope.briefing_annotation}`,
       { content: 'what is on the agenda?' },
+      headers,
     )
     expect(res.status).toBe(HttpStatus.OK)
 

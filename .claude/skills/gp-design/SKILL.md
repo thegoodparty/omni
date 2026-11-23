@@ -41,7 +41,7 @@ anything else, from the repo root, and fix what is missing without asking:
 - `node -v` is the major version in the root `package.json` `engines`. If not,
   switch with `nvm use` (the repo has an `.nvmrc`); if nvm is missing, stop and
   tell the user to install that node version.
-- `node -e "require.resolve('esbuild');require.resolve('@tailwindcss/postcss');require.resolve('playwright')"`
+- `node -e "require.resolve('esbuild');require.resolve('@tailwindcss/postcss');require.resolve('playwright');require.resolve('axe-core')"`
   succeeds. If not, run `npm ci` (in a worktree, `scripts/worktree-setup.sh`
   instead). Tell the user it takes a few minutes.
 - `npx playwright install chromium` has been run once, so screenshots work.
@@ -124,18 +124,23 @@ above, not your memory of them:
   direction) in `<work>/notes/coverage.md`, either drawn on a named screen or
   asked under Decisions needed. Nothing drawn beyond the task: extra scope is
   a question under Decisions needed.
-- Step 8, the reviewer: every element has a source, copy, people and data
-  from `fixtures.md`, and every rule in `learned.md`.
+- Step 7: `check.py` holds every line of `coverage.md` to a screen, a
+  block or a question, and the fixtures to `.example` emails and future
+  dates; `shoot.mjs` runs axe on every screen, walks every exported path
+  and crops each new control at rest, hover and focus; every accessibility
+  line on markup the design adds is fixed.
 - Where a rulebook vs code conflict goes: "Existing screens" item 2 in
   `reference/wireframe-build.md`.
-- After step 9, always: the senior design review in
-  `reference/senior-review.md`. A fresh subagent reviews the page once; fix
-  its findings right away, without asking and without a second review.
-  Nothing is published or shown before the fixes are in.
+- Step 8, always: the senior design review in
+  `reference/senior-review.md`: the fit to the task, the rules, copy,
+  `learned.md`, states and accessibility. Two fresh subagents review the page once, at the same time (task and
+  rules); fix their findings
+  right away, without asking and without a second review, then build the
+  build shapes (step 9). Nothing is published or shown before the fixes are in.
 
 ## 4. Hand it back
 
-After step 9 and the senior design review, publish the page per step 10 of `reference/options-workflow.md` and give the
+After the senior design review and step 9, publish the page per step 10 of `reference/options-workflow.md` and give the
 links: the page, `?view=desktop` and `?view=build`. The page shows the flow in a
 phone frame, with a Desktop preview button that opens the same flow at the
 window's width in a new tab, and Show how it's built, which opens the build

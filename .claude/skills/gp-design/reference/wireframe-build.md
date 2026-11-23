@@ -32,13 +32,25 @@ imports the real components from `packages/styleguide`
 - `products` (optional): `['serve', 'win']` when the ticket names both ("Win
   and Serve").
 
-A flow imports only `react`, `gp-flow` and the styleguide. Pick from
+A flow imports only `react`, `gp-flow`, the styleguide and, on a
+three-option page, `./shared`. Pick from
 `COMPONENTS.md` before you draw anything, then read the source of each component
 you use in `packages/styleguide/src/components/ui/<name>.tsx` for its real
 variants and sizes, and use them through their props. Product screens
 (`DashboardLayout`, `OutreachFlowShell`, `Intro`) can't be imported: they read
 the session, the API and Next. Copy their markup into the flow with their class
 strings as they are, under `data-source` ("Existing screens").
+
+**Shared screens (three options).** A screen or part every option draws the
+same (the entry, a landing step, review, pay, a copied footer) lives once in
+`<work>/flow/shared.tsx`, exported by name; each option imports it with
+`import { Review } from './shared'`. `shared.tsx` keeps every rule of a flow
+file except that it exports no `screens` or `states` of its own, and its
+`data-go` targets are screens of the options that use it. A content part it
+holds carries its own `data-content` and cite, since it is checked on its own.
+Its markers count for every option that imports it: quote each in those
+options' Mutations lists. An edit to it makes every importing option's build
+and build shape stale.
 
 `scripts/build.py` bundles the flows, compiles gp-webapp's own
 `app/globals.css` with Tailwind for the classes they use, inlines the product's
@@ -103,7 +115,9 @@ window some other way, fix the runtime, not the flow.
   values can be one cite expression (`data-content-source={THEME_SRC[color]}`
   with `THEME_SRC` a const of `"<path>:<line>"` strings, an array of them, or
   a template like `` `${FILE}:38` ``) instead of one branch per theme;
-  `THEME_SRC.blue` or `THEME_SRC['blue']` reads that one entry. Editor
+  `THEME_SRC.blue` or `THEME_SRC['blue']` reads that one entry. A content
+  part shown outside the content too (the photo in a crop drawer) carries
+  `data-content` and its cite at that use as well. Editor
   controls that sit over the content (a row of buttons on the email) go in a
   wrapper marked `data-editor`: inside it the usual rules apply, not the
   content's. The product chrome around it stays
@@ -292,8 +306,9 @@ A flow that mirrors an existing screen must measure the same as the real one.
 1. **Copy the real class strings.** Put them on the same elements, with the same
    wrappers, and read the base variant too (`toggleVariants`, `ToggleGroup`)
    before you change a size.
-2. **Keep the product's size.** A mirrored control keeps the product's size, even
-   under 44px. The 44px minimum is for controls the feature invents.
+2. **Keep the product's size.** A mirrored control keeps the product's size. A
+   control the feature adds takes the size `docs/product-design.md` §10 gives
+   it: flow buttons `size="large"`, buttons inside a step the default size.
 3. **Measure.** After rendering, read `getBoundingClientRect()` for the mirrored
    rows in `?view=phone&step=<key>` and compare them with today's screen.
 
@@ -304,6 +319,10 @@ A flow that mirrors an existing screen must measure the same as the real one.
   returns to `entry`. `data-go` to the screen already showing starts it over.
   A component used on several screens takes its `data-go` targets as props,
   so each screen sends it to the right place.
+- A `paths` export: every way through the option from entry, as screen keys
+  (and `{ click }` for a choice made on a screen, `{ wait }` for a screen
+  that opens by itself). `shoot.mjs` walks each one and screenshots every
+  step, so no one clicks the paths by hand.
 - A way back on every step. A person to reach only where the product already
   has one on that screen, copied from its source (an in-page panel, never a
   `mailto:` link). Never add one: "Invent nothing" in `docs/product-design.md`
@@ -315,8 +334,9 @@ A flow that mirrors an existing screen must measure the same as the real one.
 - A Built from list below the appendix (`<details class="sources" id="a-sources">`):
   one row per element and its source, per "Every design shows what it's built
   from" in `docs/product-design.md` §7. A row with no source starts "Gap:".
-  Label a screen "as shipped" only when its strings and controls are
-  unchanged; name any control left out of the frame in Built from, and any it
+  Label a screen "as shipped" (or "as today") only when its strings and
+  controls are unchanged, in the same order and place; a control moved on
+  the screen is a What changes from today row. Name any control left out of the frame in Built from, and any it
   drops in What changes from today.
 - A What changes from today list next to it
   (`<details class="drops" id="a-drops">`), per "Say what a change drops" in

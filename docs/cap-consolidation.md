@@ -5,11 +5,9 @@ ClickUp ticket 17tnw2b5rd0, "Consolidate In-Product Agent Architecture".
 Status: in progress. The core, `AgentMessage` and `trending_issues` are on
 main; `trending_issues` runs on gp-api's own agents in dev and prod, and a
 preview runs every agent gp-api has, because a preview is the Universal
-Judge's candidate arm. `top_community_issues` is built on
-gp-api's agents with its switch off on dev and prod: its lean annotation needs
-the `hs_*` scores in the people marts, which a data-platform change adds before
-it can be judged. Every other agent still runs on the PMF Engine in every
-environment. Until an agent moves, it runs as
+Judge's candidate arm. `top_community_issues` runs on gp-api's own agents in
+dev only; prod sends it to the PMF Engine. Every other agent still runs on
+the PMF Engine in every environment. Until an agent moves, it runs as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
@@ -27,7 +25,9 @@ as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
   carries the run id, the organization, an abort signal and service lookup.
   Agents share a tool by importing it.
 - **Starting a run.** `AgentsService.run(name, input)` is the only way in.
-  Every agent shares one pg-boss queue, `agentRun`, with one fleet-wide cap.
+  Every agent shares one pg-boss queue, `agentRun`, with one fleet-wide cap
+  of 100 running runs, and each task gets that many slots, so the cap alone
+  decides (`docs/adr/2026-11-19-the-agent-run-cap-is-the-cap-per-task.md`).
   A run that fails its last attempt dead-letters, which alerts like any
   other job.
 - **Storage.** Two parents, one message table:
@@ -87,11 +87,9 @@ successful production traffic, not a merged PR.
    no task serving during that rollout was still reading them.
 3. **The remaining background agents, in waves.** Each agent is one PR: its
    definition, its readers moved from `ExperimentRun` to `AgentRun`, its judge
-   suite ([`judge-eval-framework-plan.md`](judge-eval-framework-plan.md)), and
-   its `qa/` manifest deleted. A migration PR is judged with
-   `/judge-eval <agent>` on the PR, which runs that agent's suite against the
-   PR's preview with the framework in `packages/judge`. Its switch flips only
-   after that says same or better. Rollback is the switch.
+   suite (see [Writing agent evals](agent-evals.md)), and its `qa/` manifest
+   deleted. Flip its switch only after the dev versus preview comparison passes.
+   Rollback is the switch.
    - **Wave 1, web tools only:** `race_opponent_summary`,
      `opposition_research`, `opportunities_and_challenges`,
      `race_opponent_collection`, `self_research`, `meeting_schedule`. The

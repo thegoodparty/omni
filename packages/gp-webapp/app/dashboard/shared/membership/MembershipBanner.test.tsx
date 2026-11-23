@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
 import { router } from 'helpers/test-utils/router-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
@@ -338,18 +341,18 @@ describe('MembershipBanner', () => {
 })
 
 describe('MembershipBanner plan copy', () => {
-  it('shows the Pro price and a plans link for a free campaign with the flag on', () => {
+  it('shows the Pro price and no plans link for a free campaign with the flag on', () => {
     mockPlanFlag.enabled = true
     setup({ state: membership({ tier: 'free' }) })
 
     expect(
-      screen.getByText('Unlock voter data and outreach with Pro for $299.'),
+      screen.getByText(
+        'Unlock voter data and outreach with Pro for $299. Good for your whole campaign.',
+      ),
     ).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/\$10\b|\/mo|a month/)
-    expect(screen.getByRole('link', { name: 'See all plans' })).toHaveAttribute(
-      'href',
-      '/dashboard/plans',
-    )
+    expect(screen.getByText('See what you get')).toBeInTheDocument()
+    expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
   })
 
   it('keeps the legacy copy with the flag off', () => {
@@ -359,5 +362,34 @@ describe('MembershipBanner plan copy', () => {
       screen.getByText(MEMBERSHIP_COPY.banner.free.body),
     ).toBeInTheDocument()
     expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
+  })
+
+  it('pitches Team under a TEAM pill in a large race', () => {
+    mockPlanFlag.enabled = true
+    mockUseMembershipState.mockReturnValue({
+      ready: true,
+      state: membership({ tier: 'free' }),
+      tcrCompliance: { status: 'submitted' },
+    })
+    render(
+      <CampaignContext.Provider
+        value={[
+          {
+            raceTargetMetrics: {
+              registeredVoters: PLAN_PRICING.teamRecommendVoterThreshold + 1,
+            },
+          } as unknown as Campaign,
+        ]}
+      >
+        <MembershipBanner />
+      </CampaignContext.Provider>,
+    )
+
+    expect(screen.getByText('TEAM')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Unlock voter data and outreach for your whole team for $399. Good for your whole campaign.',
+      ),
+    ).toBeInTheDocument()
   })
 })

@@ -74,6 +74,10 @@ npm run lint -w packages/gp-admin          # eslint .
 npm run test:coverage -w packages/gp-admin # vitest run --coverage
 ```
 
+## Job dead letters page
+
+`src/app/dashboard/job-dead-letters/` is staff recovery for pg-boss dead letters (gp-api `/admin/job-dead-letters`, reason and invariants in gp-api `src/jobs/AGENTS.md` § Dead letters). `org:admin` only — both the page and the gp-api guard, because a re-drive runs the job again and may re-send whatever it sends. The list shows the queue each job failed on, its last error, retries spent and when it died, filtered by source queue; the detail page shows the payload and last error, and re-drive is a confirm dialog. The queue a re-drive goes back to is the dead letter's own recorded source queue, never one staff type, and a dead letter with none is listed read-only with the button disabled. gp-api answers 404 for a dead letter that is already gone and 409 when the source queue no longer exists or still holds a job under the same key; the dialog shows the message rather than letting it throw.
+
 ## Email sends page
 
 `src/app/dashboard/email-sends/` lists paused email sends (gp-api `/admin/outreach/email`, keyed on the Outreach id) with SES's bounce and complaint rates since the last resume, and a Results column of the send's recorded counts (sent, delivered, bounced, marked as spam, opened (approximate), clicked). Resume and Cancel are `org:admin` only; Resume is hidden for `ses_tenant`, which only AWS can clear.
@@ -89,3 +93,7 @@ npm run test:coverage -w packages/gp-admin # vitest run --coverage
 ## Two agent-run pages
 
 `src/app/dashboard/agent-runs/` is the PMF Engine's `ExperimentRun` list (retry included, `write_agent_runs`). `src/app/dashboard/background-agent-runs/` — nav "Agent Run" — is gp-api's own `AgentRun` table (`src/agents`), read-only: staff look, they cannot retry. Its list filters on agent name, status, organization slug and a created range, and its detail page shows status, input, the artifact JSON, the error and the message transcript by role, with each tool call and result collapsed. No cost column anywhere on that page: no cost is stored, only tokens on the assistant rows. The client resource is `AdminBackgroundAgentRunsResource` over gp-api `/admin/background-agent-runs`; the old page's `AdminAgentRunsResource` is untouched, and both go through `read_agent_runs`.
+
+## Plan card on the campaign page
+
+`users/[id]/components/PlanCard.tsx` shows the campaign's plan, "Good through" and outreach credit, with Change plan, Set end date and Refund. They call gp-api's M2M `POST /admin/campaigns/:id/plan`, `/plan/extend` and `/plan/refund` through `campaigns/planActions.ts`, which returns errors instead of throwing so staff can read the 409 `ACTIVE_SUBSCRIPTION` ("cancel the Stripe subscription first"). "Good through" is `planEndsAt` from M2M `GET /campaigns/:id`; never redo that date math here. No gp-admin path writes `isPro`; gp-api derives it from the plan. The refund dialog loads M2M `GET /admin/campaigns/:id/plan/refund-eligibility` (`getRefundEligibility`) when it opens, shows days since purchase and whether outreach was sent, and disables Refund with the reason when it is not refundable. gp-api computes that read and the refund's own `eligibility` in one method, so never recompute either here.

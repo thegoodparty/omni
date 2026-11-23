@@ -72,6 +72,26 @@ const startArm = async (): Promise<{
           .end(JSON.stringify({ id: 7 }))
         return
       }
+      // A chat turn: the arm answers with the raw event stream, which is what
+      // the client has to hand back untouched, whatever the content type says.
+      if (
+        request.method === 'POST' &&
+        request.url ===
+          '/api/v1/chats/conversation-1/messages?scope=chief_of_staff'
+      ) {
+        response
+          .writeHead(200, { 'content-type': 'application/json' })
+          .end('data: {"type":"done"}\n\n')
+        return
+      }
+      // The preflight's own probe: a run id that cannot exist, answered the way
+      // a live arm answers one — the route is there, the run is not.
+      if (request.url?.startsWith('/api/v1/agents/runs/')) {
+        response
+          .writeHead(404, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ message: 'no run' }))
+        return
+      }
       response.writeHead(404).end('not found')
     })
   })
@@ -173,6 +193,29 @@ describe('createArmContext', () => {
     expect(call?.headers.authorization).toBe('Bearer token-1')
   })
 
+  it('reads a chat turn as the raw stream text', async () => {
+    const { ctx } = await createArmContext({
+      arm: 'base',
+      baseUrl: arm.baseUrl,
+      mode: 'serve',
+      profile: {},
+      provisionUser: async () => fakeUser(arm.baseUrl),
+    })
+    // The reply is the event stream itself, so the whole body comes back as
+    // text for the SSE parser, with no JSON layer over it.
+    const body = await ctx.postEventStream(
+      '/v1/chats/conversation-1/messages?scope=chief_of_staff',
+      { content: 'hi' },
+    )
+    expect(body).toBe('data: {"type":"done"}\n\n')
+    const call = arm.requests.find((request) =>
+      request.url.startsWith('/api/v1/chats/conversation-1/messages'),
+    )
+    expect(call?.body).toBe(JSON.stringify({ content: 'hi' }))
+    expect(call?.headers.accept).toBe('text/event-stream')
+    expect(call?.headers['x-organization-slug']).toBe('campaign-7')
+  })
+
   it('hands the arm URL to the context', async () => {
     const { ctx } = await createArmContext({
       arm: 'candidate',
@@ -214,12 +257,92 @@ describe('createArmContext', () => {
   })
 })
 
+// An arm whose `/v1/version` is fine but whose routes are not: what a preview
+// serving a commit from before the run routes existed looks like.
+const startArmWithoutRunRoutes = async (
+  status: number,
+  body: (url: string) => unknown,
+): Promise<{ server: Server; baseUrl: string }> => {
+  const server = createServer((request, response) => {
+    if (request.url === '/v1/version') {
+      response
+        .writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ commit: 'test' }))
+      return
+    }
+    response
+      .writeHead(status, { 'content-type': 'application/json' })
+      .end(JSON.stringify(body(request.url ?? '')))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  return { server, baseUrl: `http://127.0.0.1:${port}` }
+}
+
 describe('probeArm', () => {
   it('reports a reachable arm', async () => {
     const arm = await startArm()
     const result = await probeArm(arm.baseUrl)
     await new Promise<void>((resolve) => arm.server.close(() => resolve()))
     expect(result.ok).toBe(true)
+  })
+
+  it('reads a webapp arm through its /api proxy, not its login page', async () => {
+    // A webapp answers a bare /v1/... with a redirect to /login, which is a 200
+    // of HTML: not an answer about the route. The API answers under /api.
+    const server = createServer((request, response) => {
+      if (request.url === '/api/v1/version') {
+        response
+          .writeHead(200, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ commit: 'test' }))
+        return
+      }
+      if (request.url?.startsWith('/api/v1/agents/runs/')) {
+        response
+          .writeHead(401, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ message: 'Unauthorized' }))
+        return
+      }
+      response
+        .writeHead(200, { 'content-type': 'text/html' })
+        .end('<html>sign in</html>')
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const result = await probeArm(`http://127.0.0.1:${port}`)
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    expect(result.ok).toBe(true)
+    expect(result.detail).toContain('/api/v1/agents/runs/')
+  })
+
+  it('accepts an arm whose run route answers 401 without a session', async () => {
+    // The route is there and its guard answered; that is all the probe asks.
+    const arm = await startArmWithoutRunRoutes(401, () => ({
+      message: 'Unauthorized',
+    }))
+    const result = await probeArm(arm.baseUrl)
+    await new Promise<void>((resolve) => arm.server.close(() => resolve()))
+    expect(result.ok).toBe(true)
+  })
+
+  it('refuses an arm whose run route does not exist', async () => {
+    const arm = await startArmWithoutRunRoutes(404, (url) => ({
+      message: `Cannot GET ${url}`,
+    }))
+    const result = await probeArm(arm.baseUrl)
+    await new Promise<void>((resolve) => arm.server.close(() => resolve()))
+    expect(result.ok).toBe(false)
+    expect(result.detail).toContain('may not have the run routes deployed')
+  })
+
+  it('refuses an arm that answers the probe with something else entirely', async () => {
+    const arm = await startArmWithoutRunRoutes(500, () => ({
+      message: 'boom',
+    }))
+    const result = await probeArm(arm.baseUrl)
+    await new Promise<void>((resolve) => arm.server.close(() => resolve()))
+    expect(result.ok).toBe(false)
+    expect(result.detail).toContain('500')
   })
 
   it('reports an arm whose API answers 404 as not reachable', async () => {

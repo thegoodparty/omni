@@ -46,6 +46,8 @@ import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
+import { useOutreachCredit } from 'app/dashboard/outreach/util/outreachCredit'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
@@ -457,6 +459,12 @@ export const RobocallFlow = ({
   // the result rather than re-opening the Authorize form.
   const [payOutcome, setPayOutcome] =
     useState<RobocallAuthorizeResponse | null>(null)
+  const [payOutreachId, setPayOutreachId] = useState<number | null>(null)
+  const outreachCredit = useOutreachCredit()
+  // The balance as it stood before the send, kept so the success screen can
+  // say what is left once the campaign refetch has already taken it down.
+  const creditBeforeRef = useRef(outreachCredit.balanceCents)
+  if (payOutcome === null) creditBeforeRef.current = outreachCredit.balanceCents
 
   // Wrap setPayOutcome so a settled outcome (authorized/deferred/noop, never
   // hold_failed) also refreshes the hub's history list — the draft row now
@@ -492,7 +500,9 @@ export const RobocallFlow = ({
     outreachId?: number,
   ) => {
     setPayOutcome(outcome)
+    if (outreachId !== undefined) setPayOutreachId(outreachId)
     if (outcome && outcome.status !== 'hold_failed') {
+      void queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
       // A robocall completes when the hold settles and the send is booked —
       // the calls themselves are placed by CallHub days later, with nothing on
       // the client alive to see it. `price` is the authorized estimate in
@@ -1343,6 +1353,8 @@ export const RobocallFlow = ({
           audienceName={audience.selectedList?.name ?? 'your list'}
           reachCount={audience.reachableCount ?? 0}
           outcome={payOutcome}
+          settledOutreachId={payOutreachId}
+          creditBeforeCents={creditBeforeRef.current}
           onOutcome={handlePayOutcome}
           onDraftCreated={handleDraftCreated}
         />

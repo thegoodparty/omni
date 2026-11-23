@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
 import { Button, ProBadge, Spinner } from '@styleguide'
 import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
@@ -29,7 +31,14 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
+import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
+import { formatPlanEndDate } from 'app/dashboard/shared/plan/formatPlanEndDate'
+import { useWinPerCampaignPricingFlag } from 'app/shared/experiments/winPerCampaignPricingFlag'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { TEAM_SETTINGS_PATH } from '../proUpgradePlanParams'
+import { useProUpgradeCarry } from './proUpgradeCarryContext'
+import { PlanReceiptCard, usePlanReceipt } from './PlanReceiptCard'
 import { ConfettiField } from './ConfettiField'
 import { ProReceiptCard } from './ProReceiptCard'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
@@ -47,6 +56,10 @@ const UNLOCKED_ROWS = [
   'Downloads and targeted lists',
   'Door knocking, phone banking and robocalls',
 ]
+
+const TEAM_UNLOCKED_ROW = 'Logins for your team'
+
+const PLAN_PIN_BODY = `${PIN_NOTICE_BODY.replace(/\.$/, '')} and your ${formatPlanCents(PLAN_PRICING.includedCreditCents)} outreach credit.`
 
 const VERIFICATION_BODY =
   'Your payment went through. One step left before you can send.'
@@ -78,6 +91,15 @@ const SuccessStep = (): React.JSX.Element => {
   // progresses) once `isPro` flips. The profile page's compliance card is a
   // secondary location (ENG-10361).
   const { channel, complete, exit } = useProUpgradeWizard()
+  const router = useRouter()
+  const { enabled: planPricing } = useWinPerCampaignPricingFlag(false)
+  const { plan: heldPlan } = usePlan()
+  const carry = useProUpgradeCarry()
+  const isTeam = planPricing && (carry.plan === 'team' || heldPlan === 'team')
+  // A Pro holder who bought Team: verification and the credit are already
+  // theirs, so only the new thing is listed.
+  const fromPro = isTeam && carry.fromPro
+  const planName = planPricing && isTeam ? 'Team' : 'Pro'
   const [pollExpired, setPollExpired] = useState(false)
 
   useEffect(() => {
@@ -97,6 +119,8 @@ const SuccessStep = (): React.JSX.Element => {
       !pollExpired && !query.state.data?.isPro ? POLL_INTERVAL_MS : false,
   })
 
+  const planReceipt = usePlanReceipt(planPricing && Boolean(data?.isPro))
+
   // The standalone page has no launch channel, and it reads the same as the
   // texting entry point: both end on verification.
   const verificationNext = channel === 'sms' || channel === null
@@ -113,12 +137,20 @@ const SuccessStep = (): React.JSX.Element => {
   const { data: tcrCompliance, isPending: tcrPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
-    enabled: verificationNext && !smsCutoff,
+    enabled: verificationNext && !smsCutoff && !fromPro,
   })
   const filingSubmitted =
     verificationNext &&
     !smsCutoff &&
     getTcrComplianceStatusCompletions(tcrCompliance).filingComplete
+
+  const handleInviteTeam = (): void => {
+    trackEvent(EVENTS.ProUpgrade.Compliance.SuccessContinue)
+    // Team's reason to exist is the logins, so it lands where they are made:
+    // Team Settings with the invite drawer open, or the page it came from.
+    const target = carry.returnTo ?? TEAM_SETTINGS_PATH
+    router.push(target === TEAM_SETTINGS_PATH ? `${target}?invite=1` : target)
+  }
 
   const handleContinue = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.SuccessContinue)
@@ -133,7 +165,7 @@ const SuccessStep = (): React.JSX.Element => {
   }
 
   // A disabled query stays pending, so only the verification launches wait.
-  if (verificationNext && !smsCutoff && tcrPending) {
+  if (verificationNext && !smsCutoff && !fromPro && tcrPending) {
     return (
       <div className="flex flex-1 items-center justify-center py-16">
         <Spinner />
@@ -153,18 +185,24 @@ const SuccessStep = (): React.JSX.Element => {
       <ConfettiField />
       <div className="relative flex flex-col items-center gap-4 pt-2 text-center">
         <span className="flex size-16 shrink-0 items-center justify-center rounded-full bg-primary-light">
-          <ProBadge />
+          {planName === 'Team' ? (
+            <CheckCircleIcon className="size-8 text-primary" aria-hidden />
+          ) : (
+            <ProBadge />
+          )}
         </span>
         <div className="flex max-w-[440px] flex-col items-center gap-2">
-          <h1 className="text-2xl font-semibold">Welcome to Pro</h1>
+          <h1 className="text-2xl font-semibold">{`Welcome to ${planName}`}</h1>
           <p className="text-[15px] leading-relaxed text-base-muted-foreground">
-            {nextStep
-              ? `Payment successful. Your next step is to ${nextStep.noun}.`
-              : smsCutoff
-                ? SMS_CUTOFF_COPY.successClosedBody
-                : filingSubmitted
-                  ? SUBMITTED_BODY
-                  : VERIFICATION_BODY}
+            {fromPro
+              ? 'Payment successful.'
+              : nextStep
+                ? `Payment successful. Your next step is to ${nextStep.noun}.`
+                : smsCutoff
+                  ? SMS_CUTOFF_COPY.successClosedBody
+                  : filingSubmitted
+                    ? SUBMITTED_BODY
+                    : VERIFICATION_BODY}
           </p>
         </div>
       </div>
@@ -178,7 +216,12 @@ const SuccessStep = (): React.JSX.Element => {
           <div className="flex min-w-0 flex-col gap-2">
             <p className="font-semibold">Unlocked now</p>
             <ul className="flex flex-col gap-1.5">
-              {UNLOCKED_ROWS.map((row) => (
+              {(fromPro
+                ? [TEAM_UNLOCKED_ROW]
+                : isTeam
+                  ? [TEAM_UNLOCKED_ROW, ...UNLOCKED_ROWS]
+                  : UNLOCKED_ROWS
+              ).map((row) => (
                 <li
                   key={row}
                   className="flex items-start gap-2 text-sm text-base-muted-foreground"
@@ -193,7 +236,21 @@ const SuccessStep = (): React.JSX.Element => {
             </ul>
           </div>
         </div>
-        {!smsCutoff && (
+        {fromPro && (
+          <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
+            <ShieldCheckIcon
+              className="mt-0.5 size-[18px] shrink-0 text-primary"
+              aria-hidden
+            />
+            <div className="flex min-w-0 flex-col gap-2">
+              <p className="font-semibold">Everything from Pro stays</p>
+              <p className="text-sm text-base-muted-foreground">
+                {`Your outreach credit, lists and texts stay as they are.${planReceipt?.planEndsAt ? ` Still good through ${formatPlanEndDate(planReceipt.planEndsAt, 'long')}.` : ''}`}
+              </p>
+            </div>
+          </div>
+        )}
+        {!smsCutoff && !fromPro && (
           <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
             {nextStep ? (
               <ClipboardListIcon
@@ -218,7 +275,9 @@ const SuccessStep = (): React.JSX.Element => {
                 {nextStep
                   ? nextStep.body
                   : filingSubmitted
-                    ? PIN_NOTICE_BODY
+                    ? planPricing
+                      ? PLAN_PIN_BODY
+                      : PIN_NOTICE_BODY
                     : 'Add your campaign filing details, we register your texting account with the carriers, and you get a PIN when it clears, usually 1 to 2 weeks.'}
               </p>
             </div>
@@ -236,9 +295,29 @@ const SuccessStep = (): React.JSX.Element => {
         </Alert>
       )}
 
-      <ProReceiptCard enabled={Boolean(data?.isPro)} />
+      {planPricing ? (
+        <PlanReceiptCard
+          receipt={planReceipt}
+          plan={planName === 'Team' ? 'team' : 'pro'}
+          isUpgrade={fromPro}
+        />
+      ) : (
+        <ProReceiptCard enabled={Boolean(data?.isPro)} />
+      )}
 
-      {smsCutoff ? (
+      {isTeam ? (
+        <StepFooter align="center">
+          <Button
+            size="large"
+            className="w-full sm:w-auto sm:min-w-[360px]"
+            onClick={handleInviteTeam}
+          >
+            {carry.returnTo && carry.returnTo !== TEAM_SETTINGS_PATH
+              ? 'Continue'
+              : 'Invite your team'}
+          </Button>
+        </StepFooter>
+      ) : smsCutoff ? (
         <StepFooter align="center">
           <Button
             size="large"

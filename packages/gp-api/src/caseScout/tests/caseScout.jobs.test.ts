@@ -9,7 +9,6 @@ import {
 } from '@/generated/prisma'
 import { JobsService } from '@/jobs/jobs.service'
 import { useTestService } from '@/test-service'
-import { ChatCaseSchema } from '@/chats/evals/judge/cases'
 import { SCORING_MODEL } from '../caseScout.prompts'
 import {
   BundleSchema,
@@ -19,6 +18,7 @@ import {
   SessionScoreSchema,
   SourcesSchema,
 } from '../schemas/caseScoutBucket.schema'
+import { DraftedCaseSchema } from '../schemas/draftedCase.schema'
 import type { ScoreResponse } from '../schemas/caseScoutModel.schema'
 import { CaseScoutBucketService } from '../services/caseScoutBucket.service'
 import { CaseScoutCaseListsService } from '../services/caseScoutCaseLists.service'
@@ -27,7 +27,7 @@ import {
   ScoreParseError,
 } from '../services/caseScoutModel.service'
 import { CaseScoutPublisherService } from '../services/caseScoutPublisher.service'
-import { SecondReadCallError } from '../util/gate.util'
+import { SecondReadCallError, WITHHELD_NEEDS_SETUP } from '../util/gate.util'
 import { fakeS3 } from './caseScoutTestBucket'
 
 // Drives the real caseScoutNightly schedule and lets the real score and
@@ -277,7 +277,6 @@ beforeEach(() => {
   vi.stubEnv('CASE_SCOUT_LAMBDA_FUNCTION_NAME', 'case-scout-test')
   vi.stubEnv('CASE_SCOUT_SPEND_CAP_USD', '')
   vi.stubEnv('CASE_SCOUT_SESSION_CAP', '')
-  vi.stubEnv('CASE_SCOUT_JUDGE_RECORDS_BUCKET', '')
   vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
 
   objects = fakeS3(service.app.get(CaseScoutBucketService))
@@ -393,7 +392,7 @@ describe('caseScoutNightly', () => {
       'conv-golden-b:msg-b1',
     ])
     for (const draft of bundle().drafts) {
-      expect(ChatCaseSchema.safeParse(draft.case).success).toBe(true)
+      expect(DraftedCaseSchema.safeParse(draft.case).success).toBe(true)
     }
   })
 
@@ -637,7 +636,6 @@ describe('caseScoutDraft', () => {
         'conv-sev-1-3:msg-sev-1': newCase('fresh-b', 'Rejected failure'),
         'conv-sev-2-3:msg-sev-2': newCase('existing-case', 'collides'),
       })[sessionId] ?? new Error('unexpected')
-    vi.stubEnv('CASE_SCOUT_JUDGE_RECORDS_BUCKET', '')
 
     await service.jobs.runSchedule('caseScoutNightly')
 
@@ -686,6 +684,33 @@ describe('caseScoutDraft', () => {
       ['gated', ['secondRead'], 'the second read call failed'],
     ])
     expect(bundle().drafts).toEqual([])
+  })
+
+  it('gates a needs-setup line and withholds one that fails', async () => {
+    await seedSessions([3, 3])
+    const needsSetup = (what: string) =>
+      JSON.stringify({ outcome: 'needsSetup', failureSummary: 'f', what })
+    draftFor = (sessionId) =>
+      sessionId.startsWith('conv-sev-0')
+        ? needsSetup("An account like Robin Vale's, with a recount pending.")
+        : needsSetup('An account with a recount pending.')
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    expect(
+      ledgerLines().map((l) => [l.outcome, l.gateFailures, l.needsSetup]),
+    ).toEqual([
+      ['needsSetup', ['denylist'], WITHHELD_NEEDS_SETUP],
+      ['needsSetup', [], 'An account with a recount pending.'],
+    ])
+    expect(bundle().needsSetup.map((n) => n.what)).toEqual([
+      WITHHELD_NEEDS_SETUP,
+      'An account with a recount pending.',
+    ])
+    expect(
+      service.app.get(CaseScoutModelService).secondRead,
+    ).toHaveBeenCalledTimes(1)
+    expect(record().spendUsd.gate).toBe(2 * 0.75)
   })
 
   it('stops spending once the night passes the spend cap', async () => {

@@ -272,6 +272,65 @@ describe('PLAN checkout creation', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it('refuses a legacy subscriber whose plan columns were never stamped', async () => {
+    const campaign = await seedCampaign({
+      isPro: true,
+      details: {
+        subscriptionId: 'sub_legacy',
+        electionDate: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+      },
+    })
+    expect(campaign).toMatchObject({
+      plan: CampaignPlanLevel.free,
+      planPricingModel: null,
+    })
+    const create = spyOnSessionCreate()
+
+    for (const plan of [CampaignPlanLevel.pro, CampaignPlanLevel.team]) {
+      const res = await createCheckout(campaign.organizationSlug, plan)
+      expect(res.status).toBe(409)
+      expect(res.data.errorCode).toBe('SUBSCRIPTION_PLAN')
+    }
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('lets a campaign whose subscription ended buy a plan', async () => {
+    const campaign = await seedCampaign({
+      isPro: false,
+      plan: CampaignPlanLevel.free,
+      planPricingModel: PlanPricingModel.subscription,
+      planEndedAt: new Date(),
+    })
+    spyOnSessionCreate()
+
+    const res = await createCheckout(
+      campaign.organizationSlug,
+      CampaignPlanLevel.pro,
+    )
+
+    expect(res.status).toBe(201)
+  })
+
+  it('still lets a one-time Pro holder with a stray subscription upgrade to Team', async () => {
+    const campaign = await seedCampaign({
+      isPro: true,
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.one_time,
+      details: {
+        subscriptionId: 'sub_stray',
+        electionDate: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+      },
+    })
+    spyOnSessionCreate()
+
+    const res = await createCheckout(
+      campaign.organizationSlug,
+      CampaignPlanLevel.team,
+    )
+
+    expect(res.status).toBe(201)
+  })
+
   it('refuses Pro for a campaign already on Pro', async () => {
     const campaign = await seedCampaign({
       isPro: true,
@@ -609,6 +668,41 @@ describe('PLAN checkout completion', () => {
     expect(redelivery.status).toBe(201)
     expect(refund).toHaveBeenCalledOnce()
     expect(await readPurchases(campaign.id)).toHaveLength(2)
+  })
+
+  it('refunds a plan session paid on a legacy subscriber and leaves the plan alone', async () => {
+    const campaign = await seedCampaign({
+      isPro: true,
+      outreachCreditCents: 0,
+      details: { subscriptionId: 'sub_legacy' },
+    })
+    const { refund } = stubPaidSessions([
+      {
+        sessionId: 'cs_on_subscriber',
+        campaignId: campaign.id,
+        plan: CampaignPlanLevel.pro,
+        subtotalCents: PLAN_PRICING.proCents,
+        paymentIntentId: 'pi_on_subscriber',
+      },
+    ])
+
+    const res = await complete('cs_on_subscriber')
+
+    expect(res.status).toBe(409)
+    expect(refund).toHaveBeenCalledExactlyOnceWith(
+      'pi_on_subscriber',
+      'plan-dup-refund-cs_on_subscriber',
+    )
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: true,
+      plan: CampaignPlanLevel.free,
+      planPricingModel: null,
+      planPaidAt: null,
+      outreachCreditCents: 0,
+    })
+    expect(await readPurchases(campaign.id)).toMatchObject([
+      { status: CampaignPlanPurchaseStatus.refunded, creditGrantedCents: 0 },
+    ])
   })
 
   it('refunds an upgrade whose Pro was refunded before it was paid', async () => {

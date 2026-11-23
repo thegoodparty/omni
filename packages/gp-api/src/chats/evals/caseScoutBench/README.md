@@ -27,8 +27,11 @@ database and no GitHub.
 `runner.ts` calls the pipeline's pieces in the order the score and draft jobs
 do, in one night, with two differences: no spend cap or nightly draft cap, so
 every candidate is drafted, and an empty ledger, so only that night's own
-proposals count as duplicates. A change to the per-candidate rules in
-`caseScoutDraft.service.ts` belongs in `runner.ts` too.
+proposals count as duplicates. The drafting call, the `DraftedCase` build and
+the gate are the job's own (`util/drafting.util.ts`, `util/gate.util.ts`);
+the runner records each call by wrapping the model it hands them. A change to
+the per-candidate rules in `caseScoutDraft.service.ts` belongs in `runner.ts`
+too.
 
 A `--stub` run answers every model call from the fixture labels. Use it to see
 the report's shape; it says nothing about quality.

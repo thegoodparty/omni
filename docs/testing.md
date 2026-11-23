@@ -31,6 +31,16 @@ the booted app so the database stays real. Pure logic with no API surface (utili
 parsers, formatters, date projections, etc.) is fine to test directly too. Worked
 examples live in `packages/gp-api/docs/writing-tests.md`.
 
+## Never test a config file by reading it
+
+Do not write a test that reads a GitHub workflow, YAML, Dockerfile, or other
+config or source file as text and asserts on its contents (`toContain`, regex,
+a parsed shape). Such a test only repeats the file back at itself. It fails when
+someone edits the file on purpose and passes when the file is broken. Never test
+GitHub workflows this way. If a workflow calls a script with real logic, test the
+script directly. If a rule needs enforcing across workflows (pinned actions,
+permissions), use a linter in CI such as `actionlint` or `zizmor`.
+
 ## Running
 
 ```bash
@@ -40,14 +50,9 @@ npx vitest run packages/gp-api/src/path/to/file.test.ts # single file
 npx vitest run --testNamePattern "name"                 # by test name
 ```
 
-CI runs each package's validate job (lint, typecheck, test) on PRs that touch it.
+## Agent evals
 
-gp-api caches transformed modules on disk between runs
-(`packages/gp-api/.vitest-fs-module-cache/`), so its first run after a
-lockfile, Node or `vitest.config.ts` change is slower than the ones after it.
-If a run ever behaves as if it is running code that is no longer in the
-source, clear the cache from `packages/gp-api` with `npx vitest --clearCache`
-(or delete the directory) and run again.
+See [Writing agent evals](agent-evals.md) for known-answer and pairwise suites.
 
 ## E2E (Playwright)
 

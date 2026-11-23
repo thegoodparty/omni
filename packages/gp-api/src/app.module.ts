@@ -84,7 +84,6 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
 import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
 import { TestModeModule } from '@/testMode/testMode.module'
 import { DevEnvModule } from '@/devEnv/devEnv.module'
-import { JudgeModule } from '@/judge/judge.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { JobsModule } from '@/jobs/jobs.module'
 import { CaseScoutModule } from '@/caseScout/caseScout.module'
@@ -181,7 +180,6 @@ import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult
     TestFixturesModule,
     TestModeModule,
     DevEnvModule,
-    JudgeModule,
     VendorMocksModule,
     // The agentExperimentResult job's handler. Loaded in tests too, unlike
     // the SQS consumer that forwards to it.

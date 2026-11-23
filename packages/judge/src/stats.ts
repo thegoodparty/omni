@@ -94,12 +94,19 @@ export type HandledCounts = {
   pWorse: number
 }
 
-export type SuiteVerdictLabel = 'BETTER' | 'WORSE' | 'NO DIFFERENCE FOUND'
+export type SuiteVerdictLabel =
+  | 'BETTER'
+  | 'WORSE'
+  | 'NO DIFFERENCE FOUND'
+  | "CAN'T JUDGE"
 
 export type SuiteVerdict = {
   label: SuiteVerdictLabel
   sign: SignTest
   handled: HandledCounts
+  // Pairs a failed run kept from the grader: never a vote, and enough of them
+  // decide the verdict on their own.
+  notJudged: number
   // The gate the verdict is read against.
   alpha: number
 }
@@ -107,19 +114,32 @@ export type SuiteVerdict = {
 export type VerdictInput = {
   votes: readonly ('base' | 'candidate' | 'tie')[]
   handled: HandledCounts
+  notJudged?: number
   alpha?: number
 }
+
+// A suite whose pairs mostly never reached the grader has measured nothing:
+// its votes are the minority of its attempts, and reading them as a verdict
+// claims more than the run saw. Zero judged pairs cannot even reach NO
+// DIFFERENCE FOUND, which would say the arms looked alike.
+export const cannotJudge = (judged: number, notJudged: number): boolean =>
+  judged === 0 || notJudged > judged
 
 // BETTER or WORSE at p < alpha over the non-tied pairs; otherwise NO DIFFERENCE
 // FOUND. WORSE also when the candidate's handledWhen pass rate drops
 // significantly, because a failure both arms share reads as a tie in the
 // pairwise comparison — that is the exact blind spot the pass counts cover.
+// CAN'T JUDGE overrides both: a suite that mostly did not run has no direction.
 export const readVerdict = ({
   votes,
   handled,
+  notJudged = 0,
   alpha = 0.05,
 }: VerdictInput): SuiteVerdict => {
   const sign = signTest(votes)
+  if (cannotJudge(votes.length, notJudged)) {
+    return { label: "CAN'T JUDGE", sign, handled, notJudged, alpha }
+  }
   const worse = sign.pWorse < alpha || handled.pWorse < alpha
   const better = sign.pBetter < alpha
   const label: SuiteVerdictLabel = worse
@@ -127,5 +147,5 @@ export const readVerdict = ({
     : better
       ? 'BETTER'
       : 'NO DIFFERENCE FOUND'
-  return { label, sign, handled, alpha }
+  return { label, sign, handled, notJudged, alpha }
 }

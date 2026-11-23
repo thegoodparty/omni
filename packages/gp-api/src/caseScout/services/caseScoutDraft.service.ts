@@ -1,14 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import { compareAsc, parseISO } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
-import { ChatScope } from '@/generated/prisma'
 import type { JobRun } from '@/jobs/jobs.registry'
 import {
   CANDIDATE_MIN_SEVERITY,
   caseScoutEnabled,
   COVERED_SCOPES,
   ESTIMATED_COST_PER_CALL_USD,
-  judgeRecordsBucketName,
   spendCapUsd,
 } from '../caseScout.config'
 import { SCORING_MODEL } from '../caseScout.prompts'
@@ -20,7 +18,6 @@ import {
   type LedgerLine,
   type Manifest,
   type ManifestSession,
-  type Removal,
   type RunRecord,
   type Sources,
 } from '../schemas/caseScoutBucket.schema'
@@ -28,14 +25,19 @@ import {
   MAX_FAILURE_SUMMARY_LENGTH,
   type DraftResponse,
 } from '../schemas/caseScoutModel.schema'
-import type { DraftedCase } from '../schemas/draftedCase.schema'
 import { nightlyCapForMergeShare, trailingMergeShare } from '../util/cap.util'
 import {
-  assignSplit,
+  buildDraftedCase,
   buildDraftingPrompt,
-  parseDraftResponse,
+  draftCandidate,
+  DraftingError,
 } from '../util/drafting.util'
-import { gateDraft, type SecondReadCall } from '../util/gate.util'
+import {
+  gateDraft,
+  gateNeedsSetup,
+  WITHHELD_NEEDS_SETUP,
+  type SecondReadCall,
+} from '../util/gate.util'
 import {
   findDuplicate,
   findRejection,
@@ -49,35 +51,16 @@ import {
   sessionsSafeToMarkProcessed,
   type Session,
 } from '../util/sessions.util'
-import {
-  renderSessionTranscript,
-  sessionDenylist,
-  sessionUserMessages,
-} from '../util/transcript.util'
+import { sessionDenylist, sessionSourceTexts } from '../util/transcript.util'
 import { CaseScoutBucketService } from './caseScoutBucket.service'
 import {
   CaseScoutCaseListsService,
   LIST_SOFT_CAP,
   type CaseListInfo,
 } from './caseScoutCaseLists.service'
-import { CaseScoutJudgeRecordsService } from './caseScoutJudgeRecords.service'
 import { CaseScoutMessagesService } from './caseScoutMessages.service'
 import { CaseScoutModelService } from './caseScoutModel.service'
 import { CaseScoutPublisherService } from './caseScoutPublisher.service'
-
-const DRAFT_PARSE_ATTEMPTS = 2
-
-// The judge's chat agents (CHAT_AGENT_IDS in src/chats/evals/judge/agents.ts,
-// which the production build leaves out), checked for noisy cases.
-const CHAT_AGENT_IDS: ChatScope[] = [
-  ChatScope.chief_of_staff,
-  ChatScope.campaign_assistant,
-  ChatScope.ordinance_flow,
-  ChatScope.priority_flow,
-  ChatScope.briefing_annotation,
-]
-
-class DraftingError extends Error {}
 
 export type DraftNightJob = { runId: string }
 
@@ -112,7 +95,6 @@ export class CaseScoutDraftService {
     private readonly messages: CaseScoutMessagesService,
     private readonly model: CaseScoutModelService,
     private readonly caseLists: CaseScoutCaseListsService,
-    private readonly judgeRecords: CaseScoutJudgeRecordsService,
     private readonly publisher: CaseScoutPublisherService,
     private readonly logger: PinoLogger,
   ) {
@@ -294,7 +276,8 @@ export class CaseScoutDraftService {
 
       let result: DraftResponse
       try {
-        result = await this.draftCandidate(
+        result = await draftCandidate(
+          this.model,
           session,
           buildDraftingPrompt({
             agentId,
@@ -325,14 +308,19 @@ export class CaseScoutDraftService {
         continue
       }
       if (result.outcome === 'needsSetup') {
-        needsSetup.push({
-          agentId,
-          severity: candidate.severity,
-          what: result.what,
-        })
+        const gate = await gateNeedsSetup(
+          result.what,
+          sessionDenylist(session),
+          sessionSourceTexts(session),
+          secondRead,
+        )
+        spend.gate += ESTIMATED_COST_PER_CALL_USD
+        const what = gate.passed ? result.what : WITHHELD_NEEDS_SETUP
+        needsSetup.push({ agentId, severity: candidate.severity, what })
         line(candidate, DraftOutcome.needsSetup, {
-          needsSetup: result.what,
+          needsSetup: what,
           failureSummary,
+          gateFailures: gate.passed ? [] : [gate.rule],
         })
         continue
       }
@@ -367,16 +355,7 @@ export class CaseScoutDraftService {
         continue
       }
 
-      const draftedCase: DraftedCase = {
-        caseId: result.case.caseId,
-        condition: result.case.condition,
-        handledWhen: result.case.handledWhen,
-        source: 'production',
-        split: assignSplit(result.case.caseId),
-        ...(result.case.question !== undefined
-          ? { question: result.case.question }
-          : { turns: result.case.turns }),
-      }
+      const draftedCase = buildDraftedCase(result.case)
 
       // The prompt never shows the model the raw caseId list, so a collision
       // with main or with tonight's earlier draft is caught here.
@@ -397,7 +376,7 @@ export class CaseScoutDraftService {
       const gate = await gateDraft(
         draftedCase,
         sessionDenylist(session),
-        sessionUserMessages(session),
+        sessionSourceTexts(session),
         secondRead,
       )
       spend.gate += ESTIMATED_COST_PER_CALL_USD
@@ -450,7 +429,6 @@ export class CaseScoutDraftService {
       })
     }
 
-    const removals = await this.proposeRemovals(errors)
     const outcomes = (outcome: DraftOutcome) =>
       ledgerLines.filter((entry) => entry.outcome === outcome).length
     const newMarker = newMarkerCandidate(
@@ -465,7 +443,7 @@ export class CaseScoutDraftService {
     )
 
     return {
-      bundle: { runId, drafts, needsSetup, listFull, removals },
+      bundle: { runId, drafts, needsSetup, listFull, removals: [] },
       sources,
       ledgerLines,
       record: {
@@ -490,67 +468,6 @@ export class CaseScoutDraftService {
         errors: [...scoringErrors, ...errors],
         newMarker,
       },
-    }
-  }
-
-  // One Opus call, retried once when the reply cannot be read. A failed call
-  // is not retried here, as in the Python reader.
-  private async draftCandidate(
-    session: Session,
-    system: string,
-    signal: AbortSignal,
-  ): Promise<DraftResponse> {
-    const transcript = renderSessionTranscript(session)
-    let lastError = 'unknown'
-    for (let attempt = 0; attempt < DRAFT_PARSE_ATTEMPTS; attempt++) {
-      let text: string
-      try {
-        text = await this.model.draftCase(system, transcript, signal)
-      } catch (err) {
-        if (signal.aborted) throw err
-        throw new DraftingError(
-          `session ${session.sessionId}: drafting call failed`,
-        )
-      }
-      try {
-        return parseDraftResponse(text)
-      } catch (err) {
-        lastError = err instanceof Error ? err.message : lastError
-      }
-    }
-    throw new DraftingError(
-      `session ${session.sessionId}: drafting response could not be parsed ` +
-        `after retry (${lastError})`,
-    )
-  }
-
-  // Advisory and beside tonight's drafts, never in front of them: a failure
-  // here costs the PR its removal section, not its cases.
-  private async proposeRemovals(errors: string[]): Promise<Removal[]> {
-    const judgeBucket = judgeRecordsBucketName()
-    if (!judgeBucket) {
-      this.logger.info(
-        'CASE_SCOUT_JUDGE_RECORDS_BUCKET is unset; skipping noisy cases',
-      )
-      return []
-    }
-    const lists: CaseListInfo[] = []
-    for (const agentId of CHAT_AGENT_IDS) {
-      try {
-        lists.push(await this.caseLists.read(agentId))
-      } catch (err) {
-        this.logger.warn(
-          { err, agentId },
-          'Case scout could not read a case list for noisy cases',
-        )
-      }
-    }
-    try {
-      return await this.judgeRecords.proposeRemovals(judgeBucket, lists)
-    } catch (err) {
-      this.logger.warn({ err }, 'Case scout noisy-case proposals failed')
-      errors.push('noisy-case proposals could not be computed')
-      return []
     }
   }
 }

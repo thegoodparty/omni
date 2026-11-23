@@ -1,5 +1,6 @@
 import type { TestModeElectionPreset } from '@goodparty_org/contracts'
 import type { TestRace } from '@goodparty_org/test-users'
+import type { Annotate } from './annotation'
 
 // A suite declares which kind of test user its cases need, and one profile for
 // all of them: a case's three attempts are three identities with that same
@@ -36,6 +37,7 @@ export type AgentRunStatus =
 // One background agent run, read through the base URL alone.
 export type AgentRunResult = {
   runId: string
+  engine?: string
   status: AgentRunStatus
   // The validated artifact, as the route returns it. Absent until the run has
   // completed.
@@ -57,6 +59,16 @@ export type EvalApi = {
 
 export type EvalContext = {
   api: EvalApi
+  // A POST whose body is an SSE stream, returned as the raw text. A chat turn
+  // is the stream itself, so there is no JSON body to read: reading it through
+  // `api.post` would have axios try the whole thing as JSON and hand back an
+  // object for any single-frame body that happened to parse.
+  postEventStream: (path: string, body: { content: string }) => Promise<string>
+  // Writes one line of evidence onto the running test. A chat is several turns
+  // of prose and the grader sees only the transcript, so the turns are what a
+  // reader of a failed attempt needs to see.
+  annotate: Annotate
+
   // The arm's webapp root: dev for the base arm, a PR preview for the candidate.
   baseUrl: string
   // The org the bootstrap created for this run's test user, so nothing has to
@@ -111,7 +123,7 @@ export type PairwiseAgentEvalSuiteDefinition<Input> = {
   cases: EvalCase<Input>[]
 }
 
-export const definePairwiseAgentEvalSuite = <Input>(
+export const createPairwiseAgentEvalSuite = <Input>(
   name: string,
   definition: PairwiseAgentEvalSuiteDefinition<Input>,
 ): PairwiseAgentEvalSuite<Input> => {

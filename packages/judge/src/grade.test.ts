@@ -480,6 +480,22 @@ describe('createGrader', () => {
   })
 })
 
+describe('gradingSchema', () => {
+  // Claude's native JSON output scores 3.5; an integer-only schema rejected the
+  // whole verdict, and so every pair, on PR #3898.
+  it('accepts a half-point score and rejects one outside 1 to 5', () => {
+    const schema = gradingSchema(dimensions, false)
+    const verdict = (score: number) => ({
+      winner: 'A',
+      reasoning: 'A.',
+      dimensions: dimensions.map(({ name }) => ({ name, A: score, B: 3 })),
+    })
+    expect(schema.safeParse(verdict(3.5)).success).toBe(true)
+    expect(schema.safeParse(verdict(0)).success).toBe(false)
+    expect(schema.safeParse(verdict(5.5)).success).toBe(false)
+  })
+})
+
 describe('mean', () => {
   it('is 0 for no values and the average otherwise', () => {
     expect(mean([])).toBe(0)

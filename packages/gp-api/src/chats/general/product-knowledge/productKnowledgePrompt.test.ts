@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
 import {
   buildProductKnowledgeBlocks,
   HELP_CENTER_URL,
@@ -184,5 +185,18 @@ describe('product knowledge blocks', () => {
       const serve = buildProductKnowledgeBlocks('serve', true, false)[1] ?? ''
       expect(serve).not.toContain(RULE_MARK)
     })
+  })
+})
+
+describe('plan prices in the product map', () => {
+  it('quotes the configured plan prices, credit and Team-only invites to Win', () => {
+    const prompt = render('win')
+    expect(prompt).toContain(`Pro is $${PLAN_PRICING.proCents / 100}`)
+    expect(prompt).toContain(`Team is $${PLAN_PRICING.teamCents / 100}`)
+    expect(prompt).toContain(
+      `$${PLAN_PRICING.includedCreditCents / 100} in outreach credit`,
+    )
+    expect(prompt).toContain('inviting people needs the Team plan')
+    expect(prompt).toContain('Join Pro to send')
   })
 })

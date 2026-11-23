@@ -55,20 +55,34 @@ export class SecondReadCallError extends Error {}
 
 export type SecondReadCall = (draftText: string) => Promise<string>
 
-// The fields that reach GitHub, in the order the Python gate read them.
-export const draftFieldValues = (draft: CaseCandidate): string[] => [
-  draft.condition,
-  draft.handledWhen,
-  ...(draft.question ? [draft.question] : []),
-  ...(draft.turns ?? []),
-]
+export type CaseText = Pick<
+  CaseCandidate,
+  'caseId' | 'condition' | 'handledWhen' | 'question' | 'turns'
+>
 
-const normalize = (text: string): string =>
-  text
-    .toLowerCase()
-    .replace(new RegExp(String.raw`[^\p{L}\p{N}_\s]`, 'gu'), ' ')
-    .replace(/\s+/gu, ' ')
-    .trim()
+export type OutboundDraft = { case: CaseText } | { needsSetup: string }
+
+// Stands in for a needs-setup line that failed the gate, in the bundle and
+// the ledger alike.
+export const WITHHELD_NEEDS_SETUP = '(withheld: the line failed the PII gate)'
+
+// Hyphens and underscores become spaces, so a spaced denylist term such as
+// "Maple Falls" can match maple-falls-ward-2.
+const deslug = (caseId: string): string => caseId.replace(/[-_]+/gu, ' ').trim()
+
+// Every drafter-written string that can leave prod, as the gate reads it. The
+// gate checks exactly this list and caseScoutDeidentifier.eval.ts grades
+// exactly this list, so a new outbound field goes here and nowhere else.
+export const outboundStrings = (draft: OutboundDraft): string[] =>
+  'needsSetup' in draft
+    ? [draft.needsSetup]
+    : [
+        draft.case.condition,
+        draft.case.handledWhen,
+        ...(draft.case.question ? [draft.case.question] : []),
+        ...(draft.case.turns ?? []),
+        deslug(draft.case.caseId),
+      ]
 
 const escapeRegExp = (term: string): string =>
   term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -77,9 +91,13 @@ export const checkDenylist = (
   fields: string[],
   denylist: string[],
 ): string | undefined => {
+  // Each term also tries its punctuation as one space, so "Delacroix-Venn"
+  // still matches the de-slugged caseId "delacroix venn asks about turnout".
   const terms = [
     ...new Set(
-      denylist.filter((term) => term.length >= MIN_DENYLIST_TERM_LENGTH),
+      denylist
+        .flatMap((term) => [term, term.replace(/[^\p{L}\p{N}]+/gu, ' ').trim()])
+        .filter((term) => term.length >= MIN_DENYLIST_TERM_LENGTH),
     ),
   ].sort((a, b) => b.length - a.length)
   if (terms.length === 0) return undefined
@@ -94,24 +112,55 @@ export const checkDenylist = (
     : undefined
 }
 
-const shingles = (text: string): Set<string> => {
-  const words = text.split(/\s+/u).filter((word) => word !== '')
-  const runs = new Set<string>()
-  for (let i = 0; i + COPIED_TEXT_RUN_LENGTH <= words.length; i++) {
-    runs.add(words.slice(i, i + COPIED_TEXT_RUN_LENGTH).join(' '))
-  }
-  return runs
+const SENTENCE_BREAK = /[.!?\n]/u
+
+const runsOf = <T>(words: T[]): T[][] =>
+  words
+    .slice(0, Math.max(0, words.length - COPIED_TEXT_RUN_LENGTH + 1))
+    .map((_, i) => words.slice(i, i + COPIED_TEXT_RUN_LENGTH))
+
+// Copying a conversation is fine; copying who was in it is not. A source run
+// counts only when, as written, it holds a digit or a word capitalized
+// mid-sentence ("I" aside). An apostrophe splits a contraction, so "I'm" reads
+// as "I" and "m". caseScoutDeidentifier.eval.ts applies the same test with its
+// own code, so the eval measures this gate rather than echoing it.
+const identifyingSourceRuns = (text: string): string[] => {
+  const words = [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((match, i, all) => {
+    const token = match[0]
+    const prev = all[i - 1]
+    const sentenceStart =
+      prev === undefined ||
+      SENTENCE_BREAK.test(text.slice(prev.index + prev[0].length, match.index))
+    return {
+      word: token.toLowerCase(),
+      identifying:
+        /\p{N}/u.test(token) ||
+        (/^\p{Lu}/u.test(token) && !sentenceStart && token !== 'I'),
+    }
+  })
+  return runsOf(words)
+    .filter((run) => run.some(({ identifying }) => identifying))
+    .map((run) => run.map(({ word }) => word).join(' '))
 }
+
+// Split before lowercasing, as the source side does: lowercasing "İ" adds a
+// combining mark, which would split one word in two on this side only.
+const draftRuns = (text: string): string[] =>
+  runsOf(
+    [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((match) =>
+      match[0].toLowerCase(),
+    ),
+  ).map((run) => run.join(' '))
 
 export const checkCopiedText = (
   fields: string[],
-  userMessages: string[],
+  sourceTexts: string[],
 ): string | undefined => {
-  const source = shingles(normalize(userMessages.join(' ')))
+  const source = new Set(sourceTexts.flatMap(identifyingSourceRuns))
   if (source.size === 0) return undefined
-  const draft = shingles(normalize(fields.join(' ')))
-  return [...draft].some((run) => source.has(run))
-    ? "an 8-word run copied from the user's messages appeared in the draft"
+  return fields.some((field) => draftRuns(field).some((run) => source.has(run)))
+    ? 'an 8-word run copied from the session, with a number or a ' +
+        'mid-sentence capital in it, appeared in the draft'
     : undefined
 }
 
@@ -170,23 +219,51 @@ export const validateAgainstSchema = (
     : (result.error.issues[0]?.message ?? 'schema validation failed')
 }
 
-export const gateDraft = async (
-  draft: CaseCandidate,
+const gateStrings = async (
+  fields: string[],
   denylist: string[],
-  userMessages: string[],
+  sourceTexts: string[],
   secondRead: SecondReadCall,
+  schema?: () => string | undefined,
 ): Promise<GateResult> => {
-  const fields = draftFieldValues(draft)
   const layers: Array<[GateRule, () => Promise<string | undefined>]> = [
     ['denylist', async () => checkDenylist(fields, denylist)],
-    ['copiedText', async () => checkCopiedText(fields, userMessages)],
+    ['copiedText', async () => checkCopiedText(fields, sourceTexts)],
     ['contactPattern', async () => checkContactPatterns(fields)],
     ['secondRead', () => runSecondRead(fields, secondRead)],
-    ['schema', async () => validateAgainstSchema(draft)],
   ]
+  if (schema) layers.push(['schema', async () => schema()])
   for (const [rule, check] of layers) {
     const reason = await check()
     if (reason !== undefined) return { passed: false, rule, reason }
   }
   return { passed: true }
 }
+
+export const gateDraft = (
+  draft: CaseCandidate,
+  denylist: string[],
+  sourceTexts: string[],
+  secondRead: SecondReadCall,
+): Promise<GateResult> =>
+  gateStrings(
+    outboundStrings({ case: draft }),
+    denylist,
+    sourceTexts,
+    secondRead,
+    () => validateAgainstSchema(draft),
+  )
+
+// The text layers only: a needs-setup line has no case schema.
+export const gateNeedsSetup = (
+  what: string,
+  denylist: string[],
+  sourceTexts: string[],
+  secondRead: SecondReadCall,
+): Promise<GateResult> =>
+  gateStrings(
+    outboundStrings({ needsSetup: what }),
+    denylist,
+    sourceTexts,
+    secondRead,
+  )

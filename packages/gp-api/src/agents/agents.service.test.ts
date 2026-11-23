@@ -33,7 +33,6 @@ const InputSchema = z.object({
 })
 
 let lookUps: string[] = []
-let replays: unknown[] = []
 let artifacts: { runId: string; topic: string; artifact: unknown }[] = []
 
 const testAgent = defineAgent({
@@ -47,7 +46,6 @@ const testAgent = defineAgent({
       input: z.object({}),
       execute: async (_input, ctx) => {
         lookUps.push(ctx.stepKey)
-        replays.push(ctx.judgeReplay)
         return { found: 'https://example.gov/topic' }
       },
     },
@@ -160,27 +158,7 @@ describe('AgentsService', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     lookUps = []
-    replays = []
     artifacts = []
-  })
-
-  it("hands a judge run's replay ticket to its tools", async () => {
-    scriptedModel()
-    const judgeReplay = {
-      replay: {
-        mode: 'replay' as const,
-        key: '_judge/replay/sweep/s1/trending_issues/a1-baseline-1',
-      },
-      judgeRunId: '_judge-run-1',
-      issuedAt: 1_800_000_000,
-    }
-
-    await service.app
-      .get(AgentsService)
-      .run('testAgent', await seedOrg('agents-replay'), { judgeReplay })
-    await service.jobs.settle()
-
-    expect(replays).toEqual([judgeReplay, judgeReplay])
   })
 
   it('runs the agent as a job, one AgentMessage row per message, and saves the artifact', async () => {

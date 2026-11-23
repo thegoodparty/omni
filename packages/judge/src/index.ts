@@ -2,7 +2,15 @@
 // against. A suite may import nothing else from this package, and may only
 // `import type` from gp-api — the runner holds no gp-api runtime code.
 export {
-  definePairwiseAgentEvalSuite,
+  defineExpectedResultEvalSuite,
+  type Annotate,
+  type ExpectedResultEvalCase,
+  type ExpectedResultEvalSuite,
+  type ExpectedResultJudgeContext,
+  type ExpectedResultRunContext,
+} from './expectedResult'
+export { type JudgeModel } from './judgeModel'
+export {
   isPairwiseAgentEvalSuite,
   type AgentRunResult,
   type AgentRunStatus,
@@ -15,3 +23,10 @@ export {
   type PairwiseAgentEvalSuiteDefinition,
   type SuiteProfile,
 } from './suite'
+export { definePairwiseAgentEvalSuite } from './pairwise'
+export {
+  chatTurns,
+  type BriefingChatAnchor,
+  type ChatScope,
+  type ChatTurnsInput,
+} from './chatTurns'

@@ -71,7 +71,7 @@ then retry; 4xx errors `bail()` immediately.
 
 | Surface                                     | Controller / endpoints                                                                                                         | Method                                                        | Models                                                            | Tools                                                                                                                                             |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
+| **Briefing chat** (elected officials)       | `POST /briefing-chats` + `DELETE /briefing-chats/:annotationId` in `src/chats/briefing-chats/controllers/briefing-chats.controller.ts`; turns on `chats`' `…/:conversationId/messages?scope=briefing_annotation` (SSE) | `streamChatCompletion` via `ChatStreamService`                | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
 | **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
 | **Ordinance flow chat** (elected officials) | same general-chats controller, `scope=ordinance_flow` — one conversation per (ordinance, step)                                 | `streamChatCompletion` via `ChatStreamService` (`maxSteps` 8) | `ORDINANCE_FLOW_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | per step — see the ordinance flow paragraph below (research tools + `present_*` display tools, clarify widgets, `web_search`)                     |
 
@@ -115,13 +115,15 @@ to rendering the partial locally.
 change. `ChatScopeRegistry` **fails closed**: any `isSensitive` scope must use
 only `claude`-routed models, so tool outputs never leave Anthropic. **All five
 scopes are registered** — `chief_of_staff`, `campaign_assistant`,
-`ordinance_flow`, `priority_flow` and `briefing_annotation`. Briefing chat keeps its own
-`:annotationId` routes, but its context, prompt and tools come from
+`ordinance_flow`, `priority_flow` and `briefing_annotation`. Context, prompt and
+tools come from each handler registered under the scope; briefing chat's is
 `BriefingAnnotationHandler`, which `BriefingChatsService` builds once and the
 module republishes for the registry. Its `resolveConversation` rejects: a
 briefing conversation is created with its `Annotation` in one transaction
 (`POST /v1/briefing-chats`), so the generic create path cannot produce a usable
-one. Handlers may also declare an
+one, and its delete stays annotation-keyed because the briefing UI deletes the
+chat row it renders. Its TURNS run on the shared conversation-keyed route like
+every other scope's. Handlers may also declare an
 optional `maxSteps` to raise the tool-loop step budget (ordinance flow uses 8;
 the Campaign Manager and Chief of Staff use 15, because a single outreach turn
 chains describe, count, size and present before any retry).
@@ -370,14 +372,8 @@ string `boundarySavedMessage` sends — change one and change the other.
   the `usage` field of both conversation GETs). A user turn's id is the client's,
   so a retried send collides instead of appending a second turn. A briefing chat
   is an `Annotation(kind=chat)` pointing at a `ChatConversation` — which is why
-  briefing-chat endpoints key on `:annotationId`.
+  its create and delete key on `:annotationId` while its turns do not.
   Stores: `chatStore.prisma.ts`, `generalChatStore.prisma.ts`.
-- **Ratings** — `ChatMessageFeedback` (`chatMessageFeedback.prisma`), one row per
-  user's thumbs on an assistant `AgentMessage`. `agent_message_id` is still
-  nullable for ratings the #3872 backfill could not key, so
-  `ChatMessageFeedbackService` logs `chat_message_feedback unkeyed count`
-  (`{ unkeyed }`) on boot; both the column and that log go when the NOT NULL
-  migration lands.
 
 ## Prompt management
 
