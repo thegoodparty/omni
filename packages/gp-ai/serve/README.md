@@ -168,18 +168,16 @@ if len(messages) >= 20:
 | **Step Functions** | Orchestration + retry logic | 3 retries with exponential backoff |
 | **Lambda** | S3 event trigger | Starts Step Functions on CSV upload |
 | **CloudWatch** | Logging + monitoring | 30-day retention, Container Insights |
-| **SNS** | Failure notifications | Email + Slack alerts |
+| **SNS** | Failure notifications | Email; prod also forwards to the Delegate swarm |
 | **Secrets Manager** | API keys | GEMINI_API_KEY, SERVE_API_KEY |
 
 ### Terraform Infrastructure
 
 ```
 infrastructure/
-├── shared/
-│   ├── ecr/                    # Shared ECR repository
-│   └── slack-notifier/         # Shared Slack Lambda
 ├── modules/
-│   └── serve-analyze-fargate/  # Reusable ECS Fargate module
+│   ├── serve-analyze-fargate/   # Reusable ECS Fargate module
+│   └── swarm-alert-forwarder/   # Posts prod failures to the swarm webhook
 └── environments/
     ├── dev/serve-analyze-fargate/
     ├── qa/serve-analyze-fargate/
@@ -862,7 +860,7 @@ The `serve` directory implements a **production-ready, serverless, cost-optimize
 
 ✅ **Event-driven** - S3 upload or HTTP API triggers pipeline
 ✅ **Resilient** - Step Functions with 3 retries and exponential backoff
-✅ **Monitored** - CloudWatch logs, Container Insights, SNS + Slack alerts
+✅ **Monitored** - CloudWatch logs, Container Insights, SNS alerts
 ✅ **Cost-effective** - ARM64 Graviton saves 20%, ~$15-20/month for 300 runs (we could probably switch down to spot to save more, since these are not time sensitive and if they are )
 ✅ **Secure** - Private subnets, Secrets Manager, encrypted S3, IAM least privilege
 ✅ **Scalable** - Fargate auto-scales, no server management

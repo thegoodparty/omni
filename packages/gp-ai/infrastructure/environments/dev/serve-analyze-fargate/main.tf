@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.0"
+  # >= 1.7 for the removed blocks that drop the old Slack subscription.
+  required_version = ">= 1.7.0"
 
   required_providers {
     aws = {
@@ -58,28 +59,20 @@ data "aws_ecr_repository" "ai_projects" {
   name = "gp-ai-projects"
 }
 
-data "terraform_remote_state" "shared_slack_notifier" {
-  backend = "s3"
-
-  config = {
-    bucket = "goodparty-terraform-state-us-west-2"
-    key    = "shared/slack-notifier/terraform.tfstate"
-    region = "us-west-2"
-  }
-}
-
+# No swarm subscription: SWARM_ALERT_WEBHOOK_URL and SWARM_ALERT_WEBHOOK_SECRET
+# live in AI_SECRETS_PROD only, and dev is not meant to report pipeline failures
+# to the swarm. Email remains the dev destination.
 module "serve_analyze_fargate" {
   source = "../../../modules/serve-analyze-fargate"
 
-  environment                        = "dev"
-  vpc_id                             = var.vpc_id
-  private_subnet_ids                 = var.private_subnet_ids
-  ecr_repository_url                 = data.aws_ecr_repository.ai_projects.repository_url
-  docker_image_tag                   = var.docker_image_tag
-  sqs_queue_arn                      = "arn:aws:sqs:us-west-2:333022194791:develop-Queue.fifo"
-  sqs_queue_url                      = "https://sqs.us-west-2.amazonaws.com/333022194791/develop-Queue.fifo"
-  shared_slack_notifier_lambda_arn   = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
-  failure_notification_email         = var.failure_notification_email
+  environment                = "dev"
+  vpc_id                     = var.vpc_id
+  private_subnet_ids         = var.private_subnet_ids
+  ecr_repository_url         = data.aws_ecr_repository.ai_projects.repository_url
+  docker_image_tag           = var.docker_image_tag
+  sqs_queue_arn              = "arn:aws:sqs:us-west-2:333022194791:develop-Queue.fifo"
+  sqs_queue_url              = "https://sqs.us-west-2.amazonaws.com/333022194791/develop-Queue.fifo"
+  failure_notification_email = var.failure_notification_email
 }
 
 output "cluster_name" {
