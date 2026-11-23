@@ -88,7 +88,8 @@ Where Pro state lives (all of it — there is no subscription table):
   backfill missed the user because they had no stored `checkoutSessionId`).
 - `user.metaData.checkoutSessionId` — the ONE open Pro checkout session per
   user. Written only by `createProCheckoutSession`, cleared by the completion
-  and expiry webhooks.
+  webhook, by `customer.subscription.created` when the stored session created
+  that subscription, and by the expiry webhook.
 
 **Failed renewals reach the candidate through Segment, not email code.**
 `customer.subscription.updated` fires `Account - Pro Subscription Past Due`
