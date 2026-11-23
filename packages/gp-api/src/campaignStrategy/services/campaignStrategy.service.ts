@@ -33,8 +33,8 @@ import {
 import { StrategicLandscapeParamsService } from './strategicLandscapeParams.service'
 import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import {
-  IN_FLIGHT_SECTION_STATUSES,
   type SectionRun,
+  sectionRunIsInFlight,
   sectionRunFrom,
 } from './sectionRun'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -656,7 +656,7 @@ export class CampaignStrategyService extends createPrismaBase(
     persistedAt: Date | null,
   ): SectionState {
     if (persistedAt) return 'persisted'
-    if (run && IN_FLIGHT_SECTION_STATUSES.includes(run.status)) {
+    if (run && sectionRunIsInFlight(run)) {
       return 'inflight'
     }
     // COMPLETED but unpersisted: in-flight until the grace window (waiting for
@@ -903,7 +903,16 @@ export class CampaignStrategyService extends createPrismaBase(
       }
       const run = await this.experimentRuns.dispatchRun({ type, ...base })
       return run?.runId
-    } catch {
+    } catch (error) {
+      // A gp-api dispatch runs the agent's own Zod input parse and an org
+      // lookup, neither of which existed on the PMF Engine's path. A schema
+      // mismatch here fails identically on every attempt, so a retry only
+      // spends the attempt cap; log it either way, or a permanent failure reads
+      // as a transient queue fault.
+      this.logger.error(
+        { error, type, organizationSlug: base.organizationSlug },
+        'failed to dispatch a campaign strategy section run',
+      )
       return undefined
     }
   }

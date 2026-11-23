@@ -16,7 +16,7 @@ markers are set; a failed or stuck section re-dispatches on the next poll.
 | Path | What |
 | --- | --- |
 | `campaignStrategy.service.ts` | The polling endpoint, the two sections' dispatch and write path, and the race/story/roster reset machinery |
-| `services/sectionRun.ts` | One section's run, read from whichever engine ran it: status, roster seen, artifact |
+| `services/sectionRun.ts` | One section's run, read from whichever engine ran it: status, which engine, roster seen, artifact |
 | `services/strategicLandscapeParams.service.ts` | Builds the agent input and fits it to the dispatch budget |
 | `services/strategicLandscape.persister.ts` | The two sections' rows, claimed against the race the run generated for |
 | `services/raceContext.service.ts` | The election database's campaign-strategy context |
@@ -32,6 +32,14 @@ reads it: `tryDispatch` picks `AgentsService.run` or the PMF Engine's
 `persistSection` the PMF Engine's result consumer calls. `sectionRunFor` is public
 so the race-opponent page's discovery status reads the same table the dispatcher
 wrote to.
+
+`superseded` is the one status the two engines disagree about, so a `SectionRun`
+carries its `engine` and `sectionRunIsInFlight` reads it. The PMF Engine's resume
+sweep writes it on a predecessor *after* dispatching a successor that shares the
+plan's run id, so there it is in flight and re-dispatching would orphan live work.
+gp-api's `supersede` starts a successor under a new run id that nothing points the
+plan at, so that run can never land: it has to read as re-dispatchable, or the
+plan stays `generating` forever.
 
 A section whose run no plan links is a judge run, or one a race change already
 orphaned. Its output has nowhere to land, and the judge's run route returns the

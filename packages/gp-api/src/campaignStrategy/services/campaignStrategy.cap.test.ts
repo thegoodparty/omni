@@ -5,7 +5,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common'
-import { ExperimentRunStatus } from '../../generated/prisma'
+import { AgentRunStatus, ExperimentRunStatus } from '../../generated/prisma'
 import { fingerprintStory } from '@/campaignStory/services/campaignStoryState.service'
 import { CampaignStrategyService } from './campaignStrategy.service'
 import { RaceContextNotFoundError } from './raceContext.service'
@@ -93,6 +93,7 @@ describe('CampaignStrategyService', () => {
     }
     campaign: { findUnique: ReturnType<typeof vi.fn> }
     experimentRun: { findUnique: ReturnType<typeof vi.fn> }
+    agentRun: { findUnique: ReturnType<typeof vi.fn> }
     organization: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
@@ -159,6 +160,7 @@ describe('CampaignStrategyService', () => {
       experimentRun: {
         findUnique: vi.fn().mockResolvedValue(null),
       },
+      agentRun: { findUnique: vi.fn().mockResolvedValue(null) },
       organization: {
         findUnique: vi.fn().mockResolvedValue({
           owner: { email: 'real@x.com' },
@@ -742,6 +744,62 @@ describe('CampaignStrategyService', () => {
     expect(res).toEqual({ status: 'generating' })
     expect(params.build).not.toHaveBeenCalled()
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+  })
+
+  // gp-api's supersede starts a successor under a NEW run id that nothing points
+  // the plan at, so the run the plan still names can never land. Reading that as
+  // in flight (which is right for the PMF Engine's shared-link successor) hangs
+  // the plan generating forever; it has to re-dispatch instead.
+  it('re-dispatches when the plan names a superseded gp-api run', async () => {
+    process.env.AGENTS_ON_GP_API = 'opposition_research'
+    try {
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
+      )
+      prisma.agentRun.findUnique.mockResolvedValue({
+        id: 'opp-run',
+        status: AgentRunStatus.superseded,
+        input: { campaignStrategyContext: { candidateCount: 2 } },
+        artifact: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      agents.run.mockResolvedValue({ runId: 'opp-retry' })
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(agents.run).toHaveBeenCalledWith(
+        'opposition_research',
+        expect.anything(),
+      )
+      expect(res).toEqual({ status: 'generating' })
+    } finally {
+      delete process.env.AGENTS_ON_GP_API
+    }
+  })
+
+  // gp-api's dispatch runs the agent's own Zod parse and an org lookup that the
+  // PMF Engine's path never had, so a schema mismatch fails the same way on
+  // every attempt. It has to be logged, or a permanent failure reads as a
+  // transient queue fault while it silently spends the attempt cap.
+  it('logs a gp-api dispatch failure instead of swallowing it', async () => {
+    process.env.AGENTS_ON_GP_API = 'opposition_research'
+    try {
+      prisma.campaignStrategy.upsert.mockResolvedValue(
+        planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
+      )
+      prisma.agentRun.findUnique.mockResolvedValue(null)
+      agents.run.mockRejectedValue(new Error('userFullName is required'))
+
+      await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(service['logger'].error).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'opposition_research' }),
+        'failed to dispatch a campaign strategy section run',
+      )
+    } finally {
+      delete process.env.AGENTS_ON_GP_API
+    }
   })
 
   it('re-dispatches a section whose previous run FAILED', async () => {
