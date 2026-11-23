@@ -19,7 +19,13 @@ ol{margin:0;padding-left:24px}li{padding:3px 0}
 .box.ok{border-color:#15803d;background:#f0fdf4}
 .box.fail{border-color:#b91c1c;background:#fee2e2}
 .box.unknown{border-color:#b45309;background:#fffbeb;border-style:dashed}
-.arrow{font-size:20px;color:#52525b}
+.line{position:relative;flex:1 1 40px;min-width:40px;height:2px;background:#a1a1aa}
+.line i{position:absolute;top:-4px;left:0;width:10px;height:10px;border-radius:50%;background:#4338ca;animation:move 2s linear infinite}
+@keyframes move{from{left:0}to{left:calc(100% - 10px)}}
+@media (prefers-reduced-motion:reduce){.line i{animation:none;left:calc(50% - 5px)}}
+details{background:#fff;border:1px solid #e4e4e7;border-radius:12px;padding:10px 18px;margin:12px 0}
+summary{cursor:pointer;font-weight:600}
+details pre{white-space:pre-wrap}
 pre{background:#f4f4f5;border-radius:6px;padding:10px;overflow:auto;font-size:13px}
 code{background:#f4f4f5;padding:1px 4px;border-radius:3px}
 small,footer{color:#52525b}a{color:#4338ca}
@@ -41,16 +47,16 @@ small,footer{color:#52525b}a{color:#4338ca}
 
 <section class="section" id="five-whys">
   <h2>Five Whys</h2>
-  <!-- Optional. Only if it clarifies the cause. One .box per relevant step; class ok / fail / unknown. -->
-  <div class="flow">
-    <div class="box ok">{{Step}}</div><span class="arrow">→</span>
-    <div class="box fail">{{Failed step}}</div><span class="arrow">→</span>
-    <div class="box unknown">{{Unverified step}}</div>
-  </div>
   <ol>
     <li><strong>{{Why question?}}</strong> {{Answer with concrete technical detail and a link to evidence. Label Confirmed or Unknown.}}</li>
     <li>…</li><li>…</li><li>…</li><li>…</li>
   </ol>
+  <!-- Optional, placed below the whys. Only if it clarifies the cause. 3 to 5 steps. A dot travels left to right along the line and stops at the step that failed or is unknown. Keep it this simple. -->
+  <div class="flow" aria-label="Data flow">
+    <div class="box ok">{{Step}}</div><div class="line"><i></i></div>
+    <div class="box fail">{{Failed step}}</div><div class="line"><i></i></div>
+    <div class="box unknown">{{Unverified step}}</div>
+  </div>
 </section>
 
 <section class="section" id="proposed-solution">
@@ -60,5 +66,13 @@ small,footer{color:#52525b}a{color:#4338ca}
   <p><strong>Cleanup (owned by the bug responder):</strong> {{identify, repair, verify; or why none is needed}}</p>
   <p>{{Confirmed RCA only: ask reviewers for a thumbs up or a pinned comment. Incomplete: no approval request.}}</p>
 </section>
+<details id="evidence">
+  <summary>Evidence</summary>
+  <!-- Collapsed by default. Complete enough that an agent can act without going back to the sources: every query run (exact text, tool, environment, time window) with its result summary and any decisive raw lines; ticket facts and quotes used; code references (repo path, line, commit); record and request ids; what was attempted and unavailable. Customer ids are fine, secrets and tokens never. -->
+  <h3>{{Group, e.g. Ticket facts}}</h3><pre>{{...}}</pre>
+  <h3>{{Group, e.g. Telemetry}}</h3><pre>{{...}}</pre>
+  <h3>{{Group, e.g. Code}}</h3><pre>{{...}}</pre>
+  <h3>Not available / unverified</h3><pre>{{what was tried, why it failed}}</pre>
+</details>
 <footer>{{links to ticket, PR, evidence}}</footer>
 </main></body></html>

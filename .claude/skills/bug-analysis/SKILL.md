@@ -7,7 +7,9 @@ Read the ticket and relevant discussion. Check related tickets and the code depl
 
 Section titles are exactly Impact, Five Whys and Resolution, unnumbered. The third is always named Resolution, even when the investigation is incomplete.
 
-Create a private, single-page HTML artifact using the Omni `artifacts` skill. Start from `template.html` in this skill's folder (copy it, then fill in the placeholders; keep its structure and styles). Aim for a two-minute read. Link to evidence rather than pasting logs or duplicating the analysis in ClickUp. Customer-level identifiers (Stripe ids, record ids, emails) are fine on the page because artifacts sit behind login; raw log or query output still goes in the evidence log, not the page.
+Create a private, single-page HTML artifact using the Omni `artifacts` skill. Start from `template.html` in this skill's folder (copy it, then fill in the placeholders; keep its structure and styles). Aim for a two-minute read. Do not duplicate the analysis in ClickUp. Customer-level identifiers (Stripe ids, record ids, emails) are fine on the page because artifacts sit behind login. Never include secrets or tokens.
+
+The visible page stays short. Put all supporting evidence in a collapsed `<details id="evidence">` section at the end, as the template shows, so the page is self-sufficient: a person or agent acting on it must not need to go back to the sources. Include every query run (exact text, tool, environment, time window) with its result and decisive raw lines, ticket facts and quotes used, code references (path, line, commit), record and request ids, and what was unavailable. Evidence is for reference; the three sections above must read well without it.
 
 The page has two levels of cards: three section cards (Impact, Five Whys, Resolution), and inside Impact the three High / Medium / Low severity cards. Both are fixed by the template and always present.
 
@@ -23,7 +25,7 @@ Always show all three severity cards, even in an incomplete investigation: side 
 
 ## Five Whys
 
-Use five short numbered questions and answers. Start at the symptom and trace the relevant system boundaries, fields, and failed checks. Verify the root cause before presenting the analysis for approval. If evidence needed to identify or confirm it is missing, label the analysis incomplete, state exactly what evidence is missing, and do not ask for approval. Do not invent a cause to fill a slot. Add a small flow diagram only if it clarifies the cause. Draw it as real boxes and connecting arrows (inline SVG or CSS flex boxes), never a text or code block. Show only the relevant handoffs, one box per system step, and color the box or arrow where it failed (or where it is unknown).
+Use five short numbered questions and answers in plain language a non-engineer on the team can follow: one or two short sentences each, no unexplained code, field or function names (name the product behavior; put identifiers and code detail in Evidence). Start at the symptom and trace the relevant system boundaries, fields, and failed checks. Verify the root cause before presenting the analysis for approval. If evidence needed to identify or confirm it is missing, label the analysis incomplete, state exactly what evidence is missing, and do not ask for approval. Do not invent a cause to fill a slot. Below the five questions, add a very simple animated data flow only if it clarifies the cause: 3 to 5 boxes joined by lines with a dot moving along them, copied from the template, never a text or code block. One box per relevant step; color the box where it failed or is unknown.
 
 ## Resolution
 
