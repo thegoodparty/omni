@@ -1237,6 +1237,9 @@ describe('PriorityFlowHandler', () => {
         expect(prompt).toContain(SHORT_CIVIC_PANEL_WARNING)
         expect(prompt).toContain('Whether to keep filling it')
         expect(prompt).not.toContain('so what they hear may lean')
+        expect(prompt).not.toContain(
+          'When a check is warranted, its first round is one text to residents across the district',
+        )
       })
 
       it('keeps round one first for an exhausted civic panel under 30 members', () => {
@@ -1250,6 +1253,9 @@ describe('PriorityFlowHandler', () => {
         )
         expect(prompt).toContain('so what they hear may lean')
         expect(prompt).not.toContain(SHORT_CIVIC_PANEL_WARNING)
+        expect(prompt).toContain(
+          'When a check is warranted, its first round is one text to residents across the district',
+        )
       })
 
       it('recommends asking a ready civic panel and presents its card, with no choice of paths', () => {

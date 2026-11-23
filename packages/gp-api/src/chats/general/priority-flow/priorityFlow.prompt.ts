@@ -896,7 +896,11 @@ export const buildPriorityFlowSystemPrompt = (args: {
       args.ctx.managedCivicPanelReadFailed === true
       ? 'unknown'
       : 'text'
-    : status === 'ready'
+    : status === 'ready' ||
+        (status === 'exhausted' &&
+          managedPanel !== null &&
+          managedPanel !== undefined &&
+          managedPanel.members >= PANEL_MIN_MEMBERS_FOR_BALANCE)
       ? 'ready'
       : status === 'building' ||
           status === 'paused' ||
