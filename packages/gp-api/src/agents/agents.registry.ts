@@ -2,6 +2,7 @@ import { oppositionResearchAgent } from '@/campaignStrategy/oppositionResearch/o
 import { topCommunityIssuesAgent } from '@/communityIssues/topCommunityIssuesAgent/topCommunityIssues.agent'
 import { trendingIssuesAgent } from '@/communityIssues/trendingIssuesAgent/trendingIssues.agent'
 import { meetingScheduleAgent } from '@/meetings/meetingScheduleAgent/meetingSchedule.agent'
+import { selfResearchAgent } from '@/raceOpponent/selfResearchAgent/selfResearch.agent'
 import type { AgentDefinition } from './defineAgent'
 
 // Every gp-api agent, by name. The name is the run's AgentRun.agentName. An
@@ -11,6 +12,7 @@ import type { AgentDefinition } from './defineAgent'
 export const AGENTS: Record<string, AgentDefinition> = {
   meeting_schedule: meetingScheduleAgent,
   opposition_research: oppositionResearchAgent,
+  self_research: selfResearchAgent,
   top_community_issues: topCommunityIssuesAgent,
   trending_issues: trendingIssuesAgent,
 }

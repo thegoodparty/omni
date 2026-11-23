@@ -151,16 +151,20 @@ pipeline before editing, since the names are easy to confuse:
 | `race_opponent_collection` | relaxed (the live `/dashboard/race-opponent` page) | `RaceOpponentService.collect`/`collectManual` | relaxed |
 | `race_opponent_summary` | relaxed (chained after collection) | `RaceOpponentService.dispatchSummary` (called from `RaceOpponentPersistService`) | relaxed |
 | `race_opponent_actions` | relaxed (chained after summary; inputs are the persisted summary sections plus Haystaq district sentiment) | gp-api RaceOpponent actions chain (ENG-10646) | relaxed |
-| `self_research` | strict engine (candidate's own pass) | `SelfResearchService` | sourced-or-silent |
+| `self_research` | strict engine (candidate's own pass) | `SelfResearchService`, or gp-api's own `self_research` agent where the switch is on | sourced-or-silent |
 | `opponent_research` | strict engine (sourced findings → contrasts) | `OpponentResearchService` | sourced-or-silent |
 
-The two strict experiments carry a `qa/` grounding gate (each `source_extract`
-substring-checked against its cited source); the relaxed three work only from
-already-collected/persisted text (plus brokered Haystaq numbers for
-`race_opponent_actions`) and do not. `opponent_research`'s `candidate_platform` input is
+`opponent_research` carries a `qa/` grounding gate (each `source_extract`
+substring-checked against its cited source), so while its switch is off a
+reviewer's source check is that gate's job. `self_research` has none: its
+`qa/` checker was deleted with its move onto gp-api's agents, where the same
+grounding rule is the prompt's own and the judge reads it per attempt. The
+relaxed three work only from already-collected/persisted text (plus brokered
+Haystaq numbers for `race_opponent_actions`) and never had one.
+`opponent_research`'s `candidate_platform` input is
 built from `Website.content.about`, not Campaign Story (gp-api ENG-10607) — if you
 change that input shape, change the gp-api producer in the same PR. See
-`packages/gp-api/src/raceOpponent/CLAUDE.md` for the full split and gating.
+`packages/gp-api/src/raceOpponent/AGENTS.md` for the full split and gating.
 
 ## See also
 

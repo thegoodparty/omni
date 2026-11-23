@@ -13,6 +13,7 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import {
+  AgentRunStatus,
   Prisma,
   RaceOpponentFindingKind,
   RaceOpponentResearchStatus,
@@ -21,15 +22,18 @@ import {
 } from '@/generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { runsOnGpApi } from '@/agents/agents.registry'
+import { AgentsService } from '@/agents/agents.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
-import { getUserFullName } from '@/users/util/users.util'
+import { getUserFullName, isTestUser } from '@/users/util/users.util'
 import {
   MAX_SELF_RESEARCH_ATTEMPTS,
   SELF_RESEARCH,
 } from '../raceOpponent.constants'
+import type { SelfResearchInput } from '../selfResearchAgent/selfResearch.schema'
 
-type SelfResearchInput = AgentJobContracts['self_research']['Input']
+type PmfSelfResearchInput = AgentJobContracts['self_research']['Input']
 
 // Only the campaign-details keys this module reads; the column is untyped JSON
 // at runtime, so each leaf is independently fault-tolerant.
@@ -51,6 +55,7 @@ export class SelfResearchService extends createPrismaBase(
 ) {
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
+    private readonly agents: AgentsService,
     private readonly raceContextService: RaceContextService,
   ) {
     super()
@@ -70,6 +75,52 @@ export class SelfResearchService extends createPrismaBase(
     }
   }
 
+  // The run's own outcome, applied to the research row when the row is the only
+  // thing the product reads. onArtifact marks the row completed on the success
+  // path, so this is the failure path: an AgentRun has no callback to flip a row
+  // the PMF Engine's consumer would have flipped, and left queued the pass could
+  // never be retried and the opponent gate would 403 forever. A superseded run
+  // reads as failed too: its replacement is a different row-less run we cannot
+  // identify from here, so the honest state is "try again". One update, only
+  // when the status actually differs.
+  private async reconciledSelfRow(
+    campaignId: number,
+  ): Promise<RaceOpponentResearchRow | null> {
+    const row = await this.selfRow(campaignId)
+    if (
+      !row?.runId ||
+      !runsOnGpApi(SELF_RESEARCH) ||
+      (row.status !== RaceOpponentResearchStatus.queued &&
+        row.status !== RaceOpponentResearchStatus.running)
+    ) {
+      return row
+    }
+    const run = await this.client.agentRun.findUnique({
+      where: { id: row.runId },
+      select: { status: true },
+    })
+    if (!run) return row
+    // A superseded run reads as failed: its replacement is a fresh run this row
+    // has no id for, so the honest state is "try again".
+    const status =
+      run.status === AgentRunStatus.completed
+        ? RaceOpponentResearchStatus.completed
+        : run.status === AgentRunStatus.failed ||
+            run.status === AgentRunStatus.superseded
+          ? RaceOpponentResearchStatus.failed
+          : null
+    if (status === null) return row
+    return this.model.update({
+      where: { id: row.id },
+      data: {
+        status,
+        ...(status === RaceOpponentResearchStatus.completed && {
+          completedAt: row.completedAt ?? new Date(),
+        }),
+      },
+    })
+  }
+
   // The self pass per campaign. opponentName is null for kind=self, so the
   // @@unique([campaignId, kind, opponentName]) doesn't enforce a single row
   // (Postgres treats nulls as distinct); findFirst on (campaignId, kind=self)
@@ -85,14 +136,13 @@ export class SelfResearchService extends createPrismaBase(
   ): Promise<StartSelfResearchResponse> {
     this.assertAccess(campaign)
 
-    const clerkUserId = campaign.user?.clerkId
-    if (!clerkUserId) {
+    if (!campaign.user?.clerkId) {
       throw new BadRequestException(
         'User must be signed in to start self-research.',
       )
     }
 
-    const existing = await this.selfRow(campaign.id)
+    const existing = await this.reconciledSelfRow(campaign.id)
 
     // Reuse an already-settled or in-flight pass rather than dispatching a
     // duplicate paid run. completed is included: re-running a finished pass is a
@@ -155,14 +205,9 @@ export class SelfResearchService extends createPrismaBase(
       }
     }
 
-    let run: Awaited<ReturnType<typeof this.experimentRuns.dispatchRun>>
+    let run: { runId: string } | undefined
     try {
-      run = await this.experimentRuns.dispatchRun({
-        type: SELF_RESEARCH,
-        organizationSlug: campaign.organizationSlug,
-        clerkUserId,
-        params,
-      })
+      run = await this.dispatchRun(campaign, params)
     } catch (error) {
       await this.rollbackClaim(claimed.id)
       throw error
@@ -196,6 +241,50 @@ export class SelfResearchService extends createPrismaBase(
     return { research: this.toResearch(bound) }
   }
 
+  // The engine switch (runsOnGpApi): gp-api's own agent, or a PMF Engine
+  // dispatch. The PMF Engine's dispatchRun makes the test-user and test-mode
+  // check itself; run() does not, so the gp-api path makes it here, as the
+  // community-issues dispatcher does.
+  private async dispatchRun(
+    campaign: CampaignWith<'user'>,
+    params: PmfSelfResearchInput,
+  ): Promise<{ runId: string } | undefined> {
+    if (!runsOnGpApi(SELF_RESEARCH)) {
+      const run = await this.experimentRuns.dispatchRun({
+        type: SELF_RESEARCH,
+        organizationSlug: campaign.organizationSlug,
+        clerkUserId: campaign.user?.clerkId ?? undefined,
+        params,
+      })
+      return run && { runId: run.runId }
+    }
+    const organization = await this.client.organization.findUnique({
+      where: { slug: campaign.organizationSlug },
+      select: { owner: { select: { email: true } }, testModeCreatedAt: true },
+    })
+    if (
+      isTestUser({ email: organization?.owner.email ?? '' }) ||
+      organization?.testModeCreatedAt
+    ) {
+      this.logger.info(
+        { organizationSlug: campaign.organizationSlug },
+        'Skipping agent run for test-user org',
+      )
+      return
+    }
+    return this.agents.run(SELF_RESEARCH, {
+      organizationSlug: campaign.organizationSlug,
+      fullName: params.full_name,
+      state: params.state,
+      city: params.city ?? null,
+      officeName: params.office_name,
+      priorRoles: params.prior_roles ?? [],
+      websiteUrl: params.website_url ?? null,
+      socialUrls: params.social_urls ?? [],
+      coverageUrls: params.coverage_urls ?? [],
+    } satisfies SelfResearchInput)
+  }
+
   // Scope the rollback to the exact claimed row id so a concurrent retry's
   // active claim can't be cleared by this caller's late failure. Swallow a
   // rollback fault: rethrowing it would leave the row stuck queued-with-null
@@ -222,7 +311,7 @@ export class SelfResearchService extends createPrismaBase(
   ): Promise<RaceOpponentResearchStatusResponse> {
     this.assertAccess(campaign)
 
-    const row = await this.selfRow(campaign.id)
+    const row = await this.reconciledSelfRow(campaign.id)
 
     return {
       status: row?.status ?? RaceOpponentResearchStatus.not_started,
@@ -258,7 +347,7 @@ export class SelfResearchService extends createPrismaBase(
   // null/empty rather than blocking — the agent works from name + office alone.
   private async buildParams(
     campaign: CampaignWith<'user'>,
-  ): Promise<SelfResearchInput> {
+  ): Promise<PmfSelfResearchInput> {
     const user = campaign.user
     if (!user) {
       throw new BadRequestException(

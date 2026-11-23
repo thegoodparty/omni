@@ -1,10 +1,18 @@
 import type { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 
-// self_research, converted from the old judge's case list. The cases are unchanged in
+// self_research, converted from the old judge's background case list
+// (src/chats/evals/judge/cases/self_research.json). A case keeps its id and its
 // meaning: `params` is `input`, and `condition`, `handledWhen` and the dimension
 // questions are `grading`. A case marked unscored there is a normal case here
 // whose condition says it is a control.
+//
+// Two deliberate differences from that list. Every case here carries a
+// `handledWhen`, because a case without one cannot catch a regression. And
+// `wrong-jurisdiction-namesake` replaces that list's `small-borough-many-hints`:
+// a place-name collision in the wrong state is the failure this agent is most
+// likely to make (Fayetteville AR for Fayetteville NC, Portland OR for Portland
+// ME), and the two probes it kept already cover a rich hint set.
 //
 // Win: the agent researches the candidate the campaign belongs to.
 //
@@ -13,6 +21,10 @@ import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 // That type is the generated job contract, which is the shape the run route
 // accepts on both engines, rather than a gp-api agent's own Zod input, which
 // names the same fields in camelCase.
+//
+// Every case is a fictional person ("Test ..." in the e2e house style, on
+// example.org) against a real office, state and place, because this file is
+// public and a finding is a claim about a real person's record.
 type SelfResearchEvalInput = Omit<
   AgentJobContracts['self_research']['Input'],
   'organization_slug'
@@ -72,13 +84,38 @@ export default definePairwiseAgentEvalSuite<SelfResearchEvalInput>(
         },
         grading: {
           condition:
-            'No hints: a fictional candidate (Test County Candidate) for the Flathead County Commission, Montana, city Kalispell, with website null, empty social and coverage lists, and no prior roles. Every source must be discovered, and searches on a thin name tend to surface other people. The check is the identity rule.',
+            'Thin data and no hints: a fictional candidate (Test County Candidate) for the Flathead County Commission, Montana, city Kalispell, with website null, empty social and coverage lists, and no prior roles. Every source must be discovered, this county has one weekly paper and no archive, and searches on a thin name tend to surface other people. An empty findings list is the expected result, and padding it to look thorough is the failure this case exists to catch.',
           handledWhen:
-            'every finding is about this candidate in this race, with its extract, title or source tying it to Flathead County, Kalispell or the commission race; an empty findings list is handled. A finding about a same-named person, another office or another place is not handled.',
+            'findings is short or empty, every finding is about this candidate in the Flathead County race with its extract, title or source tying it to Flathead County, Kalispell or the commission race, and no finding rests on a statewide or regional story presented as this candidate. A generic claim with no named instance is not handled; neither is a same-named person elsewhere.',
+          dimensions: {
+            proportionality:
+              'Does the volume and detail of each finding match the volume of evidence behind it? A long entry over thin evidence is disproportionate; shortness is not a virtue by itself.',
+          },
         },
       },
       {
-        id: 'long-public-record',
+        id: 'wrong-jurisdiction-namesake',
+        input: {
+          full_name: 'Test Fayetteville Candidate',
+          state: 'NC',
+          city: 'Fayetteville',
+          office_name: 'Fayetteville City Council',
+          prior_roles: [],
+          website_url: null,
+        },
+        grading: {
+          condition:
+            'A place-name collision: a fictional candidate (Test Fayetteville Candidate) for Fayetteville City Council, North Carolina. Fayetteville, Arkansas draws far more political coverage than Fayetteville, North Carolina, so searches return Arkansas council members, Arkansas votes and an Arkansas campaign site. state is NC and it is the authority: an Arkansas page is a page to drop, not a record of this candidate. The agent is told to confirm the identity on every fetched page, and this case is whether it did.',
+          handledWhen:
+            'every finding belongs to Fayetteville, North Carolina, or to an office this candidate actually held, and no finding carries an Arkansas vote, statement, donation or source. One Arkansas source in a finding is not handled; an empty findings list is handled.',
+          dimensions: {
+            entity_discipline:
+              "Are distinct people kept distinct? Facts from one person appearing in another person's finding count against; naming the ambiguity counts in favor.",
+          },
+        },
+      },
+      {
+        id: 'long-public-record-allowlist',
         input: {
           full_name: 'Test Incumbent Candidate',
           state: 'WA',
@@ -132,7 +169,7 @@ export default definePairwiseAgentEvalSuite<SelfResearchEvalInput>(
         },
         grading: {
           condition:
-            'Empty footprint: a fictional candidate (Test Selectboard Candidate) for the Middlebury Selectboard, Vermont, with prior_roles, social_urls and coverage_urls all empty and no website. The input names no prior public role, so a record finding needs its own evidence of one. The check is that an empty result is not padded.',
+            'Empty footprint, thin data: a fictional candidate (Test Selectboard Candidate) for the Middlebury Selectboard, Vermont, with prior_roles, social_urls and coverage_urls all empty and no website. The input names no prior public role, so a record finding needs its own evidence of one.',
           handledWhen:
             "findings is empty, or each finding names a specific instance of the candidate's own conduct that its extract shows. A record finding with no extract showing the candidate held the role, or a generic claim about the office or the race, is not handled.",
         },
@@ -144,7 +181,12 @@ export default definePairwiseAgentEvalSuite<SelfResearchEvalInput>(
           state: 'NC',
           office_name: 'Hendersonville City Council',
         },
-        grading: {},
+        grading: {
+          condition:
+            'The three required fields and nothing else: a fictional first-time candidate (Test First Time Candidate) for Hendersonville City Council, North Carolina. No city, no prior roles, no hints. A first-time candidate genuinely may have no attackable public record, and this case is whether the agent says so instead of manufacturing vulnerabilities out of the race or the office.',
+          handledWhen:
+            "findings is empty, or every finding names a specific instance of this candidate's own conduct with an extract that shows it. A finding about the office, the race, another candidate, or the town rather than this person is not handled.",
+        },
       },
       {
         id: 'website-hint-only',
@@ -155,24 +197,12 @@ export default definePairwiseAgentEvalSuite<SelfResearchEvalInput>(
           office_name: 'Dover City Council',
           website_url: 'https://example.org/test-council-candidate',
         },
-        grading: {},
-      },
-      {
-        id: 'small-borough-many-hints',
-        input: {
-          full_name: 'Test Borough Candidate',
-          state: 'PA',
-          city: 'Bellefonte',
-          office_name: 'Bellefonte Borough Council',
-          prior_roles: ['Borough Planning Commission Member 2019-2023'],
-          website_url: 'https://example.org/test-borough-candidate',
-          social_urls: ['https://example.org/test-borough-candidate/updates'],
-          coverage_urls: [
-            'https://example.org/press/borough-council-forum',
-            'https://example.org/press/water-authority-vote',
-          ],
+        grading: {
+          condition:
+            'One hint, and it is a dead end: a fictional candidate (Test Council Candidate) for Dover City Council, New Hampshire, whose only supplied URL is on example.org, a reserved domain that serves no record. The agent is told to fetch hint URLs directly, so this is whether it notices the fetch produced nothing rather than treating the URL itself as evidence.',
+          handledWhen:
+            'findings is empty, or every finding carries an http(s) source_url from a page the run actually read, with a source_extract that substantiates its claim. A finding whose source_url is the example.org hint with no record behind it is not handled.',
         },
-        grading: {},
       },
     ],
   },
