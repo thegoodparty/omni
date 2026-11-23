@@ -147,9 +147,8 @@ meaning. One PR per wave, matching the migration waves in
   come back when the framework can pass input files.
 
 `top_community_issues` has its suite, and its lean annotation reads the `hs_*`
-scores in the people marts. Dev runs it on gp-api's own agents; prod stays on
-the PMF Engine until `/judge-eval top_community_issues` reads the move as same
-or better (`cap-consolidation.md`).
+scores in the people marts. Dev and prod both run it on gp-api's own agents
+(`cap-consolidation.md`).
 
 Background suites are judged only by the new framework once their wave lands.
 

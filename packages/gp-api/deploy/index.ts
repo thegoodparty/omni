@@ -911,11 +911,9 @@ jwIDAQAB
         : {}),
       // Background agents that dispatch to gp-api's own agents instead of
       // the PMF Engine. A preview names every agent gp-api has, so the judge's
-      // candidate arm runs gp-api's engine; prod names only the agents the
-      // Universal Judge has read as same or better, and dev adds
-      // `top_community_issues`, which the eval framework judges
-      // (docs/cap-consolidation.md, docs/judge-eval-framework-plan.md,
-      // deploy/agentsOnGpApi.ts).
+      // candidate arm runs gp-api's engine; dev and prod name only the agents
+      // the Universal Judge has read as same or better
+      // (docs/cap-consolidation.md, deploy/agentsOnGpApi.ts).
       AGENTS_ON_GP_API: agentsOnGpApi(environment),
     },
     permissions: [
