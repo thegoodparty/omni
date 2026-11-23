@@ -70,8 +70,9 @@ data "terraform_remote_state" "autopilot_agent_fargate" {
   }
 }
 
-# Routes the module's handler-error alarm to email. The shared Slack notifier
-# used to receive these too; it is gone (its webhook was revoked in 2026-07).
+# The handler-error alarm publishes to the module's failure topic, which has no
+# subscriber: the shared Slack notifier is gone (webhook revoked 2026-07) and
+# failure_notification_email is not set for this root.
 module "autopilot_bot" {
   source = "../../../modules/autopilot-bot"
 
