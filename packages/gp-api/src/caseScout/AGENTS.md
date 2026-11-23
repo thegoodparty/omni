@@ -53,9 +53,10 @@ session cap and the marker but are never sent to a model.
   dates) are invented or rounded; unique descriptions become ordinary ones;
   every sentence is written fresh. The failure itself must survive.
 - **Contact patterns** catch emails, URLs, ten-digit phones and seven-digit
-  local numbers (`555-0123`, `555 0123`). A local number whose last four
-  digits read as a year (19xx, 20xx), or a hyphenated rising pair of round
-  numbers (`500-1000`), passes as an ordinance number or a range.
+  local numbers (`555-0123`, `555 0123`). Only a hyphenated one can pass, as
+  an ordinance number or a range: one whose last four digits read as a year
+  (`245-2025`), or a rising pair whose second number is a round hundred
+  (`500-1000`). A spaced or dotted year (`555 1999`) is still a phone.
 - **The second read** flags names and also unnamed descriptions that point to
   one real person or place: the only, first or youngest holder of a role, a
   distinctive town detail, the exact result of a past election, recount or

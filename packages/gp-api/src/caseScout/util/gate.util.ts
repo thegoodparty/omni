@@ -32,21 +32,21 @@ const LOCAL_PHONE = new RegExp(
 )
 const YEAR = /^(?:19|20)\d{2}$/u
 
-// "Ordinance 245-2025" and "500-1000 voters" share a phone's shape. A year
-// for a line, or a hyphenated rising pair of round numbers, reads as one of
-// those instead.
+// "Ordinance 245-2025" and "500-1000 voters" share a phone's shape. Only a
+// hyphen reads as one of those: a year for a line, or a rising pair whose
+// second number is a round hundred. "555 1999" and "210-5550" stay phones.
 const isLocalPhone = ([
   ,
   exchange = '',
   separator,
   line = '',
 ]: RegExpMatchArray) =>
-  !YEAR.test(line) &&
+  separator !== '-' ||
   !(
-    separator === '-' &&
-    exchange.endsWith('0') &&
-    line.endsWith('0') &&
-    Number(line) > Number(exchange)
+    YEAR.test(line) ||
+    (exchange.endsWith('0') &&
+      Number(line) % 100 === 0 &&
+      Number(line) > Number(exchange))
   )
 
 const URL_PATTERN = new RegExp(
