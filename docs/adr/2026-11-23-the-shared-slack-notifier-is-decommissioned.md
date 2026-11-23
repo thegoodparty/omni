@@ -26,6 +26,16 @@ notifier subscription; its Grafana-to-Slack path uses a bot token and is
 unaffected. The Grafana rule that watched the notifier's own `Errors` metric
 goes with it, since there is no longer a Lambda to watch.
 
+The alert filter's own watchdog alarms (`handler_errors`, `no_deliveries`) are
+the one casualty that is not just "no longer reports failures": they publish to
+`alert-filter-failures-prod`, which had only the notifier as a subscriber and
+has no email subscription, so from here they are visible in the CloudWatch
+console and nowhere else. That is the same silent-failure shape this change
+exists to end, accepted knowingly for the filter because Grafana's
+`alert-notification-delivery-failing` rule still pages a human when the filter's
+normal delivery breaks. If the filter needs a watchdog that pages again, the fix
+is an email subscriber on that topic, not a new shared notifier.
+
 The orphaned SNS subscriptions and lambda invoke permissions are dropped from
 Terraform state with `removed { lifecycle { destroy = false } }` rather than
 destroyed: the release train refuses any plan containing a delete or a replace

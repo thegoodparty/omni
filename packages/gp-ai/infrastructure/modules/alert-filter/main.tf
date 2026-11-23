@@ -333,9 +333,15 @@ resource "aws_sns_topic_policy" "failures" {
 # state in which a Grafana-delivered warning about the filter would not arrive.
 # The `alert-notification-delivery-failing` rule in gp-api's alerts.ts is the
 # other half of this, from Grafana's side.
+#
+# That topic has NO subscriber since the shared Slack notifier was deleted:
+# Swain decided the filter stops reporting through it, and this module has no
+# email subscription. So a firing here is visible in the CloudWatch console and
+# nowhere else, by decision — the Grafana rule above is what still pages a
+# human about the filter's own delivery failing.
 resource "aws_cloudwatch_metric_alarm" "handler_errors" {
   alarm_name          = "alert-filter-handler-errors-${var.environment}"
-  alarm_description   = "alert-filter ${var.environment} logged errors. Alerts may be reaching the raw channel only, or not at all. Check /aws/lambda/alert-filter-${var.environment}. TO RESTORE ALERTING IMMEDIATELY: repoint the Grafana notification policy from the gpbot-alert-filter contact point back to the plain Slack one — alerts resume unfiltered, which is always safe. See gp-ai/alert_filter/README.md."
+  alarm_description   = "alert-filter ${var.environment} logged errors. Alerts may be reaching the raw channel only, or not at all. This alarm has no subscriber (the shared Slack notifier is gone), so it shows in the CloudWatch console only. TO RESTORE ALERTING IMMEDIATELY: repoint the Grafana notification policy from the gpbot-alert-filter contact point back to the plain Slack one — alerts resume unfiltered, which is always safe. See gp-ai/alert_filter/README.md."
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
   metric_name         = "HandlerErrors"

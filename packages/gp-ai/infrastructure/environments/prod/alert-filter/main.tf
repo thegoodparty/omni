@@ -118,6 +118,11 @@ variable "loki_user" {
   default     = "1489885"
 }
 
+# This root passes no notifier ARN: the shared Slack notifier was deleted, so
+# `alert-filter-failures-prod` (the module's `handler_errors` and
+# `no_deliveries` alarms) has no subscriber and shows only in the CloudWatch
+# console. Grafana's `alert-notification-delivery-failing` rule still pages on
+# the filter's own delivery failing. See docs/adr/2026-11-23-the-shared-slack-notifier-is-decommissioned.md.
 module "alert_filter" {
   source = "../../../modules/alert-filter"
 
