@@ -257,6 +257,11 @@ export class CampaignStrategyService extends createPrismaBase(
     // as the rows). Gating on run status instead would race: a run can be
     // COMPLETED a beat before its rows land, yielding a hollow 'ready'.
     if (plan.oppositionPersistedAt && plan.opportunitiesPersistedAt) {
+      // The bootstrap is the one step after the last persist that can fail
+      // without failing the run, so a transient fault there would otherwise
+      // leave a ready plan with no tracker. It claims trackerBootstrapped
+      // atomically, so re-attempting on every poll is a no-op once it lands.
+      await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
       return {
         status: 'ready',
         data: await this.readStrategicLandscape(plan.id),
@@ -568,8 +573,11 @@ export class CampaignStrategyService extends createPrismaBase(
 
       await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
     } catch (err) {
-      // The rows are committed. A failure here must not surface as the section
-      // failing, so it is logged for the next poll to retry, not rethrown.
+      // The rows are committed, so this must not surface as the section
+      // failing. The poll endpoint re-attempts the bootstrap on every call
+      // while the plan reads ready, and the bootstrap claims
+      // trackerBootstrapped atomically, so a transient fault here recovers on
+      // the next poll rather than needing a job redelivery.
       this.logger.error(
         { err, planId: plan.id, runId: section.runId },
         'section persisted but its completion side effects failed',

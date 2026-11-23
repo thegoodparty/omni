@@ -514,6 +514,33 @@ describe('CampaignStrategyService', () => {
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
   })
 
+  // The bootstrap is the one step after the last persist that can fail without
+  // failing the run. The poll is then the only path that can retry it, because
+  // trackerBootstrapped is the bootstrap's own idempotency claim.
+  it('re-attempts the tracker bootstrap on every ready poll', async () => {
+    const persisted = planRow({
+      oppositionRunId: 'opp-run',
+      opportunitiesRunId: 'oc-run',
+      oppositionPersistedAt: new Date(),
+      opportunitiesPersistedAt: new Date(),
+    })
+    prisma.campaignStrategy.upsert.mockResolvedValue(persisted)
+    // The bootstrap re-reads the plan by id and then the campaign with its user.
+    prisma.campaignStrategy.findFirst.mockResolvedValue(persisted)
+    prisma.campaign.findUnique.mockResolvedValue({ id: 99, user: { id: 7 } })
+    prisma.campaignStrategy.findUnique.mockResolvedValue({
+      opportunities: [],
+      challenges: [],
+      opponents: [],
+    })
+
+    await service.getOrGenerateStrategicLandscape(campaign())
+    await service.getOrGenerateStrategicLandscape(campaign())
+
+    // Twice, not once: the endpoint does not cache that it already bootstrapped.
+    expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(2)
+  })
+
   it('stays generating when a run is COMPLETED but its section is not persisted', async () => {
     // The race window: both runs done, but only one section's rows have landed.
     prisma.campaignStrategy.upsert.mockResolvedValue(
