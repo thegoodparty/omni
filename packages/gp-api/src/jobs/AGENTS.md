@@ -369,20 +369,30 @@ at the back of their group; fix the cause first. `delete` drops one for
 good. The alert pages once per dead letter and resolves on its own; the dead
 letter stays until it is redriven, deleted, or 14 days pass.
 
-One dead letter can also be read and redriven through gp-api's
+One dead letter can also be read, redriven or dropped through gp-api's
 `admin/job-dead-letters` (`AdminOrM2MGuard`: an admin session or an M2M
 token). `GET` lists them newest first, optionally narrowed to one
-`sourceQueue`; `GET :id` reads one; `POST :id/redrive` moves one, and there
-is no batch move.
-Both use the provenance pg-boss records on the dead letter itself: the list
-reports `sourceQueue` from the job's `source_name`, and the redrive routes
-back to that queue rather than to a queue the caller names. A dead letter
-that records no source queue is listed and refused (404) instead of being
-guessed at. The move is pg-boss's own single statement, so it is atomic and
-a second redrive of the same dead letter finds it gone (404) rather than
+`sourceQueue`; `GET queues` lists the queues they failed on, for the filter;
+`GET :id` reads one; `POST :id/redrive` moves one; `DELETE :id` drops one.
+`POST batch/redrive` and `POST batch/delete` take `{ ids }`, up to
+`JOB_DEAD_LETTERS_MAX_BATCH`.
+
+Every route uses the provenance pg-boss records on the dead letter itself:
+the list reports `sourceQueue` from the job's `source_name`, and the redrive
+routes back to that queue rather than to a queue the caller names. A dead
+letter that records no source queue is listed and refused (404) instead of
+being guessed at. The move is pg-boss's own single statement, so it is atomic
+and a second redrive of the same dead letter finds it gone (404) rather than
 queueing it twice. A source queue that no longer exists, or that still holds
 a job under the dead letter's `singletonKey`, answers 409 and leaves the dead
 letter in place.
+
+The batch routes run that same per-entry work in a loop, so a batch is
+exactly as safe per entry as the single routes are, and one entry that
+cannot move does not stop the rest. They answer 200 with
+`{ redriven | deleted, failed: [{ id, message }] }`, the message being what
+the single route would have said. An error that is not one of those per-entry
+refusals is not swallowed, it fails the whole request.
 
 ## Scaling
 

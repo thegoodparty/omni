@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  HttpException,
   Injectable,
   NotFoundException,
   OnModuleDestroy,
@@ -7,11 +8,15 @@ import {
 import { PinoLogger } from 'nestjs-pino'
 import { PgBoss } from 'pg-boss'
 import {
+  DeleteJobDeadLetterResult,
+  DeleteJobDeadLettersResult,
   JobDeadLetter,
+  JobDeadLetterBatchFailure,
   JobDeadLettersListQuery,
   JOB_DEAD_LETTERS_MAX_LIMIT,
   PaginatedList,
   RedriveJobDeadLetterResult,
+  RedriveJobDeadLettersResult,
 } from '@goodparty_org/contracts'
 import { Prisma } from '@/generated/prisma'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -38,6 +43,22 @@ const errorOf = (output: Prisma.JsonValue): string | null => {
   const nested = output['value']
   const message = isJsonObject(nested) ? nested['message'] : output['message']
   return typeof message === 'string' ? message : null
+}
+
+// A batch reports what stopped one entry rather than failing all of them, so
+// it carries the same message the single-entry route would have answered
+// with. Anything that is not one of our own refusals is a real fault and
+// belongs to the whole request, not to the entry.
+const batchFailureMessage = (error: unknown, id: string): string => {
+  if (!(error instanceof HttpException)) throw error
+  const response = error.getResponse()
+  const message =
+    typeof response === 'string'
+      ? response
+      : isJsonObject(response) && typeof response['message'] === 'string'
+        ? response['message']
+        : null
+  return message ?? `Dead letter ${id} could not be handled`
 }
 
 const toDeadLetter = (row: Omit<DeadLetterRow, 'name'>): JobDeadLetter => ({
@@ -182,6 +203,60 @@ export class AdminJobDeadLettersService implements OnModuleDestroy {
       'job dead letter redriven',
     )
     return { id, sourceQueue }
+  }
+
+  /**
+   * Drop one dead letter for good. Like a redrive, the queue comes from the
+   * row itself: the delete is fenced on the dead-letter naming, so an id that
+   * names a live job on a real queue matches nothing here.
+   */
+  async delete(id: string): Promise<DeleteJobDeadLetterResult> {
+    const deleted = await this.deleteDeadLetter(id)
+    if (!deleted) throw new NotFoundException(`No dead letter ${id}`)
+    this.logger.info({ deadLetterId: id }, 'job dead letter deleted')
+    return { id }
+  }
+
+  /**
+   * Redrive each named dead letter on its own, reporting the ones that could
+   * not move instead of failing the batch. Every entry goes through the same
+   * move a single redrive does, so a batch is exactly as safe per entry: an
+   * entry that is already gone, has no source queue, or whose key is held is
+   * reported back and the rest still move.
+   */
+  async redriveMany(ids: string[]): Promise<RedriveJobDeadLettersResult> {
+    const redriven: string[] = []
+    const failed: JobDeadLetterBatchFailure[] = []
+    for (const id of ids) {
+      try {
+        await this.redrive(id)
+        redriven.push(id)
+      } catch (error: unknown) {
+        failed.push({ id, message: batchFailureMessage(error, id) })
+      }
+    }
+    return { redriven, failed }
+  }
+
+  async deleteMany(ids: string[]): Promise<DeleteJobDeadLettersResult> {
+    const deleted: string[] = []
+    const failed: JobDeadLetterBatchFailure[] = []
+    for (const id of ids) {
+      try {
+        await this.delete(id)
+        deleted.push(id)
+      } catch (error: unknown) {
+        failed.push({ id, message: batchFailureMessage(error, id) })
+      }
+    }
+    return { deleted, failed }
+  }
+
+  private async deleteDeadLetter(id: string): Promise<boolean> {
+    const deleted = await this.prisma.$executeRaw`
+      DELETE FROM pgboss.job
+      WHERE id = ${id}::uuid AND name LIKE ${'%-dlq'}`
+    return deleted > 0
   }
 
   private async findDeadLetter(id: string): Promise<DeadLetterRow | undefined> {

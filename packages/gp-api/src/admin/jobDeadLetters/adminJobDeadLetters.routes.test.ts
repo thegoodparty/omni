@@ -283,4 +283,117 @@ describe('admin job dead letters', () => {
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
+
+  it('deletes one dead letter for good', async () => {
+    await deadLetterOne()
+    const listed = await listDeadLetters({ sourceQueue: SOURCE_QUEUE })
+    const id: string = listed.data.data[0].id
+
+    const res = await service.client.delete(`${LIST_PATH}/${id}`)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual({ id })
+    expect((await listDeadLetters()).data.meta.total).toBe(0)
+    expect((await getDeadLetter(id)).status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('answers an unknown id with 404 on delete', async () => {
+    const res = await service.client.delete(`${LIST_PATH}/${randomUUID()}`)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('rejects a non-admin deleting a dead letter', async () => {
+    await deadLetterOne()
+    const listed = await listDeadLetters({ sourceQueue: SOURCE_QUEUE })
+    const id: string = listed.data.data[0].id
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [] },
+    })
+
+    const res = await service.client.delete(`${LIST_PATH}/${id}`)
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    expect(
+      await service.prisma.$queryRaw<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM pgboss.job
+        WHERE id = ${id}::uuid`,
+    ).toEqual([{ count: 1 }])
+  })
+
+  it('re-drives a batch and reports the entry it could not move', async () => {
+    const organizationSlug = await deadLetterOne()
+    const [inserted] = await service.prisma.$queryRaw<Array<{ id: string }>>`
+      INSERT INTO pgboss.job (name, data, source_output)
+      VALUES (${DEAD_LETTER_QUEUE}, '{}'::jsonb,
+        '{"message":"failed before provenance"}'::jsonb)
+      RETURNING id::text AS id`
+    const listed = await listDeadLetters()
+    const movable: string = listed.data.data.find(
+      (deadLetter: { sourceQueue: string | null }) =>
+        deadLetter.sourceQueue === SOURCE_QUEUE,
+    ).id
+
+    const res = await service.client.post(`${LIST_PATH}/batch/redrive`, {
+      ids: [movable, inserted?.id],
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.redriven).toEqual([movable])
+    expect(res.data.failed).toHaveLength(1)
+    expect(res.data.failed[0].id).toBe(inserted?.id)
+    expect(res.data.failed[0].message).toContain('records no source queue')
+    // The one that could move did, and the one that could not is still here.
+    expect(await queuedJobsFor(organizationSlug)).toHaveLength(1)
+    const remaining: Array<{ id: string }> = (await listDeadLetters()).data.data
+    expect(remaining.map((deadLetter) => deadLetter.id)).toEqual([inserted?.id])
+  })
+
+  it('deletes a batch, reporting an entry that was already gone', async () => {
+    await deadLetterOne()
+    const listed = await listDeadLetters({ sourceQueue: SOURCE_QUEUE })
+    const id: string = listed.data.data[0].id
+    const gone = randomUUID()
+
+    const res = await service.client.post(`${LIST_PATH}/batch/delete`, {
+      ids: [id, gone],
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.deleted).toEqual([id])
+    expect(res.data.failed).toEqual([
+      { id: gone, message: `No dead letter ${gone}` },
+    ])
+    expect((await listDeadLetters()).data.meta.total).toBe(0)
+  })
+
+  it('refuses a batch over the per-request cap', async () => {
+    const res = await service.client.post(`${LIST_PATH}/batch/delete`, {
+      ids: Array.from({ length: 101 }, () => randomUUID()),
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('refuses a batch with no ids', async () => {
+    const res = await service.client.post(`${LIST_PATH}/batch/redrive`, {
+      ids: [],
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('rejects a non-admin batch', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [] },
+    })
+
+    const res = await service.client.post(`${LIST_PATH}/batch/delete`, {
+      ids: [randomUUID()],
+    })
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
 })

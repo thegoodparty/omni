@@ -882,10 +882,21 @@ export {
   JobDeadLetterQueuesSchema,
   type JobDeadLetterQueues,
   JOB_DEAD_LETTERS_MAX_LIMIT,
+  JOB_DEAD_LETTERS_MAX_BATCH,
   JobDeadLettersListQuerySchema,
   type JobDeadLettersListQuery,
+  JobDeadLettersBatchSchema,
+  type JobDeadLettersBatch,
   RedriveJobDeadLetterResultSchema,
   type RedriveJobDeadLetterResult,
+  DeleteJobDeadLetterResultSchema,
+  type DeleteJobDeadLetterResult,
+  JobDeadLetterBatchFailureSchema,
+  type JobDeadLetterBatchFailure,
+  RedriveJobDeadLettersResultSchema,
+  type RedriveJobDeadLettersResult,
+  DeleteJobDeadLettersResultSchema,
+  type DeleteJobDeadLettersResult,
 } from './jobs/JobDeadLetter.schema'
 
 export {

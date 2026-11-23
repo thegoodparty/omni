@@ -54,8 +54,9 @@ export default async function Page({ searchParams }: PageProps) {
         Job dead letters
       </Heading>
       <Text color="gray" size="2" as="p" mb="4">
-        Jobs that used every retry. Re-driving one puts it back on the queue it
-        failed on with its attempts reset, so fix the cause first.
+        Jobs that used every retry. Re-driving puts one back on the queue it
+        failed on with its attempts reset, so fix the cause first. Deleting
+        drops it for good.
       </Text>
 
       <Box mb="6">

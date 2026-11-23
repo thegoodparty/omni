@@ -7,6 +7,7 @@ import type { JobDeadLetter } from '@goodparty_org/contracts'
 import { ROLES } from '@/lib/permissions'
 import { SdkError } from '@/shared/gpApi'
 import { getJobDeadLetter } from '../actions'
+import { DeleteDeadLetterButton } from '../components/DeleteDeadLetterButton'
 import { RedriveDeadLetterButton } from '../components/RedriveDeadLetterButton'
 
 export const metadata: Metadata = {
@@ -55,7 +56,10 @@ export default async function Page({ params }: PageProps) {
               {deadLetter.sourceQueue ?? 'No source queue'}
             </Text>
           </div>
-          <RedriveDeadLetterButton deadLetter={deadLetter} size="2" />
+          <Flex gap="2">
+            <RedriveDeadLetterButton deadLetter={deadLetter} size="2" />
+            <DeleteDeadLetterButton deadLetter={deadLetter} size="2" />
+          </Flex>
         </Flex>
       </div>
 

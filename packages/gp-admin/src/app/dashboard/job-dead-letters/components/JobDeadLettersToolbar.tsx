@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Box, Button, Flex, Text, TextField } from '@radix-ui/themes'
-import { HiX } from 'react-icons/hi'
+import { Box, Flex, Select, Text } from '@radix-ui/themes'
 import { SEARCH_PARAMS } from '../types'
+
+// Radix's Select treats an empty string as "no value", so the unfiltered
+// option needs a value of its own.
+const ALL_QUEUES = '__all__'
 
 interface JobDeadLettersToolbarProps {
   sourceQueue?: string
@@ -17,16 +19,17 @@ export function JobDeadLettersToolbar({
 }: JobDeadLettersToolbarProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [sourceQueueInput, setSourceQueueInput] = useState(sourceQueue ?? '')
 
-  const pushParams = (updates: Record<string, string | undefined>) => {
+  // Filtering is the selection itself: a staff member picks a queue and the
+  // list is already that queue. The old text field plus Apply button made two
+  // steps of one, and landing back on page 4 of a now-shorter list was the
+  // common failure.
+  const chooseQueue = (value: string) => {
     const params = new URLSearchParams(searchParams.toString())
-    for (const [key, value] of Object.entries(updates)) {
-      if (value === undefined || value === '') {
-        params.delete(key)
-      } else {
-        params.set(key, value)
-      }
+    if (value === ALL_QUEUES) {
+      params.delete(SEARCH_PARAMS.SOURCE_QUEUE)
+    } else {
+      params.set(SEARCH_PARAMS.SOURCE_QUEUE, value)
     }
     params.delete(SEARCH_PARAMS.PAGE)
     const queryString = params.toString()
@@ -36,57 +39,30 @@ export function JobDeadLettersToolbar({
   }
 
   return (
-    <Box asChild p="4" className="border border-[var(--gray-5)] rounded-lg">
-      <form
-        autoComplete="off"
-        onSubmit={(event) => {
-          event.preventDefault()
-          pushParams({
-            [SEARCH_PARAMS.SOURCE_QUEUE]: sourceQueueInput.trim() || undefined,
-          })
-        }}
-      >
-        <Flex gap="3" align="end" wrap="wrap">
-          <Box>
-            <Text
-              as="label"
-              size="2"
-              weight="medium"
-              mb="1"
-              htmlFor="source-queue"
-            >
-              Source queue
-            </Text>
-            <TextField.Root
-              id="source-queue"
-              placeholder="e.g. doorKnockingCanvassingTotals"
-              list="source-queue-options"
-              value={sourceQueueInput}
-              onChange={(event) => setSourceQueueInput(event.target.value)}
-            />
-            <datalist id="source-queue-options">
-              {queues.map((queue) => (
-                <option key={queue} value={queue} />
-              ))}
-            </datalist>
-          </Box>
-          <Button type="submit">Apply filter</Button>
-          {sourceQueue && (
-            <Button
-              type="button"
-              variant="soft"
-              color="gray"
-              onClick={() => {
-                setSourceQueueInput('')
-                pushParams({ [SEARCH_PARAMS.SOURCE_QUEUE]: undefined })
-              }}
-            >
-              <HiX className="w-4 h-4" />
-              Clear
-            </Button>
-          )}
-        </Flex>
-      </form>
+    <Box p="4" className="border border-[var(--gray-5)] rounded-lg">
+      <Flex gap="2" direction="column">
+        <Text as="label" size="2" weight="medium" htmlFor="source-queue">
+          Source queue
+        </Text>
+        <Select.Root
+          value={sourceQueue ?? ALL_QUEUES}
+          onValueChange={chooseQueue}
+        >
+          <Select.Trigger
+            id="source-queue"
+            placeholder="All queues"
+            style={{ width: '320px' }}
+          />
+          <Select.Content position="popper">
+            <Select.Item value={ALL_QUEUES}>All queues</Select.Item>
+            {queues.map((queue) => (
+              <Select.Item key={queue} value={queue}>
+                {queue}
+              </Select.Item>
+            ))}
+          </Select.Content>
+        </Select.Root>
+      </Flex>
     </Box>
   )
 }

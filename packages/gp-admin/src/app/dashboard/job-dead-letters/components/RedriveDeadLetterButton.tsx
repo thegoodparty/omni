@@ -51,6 +51,9 @@ export function RedriveDeadLetterButton({
         size={size}
         variant="outline"
         disabled={!sourceQueue}
+        // The row's action cell is narrow and Radix wraps the label before
+        // it will widen the cell, which split "Re-drive" over two lines.
+        className="whitespace-nowrap"
         title={
           sourceQueue
             ? undefined
