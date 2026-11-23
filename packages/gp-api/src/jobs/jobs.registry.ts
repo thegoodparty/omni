@@ -378,6 +378,11 @@ export const JOBS = {
     // minutes, so 2 is the longest a user waits for this job to start; paging
     // and scale-out then begin while they are still on the screen.
     alertAfterWaitingMinutes: 2,
+    // Each job holds its slot for a 25 to 55 second search, and the step only
+    // waits 60 seconds before saying nothing was found, so the default one
+    // slot per task would queue a burst past that window. The org-slug key is
+    // what prevents a duplicate paid generation, so no cap on top of this.
+    concurrency: 10,
   }),
   ordinanceRefreshDispatch: defineJob({
     schema: z.object({ organizationSlug: z.string().min(1) }),
