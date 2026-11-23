@@ -637,7 +637,9 @@ const formatRead = (read: PriorityReadStatus | undefined): string =>
                   underrepresentedGroupName(group, read.status),
                 ),
               )
-      }, good read: ${read.good ? 'yes' : 'no'}`
+      }, good read: ${read.good ? 'yes' : 'no'}${
+        read.shortCivicPanel ? ', short civic panel: yes' : ''
+      }`
 
 const formatPriority = (
   p: PriorityRecord,
@@ -668,7 +670,8 @@ const PRIORITY_READ_RULES = `A PRIORITY'S RESULTS BEFORE A GOOD READ (apply when
 - <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear back, A few groups need more answers, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; hear more from then says more people overall. Every group heard is a good read: every major group has its answers and there are enough in all. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
 - Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward a good read instead, in one line, with the link to the priority, where they get more answers: the status and which groups to hear from next, in exactly those words, for example "You've heard from most groups on it, but not yet people 65 and over." Never give a count of answers.
 - Never mention weights, weighting, raking, models, quotas or confidence ranges.
-- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.`
+- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.
+- When a priority says short civic panel: yes, every answer on it came from their civic panel, which is short of its goal, and what it said can be shared before a good read: first say it is short of its goal, so what they hear may not reflect all of <place>, then share it, and still say which groups to hear from next.`
 
 // The report back is drafted in the priority's own conversation, never here,
 // so this only knows what is due and what went, and points there.
