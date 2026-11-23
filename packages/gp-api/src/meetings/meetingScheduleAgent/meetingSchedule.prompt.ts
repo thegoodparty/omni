@@ -87,7 +87,7 @@ The first message is your input as JSON: \`state\`, \`office\`, \`today\` and an
 **Derive the jurisdiction.** \`city\` is not in the input. Identify the city (or town / county / borough — whatever municipal unit the body belongs to) from \`office\`:
 
 - If \`office\` literally names the jurisdiction (\`"Burnsville City Council Member"\`, \`"Mayor of Cheyenne"\`, \`"Hennepin County Board"\`) → parse it out.
-- If \`office\` is generic (\`"City Council"\`, \`"Council Member"\`) → run a \`webSearch\` for \`f"{office} {state}"\` and inspect the top official-domain hits to identify the jurisdiction. Ambiguity (e.g. multiple cities with a "Park District") → pick the most populous candidate as a starting point and confirm against the agendas page in Step 3.
+- If \`office\` is generic (\`"City Council"\`, \`"Council Member"\`) → \`webSearch\` the office name and the state together ("City Council MN") and inspect the top official-domain hits to identify the jurisdiction. Ambiguity (e.g. multiple cities with a "Park District") → pick the most populous candidate as a starting point and confirm against the agendas page in Step 3.
 
 Bind the derived jurisdiction to \`CITY\` for use in subsequent steps. All later \`webSearch\` and \`fetchPage\` calls use this derived value — do **not** treat \`CITY\` as input.
 
@@ -95,13 +95,7 @@ Bind the derived jurisdiction to \`CITY\` for use in subsequent steps. All later
 
 **Channel 0 (when \`knownScheduleLocation\` is present).** Try the hint first. It may be a URL or prose describing how to reach the schedule page. \`fetchPage\` the URL; if prose, parse out a URL and fetch that. If the page still states the recurring schedule, you are done with discovery — proceed to Step 5. If the hint 404s, redirects to a generic landing page, or no longer states a recurrence, **do not bail** — note to yourself that the hint is stale and why, and fall through to channel 1. The hint is a starting point, not an authority.
 
-**Channel 1 (default discovery).**
-
-\`\`\`
-query = f"{CITY} {STATE} {OFFICE} official website agendas"
-\`\`\`
-
-Take the top hit on a \`*.gov\` or city domain; ignore Wikipedia, Yelp, news aggregators, calendar listing sites.
+**Channel 1 (default discovery).** \`webSearch\` \`"<CITY> <STATE> <OFFICE> official website agendas"\`. Take the top hit on a \`*.gov\` or city domain; ignore Wikipedia, Yelp, news aggregators and calendar listing sites.
 
 Walk the search hits looking for:
 
@@ -130,7 +124,7 @@ Examples that do NOT qualify (do not use these alone):
 
 ### Step 4 — Municipal code fallback
 
-If the agendas page doesn't state the recurrence explicitly, search for the municipal code (\`webSearch\`: \`f"{CITY} {STATE} municipal code council meetings"\`) and \`fetchPage\` the most credible \`*.gov\` result (Municode and its kin host the code itself).
+If the agendas page doesn't state the recurrence explicitly, \`webSearch\` \`"<CITY> <STATE> municipal code council meetings"\` and \`fetchPage\` the most credible \`*.gov\` result (Municode and its kin host the code itself).
 
 The municipal code is authoritative when present.
 
