@@ -206,14 +206,16 @@ describe('meeting_schedule on gp-api agents', () => {
     await dispatchSchedule()
     await service.jobs.settle()
 
-    const hint = await service.prisma.meetingResourceLocation.findUniqueOrThrow({
-      where: {
-        electedOfficeId_type: {
-          electedOfficeId: electedOffice.id,
-          type: MeetingResourceLocationType.SCHEDULE,
+    const hint = await service.prisma.meetingResourceLocation.findUniqueOrThrow(
+      {
+        where: {
+          electedOfficeId_type: {
+            electedOfficeId: electedOffice.id,
+            type: MeetingResourceLocationType.SCHEDULE,
+          },
         },
       },
-    })
+    )
     expect(hint.description).toBe(FOUND.discovered_schedule_location)
     expect(hint.experimentRunId).toBeNull()
   })
