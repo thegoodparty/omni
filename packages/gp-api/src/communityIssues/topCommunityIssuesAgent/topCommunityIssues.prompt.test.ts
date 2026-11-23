@@ -4,13 +4,13 @@ import type { ToolContext } from '@/agents/tools/tool'
 import { TOP_COMMUNITY_ISSUES_PROMPT } from './topCommunityIssues.prompt'
 
 const VOTERS = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
-const JURISDICTION_COLUMNS = new Set([
-  'Residence_Addresses_State',
-  'Active',
-])
+const JURISDICTION_COLUMNS = new Set(['Residence_Addresses_State', 'Active'])
 
 // The tool exactly as the agent builds it, so this is the real guard.
-const tool = (state: string, district: { column: string; value: string } | null) =>
+const tool = (
+  state: string,
+  district: { column: string; value: string } | null,
+) =>
   databricksTool({
     tables: [VOTERS],
     maxRows: 50_000,
@@ -86,10 +86,10 @@ describe('top_community_issues prompt', () => {
         ([column]) => column === 'Residence_Addresses_State',
       )?.[1]
 
-      const result = (await tool(
-        state ?? 'NC',
-        districtOf(where),
-      ).execute({ sql }, ctx)) as { ok: boolean; reason?: string }
+      const result = (await tool(state ?? 'NC', districtOf(where)).execute(
+        { sql },
+        ctx,
+      )) as { ok: boolean; reason?: string }
 
       expect(result.reason).not.toBe('rejected')
     }
