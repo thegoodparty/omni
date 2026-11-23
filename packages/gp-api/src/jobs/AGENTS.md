@@ -362,11 +362,11 @@ at the back of their group; fix the cause first. `delete` drops one for
 good. The alert pages once per dead letter and resolves on its own; the dead
 letter stays until it is redriven, deleted, or 14 days pass.
 
-One dead letter can also be read and redriven through gp-api's
+One dead letter can also be read, redriven and deleted through gp-api's
 `admin/job-dead-letters` (`AdminOrM2MGuard`: an admin session or an M2M
 token). `GET` lists them newest first, optionally narrowed to one
-`sourceQueue`; `GET :id` reads one; `POST :id/redrive` moves one, and there
-is no batch move.
+`sourceQueue`; `GET :id` reads one; `POST :id/redrive` moves one; `DELETE :id`
+drops one. There is no batch endpoint: the console loops over these.
 Both use the provenance pg-boss records on the dead letter itself: the list
 reports `sourceQueue` from the job's `source_name`, and the redrive routes
 back to that queue rather than to a queue the caller names. A dead letter
