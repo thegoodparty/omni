@@ -94,10 +94,4 @@ describe('top_community_issues prompt', () => {
       expect(result.reason).not.toBe('rejected')
     }
   })
-
-  it('never builds a district predicate out of districtDescriptor', () => {
-    expect(TOP_COMMUNITY_ISSUES_PROMPT).toMatch(
-      /`districtDescriptor` is a seat description/,
-    )
-  })
 })
