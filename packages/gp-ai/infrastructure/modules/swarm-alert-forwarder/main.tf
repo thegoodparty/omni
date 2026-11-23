@@ -33,7 +33,6 @@ resource "aws_iam_role" "forwarder" {
   })
 
   tags = {
-    Name        = "Swarm Alert Forwarder (${var.consumer})"
     Environment = var.environment
   }
 }
