@@ -1,21 +1,8 @@
 import { z } from 'zod'
 import { OrdinanceFlowStepSchema } from '@goodparty_org/contracts'
 
-// THE VOCABULARY THE JUDGE'S CHAT FIXTURE SPEAKS, and the error raised when
-// something asks it for a state it cannot seed.
-//
-// It lives on this side of the build rather than in the eval harness because
-// both sides need it: `cases.ts` validates a case list against it, and the
-// test-only HTTP endpoint that stages a case for a DEPLOYED arm validates a
-// request body against the same schema. `src/chats/evals/**` is excluded from
-// the production build (see tsconfig.build.json), so a shipping module that
-// imported it from there would resolve under vitest and tsc and then throw
-// MODULE_NOT_FOUND inside the container.
-
-// Raised when the judge's inputs are wrong — a case list that will not parse,
-// or a case asking for a state its scope has no row to carry. Defined here
-// because both the harness and the endpoint throw and catch it; `cases.ts`
-// re-exports it so the harness still reads it off its own module.
+// Raised when a case list will not parse, or a case asks for a state its
+// scope cannot carry.
 export class CaseListError extends Error {}
 
 // "The capability exists but the user lacks access" as something a seeder can

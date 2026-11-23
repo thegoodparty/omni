@@ -18,11 +18,6 @@ const anonymous = { ...keepStatus, headers: { Authorization: 'Bearer bad' } }
 const ROUTES: { controller: string; method: 'get' | 'post'; url: string }[] = [
   { controller: 'TestFixturesController', method: 'post', url: '/users' },
   {
-    controller: 'TestFixturesJudgeController',
-    method: 'post',
-    url: '/judge-chat-cases',
-  },
-  {
     controller: 'TestFixturesPollResultsController',
     method: 'post',
     url: '/polls/results',

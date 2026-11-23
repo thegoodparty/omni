@@ -9,7 +9,6 @@ scope:
   - packages/gp-api/src/vendors/aws/services/s3.service.ts
   - packages/gp-api/src/users/services/users.service.ts
   - packages/gp-api/src/testMode/services/testMode.service.ts
-  - packages/gp-api/src/testFixtures/judgeChatFixture/teardown.ts
 supersedes: []
 superseded_by:
 ---

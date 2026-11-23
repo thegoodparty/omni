@@ -1,9 +1,6 @@
 import path from 'node:path'
 import { z } from 'zod'
-import {
-  CaseListError,
-  ChatAccountStateSchema,
-} from '@/testFixtures/judgeChatFixture/accountState'
+import { CaseListError, ChatAccountStateSchema } from './accountState'
 
 // THE SHAPE OF A CASE IN cases/<agentId>.json, and the loader that reads one.
 //
@@ -18,7 +15,7 @@ export {
   CaseListError,
   ChatAccountStateSchema,
   type ChatAccountState,
-} from '@/testFixtures/judgeChatFixture/accountState'
+} from './accountState'
 
 // A caseId becomes a path segment in the file the publisher appends to, so it
 // is held to the segment alphabet HERE, at the boundary where the file that
