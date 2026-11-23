@@ -3,7 +3,7 @@ title: A managed civic panel has no stop; a stopped one with a sent wave is paus
 status: active
 decided_by: [bryclevgp]
 date: 2026-11-23
-code: []
+code: ['#4003']
 scope:
   - packages/contracts/src/people/ManagedCivicPanel.schema.ts
   - packages/gp-api/src/contacts/services/managedCivicPanel.service.ts
