@@ -31,6 +31,8 @@ const INITIAL_SEND_SEQ = 1
 // What the sender needs to record the hand-off row for a wave a swarm agent
 // will schedule.
 export type AgentHandoff = {
+  // Missing reads as 'agent'.
+  handler?: 'agent' | 'api'
   mode: 'shadow' | 'auto'
   sendAt: Date
   timeZone: string

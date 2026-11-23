@@ -717,6 +717,9 @@ export const JOBS = {
       // hand-off row from it. No PII.
       agentHandoff: z
         .strictObject({
+          // Absent on payloads queued before the api handler existed: read
+          // as 'agent'. Optional so a rolling deploy accepts both shapes.
+          handler: z.enum(['agent', 'api']).optional(),
           mode: z.enum(['shadow', 'auto']),
           sendAt: z.iso.datetime(),
           timeZone: z.string().refine((timeZone) => {

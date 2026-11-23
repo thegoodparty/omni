@@ -13,6 +13,7 @@ import {
   ContactStatusField,
   ManagedCivicPanelStatus,
   OutreachFunding,
+  OutreachHandoffHandler,
   OutreachHandoffStatus,
   OutreachStatus,
   OutreachType,
@@ -99,6 +100,18 @@ const MILESTONE_ROW: Record<ContractMilestone, CivicPanelMilestone> = {
   full: CivicPanelMilestone.full,
 }
 
+const INTERNAL_EMAIL_SUFFIX = '@goodparty.org'
+
+const AGENT_VARIANT_ROUTES: Record<
+  string,
+  { handler: AgentPlan['handler']; mode: AgentPlan['mode'] } | undefined
+> = {
+  shadow: { handler: 'agent', mode: 'shadow' },
+  auto: { handler: 'agent', mode: 'auto' },
+  api_shadow: { handler: 'api', mode: 'shadow' },
+  api_auto: { handler: 'api', mode: 'auto' },
+}
+
 const SEND_SELECT = {
   status: true,
   fundedBy: true,
@@ -124,6 +137,7 @@ const manualSendDate = (enrollment: Enrollment, now: Date): string =>
 // How an agent-handled wave goes out: the next 11am local slot, weekends
 // allowed. Resolved once per send step from the approving official's flag.
 type AgentPlan = {
+  handler: 'agent' | 'api'
   mode: 'shadow' | 'auto'
   timeZone: string
   sendAt: Date
@@ -446,7 +460,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     // post never loses its "agent is handling this" note while the row exists.
     const row = await this.client.outreachTextHandoff.findFirst({
       where: { outreach: { managedPanelWaveId: waveId } },
-      select: { mode: true, sendAt: true, timeZone: true },
+      select: { handler: true, mode: true, sendAt: true, timeZone: true },
     })
     const agentHandled = row !== null || (!handedOff && agent !== null)
     if (!handedOff) {
@@ -457,12 +471,15 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         waveId,
         row
           ? {
+              handler:
+                row.handler === OutreachHandoffHandler.api ? 'api' : 'agent',
               mode: row.mode === 'auto' ? 'auto' : 'shadow',
               sendAt: row.sendAt,
               timeZone: row.timeZone,
             }
           : agent
             ? {
+                handler: agent.handler,
                 mode: agent.mode,
                 sendAt: agent.sendAt,
                 timeZone: agent.timeZone,
@@ -525,7 +542,9 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
   }
 
   // Null unless the approving official's `serve-panel-wave-agent` flag
-  // assigns shadow or auto; any other variant, or none, is off.
+  // assigns shadow, auto, api_shadow or api_auto; any other variant, or none,
+  // is off. The variant alone decides the handler. api_auto only sends for
+  // real in prod, and a GoodParty-owned org never takes the api path.
   private async agentPlan(
     enrollment: Enrollment,
     now: Date,
@@ -535,16 +554,41 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       user: enrollment.approvedByUserId,
       feature: SERVE_PANEL_WAVE_AGENT_FLAG,
     })
-    if (variant !== 'shadow' && variant !== 'auto') return null
+    const route = AGENT_VARIANT_ROUTES[variant ?? '']
+    if (!route) return null
+    if (
+      route.handler === 'api' &&
+      (await this.isInternalOwner(enrollment.organizationSlug))
+    ) {
+      return null
+    }
     const timeZone = await this.sendTimeZone(enrollment.organizationSlug)
     const start = managedStartDate(enrollment.firstSendDate, now)
+    const mode =
+      route.handler === 'api' &&
+      route.mode === 'auto' &&
+      process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod'
+        ? 'shadow'
+        : route.mode
     return {
-      mode: variant,
+      handler: route.handler,
+      mode,
       timeZone,
       ...(start
         ? agentSendSlotOn(start, now, timeZone)
         : nextAgentSendSlot(now, timeZone)),
     }
+  }
+
+  private async isInternalOwner(organizationSlug: string): Promise<boolean> {
+    const organization = await this.client.organization.findUnique({
+      where: { slug: organizationSlug },
+      select: { owner: { select: { email: true } } },
+    })
+    return (
+      organization?.owner.email.toLowerCase().endsWith(INTERNAL_EMAIL_SUFFIX) ??
+      false
+    )
   }
 
   private async sendTimeZone(organizationSlug: string): Promise<string> {

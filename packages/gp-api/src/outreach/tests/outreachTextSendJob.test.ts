@@ -151,6 +151,32 @@ describe('outreachTextSend', () => {
     )
   })
 
+  it('passes the api handler on the job to the delivery layer', async () => {
+    const outreach = await createSend()
+
+    await send({
+      outreachId: outreach.id,
+      sendSeq: 1,
+      agentHandoff: {
+        handler: 'api',
+        mode: 'shadow',
+        sendAt: '2026-10-10T18:00:00.000Z',
+        timeZone: 'US/Pacific',
+      },
+    })
+
+    expect(requestSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentHandoff: {
+          handler: 'api',
+          mode: 'shadow',
+          sendAt: new Date('2026-10-10T18:00:00.000Z'),
+          timeZone: 'US/Pacific',
+        },
+      }),
+    )
+  })
+
   it('refuses an agent hand-off with a time zone that is not one', async () => {
     const outreach = await createSend()
 
