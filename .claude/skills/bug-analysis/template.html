@@ -13,8 +13,6 @@ h2{font-size:19px;margin:0 0 8px}
 .sev.on{background:#fee2e2;border:2px solid #b91c1c;color:#7f1d1d}
 .sev.on.medium{background:#fef3c7;border-color:#b45309;color:#78350f}
 .sev.on.low{background:#dcfce7;border-color:#15803d;color:#14532d}
-.tag{display:inline-block;background:#b91c1c;color:#fff;font-size:12px;padding:1px 6px;border-radius:4px;margin-bottom:4px}
-.medium .tag{background:#b45309}.low .tag{background:#15803d}
 ol{margin:0;padding-left:24px}li{padding:3px 0}
 .flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0}
 .box{border:1.5px solid #a1a1aa;border-radius:8px;padding:8px 10px;background:#fff;font-size:14px}
@@ -31,18 +29,18 @@ small,footer{color:#52525b}a{color:#4338ca}
 <h1>{{One-sentence symptom}}</h1>
 
 <section class="section" id="impact">
-  <h2>1. Impact</h2>
-  <p><strong>{{High/Medium/Low}} · {{N}} confirmed affected · total {{N or unknown}}.</strong> {{One sentence of user-facing harm.}}</p>
+  <h2>Impact</h2>
   <div class="severity">
-    <!-- Keep all three. Add class "on" to the one that applies (plus "medium" or "low" for those), and put the tag span inside it. Do not edit the definitions. -->
-    <div class="sev on"><span class="tag">Applies here</span><br><strong>High</strong><br>Financial harm or a core task blocked with no workaround.</div>
+    <!-- Keep all three. Add class "on" to the one that applies (plus "medium" or "low" for those). Never add an "Applies here" label; the highlight alone marks it. Do not edit the definitions. -->
+    <div class="sev on"><strong>High</strong><br>Financial harm or a core task blocked with no workaround.</div>
     <div class="sev"><strong>Medium</strong><br>A task is disrupted, but a workaround exists.</div>
     <div class="sev"><strong>Low</strong><br>Minor friction; users can still finish the task.</div>
   </div>
+  <p><strong>{{High/Medium/Low}} · {{N}} confirmed affected · total {{N or unknown}}.</strong> {{One sentence of user-facing harm.}}</p>
 </section>
 
 <section class="section" id="five-whys">
-  <h2>2. Five whys</h2>
+  <h2>Five Whys</h2>
   <!-- Optional. Only if it clarifies the cause. One .box per relevant step; class ok / fail / unknown. -->
   <div class="flow">
     <div class="box ok">{{Step}}</div><span class="arrow">→</span>
@@ -56,7 +54,7 @@ small,footer{color:#52525b}a{color:#4338ca}
 </section>
 
 <section class="section" id="proposed-solution">
-  <h2>3. {{Proposed solution, or What settles it}}</h2>
+  <h2>Resolution</h2>
   <p>{{Behavior to change, where, how to verify normal and failure paths. If incomplete: the exact commands below, each with who runs it and what each result means.}}</p>
   <pre>{{literal read-only SQL / stripe command / Loki query}}</pre>
   <p><strong>Cleanup (owned by the bug responder):</strong> {{identify, repair, verify; or why none is needed}}</p>
