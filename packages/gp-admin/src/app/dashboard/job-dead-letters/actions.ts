@@ -53,3 +53,56 @@ export const redriveJobDeadLetter = async (
     }
   }
 }
+
+const failureMessage = (error: unknown, fallback: string): string =>
+  error instanceof SdkError
+    ? extractApiErrorMessage(error, fallback)
+    : error instanceof Error
+      ? error.message
+      : fallback
+
+export const deleteJobDeadLetter = async (
+  id: string
+): Promise<RedriveJobDeadLetterResult> => {
+  try {
+    await requireAdmin('delete a job dead letter')
+    await gpAction((client) => client.adminJobDeadLetters.delete(id))
+    return { error: null }
+  } catch (error) {
+    return { error: failureMessage(error, 'Failed to delete the job') }
+  }
+}
+
+export type BulkJobDeadLetterResult = { done: number; error: string | null }
+
+export const redriveJobDeadLetters = async (
+  ids: string[]
+): Promise<BulkJobDeadLetterResult> => {
+  let done = 0
+  try {
+    await requireAdmin('redrive job dead letters')
+    for (const id of ids) {
+      await gpAction((client) => client.adminJobDeadLetters.redrive(id))
+      done += 1
+    }
+    return { done, error: null }
+  } catch (error) {
+    return { done, error: failureMessage(error, 'Failed to redrive the jobs') }
+  }
+}
+
+export const deleteJobDeadLetters = async (
+  ids: string[]
+): Promise<BulkJobDeadLetterResult> => {
+  let done = 0
+  try {
+    await requireAdmin('delete job dead letters')
+    for (const id of ids) {
+      await gpAction((client) => client.adminJobDeadLetters.delete(id))
+      done += 1
+    }
+    return { done, error: null }
+  } catch (error) {
+    return { done, error: failureMessage(error, 'Failed to delete the jobs') }
+  }
+}

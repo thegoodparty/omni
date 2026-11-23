@@ -1,8 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Theme } from '@radix-ui/themes'
 import type { JobDeadLetter } from '@goodparty_org/contracts'
 import { JobDeadLetterList } from './JobDeadLetterList'
+
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe = vi.fn()
+    unobserve = vi.fn()
+    disconnect = vi.fn()
+  }
+)
 
 const refresh = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
@@ -42,7 +52,7 @@ describe('JobDeadLetterList', () => {
 
     expect(
       screen.getByRole('link', {
-        name: '5f1a4b26-7c8a-4f5d-9a0b-0f0f5b5f1a4b',
+        name: '5f1a…f1a4b',
       })
     ).toHaveAttribute(
       'href',
@@ -71,5 +81,17 @@ describe('JobDeadLetterList', () => {
     )
 
     expect(screen.getByText('No dead letters right now.')).toBeInTheDocument()
+  })
+
+  it('offers bulk actions once a row is selected', async () => {
+    render(
+      <Theme>
+        <JobDeadLetterList deadLetters={[deadLetter()]} />
+      </Theme>
+    )
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select all' }))
+
+    expect(screen.getByText('1 selected')).toBeInTheDocument()
   })
 })
