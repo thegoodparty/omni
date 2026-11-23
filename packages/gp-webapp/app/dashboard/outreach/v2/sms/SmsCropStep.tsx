@@ -6,6 +6,8 @@ import type { CropperRef, CropperState } from 'react-advanced-cropper'
 import 'react-advanced-cropper/dist/style.css'
 import 'react-advanced-cropper/dist/themes/corners.css'
 import { MAX_TALL_RATIO, MAX_WIDE_RATIO } from '@goodparty_org/contracts'
+import { Button } from '@styleguide'
+import { CheckIcon, CropIcon } from '@styleguide/components/ui/icons'
 import {
   clampCropToPhoneRatio,
   cropImageFile,
@@ -23,6 +25,29 @@ interface SmsCropStepProps {
 
 const PHONE_RATIO_RANGE = { minimum: MAX_TALL_RATIO, maximum: MAX_WIDE_RATIO }
 
+const ALL_HANDLERS = {
+  westNorth: true,
+  eastNorth: true,
+  westSouth: true,
+  eastSouth: true,
+  north: true,
+  south: true,
+  west: true,
+  east: true,
+}
+const NO_HANDLERS = {
+  westNorth: false,
+  eastNorth: false,
+  westSouth: false,
+  eastSouth: false,
+  north: false,
+  south: false,
+  west: false,
+  east: false,
+}
+const ALL_LINES = { north: true, south: true, west: true, east: true }
+const NO_LINES = { north: false, south: false, west: false, east: false }
+
 export const SmsCropStep = ({
   file,
   initialCrop,
@@ -31,6 +56,8 @@ export const SmsCropStep = ({
 }: SmsCropStepProps) => {
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  // Corners show only while cropping, so the image reads as the image.
+  const [editing, setEditing] = useState(false)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const latestApply = useRef(0)
 
@@ -83,27 +110,51 @@ export const SmsCropStep = ({
 
   return (
     <div className="flex flex-col gap-2">
-      <Cropper
-        src={url}
-        className="h-80 max-h-[60vh] rounded-xl"
-        stencilProps={{ aspectRatio: PHONE_RATIO_RANGE, grid: true }}
-        backgroundWrapperProps={{ scaleImage: false, moveImage: false }}
-        defaultCoordinates={({ imageSize }: CropperState) => {
-          const box =
-            initialCrop ?? defaultCrop(imageSize.width, imageSize.height)
-          return {
-            left: box.x,
-            top: box.y,
-            width: box.width,
-            height: box.height,
-          }
-        }}
-        onReady={(cropper) => void apply(cropper)}
-        onInteractionEnd={(cropper) => void apply(cropper)}
-      />
-      <p className="text-xs text-muted-foreground">
-        Drag the corners to choose what voters see.
-      </p>
+      <div className="relative">
+        <Cropper
+          src={url}
+          className="h-80 max-h-[60vh] rounded-xl"
+          stencilProps={{
+            aspectRatio: PHONE_RATIO_RANGE,
+            grid: editing,
+            movable: editing,
+            resizable: editing,
+            handlers: editing ? ALL_HANDLERS : NO_HANDLERS,
+            lines: editing ? ALL_LINES : NO_LINES,
+            // White corners need an edge to read on a white image.
+            handlerClassNames: { default: 'drop-shadow-md' },
+          }}
+          backgroundWrapperProps={{ scaleImage: false, moveImage: false }}
+          defaultCoordinates={({ imageSize }: CropperState) => {
+            const box =
+              initialCrop ?? defaultCrop(imageSize.width, imageSize.height)
+            return {
+              left: box.x,
+              top: box.y,
+              width: box.width,
+              height: box.height,
+            }
+          }}
+          onReady={(cropper) => void apply(cropper)}
+          onInteractionEnd={(cropper) => void apply(cropper)}
+        />
+        {/* Carries its own fill, so it reads on an image of any color. */}
+        <Button
+          type="button"
+          size="small"
+          variant={editing ? 'default' : 'neutral'}
+          icon={editing ? <CheckIcon /> : <CropIcon />}
+          className="absolute bottom-3 right-3 z-10"
+          onClick={() => setEditing((on) => !on)}
+        >
+          {editing ? 'Done' : 'Crop'}
+        </Button>
+      </div>
+      {editing ? (
+        <p className="text-xs text-muted-foreground">
+          Drag the corners to choose what voters see.
+        </p>
+      ) : null}
       {failed ? (
         <p className="text-xs text-destructive" role="alert">
           We couldn&apos;t crop that image. Choose another.

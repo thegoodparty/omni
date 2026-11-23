@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type {
   CropperProps,
   CropperRef,
@@ -67,6 +68,22 @@ describe('SmsCropStep', () => {
       minimum: 0.5,
       maximum: 2,
     })
+  })
+
+  it('shows the corners only after Crop, and hides them on Done', async () => {
+    const { props } = await renderStep()
+    expect(props.stencilProps?.resizable).toBe(false)
+    expect(props.stencilProps?.movable).toBe(false)
+    expect(screen.queryByText(/Drag the corners/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Crop' }))
+    expect(cropper.props?.stencilProps?.resizable).toBe(true)
+    expect(cropper.props?.stencilProps?.handlers?.eastSouth).toBe(true)
+    expect(screen.getByText(/Drag the corners/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(cropper.props?.stencilProps?.resizable).toBe(false)
+    expect(cropper.props?.stencilProps?.handlers?.eastSouth).toBe(false)
   })
 
   it('keeps the image at its fitted size, with no zoom or pan', async () => {

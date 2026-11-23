@@ -87,14 +87,11 @@ describe('ServeChannelCards', () => {
     expect(screen.queryByText(/texting/i)).not.toBeInTheDocument()
   })
 
-  // Robocall is the paid channel that stays out for good, and no card on this
-  // page carries the candidate grid's per-message pricing sub-copy.
-  it('never renders Robocall or pricing copy', () => {
+  // Robocall is the paid channel that stays out for good.
+  it('never renders Robocall', () => {
     renderCards({ withSms: true })
 
     expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
-    expect(screen.queryByText(/\$/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/free/i)).not.toBeInTheDocument()
   })
 
   // Order matters: SMS sits second, where the candidate grid's TILE_ORDER
@@ -105,10 +102,10 @@ describe('ServeChannelCards', () => {
 
     const labels = screen.getAllByRole('button').map((b) => b.textContent)
     expect(labels).toEqual([
-      'Social media',
-      'SMS',
-      'Phone banking',
-      'Door knocking',
+      'Social mediaFree',
+      'SMS$0.035/text',
+      'Phone bankingFree',
+      'Door knockingFree',
     ])
   })
 
@@ -162,5 +159,29 @@ describe('ServeChannelCards', () => {
     expect(screen.getByRole('button', { name: /Social media/ })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Door knocking/ })).toBeEnabled()
+  })
+})
+
+describe('ServeChannelCards prices', () => {
+  it('prices every card, the free channels as Free', () => {
+    render(
+      <ServeChannelCards
+        onSocialClick={vi.fn()}
+        onPhoneBankingClick={vi.fn()}
+        onDoorKnockingClick={vi.fn()}
+        onSmsClick={vi.fn()}
+        onPollClick={vi.fn()}
+        onEmailClick={vi.fn()}
+      />,
+    )
+    const card = (label: string) =>
+      screen.getByText(label).closest('button')?.textContent
+
+    expect(card('Social media')).toContain('Free')
+    expect(card('SMS')).toContain('$0.035/text')
+    expect(card('Poll / Survey')).toContain('$0.035/text')
+    expect(card('Email')).toContain('$0.01/email')
+    expect(card('Phone banking')).toContain('Free')
+    expect(card('Door knocking')).toContain('Free')
   })
 })
