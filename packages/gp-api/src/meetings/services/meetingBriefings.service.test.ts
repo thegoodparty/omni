@@ -2,6 +2,7 @@ import {
   ExperimentRun,
   ExperimentRunStatus,
   MeetingResourceLocationType,
+  Prisma,
 } from '../../generated/prisma'
 import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1626,15 +1627,30 @@ describe('the meetingBriefingsDaily schedule', () => {
     expect(cronQuery?.where?.meetingBriefings).toEqual({
       none: { meetingDate: { gte: expect.any(Date) as Date } },
     })
+    // Both engines' tables: a schedule that is a gp-api AgentRun satisfies the
+    // same precondition a published ExperimentRun does.
     expect(cronQuery?.where?.organization).toEqual({
-      experimentRuns: {
-        some: {
-          experimentType: 'meeting_schedule',
-          status: ExperimentRunStatus.COMPLETED,
-          artifactBucket: { not: null },
-          artifactKey: { not: null },
+      OR: [
+        {
+          experimentRuns: {
+            some: {
+              experimentType: 'meeting_schedule',
+              status: ExperimentRunStatus.COMPLETED,
+              artifactBucket: { not: null },
+              artifactKey: { not: null },
+            },
+          },
         },
-      },
+        {
+          agentRuns: {
+            some: {
+              agentName: 'meeting_schedule',
+              status: 'completed',
+              artifact: { not: Prisma.DbNull },
+            },
+          },
+        },
+      ],
     })
 
     // And the pre-filtered candidate set the query returned excludes B (no

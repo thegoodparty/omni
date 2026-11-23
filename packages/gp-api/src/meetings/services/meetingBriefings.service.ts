@@ -277,9 +277,19 @@ export class MeetingBriefingsService extends createPrismaBase(
     // Whichever engine the switch sends this agent's next run to is the one
     // whose runs the schedule comes from: gp-api's own agents keep the
     // artifact on the AgentRun row, the PMF Engine publishes it to S3.
-    return runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)
-      ? this.agentScheduleForOrg(organizationSlug)
-      : this.publishedScheduleForOrg(organizationSlug)
+    if (!runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)) {
+      return this.publishedScheduleForOrg(organizationSlug)
+    }
+    // Cutover: an office whose schedule last ran on the PMF Engine has no
+    // AgentRun yet, and dropping its published schedule would empty its
+    // meetings list, its briefing dispatch and its hint until a new run
+    // lands. The published artifact is the same shape and is the better
+    // answer until the first gp-api run exists; after that the AgentRun wins.
+    // Removed at teardown.
+    return (
+      (await this.agentScheduleForOrg(organizationSlug)) ??
+      this.publishedScheduleForOrg(organizationSlug)
+    )
   }
 
   private async agentScheduleForOrg(
@@ -1062,18 +1072,36 @@ export class MeetingBriefingsService extends createPrismaBase(
     // The remaining gates (activity, imminence window, in-flight dedupe)
     // depend on the S3 schedule artifact / user metadata and can't be
     // expressed here, so they stay in the per-office job.
+    // The schedule may live in either engine's table, so both prongs are
+    // asked. Reading only the PMF Engine's would drop every office whose
+    // schedule is a gp-api AgentRun the moment the switch flips, and the cron
+    // is the only path that retries after the one-time chain and the landing
+    // catch-up: such an office would be briefed once and never again.
     const offices = await this.client.electedOffice.findMany({
       where: {
         onboardingCompletedAt: { not: null },
         organization: {
-          experimentRuns: {
-            some: {
-              experimentType: SCHEDULE_EXPERIMENT_TYPE,
-              status: ExperimentRunStatus.COMPLETED,
-              artifactBucket: { not: null },
-              artifactKey: { not: null },
+          OR: [
+            {
+              experimentRuns: {
+                some: {
+                  experimentType: SCHEDULE_EXPERIMENT_TYPE,
+                  status: ExperimentRunStatus.COMPLETED,
+                  artifactBucket: { not: null },
+                  artifactKey: { not: null },
+                },
+              },
             },
-          },
+            {
+              agentRuns: {
+                some: {
+                  agentName: SCHEDULE_EXPERIMENT_TYPE,
+                  status: AgentRunStatus.completed,
+                  artifact: { not: Prisma.DbNull },
+                },
+              },
+            },
+          ],
         },
         meetingBriefings: { none: { meetingDate: { gte: now } } },
       },

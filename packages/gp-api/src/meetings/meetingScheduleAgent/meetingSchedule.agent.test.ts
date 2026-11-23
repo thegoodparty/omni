@@ -246,7 +246,9 @@ describe('meeting_schedule on gp-api agents', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
     spies.push(briefingDispatch)
-    scriptedModel()
+    // Daily, so a meeting always falls inside the 3-day imminence window
+    // whatever day the suite runs.
+    scriptedModel({ ...FOUND, rrule: 'FREQ=DAILY', human: 'Every day' })
 
     await dispatchSchedule()
     await service.jobs.settle()
@@ -263,7 +265,10 @@ describe('meeting_schedule on gp-api agents', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
     spies.push(briefingDispatch)
-    scriptedModel()
+    // Daily too, so the gate this case exercises is the onboarding one and not
+    // an empty imminence window that would pass on most days for the wrong
+    // reason.
+    scriptedModel({ ...FOUND, rrule: 'FREQ=DAILY', human: 'Every day' })
 
     await dispatchSchedule()
     await service.jobs.settle()
@@ -374,6 +379,60 @@ describe('meeting_schedule on gp-api agents', () => {
 })
 
 describe('the schedule readers before gp-api holds the run', () => {
+  it('falls back to the published schedule for an office with no AgentRun yet', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    const artifactKey = `published-${orgSlug}.json`
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey,
+      },
+    })
+    spies.push(
+      vi
+        .spyOn(service.app.get(S3Service), 'getFile')
+        .mockResolvedValue(JSON.stringify(FOUND)),
+    )
+
+    const schedule = await service.app
+      .get(MeetingBriefingsService)
+      .loadLatestScheduleForOrg(orgSlug)
+
+    expect(schedule).toEqual(FOUND)
+  })
+
+  it('prefers the AgentRun once the office has a completed run of its own', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    const earlier = { ...FOUND, meeting_name: 'Village Board' }
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey: `published-${orgSlug}.json`,
+      },
+    })
+    const getFile = vi
+      .spyOn(service.app.get(S3Service), 'getFile')
+      .mockResolvedValue(JSON.stringify(earlier))
+    spies.push(getFile)
+    scriptedModel()
+
+    await dispatchSchedule()
+    await service.jobs.settle()
+
+    const schedule = await service.app
+      .get(MeetingBriefingsService)
+      .loadLatestScheduleForOrg(orgSlug)
+
+    expect(schedule?.meeting_name).toBe(FOUND.meeting_name)
+    expect(getFile).not.toHaveBeenCalled()
+  })
+
   it('reads the published artifact when the switch is off', async () => {
     const artifactKey = `schedule-${orgSlug}.json`
     await service.prisma.experimentRun.create({
