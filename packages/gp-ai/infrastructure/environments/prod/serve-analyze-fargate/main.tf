@@ -80,6 +80,7 @@ module "serve_analyze_fargate" {
   sqs_queue_arn                    = "arn:aws:sqs:us-west-2:333022194791:master-Queue.fifo"
   sqs_queue_url                    = "https://sqs.us-west-2.amazonaws.com/333022194791/master-Queue.fifo"
   swarm_alert_forwarder_lambda_arn = module.swarm_alert_forwarder.lambda_function_arn
+  enable_swarm_alert_forwarder     = true
   failure_notification_email       = var.failure_notification_email
 }
 

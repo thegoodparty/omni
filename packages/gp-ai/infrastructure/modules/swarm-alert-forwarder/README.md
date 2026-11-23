@@ -67,10 +67,16 @@ secret, and `verification: { format: 'standard-webhooks' }`.
 
 ## Deploying
 
-CI builds `lambda/swarm-alert-forwarder.zip` before any plan runs (both the PR
-plan job and the release train's dev and prod apply jobs) and the terraform
+CI builds `lambda/swarm-alert-forwarder.zip` before any plan runs (the
+`gp-ai` PR plan job, and the release train's prod apply job — dev does not build
+it, because no dev root instantiates this module), and the terraform
 `aws_lambda_function` hashes the zip, so the root ships with the code. The
 zip is a build artifact and is not committed.
+
+The subscription and its Lambda permission are gated on
+`enable_swarm_alert_forwarder`, not on the ARN, because `count` can only depend
+on plan-time-known values and the ARN is a computed attribute of a Lambda created
+in the same apply.
 
 ## Testing
 

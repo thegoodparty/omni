@@ -40,9 +40,15 @@ variable "failure_notification_email" {
 }
 
 variable "swarm_alert_forwarder_lambda_arn" {
-  description = "ARN of the swarm alert forwarder Lambda to subscribe to the failure topic (leave empty to disable swarm alerts)"
+  description = "ARN of the swarm alert forwarder Lambda to subscribe to the failure topic (empty disables swarm alerts)"
   type        = string
   default     = ""
+}
+
+variable "enable_swarm_alert_forwarder" {
+  description = "Whether to subscribe the forwarder to the failure topic. A count can only depend on plan-time-known values, and this ARN is a computed attribute of a Lambda in the same apply, so the gate is this boolean rather than the ARN itself."
+  type        = bool
+  default     = false
 }
 
 resource "aws_s3_bucket" "pipeline_data" {
@@ -669,14 +675,14 @@ output "state_machine_arn" {
 
 # Subscribe the swarm alert forwarder if provided
 resource "aws_sns_topic_subscription" "swarm_alert_forwarder" {
-  count     = var.swarm_alert_forwarder_lambda_arn != "" ? 1 : 0
+  count     = var.enable_swarm_alert_forwarder ? 1 : 0
   topic_arn = aws_sns_topic.pipeline_failures.arn
   protocol  = "lambda"
   endpoint  = var.swarm_alert_forwarder_lambda_arn
 }
 
 resource "aws_lambda_permission" "allow_sns_invoke_swarm_forwarder" {
-  count         = var.swarm_alert_forwarder_lambda_arn != "" ? 1 : 0
+  count         = var.enable_swarm_alert_forwarder ? 1 : 0
   statement_id  = "AllowSNSInvokeFromPipelineFailures-${var.environment}"
   action        = "lambda:InvokeFunction"
   function_name = var.swarm_alert_forwarder_lambda_arn

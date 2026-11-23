@@ -77,6 +77,7 @@ module "ddhq_matcher_fargate" {
   ecr_repository_url               = data.aws_ecr_repository.ai_projects.repository_url
   docker_image_tag                 = var.docker_image_tag
   swarm_alert_forwarder_lambda_arn = module.swarm_alert_forwarder.lambda_function_arn
+  enable_swarm_alert_forwarder     = true
   failure_notification_email       = var.failure_notification_email
 }
 
