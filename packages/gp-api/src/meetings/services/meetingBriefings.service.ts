@@ -1,5 +1,7 @@
 import { BriefingDispatchPreview } from '@goodparty_org/contracts'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { runsOnGpApi } from '@/agents/agents.registry'
+import { AgentsService } from '@/agents/agents.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import {
   MeetingBriefingFull,
@@ -16,10 +18,14 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   BadGatewayException,
   ForbiddenException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { WrapperType } from '@/shared/types/utility.types'
 import {
+  AgentRunStatus,
   ElectedOffice,
   ExperimentRun,
   ExperimentRunStatus,
@@ -34,6 +40,12 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
 import { JobsService } from '@/jobs/jobs.service'
 import type { JobRun } from '@/jobs/jobs.registry'
+import { isTestUser } from '@/users/util/users.util'
+import {
+  type MeetingScheduleOutput,
+  MeetingScheduleOutputSchema,
+  toMeetingSchedule,
+} from '../meetingScheduleAgent/meetingSchedule.schema'
 import { BriefingItemLinksService } from './briefingItemLinks.service'
 
 const parseBriefingArtifact = (
@@ -244,6 +256,11 @@ export class MeetingBriefingsService extends createPrismaBase(
     private readonly s3: S3Service,
     private readonly organizations: OrganizationsService,
     private readonly experimentRuns: ExperimentRunsService,
+    // The registry imports the schedule agent, whose onArtifact is this
+    // service, so the file cycle leaves AgentsService undefined when SWC
+    // captures design:paramtypes. forwardRef defers resolution.
+    @Inject(forwardRef(() => AgentsService))
+    private readonly agents: WrapperType<AgentsService>,
     private readonly analytics: AnalyticsService,
     private readonly llm: LlmService,
     private readonly braintrust: BraintrustService,
@@ -255,6 +272,43 @@ export class MeetingBriefingsService extends createPrismaBase(
   }
 
   async loadLatestScheduleForOrg(
+    organizationSlug: string,
+  ): Promise<MeetingSchedule | null> {
+    // Whichever engine the switch sends this agent's next run to is the one
+    // whose runs the schedule comes from: gp-api's own agents keep the
+    // artifact on the AgentRun row, the PMF Engine publishes it to S3.
+    return runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)
+      ? this.agentScheduleForOrg(organizationSlug)
+      : this.publishedScheduleForOrg(organizationSlug)
+  }
+
+  private async agentScheduleForOrg(
+    organizationSlug: string,
+  ): Promise<MeetingSchedule | null> {
+    const run = await this.client.agentRun.findFirst({
+      where: {
+        organizationSlug,
+        agentName: SCHEDULE_EXPERIMENT_TYPE,
+        status: AgentRunStatus.completed,
+        artifact: { not: Prisma.DbNull },
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: { id: true, artifact: true },
+    })
+    if (!run) return null
+
+    const parsed = MeetingScheduleOutputSchema.safeParse(run.artifact)
+    if (!parsed.success) {
+      this.logger.error(
+        { organizationSlug, runId: run.id },
+        'meeting_schedule AgentRun artifact is not a schedule',
+      )
+      return null
+    }
+    return toMeetingSchedule(parsed.data)
+  }
+
+  private async publishedScheduleForOrg(
     organizationSlug: string,
   ): Promise<MeetingSchedule | null> {
     const run = await this.client.experimentRun.findFirst({
@@ -312,26 +366,44 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
 
     // The elected-office create returns the existing row on retry / concurrent
-    // race and re-invokes this hook. dispatchRun is not idempotent, so skip
+    // race and re-invokes this hook. A dispatch is not idempotent, so skip
     // when an active or successful schedule run already exists — otherwise a
-    // retry spawns a duplicate live run and SQS message. A FAILED-only run is
+    // retry spawns a duplicate live run. A FAILED-only run is
     // not blocking: the first attempt did not succeed and nothing else
     // re-dispatches it (a dead run is only marked FAILED by the gp-ai
-    // ECS task-reaper, which does not re-dispatch).
-    const existingScheduleRun = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug: electedOffice.organizationSlug,
-        experimentType: SCHEDULE_EXPERIMENT_TYPE,
-        status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-            ExperimentRunStatus.COMPLETED,
-          ],
-        },
-      },
-    })
+    // ECS task-reaper, which does not re-dispatch). The engine that will run
+    // it is the one whose runs answer "already ran": gp-api's own agents
+    // record an AgentRun, the PMF Engine an ExperimentRun.
+    const existingScheduleRun = runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)
+      ? await this.client.agentRun.findFirst({
+          where: {
+            organizationSlug: electedOffice.organizationSlug,
+            agentName: SCHEDULE_EXPERIMENT_TYPE,
+            status: {
+              in: [
+                AgentRunStatus.queued,
+                AgentRunStatus.running,
+                AgentRunStatus.completed,
+              ],
+            },
+          },
+          select: { id: true },
+        })
+      : await this.client.experimentRun.findFirst({
+          where: {
+            organizationSlug: electedOffice.organizationSlug,
+            experimentType: SCHEDULE_EXPERIMENT_TYPE,
+            status: {
+              in: [
+                ExperimentRunStatus.QUEUED,
+                ExperimentRunStatus.RUNNING,
+                ExperimentRunStatus.AWAITING_RESUME,
+                ExperimentRunStatus.COMPLETED,
+              ],
+            },
+          },
+          select: { runId: true },
+        })
     if (existingScheduleRun) {
       this.logger.info(
         { electedOfficeId: electedOffice.id },
@@ -362,6 +434,10 @@ export class MeetingBriefingsService extends createPrismaBase(
   }
 
   private async dispatchSchedule(ctx: DispatchContext): Promise<void> {
+    if (runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)) {
+      await this.startScheduleRun(ctx)
+      return
+    }
     const hint = await this.loadLocationHint(
       ctx.electedOfficeId,
       MeetingResourceLocationType.SCHEDULE,
@@ -377,6 +453,40 @@ export class MeetingBriefingsService extends createPrismaBase(
         office: ctx.positionName,
         ...(hint ? { known_schedule_location: hint } : {}),
       },
+    })
+  }
+
+  // The engine's own run, on the same input the PMF Engine's params carry.
+  // The PMF Engine's dispatchRun is the one place that refuses a test-user or
+  // test-mode org; AgentsService.run does not, so the check is here.
+  private async startScheduleRun(ctx: DispatchContext): Promise<void> {
+    const organization = await this.client.organization.findUnique({
+      where: { slug: ctx.organizationSlug },
+      select: {
+        owner: { select: { email: true } },
+        testModeCreatedAt: true,
+      },
+    })
+    if (
+      isTestUser({ email: organization?.owner.email ?? '' }) ||
+      organization?.testModeCreatedAt
+    ) {
+      this.logger.info(
+        { organizationSlug: ctx.organizationSlug },
+        'Skipping agent run for test-user org',
+      )
+      return
+    }
+    const hint = await this.loadLocationHint(
+      ctx.electedOfficeId,
+      MeetingResourceLocationType.SCHEDULE,
+    )
+    await this.agents.run(SCHEDULE_EXPERIMENT_TYPE, {
+      organizationSlug: ctx.organizationSlug,
+      state: ctx.state,
+      office: ctx.positionName,
+      ...(hint ? { knownScheduleLocation: hint } : {}),
+      today: formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd'),
     })
   }
 
@@ -493,8 +603,13 @@ export class MeetingBriefingsService extends createPrismaBase(
     electedOfficeId: string,
     now: Date,
     windowDays: number,
+    // The schedule the caller already holds. onArtifact passes the run's own
+    // output, because a gp-api AgentRun is only marked completed after
+    // onArtifact returns and a reader would not see it yet.
+    knownSchedule?: MeetingSchedule,
   ): Promise<TargetMeeting | null> {
-    const schedule = await this.loadLatestScheduleForOrg(organizationSlug)
+    const schedule =
+      knownSchedule ?? (await this.loadLatestScheduleForOrg(organizationSlug))
     if (!schedule) {
       this.logger.info(
         { electedOfficeId },
@@ -775,13 +890,65 @@ export class MeetingBriefingsService extends createPrismaBase(
     electedOfficeId: string
     type: MeetingResourceLocationType
     description: string
-    experimentRunId: string
+    experimentRunId?: string
   }): Promise<void> {
     const { electedOfficeId, type, description, experimentRunId } = args
     await this.client.meetingResourceLocation.upsert({
       where: { electedOfficeId_type: { electedOfficeId, type } },
       create: { electedOfficeId, type, description, experimentRunId },
-      update: { description, experimentRunId },
+      update: {
+        description,
+        // A hint an AgentRun wrote names no ExperimentRun, and leaving the old
+        // pointer in place would credit the wrong run.
+        ...(experimentRunId !== undefined && { experimentRunId }),
+      },
+    })
+  }
+
+  // The meeting_schedule agent's onArtifact (src/agents): the schedule half of
+  // onExperimentRunCompleted, on a run that keeps its artifact itself. Same two
+  // steps in the same order, the briefing chain before the hint, because a
+  // hint-upsert failure must not cost a briefing. It can also run twice for
+  // one run, so both steps are safe to repeat.
+  async onScheduleArtifact(
+    run: { runId: string; organizationSlug: string },
+    schedule: MeetingScheduleOutput,
+  ): Promise<void> {
+    const eo = await this.client.electedOffice.findUnique({
+      where: { organizationSlug: run.organizationSlug },
+      select: {
+        id: true,
+        organizationSlug: true,
+        userId: true,
+        onboardingCompletedAt: true,
+      },
+    })
+    if (!eo) {
+      this.logger.warn(
+        { runId: run.runId },
+        'schedule run completed for an organization with no elected office',
+      )
+      return
+    }
+
+    if (isAutomationEnabled() && eo.onboardingCompletedAt) {
+      await this.dispatchBriefingIfNeeded(eo, new Date(), {
+        skipActivityGate: true,
+        knownSchedule: toMeetingSchedule(schedule),
+      }).catch((err: unknown) => {
+        this.logger.error(
+          { err, electedOfficeId: eo.id, scheduleRunId: run.runId },
+          'dispatchBriefingIfNeeded failed after schedule completion',
+        )
+      })
+    }
+
+    const description = schedule.discovered_schedule_location
+    if (!description) return
+    await this.upsertResourceLocation({
+      electedOfficeId: eo.id,
+      type: MeetingResourceLocationType.SCHEDULE,
+      description,
     })
   }
 
@@ -887,8 +1054,9 @@ export class MeetingBriefingsService extends createPrismaBase(
     // two predicates are strictly necessary conditions for dispatch, so they
     // never drop an office that dispatchBriefingIfNeeded would have briefed:
     //   1. The imminence gate calls resolveTargetMeeting -> loadLatestScheduleForOrg,
-    //      which requires a COMPLETED meeting_schedule run with artifact
-    //      pointers. No such run => resolveTargetMeeting returns null => skip.
+    //      which requires a completed meeting_schedule run holding an artifact:
+    //      a gp-api AgentRun with one, or a PMF Engine run with S3 pointers.
+    //      No such run => resolveTargetMeeting returns null => skip.
     //   2. Coverage dedupe skips any office already covered by a future
     //      briefing (meetingDate >= now).
     // The remaining gates (activity, imminence window, in-flight dedupe)
@@ -967,7 +1135,10 @@ export class MeetingBriefingsService extends createPrismaBase(
   private async dispatchBriefingIfNeeded(
     eo: { id: string; organizationSlug: string; userId: number },
     now: Date,
-    options: { skipActivityGate?: boolean } = {},
+    options: {
+      skipActivityGate?: boolean
+      knownSchedule?: MeetingSchedule
+    } = {},
   ): Promise<BriefingDispatchOutcome> {
     const notDispatched: BriefingDispatchOutcome = {
       dispatched: false,
@@ -1015,6 +1186,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       eo.id,
       now,
       IMMINENCE_WINDOW_DAYS,
+      options.knownSchedule,
     )
     if (!target) return notDispatched
 

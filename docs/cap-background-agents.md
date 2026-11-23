@@ -182,9 +182,11 @@ at the pledge that stamps `onboardingCompletedAt`; an unfinished office is
 dormant and dispatches nothing.
 
 - **Meeting briefings** (`src/meetings/services/meetingBriefings.service.ts`) — two
-  experiments, `meeting_schedule` then `meeting_briefing`. Signup dispatches the
+  agent types, `meeting_schedule` then `meeting_briefing`. Signup dispatches the
   schedule; schedule completion chains a briefing if the **imminence gate** passes (a
-  projected meeting within `IMMINENCE_WINDOW_DAYS = 3`). The `meetingBriefingsDaily`
+  projected meeting within `IMMINENCE_WINDOW_DAYS = 3`). `meeting_schedule` can
+  instead run on gp-api's own agents (`AGENTS_ON_GP_API`, unset everywhere until its
+  dev-versus-preview comparison passes; `src/agents/AGENTS.md`). The `meetingBriefingsDaily`
   pg-boss schedule (`0 7 * * *` UTC) sends one `meetingBriefingDispatch` job per
   candidate office, and each job dispatches if the office is still eligible. The "brief now" UI path
   bypasses the gate and widens the window to 60 days. User-supplied agendas ride as

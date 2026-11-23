@@ -1,5 +1,6 @@
 import { topCommunityIssuesAgent } from '@/communityIssues/topCommunityIssuesAgent/topCommunityIssues.agent'
 import { trendingIssuesAgent } from '@/communityIssues/trendingIssuesAgent/trendingIssues.agent'
+import { meetingScheduleAgent } from '@/meetings/meetingScheduleAgent/meetingSchedule.agent'
 import type { AgentDefinition } from './defineAgent'
 
 // Every gp-api agent, by name. The name is the run's AgentRun.agentName. An
@@ -7,6 +8,7 @@ import type { AgentDefinition } from './defineAgent'
 // reader of its runs keeps working. Start one with AgentsService.run(name,
 // input).
 export const AGENTS: Record<string, AgentDefinition> = {
+  meeting_schedule: meetingScheduleAgent,
   top_community_issues: topCommunityIssuesAgent,
   trending_issues: trendingIssuesAgent,
 }

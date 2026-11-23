@@ -6,7 +6,7 @@ End-to-end pipeline that turns a sitting elected official's recurring public mee
 
 The product surface is "show me a chronological list of my upcoming meetings, and for each one give me a briefing pack and a chat assistant that knows the agenda." Callers are the `gp-webapp` post-launch elected-official experience (`/elected-official` routes). The artifact this module produces is a `MeetingBriefing` row pointing at a JSON document in S3, written by the PMF agent (runbooks repo) for one specific `meeting_date`.
 
-This module is intentionally a thin orchestration layer over `agentExperiments`. It dispatches two experiment types (`meeting_schedule` and `meeting_briefing`), reacts to results via `onExperimentRunCompleted`, and exposes read endpoints. It does not generate content itself.
+This module is intentionally a thin orchestration layer over the two agent engines. It dispatches two agent types (`meeting_schedule` and `meeting_briefing`), reacts to results via `onExperimentRunCompleted` on the PMF Engine and `onScheduleArtifact` on gp-api's, and exposes read endpoints. It does not generate content itself.
 
 ## Data model
 
@@ -15,7 +15,7 @@ Eight Prisma models + two enums participate. File paths are under `prisma/schema
 | Model                      | File                              | Role                                                                                                                                     |
 | -------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `MeetingBriefing`          | `meetingBriefing.prisma`          | One row per `(electedOfficeId, meetingDate)`. Points at the S3 artifact and caches a typed copy in JSONB.                                |
-| `ExperimentRun`            | `experimentRun.prisma`            | Dispatch + result row for both `meeting_schedule` and `meeting_briefing` agent runs.                                                     |
+| `ExperimentRun`            | `experimentRun.prisma`            | Dispatch + result row for a `meeting_briefing` run, and for a `meeting_schedule` run while that agent is still on the PMF Engine (`AgentRun` once it is on gp-api's). |
 | `Annotation`               | `annotation.prisma`               | A user marker on a briefing — a note, a chat anchor, or a bug report. Joined to the briefing via `resourceId` + `resourceType=briefing`. |
 | `AnnotationNote`           | `annotationNote.prisma`           | Optional `body` (typed text) for `kind=note` annotations. Owns attachments.                                                              |
 | `AnnotationNoteAttachment` | `annotationNoteAttachment.prisma` | File uploads on a note (image / pdf / docx / plaintext). Carries OCR status + extracted text.                                            |
@@ -34,7 +34,7 @@ Enums:
 | `ArtifactFeedbackKind`   | `positive`, `negative`                                    | `ArtifactFeedback.feedback`          |
 | `ExperimentRunStatus`    | `RUNNING`, `COMPLETED`, `FAILED`                          | `ExperimentRun.status`               |
 
-Note: there is **no** `MeetingSchedule` Prisma model. "The schedule" is a JSON shape (`MeetingSchedule` in `src/generated/agent-job-contracts.ts`) produced by the `meeting_schedule` agent experiment and read on demand from S3 via `MeetingBriefingsService.loadLatestScheduleForOrg()`. The most recent `COMPLETED` schedule run for the org wins.
+Note: there is **no** `MeetingSchedule` Prisma model. "The schedule" is a JSON shape (`MeetingSchedule` in `src/generated/agent-job-contracts.ts`) produced by the `meeting_schedule` agent and read on demand by `MeetingBriefingsService.loadLatestScheduleForOrg()`, from whichever table the run landed in: gp-api's own agents keep the artifact on the `AgentRun` row, the PMF Engine publishes it to S3 and the `ExperimentRun` carries the pointers. The most recent completed schedule run for the org wins.
 
 ## End-to-end flow
 
@@ -64,7 +64,7 @@ MeetingBriefingsService.onExperimentRunCompleted(run)
          MeetingBriefing row visible at GET /v1/meetings/:date/briefing
 ```
 
-On `meeting_schedule` completion, `onExperimentRunCompleted` chains a briefing through the same eligibility gate as the cron, but only for an office that finished Serve onboarding (`onboardingCompletedAt` set); an unfinished office gets its first briefing from the landing catch-up or the cron once onboarding is done. The schedule artifact is read on demand by the list endpoint via `loadLatestScheduleForOrg()` to project upcoming meeting dates from the RRULE. A briefing row is self-sufficient: its `meetingTime` and `meetingTimezone` come from the briefing artifact, not from the schedule.
+On `meeting_schedule` completion, the schedule's own completion hook (`onExperimentRunCompleted` on the PMF Engine, `onScheduleArtifact` on gp-api's) chains a briefing through the same eligibility gate as the cron, but only for an office that finished Serve onboarding (`onboardingCompletedAt` set); an unfinished office gets its first briefing from the landing catch-up or the cron once onboarding is done. The schedule artifact is read on demand by the list endpoint via `loadLatestScheduleForOrg()` to project upcoming meeting dates from the RRULE. A briefing row is self-sufficient: its `meetingTime` and `meetingTimezone` come from the briefing artifact, not from the schedule.
 
 The daily cron (the `meetingBriefingsDaily` pg-boss schedule, `0 7 * * *` UTC, `fanOutDailyBriefings`) sweeps every `ElectedOffice` that finished Serve onboarding (`onboardingCompletedAt` set) and sends one `meetingBriefingDispatch` job per office with a completed schedule run and no future briefing; that job (`dispatchDailyBriefing`) dispatches a `meeting_briefing` run for the office — but only when the schedule projects a meeting within the 3-day imminence window (`IMMINENCE_WINDOW_DAYS`). Manual dispatches without the gate use a 60-day window instead. `dispatchManual` called with `useImminenceGate: true` means "match the cron exactly"; the ungated brief-now path skips the imminence and coverage checks.
 
@@ -187,8 +187,8 @@ The handler's `finalizeAssistantText` backstops two of those lines at the end of
 The `meetings` feature is a transport-layer caller of the `agentExperiments` module. See `src/agentExperiments/CLAUDE.md` for the full contract; the meetings-specific bits:
 
 - **Experiment types**: `meeting_schedule` and `meeting_briefing`. Both are `keyof AgentJobContracts` in `src/generated/agent-job-contracts.ts`.
-- **Dispatch entry point**: `ExperimentRunsService.dispatchRun({ type, organizationSlug, clerkUserId, params })`. The runbooks side resolves the user via `clerkUserId`, so a missing `clerkId` aborts dispatch (`resolveDispatchContext`).
-- **Result handling**: the `agentExperimentResult` pg-boss job's worker, `AgentExperimentResultService.handleAgentExperimentResult` (`src/queue/inbox/agentExperimentResult.service.ts`), optimistically flips the run to a terminal state, then `await`s `meetingBriefings.onExperimentRunCompleted(updatedRun)` inside a `.catch` so a briefing-write failure doesn't retry the job.
+- **Dispatch entry point**: `dispatchSchedule` forks on `runsOnGpApi('meeting_schedule')` — gp-api's own agent (`src/meetings/meetingScheduleAgent/`, `AgentsService.run`) when `AGENTS_ON_GP_API` names it, `ExperimentRunsService.dispatchRun({ type, organizationSlug, clerkUserId, params })` otherwise. `meeting_briefing` is still PMF Engine only, and the runbooks side resolves the user via `clerkUserId`, so a missing `clerkId` aborts its dispatch (`resolveDispatchContext`). The gp-api branch makes the same test-user / test-mode check `dispatchRun` makes.
+- **Result handling**: on the PMF Engine the `agentExperimentResult` pg-boss job's worker, `AgentExperimentResultService.handleAgentExperimentResult` (`src/queue/inbox/agentExperimentResult.service.ts`), optimistically flips the run to a terminal state, then `await`s `meetingBriefings.onExperimentRunCompleted(updatedRun)` inside a `.catch` so a briefing-write failure doesn't retry the job. On gp-api's engine the agent's `onArtifact` is `MeetingBriefingsService.onScheduleArtifact`, which does the same two things for the schedule — chain the briefing, then persist the location hint — from the run's own output, because `onArtifact` runs before the run is marked completed and a reader would not see it yet.
 - **Artifact contracts**: per-experiment `manifest.json` files in the `agent-experiment-metadata-dev` S3 bucket (rough pointer — exact paths are owned by the runbooks repo; check there for the source of truth). Regenerate types via `tsx scripts/generate-agent-job-types.ts`.
 
 ## Scheduled jobs
@@ -209,6 +209,7 @@ In dev/QA, `meetingBriefingsDaily` will fan out one job per onboarded `ElectedOf
 - **`onElectedOfficeCreated` auto-dispatches a schedule experiment** when `MEETINGS_AUTOMATION_ENABLED=true`. Toggling this on in dev caused noise during initial rollout; default to off outside prod.
 - **Internal data source names must not leak.** Tables like `int__l2_nationwide_uniform_w_haystaq` and any column starting with `hs_` / `l2_` are internal. The `DISTRICT_INSIGHTS_RULES` block enforces this on the chat path, but the briefing artifact itself can still embed these names — the frontend (and any future export path) must mask at the boundary.
 - **`AnnotationNote.body` is nullable.** Anything reading notes for AI context, surface display, or search must consider the attachment OCR fallback. The current `BriefingNotesService.loadNotesForChat` filters notes with empty body — confirm whether that's intentional for your call site (see "Notes, dictation, and transcription" above). **TODO: verify** that the recent context-unification work actually wires OCR text into this path.
+- **The two result hooks must stay in step.** `onExperimentRunCompleted` (PMF Engine) and `onScheduleArtifact` (gp-api's agents) are the schedule's two completion paths, and each does the same two things in the same order. A change to one is a change to both.
 - **`onExperimentRunCompleted` runs inside the `agentExperimentResult` job.** It uses `optimisticLockingUpdate` on the experiment run. Don't add a second writer to the same row outside that pattern — duplicate results and job retries already rely on the lock for idempotency.
 - **`upsertBriefingRow` is unique on `(electedOfficeId, meetingDate)`.** Two briefing runs for the same date overwrite each other (intended). `meetingTime` and `meetingTimezone` come from the briefing artifact (`meeting_time`, `meeting_timezone`); the schedule artifact is not consulted here. A malformed `meeting_time` (not `HH:MM`) or missing `meeting_timezone` skips the row write so the next run can retry.
 - **`MeetingBriefing.artifact` is a typed JSONB cache.** Source of truth is the S3 object at `artifactBucket`/`artifactKey`. `GET /:date/briefing` always re-reads from S3; the JSONB copy is only used in list aggregation and is fine to drift in dev.
@@ -236,5 +237,6 @@ In dev/QA, `meetingBriefingsDaily` will fan out one job per onboarded `ElectedOf
 | Result job hook                               | `src/queue/inbox/agentExperimentResult.service.ts` (`handleAgentExperimentResult`)              |
 | Shared contracts (annotation, feedback, chat) | `contracts/src/annotations/`, `contracts/src/artifactFeedback/`, `contracts/src/briefingChats/` |
 | Frontend route                                | `gp-webapp` → `/elected-official/meetings/*`                                                    |
+| The schedule agent on gp-api's agents         | `src/meetings/meetingScheduleAgent/` (`meetingSchedule.agent.ts`, `.prompt.ts`, `.schema.ts`)    |
 | Agent runbooks                                | `runbooks/` repo — `meeting_schedule` and `meeting_briefing` experiments                        |
 | Sibling module docs                           | `src/agentExperiments/CLAUDE.md`, `src/queue/CLAUDE.md`, `prisma/CLAUDE.md`                     |

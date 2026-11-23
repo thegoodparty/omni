@@ -95,10 +95,10 @@ successful production traffic, not a merged PR.
    Rollback is the switch.
    - **Wave 1, web tools only:** `race_opponent_summary`,
      `opposition_research`, `opportunities_and_challenges`,
-     `race_opponent_collection`, `self_research`, `meeting_schedule`. Not
-     started. The opponent chain runs collection, then summary, then actions,
-     and those three flip together, so collection and summary are built in
-     wave 1 but wait for actions before they flip.
+     `race_opponent_collection`, `self_research`, `meeting_schedule` (built,
+     not flipped). The opponent chain runs collection, then summary, then
+     actions, and those three flip together, so collection and summary are
+     built in wave 1 but wait for actions before they flip.
    - **Wave 2, needs a Databricks tool:** `race_opponent_actions`,
      `opponent_research`, `top_community_issues` (moved, dev),
      `campaign_tracker_tasks`. The tool exists: `queryDatabricks`

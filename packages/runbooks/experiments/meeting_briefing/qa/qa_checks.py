@@ -521,9 +521,8 @@ def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding
 
 
 _PLACEHOLDER_LOCATIONS = frozenset({"tbd", "unknown", "n/a", "na", "none", "?", "-"})
-# Per-meeting deep-link signals. Kept in sync with the schedule checker
-# (experiments/meeting_schedule/attachments/qa_checks.py). The briefing
-# checker additionally treats a bare `.pdf` suffix as a deep link (see
+# Per-meeting deep-link signals. The briefing checker additionally treats a
+# bare `.pdf` suffix as a deep link (see
 # .endswith check below) because a `.pdf` URL recorded for an agenda hint
 # is almost always one specific meeting's packet — unlike for schedules,
 # where municipal-code PDFs are legitimate parent docs.

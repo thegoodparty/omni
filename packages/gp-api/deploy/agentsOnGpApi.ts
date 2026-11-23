@@ -14,6 +14,7 @@
 // than importing them. src/agents/agentsOnGpApi.test.ts holds the two equal;
 // it lives under src/ so the deploy tsconfig program never pulls src/ in.
 export const PREVIEW_AGENTS_ON_GP_API = [
+  'meeting_schedule',
   'top_community_issues',
   'trending_issues',
 ]
