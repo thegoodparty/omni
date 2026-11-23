@@ -44,20 +44,20 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 ## BEFORE YOU START
 
 1. Read this entire instruction end-to-end before executing anything.
-2. Your input is the first message: \`organizationSlug\`, \`state\`, \`office\`, \`districtDescriptor\`, \`today\` (the run's date, \`YYYY-MM-DD\`), and, when the office has one, the voter-file district pair \`l2DistrictType\` (a column name, e.g. \`City_Ward\`) and \`l2DistrictName\` (its value, e.g. \`FAYETTEVILLE CITY WARD 2\`). Every date window below counts back from \`today\`.
+2. Your input is the first message: \`organizationSlug\`, \`state\`, \`office\`, \`districtDescriptor\`, \`today\` (the run's date, \`YYYY-MM-DD\`), and, when the office has one, the voter-file district pair \`l2DistrictType\` (a column name, e.g. \`City_Ward\`) and \`l2DistrictName\` (its value, e.g. \`SPRINGFIELD CITY WARD 4\`). Every date window below counts back from \`today\`. The L2 pair is optional: many runs have no district scope at all.
 3. You finish by calling \`submitOutput\` with the artifact. It checks the schema and tells you exactly what to fix.
 4. Perform the spot-check at the bottom before you submit — schema-valid data can still be garbage.
 
 ## TODO CHECKLIST
 
 1. Read your input. Capture \`organizationSlug\`, \`state\`, \`office\`, \`districtDescriptor\`, \`today\`, and the L2 pair if present.
-2. Confirm the office exists, before any research, and write the answer down. \`office\` and \`districtDescriptor\` have to name a real elected office that covers a real district in \`state\`. One search on the office name and one on the district name settles it. **A seat the place files under a different word is not a missing seat.** Places call their seats wards, districts, places, precincts and posts, and the voter file behind \`districtDescriptor\` uses its own word for the same seat: \`FAYETTEVILLE CITY WARD 2, NC\` is Fayetteville NC's Council District 2. Translate the word and research that seat — that is the normal production input, not a finding. Only the word changes: \`state\` and the place are fixed, and a namesake city in another state is the wrong place, not the seat you could not find. Only a seat this jurisdiction does not have at all — a county commissioner in a state that abolished counties, a Connecticut county commission — is \`insufficient_signal\`: \`issues\` empty, \`data_quality: "insufficient_signal"\`, and a \`data_quality_reason\` naming what could not be located. Nothing else is done for that run. News from the same city is NOT this office's issue list.
+2. Confirm the office exists, before any research, and write the answer down. \`office\` and \`districtDescriptor\` have to name a real elected office that covers a real district in \`state\`. One search on the office name and one on the district name settles it. **A seat the place files under a different word is not a missing seat.** Places call their seats wards, districts, places, precincts and posts, and the voter file behind \`districtDescriptor\` uses its own word for the same seat: a descriptor reading \`GREENSBORO CITY WARD 3, NC\` is Greensboro NC's Council District 3. Translate the word and research that seat — that is the normal production input, not a finding. Only the word changes: \`state\` and the place are fixed, and a namesake city in another state is the wrong place, not the seat you could not find. **This translation is for \`webSearch\` only, never for SQL.** \`districtDescriptor\` is prose, not a voter-file column or value: the only district predicate a query may ever carry is the input's \`l2DistrictType\` paired with \`l2DistrictName\`, and a run given no L2 pair has no district predicate at all. Only a seat this jurisdiction does not have at all — a county commissioner in a state that abolished counties, a Connecticut county commission — is \`insufficient_signal\`: \`issues\` empty, \`data_quality: "insufficient_signal"\`, and a \`data_quality_reason\` naming what could not be located. Nothing else is done for that run. News from the same city is NOT this office's issue list.
 3. Call \`getCommunityIssues\` with \`list: "top_community"\` to retrieve the current issue list. Record existing issue IDs, titles, categories.
 4. \`webSearch\` the **local civic news + letters/op-eds** for the jurisdiction. Identify candidate named issues residents are raising, with dollars/dates/locations.
 5. \`webSearch\` the **community advocacy groups** (associations, BIAs, neighborhood councils, coalitions). Record each group's name and any party affiliation; prefer nonpartisan; pull the issues they are pushing.
 6. \`webSearch\` **petitions / organized campaigns**, then **311 / service requests** and a **resident survey** if discoverable. Flag any layer not found.
 7. Pick ~12-15 community-relevant \`hs_*\` columns from the **inline catalog** (CRITICAL RULES).
-8. Run ONE batched \`queryDatabricks\` aggregation returning per-column \`AVG(hs_x)\`, coverage \`COUNT(hs_x)\`, and \`COUNT(*) AS n\`, scoped to the district when the L2 pair is present, else to the state. Round each average to one decimal when you write it down. Drop any column below ~80% coverage. Compute distinctiveness = \`AVG - 50\` and a lean chip per column.
+8. Run ONE batched \`queryDatabricks\` aggregation returning per-column \`AVG(hs_x)\`, coverage \`COUNT(hs_x)\`, and \`COUNT(*) AS n\`, scoped to the district when the L2 pair is present, else to the state — and with no L2 pair the WHERE is only \`Residence_Addresses_State\` and \`Active\`, however precisely \`districtDescriptor\` names the district. Round each average to one decimal when you write it down. Drop any column below ~80% coverage. Compute distinctiveness = \`AVG - 50\` and a lean chip per column.
 9. Rank candidate issues by **resident attention mass** (recency + breadth + how many independent sources corroborate). **Lead with the 1 to 3 strongest (reserve \`priority: "high"\` for these); add more only if each independently clears the evidence + freshness bar; never pad toward 5.** Label any row carried by press coverage with no direct resident voice accordingly. A single-source issue is low-confidence by construction.
 10. \`fetchPage\` every source you intend to cite; take dollars, dates, votes, locations and the \`article_date\` from the page. **Require at least one source within the last ~12 months; drop stale issues (and date-traps) whose newest fetched source is older.** Drop anything you cannot confirm.
 11. Match each output issue against the existing feed: carry \`existing_issue_id\` when it maps to an existing record. Prefer carrying the ID over creating a duplicate. If the feed was empty, say so in \`data_quality_reason\`.
@@ -91,7 +91,8 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 **Internal modeled data (\`queryDatabricks\`) — lean annotation only**:
 
 - The one table is \`goodparty_data_catalog.mart_gp_api.gp_api_voters\` or \`...gp_api_constituents\`, whichever this organization reads; it is the tool's table, and every query must read it. A query with no FROM, or naming a table that is not this organization's, is rejected.
-- **Every query writes its own jurisdiction filter, as literals.** Always \`Residence_Addresses_State = '<state>'\`. When the input has the L2 pair, also \`<l2DistrictType> = '<l2DistrictName>'\` — the column NAME is the value of \`l2DistrictType\`, the value is \`l2DistrictName\` exactly as given, unquoted column, single-quoted value: \`City_Ward = 'FAYETTEVILLE CITY WARD 2'\`. No OR around either clause. A query without them is rejected and tells you the clause to add; add it and run again. No bind parameters: write values inline.
+- **Every query writes its own jurisdiction filter, as literals.** Always \`Residence_Addresses_State = '<state>'\`. When the input has the L2 pair, also \`<l2DistrictType> = '<l2DistrictName>'\` — the column NAME is the value of \`l2DistrictType\`, the value is \`l2DistrictName\` exactly as given, unquoted column, single-quoted value. With no L2 pair in the input there is no district clause at all, whatever \`districtDescriptor\` says. No OR around either clause. A query without them is rejected and tells you the clause to add; add it and run again. No bind parameters: write values inline.
+- **Only two source columns may ever appear in a WHERE.** \`Residence_Addresses_State\` and \`Active\`, plus \`<l2DistrictType>\` and that alone when the input carries the L2 pair. Nothing else is filterable, so any other column is rejected — including a district column you infer from \`districtDescriptor\`. \`districtDescriptor\` is a seat description for \`webSearch\`, never a predicate: it names no column and its value is not a voter-file district value.
 - **\`Active\` is a STRING.** Add \`Active = 'A'\`. \`Active = 1\` matches zero rows.
 - One SELECT per call, no joins of the table with itself, no DDL, no \`SHOW\`, no \`DESCRIBE\`, no \`information_schema\`. Use the **inline catalog** below for column names; it is the complete set.
 - **All \`hs_*\` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (\`_yes\`, \`_no\`, \`_support\`, \`_oppose\`, \`_fund_more\`, \`_worried\`, etc.). They are **within-state percentile ranks** (mean ~50, SD ~29), so the lean is \`AVG(hs_x) - 50\` ("distance from the average constituent in this state"), NOT absolute support. A raw "count >= 50" is roughly half the cohort regardless of column — that is why this internal lean is an annotation here, not the salience ranker. A score is not a percentage, not an observed survey answer, and not a comparison across states. A negative lean reads as leaning away relative to the state, not as opposition counts.
@@ -179,9 +180,9 @@ For each candidate, capture the **named instance** (the project, rate, vote, dol
 
 ### Step 4 — Internal modeled-data lean annotation (\`queryDatabricks\`)
 
-Pick community-relevant columns from the inline catalog, then run ONE batched aggregation. Scoping matters: \`hs_*\` are within-state percentile ranks, so averaging them over the whole state collapses every lean to ~0. The district scope is what makes the lean meaningful. **Target 1-2 turns.**
+Pick community-relevant columns from the inline catalog, then run ONE batched aggregation. Scoping matters: \`hs_*\` are within-state percentile ranks, so averaging them over the whole state collapses every lean to ~0, and the district scope is what makes the lean meaningful. Only the L2 pair names a district column, though; a run without it has state scope and that is the honest scope. **Target 1-2 turns.**
 
-With the L2 pair (\`l2DistrictType: "City_Ward"\`, \`l2DistrictName: "FAYETTEVILLE CITY WARD 2"\`, \`state: "NC"\`):
+With the L2 pair present in the input (this example is a different jurisdiction than the run's; write the input's own \`state\`, \`l2DistrictType\` and \`l2DistrictName\`, never the example's):
 
 \`\`\`sql
 SELECT COUNT(*) AS n,
@@ -190,14 +191,25 @@ SELECT COUNT(*) AS n,
   AVG(hs_infrastructure_funding_fund_more) AS avg_hs_infrastructure_funding_fund_more,
   COUNT(hs_infrastructure_funding_fund_more) AS cov_hs_infrastructure_funding_fund_more
 FROM goodparty_data_catalog.mart_gp_api.gp_api_voters
-WHERE Residence_Addresses_State = 'NC'
-  AND City_Ward = 'FAYETTEVILLE CITY WARD 2'
+WHERE Residence_Addresses_State = 'MO'
+  AND City_Ward = 'SPRINGFIELD CITY WARD 4'
   AND Active = 'A'
 \`\`\`
 
 Select bare aggregates, never a function wrapped around one: \`ROUND(AVG(...), 1)\` is rejected. Round when you write the number down.
 
-Without the L2 pair, drop the district clause; that is state scope, and the lean is low-confidence — record \`internal_data_lean_scope: "state"\` in \`notes\`.
+Without the L2 pair in the input, the query is this shape — two clauses, no district clause at all:
+
+\`\`\`sql
+SELECT COUNT(*) AS n,
+  AVG(hs_violent_crime_worried) AS avg_hs_violent_crime_worried,
+  COUNT(hs_violent_crime_worried) AS cov_hs_violent_crime_worried
+FROM goodparty_data_catalog.mart_gp_api.gp_api_voters
+WHERE Residence_Addresses_State = 'MO'
+  AND Active = 'A'
+\`\`\`
+
+That is state scope, and the lean is low-confidence — record \`internal_data_lean_scope: "state"\` in \`notes\`. Lean values near 0 are the expected result of state scope and are not a reason to add a district clause: \`districtDescriptor\` is a seat description for \`webSearch\`, it names no voter-file column, and a query that carries a district predicate the input never supplied is rejected.
 
 If \`n\` is 0, the district value matched no rows: skip the lean, record it in \`notes\`, and move on. The tool drops any result row whose \`n\` is under 100 and nulls any other count under 100, so a small district comes back with no rows and \`suppressed: 1\`: that is too few people for a lean, not a failed query. Skip the lean and record it in \`notes\` the same way. Drop any column whose coverage \`cov_*\` is null or below ~80% of \`n\` (record it). For survivors, distinctiveness = \`avg_* - 50\`, using the average rounded to one decimal; translate to a chip (e.g. \`+11\` → "+11 pro-transit", \`-19\` → "-19 low police trust"). This lean annotates issues; it never ranks them.
 
@@ -280,6 +292,7 @@ Perform the spot-check below. Then call \`submitOutput\` with the artifact. If i
 | All internal leans near 0 | Used a thresholded count, or state scope | Use \`AVG - 50\`; scope to the district when the L2 pair is present |
 | An internal-data column shows 0 coverage | No coverage for that model in this state | Drop it; record in \`data_quality_reason\` |
 | \`queryDatabricks\` rejected: must guarantee a column | Missing the state or district clause | Add exactly the clause it names, as a literal, and run again |
+| \`queryDatabricks\` rejected: may only name the allowed dimensions | Built a district clause from \`districtDescriptor\` on a run with no L2 pair | Drop it: without the L2 pair the WHERE is only \`Residence_Addresses_State\` and \`Active\` |
 | Partisan group's claim ranked as resident salience | Skipped the nonpartisan-corroboration rule | Flag affiliation; require a second independent source |
 | \`source_id\` not found in \`detail.sources[]\` | Referenced a source you never added | Add the matching entry to \`detail.sources[]\` |
 | \`submitOutput\`: missing \`overview\` | \`detail.overview\` omitted | Always emit a substantive \`overview.summary\`; it is required |
