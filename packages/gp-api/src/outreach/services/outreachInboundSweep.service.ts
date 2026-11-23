@@ -71,8 +71,10 @@ export const OPT_OUT_RECONCILE_WINDOW_DAYS = 3
 
 // The rest of that sample (6 of 258) were flagged later, and a flag on a
 // reply with no stop word reaches us only through this report. So each job
-// is read once more on the last full day the sweep still covers.
-export const OPT_OUT_FINAL_READ_AFTER_DAYS = 13
+// is read again on each of these days of the sweep's 14. Two, not one: a
+// read is stamped whether or not it succeeds, so a failed first read gets
+// its second chance a day later.
+export const OPT_OUT_FINAL_READ_DAYS = [12, 13]
 
 // No report starts after this. With the last ones still building
 // (OPT_OUT_REPORT_TIMEOUT_MS), a pass ends long before the next hour's
@@ -420,9 +422,13 @@ export class OutreachInboundSweepService extends createPrismaBase(
         }
         return true
       }
-      const finalReadFrom = addDays(sendAnchor, OPT_OUT_FINAL_READ_AFTER_DAYS)
+      const finalReadFrom = OPT_OUT_FINAL_READ_DAYS.map((days) =>
+        addDays(sendAnchor, days),
+      )
+        .filter((from) => !isBefore(now, from))
+        .at(-1)
       if (
-        isBefore(now, finalReadFrom) ||
+        !finalReadFrom ||
         (attemptedAt && !isBefore(attemptedAt, finalReadFrom))
       ) {
         jobsAwaitingFinalRead += 1

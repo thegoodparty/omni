@@ -29,7 +29,7 @@ import {
 import {
   INBOUND_SWEEP_AGED_HOUR_INTERVAL,
   INBOUND_SWEEP_FRESH_WINDOW_DAYS,
-  OPT_OUT_FINAL_READ_AFTER_DAYS,
+  OPT_OUT_FINAL_READ_DAYS,
   OPT_OUT_RECONCILE_BUDGET_MS,
   OPT_OUT_RECONCILE_CONCURRENCY,
   OPT_OUT_RECONCILE_INTERVAL_HOURS,
@@ -1097,10 +1097,11 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     ])
   })
 
-  it('reads a send once more on its final day, and not in between', async () => {
+  it('reads a send again on each final day, and not in between', async () => {
+    const SEND = subDays(NOW, 5)
     const between = await createJob('job-between', 1111)
-    await setOutreachDate(between.id, subDays(NOW, 5))
-    await setOutreachUpdatedAt(between.id, subDays(NOW, 5))
+    await setOutreachDate(between.id, SEND)
+    await setOutreachUpdatedAt(between.id, SEND)
     const pastSweep = await createJob('job-past-sweep', 2222)
     await setOutreachDate(pastSweep.id, subDays(NOW, 15))
     await setOutreachUpdatedAt(pastSweep.id, subDays(NOW, 15))
@@ -1113,21 +1114,21 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
       expect.any(String),
     )
 
-    const finalDay = addHours(
-      addDays(subDays(NOW, 5), OPT_OUT_FINAL_READ_AFTER_DAYS),
-      1,
-    )
-    vi.setSystemTime(finalDay)
-    await service.jobs.runSchedule('outreachOptOutReconcile')
-    expect(calledJobIds()).toEqual(['job-between'])
-    expect(logSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ finalReadsDue: 1 }),
-      expect.any(String),
-    )
+    for (const [index, days] of OPT_OUT_FINAL_READ_DAYS.entries()) {
+      const finalDay = addHours(addDays(SEND, days), 1)
+      vi.setSystemTime(finalDay)
+      await service.jobs.runSchedule('outreachOptOutReconcile')
+      expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(index + 1)
+      expect(logSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ finalReadsDue: 1 }),
+        expect.any(String),
+      )
 
-    vi.setSystemTime(addHours(finalDay, OPT_OUT_RECONCILE_INTERVAL_HOURS))
-    await service.jobs.runSchedule('outreachOptOutReconcile')
-    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+      vi.setSystemTime(addHours(finalDay, OPT_OUT_RECONCILE_INTERVAL_HOURS))
+      await service.jobs.runSchedule('outreachOptOutReconcile')
+      expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(index + 1)
+    }
+    expect(new Set(calledJobIds())).toEqual(new Set(['job-between']))
   })
 
   it('reads only sends inside the window, counting a recent update as inside', async () => {

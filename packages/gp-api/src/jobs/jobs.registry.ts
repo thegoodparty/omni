@@ -1364,11 +1364,11 @@ export const SCHEDULES = {
     timeoutMinutes: 55,
   }),
   // Hourly, dev and prod only: Peerly's own opt-out flags, each job's report
-  // read at most every six hours, and once more on day 13. No report starts
-  // after 20 minutes and none runs past 5, so a pass is done well inside its
-  // timeout. A failed read is stamped like any other and the run then
-  // throws. One attempt: a retry would only skip the stamped job and pass,
-  // so the run dead-letters and pages at once.
+  // read at most every six hours, and again on days 12 and 13. No report
+  // starts after 20 minutes and none runs past 5, so a pass is done well
+  // inside its timeout. A failed read is stamped like any other and the run
+  // then throws. One attempt: a retry would only skip the stamped job and
+  // pass, so the run dead-letters and pages at once.
   outreachOptOutReconcile: defineSchedule({
     cron: '45 * * * *',
     worker: (job, { get }) =>
