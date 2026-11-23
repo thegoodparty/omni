@@ -1,6 +1,7 @@
 export const RACE_OPPONENT_COLLECTION = 'race_opponent_collection'
 export const RACE_OPPONENT_SUMMARY = 'race_opponent_summary'
 export const RACE_OPPONENT_ACTIONS = 'race_opponent_actions'
+export const OPPOSITION_RESEARCH = 'opposition_research'
 export const SELF_RESEARCH = 'self_research'
 export const OPPONENT_RESEARCH = 'opponent_research'
 

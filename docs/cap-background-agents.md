@@ -201,7 +201,11 @@ dormant and dispatches nothing.
   own agents (`AGENTS_ON_GP_API`, set in dev and prod, unset in preview;
   `src/agents/AGENTS.md`).
 - **Campaign strategy** (`src/campaignStrategy/`) — experiments `opposition_research`
-  - `opportunities_and_challenges`, persisted section by section.
+  - `opportunities_and_challenges`, persisted section by section. Each experiment
+  can run on gp-api's own agents (`opposition_research` is on in preview only,
+  while it is judged; `src/agents/AGENTS.md`), and `CampaignStrategyService` picks
+  its run table, its artifact store and its dispatch from that same per-agent
+  switch, so a section moved to gp-api lands on the plan exactly as before.
 
 ### Admin / bulk-dispatch surface
 

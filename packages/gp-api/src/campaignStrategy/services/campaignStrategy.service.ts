@@ -13,14 +13,16 @@ import {
 import { isBefore, subMinutes } from 'date-fns'
 import { z } from 'zod'
 import { CampaignWith } from '@/campaigns/campaigns.types'
+import { runsOnGpApi } from '@/agents/agents.registry'
+import { AgentsService } from '@/agents/agents.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isUniqueConstraintError } from 'src/prisma/util/prismaErrors.util'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import {
-  parseOpponents,
-  parseOpportunitiesAndChallenges,
+  parseOpportunitiesChallengesArtifact,
+  parseOpponentsArtifact,
   StrategicLandscapeResponse,
   StrategicLandscapeResult,
 } from '../schemas/strategicLandscape.schema'
@@ -30,6 +32,11 @@ import {
 } from './raceContext.service'
 import { StrategicLandscapeParamsService } from './strategicLandscapeParams.service'
 import { StrategicLandscapePersister } from './strategicLandscape.persister'
+import {
+  IN_FLIGHT_SECTION_STATUSES,
+  type SectionRun,
+  sectionRunFrom,
+} from './sectionRun'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
@@ -37,8 +44,9 @@ import {
   CampaignStoryStateService,
   fingerprintStory,
 } from '@/campaignStory/services/campaignStoryState.service'
-import { isTestCampaign } from '@/users/util/users.util'
+import { isTestCampaign, isTestUser } from '@/users/util/users.util'
 import { isDateTodayOrFuture } from 'src/shared/util/date.util'
+import { isJsonObject, snakeToCamelKeys } from '@/shared/util/objects.util'
 
 const OPPOSITION = 'opposition_research'
 const OPPORTUNITIES = 'opportunities_and_challenges'
@@ -47,6 +55,15 @@ const EMPTY_STRATEGIC_LANDSCAPE: StrategicLandscapeResult = {
   opportunities: [],
   challenges: [],
   opponents: [],
+}
+
+// The race a PMF Engine run generated for, from its own dispatch params. Zod
+// parsed because the params column is untyped Json at runtime.
+const raceIdOf = (params: unknown): string | null => {
+  const parsed = z
+    .object({ race_id: z.string().nullable().optional() })
+    .safeParse(params)
+  return parsed.success ? (parsed.data.race_id ?? null) : null
 }
 
 // A run that's COMPLETED but whose section never persisted past this window is
@@ -149,20 +166,6 @@ const electionHasPassed = (details: Campaign['details']): boolean => {
   return dates.length > 0 && dates.every((date) => !isDateTodayOrFuture(date))
 }
 
-// fitToBudget trims the candidate list to fit the params cap but keeps
-// candidate_count at the true race size, so it compares cleanly with today's.
-const RunRosterSchema = z.object({
-  campaign_strategy_context: z.object({ candidate_count: z.number() }),
-})
-
-const rosterSeenBy = (run: ExperimentRun | null): number | null => {
-  if (run?.status !== ExperimentRunStatus.COMPLETED) return null
-  const parsed = RunRosterSchema.safeParse(run.params)
-  return parsed.success
-    ? parsed.data.campaign_strategy_context.candidate_count
-    : null
-}
-
 @Injectable()
 export class CampaignStrategyService extends createPrismaBase(
   MODELS.CampaignStrategy,
@@ -176,6 +179,7 @@ export class CampaignStrategyService extends createPrismaBase(
     private readonly campaignTrackerTasks: CampaignTrackerTasksService,
     private readonly storyState: CampaignStoryStateService,
     private readonly raceContext: RaceContextService,
+    private readonly agents: AgentsService,
   ) {
     super()
   }
@@ -245,8 +249,8 @@ export class CampaignStrategyService extends createPrismaBase(
     if (lostClaim) return { status: 'generating' }
 
     const [opposition, opportunities] = await Promise.all([
-      this.runFor(plan.oppositionRunId),
-      this.runFor(plan.opportunitiesRunId),
+      this.runFor(OPPOSITION, plan.oppositionRunId),
+      this.runFor(OPPORTUNITIES, plan.opportunitiesRunId),
     ])
 
     // Ready only once BOTH sections are persisted (markers set in the same tx
@@ -308,8 +312,8 @@ export class CampaignStrategyService extends createPrismaBase(
     )
 
     const [opposition, opportunities] = await Promise.all([
-      this.runFor(plan.oppositionRunId),
-      this.runFor(plan.opportunitiesRunId),
+      this.runFor(OPPOSITION, plan.oppositionRunId),
+      this.runFor(OPPORTUNITIES, plan.opportunitiesRunId),
     ])
     const state = this.sectionState(opposition, plan.oppositionPersistedAt)
     if (state === 'persisted') {
@@ -401,27 +405,12 @@ export class CampaignStrategyService extends createPrismaBase(
       throw new Error(`run ${run.runId} completed without an artifact location`)
     }
 
-    const plan = await this.findFirst({
-      where:
-        run.experimentType === OPPOSITION
-          ? { oppositionRunId: run.runId }
-          : { opportunitiesRunId: run.runId },
-    })
+    const section =
+      run.experimentType === OPPOSITION ? 'opposition' : 'opportunities'
+    // A run no plan links to has nothing to persist. Reading its artifact first
+    // would be an S3 read with nowhere to put the result.
+    const plan = await this.planForSection(section, run.runId)
     if (!plan) return
-
-    // The race this run generated for, from its own dispatch params — NOT
-    // the plan's current stamp, which can change (race reset, or a legacy
-    // null row being adopted) between here and the persist. The persister
-    // compares against this value at write time. Zod-parsed because the
-    // params column is untyped Json at runtime.
-    const parsedParams = z
-      .object({ race_id: z.string().nullable().optional() })
-      .safeParse(run.params)
-    const runRace = parsedParams.success
-      ? (parsedParams.data.race_id ?? null)
-      : null
-
-    const userId = await this.resolveCampaignUserId(plan.campaignId)
 
     // If loading, parsing, or persisting the artifact fails, the run was
     // marked COMPLETED upstream but its section never landed. Flip it to
@@ -430,63 +419,119 @@ export class CampaignStrategyService extends createPrismaBase(
     try {
       const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
       if (!raw) throw new Error('artifact is missing or empty')
-
-      if (run.experimentType === OPPOSITION) {
-        await this.persister.persistOpponents(
-          plan.id,
-          runRace,
-          parseOpponents(raw),
-        )
-        if (userId !== null) {
-          void this.analytics
-            .track(
-              userId,
-              EVENTS.CampaignPlanV2.OppositionResearchGenerationCompleted,
-              {
-                campaignId: plan.campaignId,
-                planId: plan.id,
-                generationEngine: 'cap',
-                runId: run.runId,
-                durationSeconds: run.durationSeconds,
-                costUsd: run.costUsd,
-                outcome: run.status,
-              },
-            )
-            .catch(() => undefined)
-        }
-      } else {
-        const { opportunities, challenges } =
-          parseOpportunitiesAndChallenges(raw)
-        await this.persister.persistOpportunitiesAndChallenges(
-          plan.id,
-          runRace,
-          opportunities,
-          challenges,
-        )
-        if (userId !== null) {
-          void this.analytics
-            .track(
-              userId,
-              EVENTS.CampaignPlanV2.OpportunitiesChallengesGenerationCompleted,
-              {
-                campaignId: plan.campaignId,
-                planId: plan.id,
-                generationEngine: 'cap',
-                runId: run.runId,
-                durationSeconds: run.durationSeconds,
-                costUsd: run.costUsd,
-                outcome: run.status,
-              },
-            )
-            .catch(() => undefined)
-        }
-      }
+      await this.persistSection(plan, {
+        section,
+        runId: run.runId,
+        // The race this run generated for, from its own dispatch params — NOT
+        // the plan's current stamp, which can change (race reset, or a legacy
+        // null row being adopted) between here and the persist. The persister
+        // compares against this value at write time.
+        raceId: raceIdOf(run.params),
+        artifact: JSON.parse(raw),
+        durationSeconds: run.durationSeconds,
+        costUsd: run.costUsd,
+      })
     } catch (error) {
       await this.experimentRuns.markFailed(
         run.runId,
         error instanceof Error ? error.message : String(error),
       )
       throw error
+    }
+  }
+
+  // gp-api's agent's onArtifact for the opposition section: the same write the
+  // PMF Engine's result consumer makes, from the artifact the run submitted
+  // rather than one in S3. A run no plan links to is a judge run, or one a race
+  // change already orphaned; the run route hands the artifact back instead, so
+  // there is nothing to persist.
+  async onOppositionResearchArtifact(run: {
+    runId: string
+    raceId: string
+    artifact: unknown
+  }): Promise<void> {
+    const plan = await this.planForSection('opposition', run.runId)
+    // onArtifact can run twice for one run (a crash after it, before the run is
+    // marked complete), and the marker is what makes the second call a no-op
+    // rather than a second write and a second event. The PMF Engine's consumer
+    // needs no such guard: it sees each terminal result once.
+    if (!plan || plan.oppositionPersistedAt) return
+
+    await this.persistSection(plan, {
+      section: 'opposition',
+      runId: run.runId,
+      raceId: run.raceId,
+      artifact: run.artifact,
+      // gp-api's agents store tokens and no price, and onArtifact runs before
+      // the run is stamped finished.
+      durationSeconds: null,
+      costUsd: null,
+    })
+  }
+
+  private planForSection(
+    section: 'opposition' | 'opportunities',
+    runId: string,
+  ) {
+    return this.findFirst({
+      where:
+        section === 'opposition'
+          ? { oppositionRunId: runId }
+          : { opportunitiesRunId: runId },
+    })
+  }
+
+  // One section's write path for both engines: the rows the plan renders, the
+  // Segment event, and the tracker bootstrap that waits on both sections, so
+  // the two engines cannot drift.
+  private async persistSection(
+    plan: CampaignStrategy,
+    section: {
+      section: 'opposition' | 'opportunities'
+      runId: string
+      raceId: string | null
+      artifact: unknown
+      durationSeconds: number | null
+      costUsd: number | null
+    },
+  ): Promise<void> {
+    if (section.section === 'opposition') {
+      await this.persister.persistOpponents(
+        plan.id,
+        section.raceId,
+        parseOpponentsArtifact(section.artifact),
+      )
+    } else {
+      const { opportunities, challenges } =
+        parseOpportunitiesChallengesArtifact(section.artifact)
+      await this.persister.persistOpportunitiesAndChallenges(
+        plan.id,
+        section.raceId,
+        opportunities,
+        challenges,
+      )
+    }
+
+    const userId = await this.resolveCampaignUserId(plan.campaignId)
+    if (userId !== null) {
+      void this.analytics
+        .track(
+          userId,
+          section.section === 'opposition'
+            ? EVENTS.CampaignPlanV2.OppositionResearchGenerationCompleted
+            : EVENTS.CampaignPlanV2.OpportunitiesChallengesGenerationCompleted,
+          {
+            campaignId: plan.campaignId,
+            planId: plan.id,
+            generationEngine: 'cap',
+            runId: section.runId,
+            durationSeconds: section.durationSeconds,
+            costUsd: section.costUsd,
+            // Both engines only reach here for a section that completed.
+            outcome: 'COMPLETED',
+          },
+        )
+        .catch(() => undefined)
     }
 
     await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
@@ -538,35 +583,38 @@ export class CampaignStrategyService extends createPrismaBase(
       )
   }
 
-  private runFor(runId: string | null): Promise<ExperimentRun | null> {
-    if (!runId) return Promise.resolve(null)
-    return this.experimentRuns.findUnique({ where: { runId } })
+  private runFor(
+    section: typeof OPPOSITION | typeof OPPORTUNITIES,
+    runId: string | null,
+  ): Promise<SectionRun | null> {
+    return this.sectionRunFor(section, runId)
+  }
+
+  // One section's run from whichever engine will run it, for a reader outside
+  // this service (the race-opponent page's discovery status). The engine is the
+  // switch's, not the caller's: a reader and the dispatcher must pick the same
+  // table, or the reader sees no run and the page settles to idle mid-run.
+  sectionRunFor(
+    section: typeof OPPOSITION | typeof OPPORTUNITIES,
+    runId: string | null,
+  ): Promise<SectionRun | null> {
+    return sectionRunFrom(this.client, this.s3, runsOnGpApi(section), runId)
   }
 
   // Classifies a section from its run + persistence marker. Only 'redispatch'
   // starts a new run (see SectionState).
   private sectionState(
-    run: ExperimentRun | null,
+    run: SectionRun | null,
     persistedAt: Date | null,
   ): SectionState {
     if (persistedAt) return 'persisted'
-    // QUEUED (waiting to launch), RUNNING, AWAITING_RESUME (paused mid-run), and
-    // SUPERSEDED (the resume sweep already dispatched a live successor) are all
-    // in flight — none should be re-dispatched. Re-dispatching here would
-    // overwrite oppositionRunId, orphan the paused/successor run, and let a
-    // second concurrent task spawn against the same campaign.
-    if (
-      run?.status === ExperimentRunStatus.QUEUED ||
-      run?.status === ExperimentRunStatus.RUNNING ||
-      run?.status === ExperimentRunStatus.AWAITING_RESUME ||
-      run?.status === ExperimentRunStatus.SUPERSEDED
-    ) {
+    if (run && IN_FLIGHT_SECTION_STATUSES.includes(run.status)) {
       return 'inflight'
     }
     // COMPLETED but unpersisted: in-flight until the grace window (waiting for
     // its rows to land), then treated as stuck and re-dispatched.
     if (
-      run?.status === ExperimentRunStatus.COMPLETED &&
+      run?.status === 'completed' &&
       !isBefore(run.updatedAt, subMinutes(new Date(), PERSIST_GRACE_MINUTES))
     ) {
       return 'inflight'
@@ -779,6 +827,32 @@ export class CampaignStrategyService extends createPrismaBase(
     base: DispatchBase,
   ): Promise<string | undefined> {
     try {
+      if (runsOnGpApi(type)) {
+        const organization = await this.client.organization.findUnique({
+          where: { slug: base.organizationSlug },
+          select: {
+            owner: { select: { email: true } },
+            testModeCreatedAt: true,
+          },
+        })
+        // The PMF Engine's dispatchRun makes the same check, and `run` does
+        // not: a synthetic org must not spend a paid run on either engine.
+        if (
+          isTestUser({ email: organization?.owner.email ?? '' }) ||
+          organization?.testModeCreatedAt
+        ) {
+          return undefined
+        }
+        // The params are the manifest's snake_case; a gp-api agent names the
+        // same fields in camelCase and owns its run through organizationSlug.
+        const input = snakeToCamelKeys(base.params)
+        if (!isJsonObject(input)) return undefined
+        const run = await this.agents.run(type, {
+          ...input,
+          organizationSlug: base.organizationSlug,
+        })
+        return run.runId
+      }
       const run = await this.experimentRuns.dispatchRun({ type, ...base })
       return run?.runId
     } catch {
@@ -1071,8 +1145,8 @@ export class CampaignStrategyService extends createPrismaBase(
     raceId: string,
   ): Promise<StoryAlignment> {
     if (!plan.oppositionPersistedAt) return { plan, lostClaim: false }
-    const run = await this.runFor(plan.oppositionRunId)
-    const seen = rosterSeenBy(run)
+    const run = await this.runFor(OPPOSITION, plan.oppositionRunId)
+    const seen = run?.candidateCountSeen ?? null
     if (!run || seen === null) return { plan, lostClaim: false }
 
     let rosterSize: number
@@ -1094,11 +1168,11 @@ export class CampaignStrategyService extends createPrismaBase(
     // skips the rebuild: keeping a stale list is the safe failure.
     let generated: string[] | null = null
     try {
-      const raw =
-        run.artifactBucket && run.artifactKey
-          ? await this.s3.getFile(run.artifactBucket, run.artifactKey)
-          : undefined
-      generated = raw ? parseOpponents(raw).map((o) => o.fullName) : null
+      const artifact = await run.readArtifact()
+      generated =
+        artifact === null
+          ? null
+          : parseOpponentsArtifact(artifact).map((o) => o.fullName)
     } catch (err) {
       this.logger.warn(
         { err, planId: plan.id, runId: run.runId },

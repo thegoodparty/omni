@@ -64,9 +64,9 @@ export type StrategicLandscapeResponse = z.infer<
   typeof StrategicLandscapeResponseSchema
 >
 
-// --- CAP artifact shapes (what the experiments write to S3) ---
+// --- CAP artifact shapes (what the experiments publish, either engine) ---
 
-const OppositionArtifactSchema = z.object({
+export const OppositionArtifactSchema = z.object({
   opponents: z.array(
     z.object({
       full_name: z.string().min(1),
@@ -91,14 +91,20 @@ const OpportunitiesChallengesArtifactSchema = z.object({
     .transform((a) => a.slice(0, MAX_BULLETS)),
 })
 
-export const parseOpponents = (raw: string): Opponent[] =>
-  OppositionArtifactSchema.parse(JSON.parse(raw)).opponents.map((o) => ({
+// The artifact itself, whichever engine produced it: the PMF Engine publishes
+// it to S3 and gp-api's agents keep it on the run, so both a parsed file and a
+// submitted output come through here.
+export const parseOpponentsArtifact = (artifact: unknown): Opponent[] =>
+  OppositionArtifactSchema.parse(artifact).opponents.map((o) => ({
     fullName: o.full_name,
     partyAffiliation: o.party_affiliation || 'Unknown',
     incumbent: o.incumbent,
   }))
 
-export const parseOpportunitiesAndChallenges = (
-  raw: string,
+export const parseOpportunitiesChallengesArtifact = (
+  artifact: unknown,
 ): { opportunities: string[]; challenges: string[] } =>
-  OpportunitiesChallengesArtifactSchema.parse(JSON.parse(raw))
+  OpportunitiesChallengesArtifactSchema.parse(artifact)
+
+export const parseOpponents = (raw: string): Opponent[] =>
+  parseOpponentsArtifact(JSON.parse(raw))

@@ -62,3 +62,20 @@ export const isJsonObject = (
   value: unknown,
 ): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
+
+// The keys of a JSON value, snake_case to camelCase. A PMF Engine manifest names
+// its fields in snake_case and every gp-api agent names the same fields in
+// camelCase, so this is where the two vocabularies meet (src/agents/AGENTS.md).
+const camelKey = (key: string) =>
+  key.replace(/_([a-z0-9])/g, (_match, char: string) => char.toUpperCase())
+
+export const snakeToCamelKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(snakeToCamelKeys)
+  if (!isJsonObject(value)) return value
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      camelKey(key),
+      snakeToCamelKeys(item ?? null),
+    ]),
+  )
+}

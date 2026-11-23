@@ -7,8 +7,10 @@ main; `trending_issues` runs on gp-api's own agents in dev and prod, and a
 preview runs every agent gp-api has, because a preview is the Universal
 Judge's candidate arm. `top_community_issues` runs on gp-api's own agents in
 dev only, and prod still sends it to the PMF Engine until its dev runs are
-confirmed healthy. Every other agent still runs on the PMF Engine in every
-environment. Until an agent moves, it runs as
+confirmed healthy. `opposition_research` is built on gp-api's agents with its
+switch off everywhere but preview, where the Universal Judge compares it
+against the PMF Engine. Every other agent still runs on the PMF Engine in
+every environment. Until an agent moves, it runs as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
@@ -95,10 +97,12 @@ successful production traffic, not a merged PR.
    Rollback is the switch.
    - **Wave 1, web tools only:** `race_opponent_summary`,
      `opposition_research`, `opportunities_and_challenges`,
-     `race_opponent_collection`, `self_research`, `meeting_schedule` (built,
-     not flipped). The opponent chain runs collection, then summary, then
-     actions, and those three flip together, so collection and summary are
-     built in wave 1 but wait for actions before they flip.
+     `race_opponent_collection`, `self_research`, `meeting_schedule`. Each is
+     built on gp-api's agents with its switch off everywhere but preview, where
+     a judge run compares it against the PMF Engine. The opponent chain runs
+     collection, then summary, then actions, and those three flip together, so
+     collection and summary are built in wave 1 but wait for actions before
+     they flip.
    - **Wave 2, needs a Databricks tool:** `race_opponent_actions`,
      `opponent_research`, `top_community_issues` (moved, dev),
      `campaign_tracker_tasks`. The tool exists: `queryDatabricks`

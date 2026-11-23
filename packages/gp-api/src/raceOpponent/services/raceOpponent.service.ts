@@ -31,6 +31,7 @@ import { RaceContextService } from '@/campaignStrategy/services/raceContext.serv
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
+  OPPOSITION_RESEARCH,
   RACE_OPPONENT_ACTIONS,
   RACE_OPPONENT_COLLECTION,
   RACE_OPPONENT_SUMMARY,
@@ -976,18 +977,17 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     })
     if (!plan?.oppositionRunId) return 'idle'
 
-    const discovery = await this.client.experimentRun.findUnique({
-      where: { runId: plan.oppositionRunId },
-      select: { status: true },
-    })
+    // The discovery run is an opposition_research run, so it lives in
+    // whichever engine's table the switch sends that agent to. A reader left on
+    // the PMF Engine's table would read a gp-api run as missing and settle the
+    // page to idle mid-run.
+    const discovery = await this.campaignStrategy.sectionRunFor(
+      OPPOSITION_RESEARCH,
+      plan.oppositionRunId,
+    )
     if (!discovery) return 'idle'
-    if (discovery.status === ExperimentRunStatus.FAILED) return 'failed'
-    const inFlight =
-      discovery.status === ExperimentRunStatus.QUEUED ||
-      discovery.status === ExperimentRunStatus.RUNNING ||
-      discovery.status === ExperimentRunStatus.AWAITING_RESUME ||
-      discovery.status === ExperimentRunStatus.SUPERSEDED
-    return inFlight ? 'discovering' : 'idle'
+    if (discovery.status === 'failed') return 'failed'
+    return discovery.status === 'completed' ? 'idle' : 'discovering'
   }
 
   // The relaxed path chains a race_opponent_summary run off a completed
