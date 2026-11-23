@@ -160,12 +160,10 @@ describe('CampaignStrategyService', () => {
         findUnique: vi.fn().mockResolvedValue(null),
       },
       organization: {
-        findUnique: vi
-          .fn()
-          .mockResolvedValue({
-            owner: { email: 'real@x.com' },
-            testModeCreatedAt: null,
-          }),
+        findUnique: vi.fn().mockResolvedValue({
+          owner: { email: 'real@x.com' },
+          testModeCreatedAt: null,
+        }),
       },
       // Supports both the array form and the interactive (callback) form,
       // handing the same mock delegates in as the tx client.
