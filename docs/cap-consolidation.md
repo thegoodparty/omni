@@ -102,10 +102,11 @@ successful production traffic, not a merged PR.
    - **Wave 2, needs a Databricks tool:** `race_opponent_actions`,
      `opponent_research`, `top_community_issues` (moved, dev),
      `campaign_tracker_tasks`. The tool exists: `queryDatabricks`
-     (`agents/tools/queryDatabricks.ts`) runs one aggregate-only SELECT under
-     the agent's own table allowlist and row cap, refuses a query that does
-     not prove the run's own state and district filter in every WHERE, and
-     drops any cell below 100.
+     (`packages/gp-api/src/agents/tools/queryDatabricks.ts`) runs one
+     aggregate-only SELECT under the agent's own table allowlist and row cap,
+     refuses a query that does not prove the run's own state filter (and its
+     district's, when the office has one) in every WHERE, and drops any cell
+     below 100.
    - **Wave 3, its own design each:** `find_existing_ordinances` (PDF
      reading, the code-capture files, the heaviest traffic),
      `meeting_briefing` (document reading and search, uploaded agendas),
