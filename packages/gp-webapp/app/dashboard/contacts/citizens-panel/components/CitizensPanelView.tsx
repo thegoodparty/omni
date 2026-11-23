@@ -7,8 +7,8 @@ import type {
   CivicPanelSummary,
   ManagedCivicPanel,
 } from '@goodparty_org/contracts'
-import { Button } from '@styleguide'
-import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
+import { Alert, AlertDescription, AlertTitle, Button } from '@styleguide'
+import { ArrowLeftIcon, InfoIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PANEL_STATUS_PROPERTY } from 'app/dashboard/priorities/[priorityId]/readStatusProperty'
 import {
@@ -123,6 +123,18 @@ export const CitizensPanelView = ({
               place={place}
               joinedBy={summary.joinedBy}
             />
+            {stage === 'exhausted' ? (
+              <Alert
+                variant="info"
+                icon={<InfoIcon className="size-4" />}
+                data-testid="civic-panel-short-of-goal"
+              >
+                <AlertTitle>{COPY.shortOfGoal.title}</AlertTitle>
+                <AlertDescription>
+                  {COPY.shortOfGoal.line(place)}
+                </AlertDescription>
+              </Alert>
+            ) : null}
             {summary.members === 0 ? (
               <CivicPanelFirstJoin
                 firstInvites={firstInvites ? longDay(firstInvites) : null}

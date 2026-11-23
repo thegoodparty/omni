@@ -357,8 +357,13 @@ describe('CitizensPanelView', () => {
       screen.getAllByRole('button', { name: /^Knock doors, / }).length,
     ).toBeGreaterThan(0)
     expect(
-      screen.getByRole('button', { name: 'Ask how to reach the rest' }),
+      screen.getByRole('button', {
+        name: 'Ask what your civic\u00a0panel should weigh in on, or how to reach the\u00a0rest',
+      }),
     ).toBeInTheDocument()
+    const warning = screen.getByTestId('civic-panel-short-of-goal')
+    expect(warning).toHaveTextContent('Your civic panel is short of its goal')
+    expect(warning).toHaveTextContent('What you hear may not reflect all of')
   })
 
   it('offers no door or call buttons while invites go out', () => {

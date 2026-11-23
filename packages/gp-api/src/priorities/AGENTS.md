@@ -29,12 +29,14 @@ send one. The office's managed civic panel is how it hears from people:
 ready, the agent presents the card to ask it; building or paused, it
 records the check deferred until it is ready; none, it sets one up in the
 thread with the Chief of Staff's civic panel tools and defers the check to
-the ready week. The round one text, sized by `size_round_one`, is built
-only when the official asks, or when the civic panel is exhausted. No
+the ready week. Exhausted with at least 30 members, it is asked like a ready
+one, with the line that it is short of its goal. The round one text, sized
+by `size_round_one`, is built only when the official asks, or when an
+exhausted civic panel has fewer than 30 members. No
 priority text asks anyone to join a civic panel (only the managed civic
 panel's invite waves do), and every one ends with the question, then how
 to reply, with the opt-out added under it
-(`docs/adr/2026-11-04-civic-panel-is-how-a-priority-hears-from-people.md`).
+(`docs/adr/2026-11-23-a-short-civic-panel-can-be-asked.md`).
 
 ## Answer coding
 
@@ -111,6 +113,13 @@ read is `notYetRepresentative` and `needed` is at least the floor
 one has fewer than `MIN_VOICES_PER_GROUP` (3) or the total is under the
 floor, else `representative`; `gettingClose` stays in the contract's enum
 but is never produced.
+`shortCivicPanel` is set on a read that is not good when the office's
+managed civic panel is exhausted with at least `PANEL_MIN_MEMBERS_FOR_BALANCE`
+members and every send that went out (not social) used a list that can only
+hold civic panel members (`isCivicPanelOnlyList` on its `voterFileFilter`).
+The results page then shows what it heard under a warning, and the priority
+flow's `read_outreach_feedback` hands the agent the words, instead of
+holding them back.
 `answerGroups` gives the results page each major group but tracts, its
 share of the district against its share of the coded answers, unweighted.
 `groupReadStatus` names in `underrepresented` the first two major groups

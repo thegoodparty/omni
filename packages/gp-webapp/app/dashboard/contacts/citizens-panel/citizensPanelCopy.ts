@@ -221,8 +221,18 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   chatPlaceholder: 'Ask who still needs to join your civic\u00a0panel',
   // Once the civic panel is full there is no one left to recruit.
   chatPlaceholderFull: 'Ask what your civic\u00a0panel should weigh in\u00a0on',
-  // Once every resident a text can reach has an invite.
-  chatPlaceholderExhausted: 'Ask how to reach the rest',
+  // Once every resident a text can reach has an invite: it can still be
+  // asked, and filling the rest is the official's call.
+  chatPlaceholderExhausted:
+    'Ask what your civic\u00a0panel should weigh in on, or how to reach the\u00a0rest',
+  // The one warning for a civic panel that ran out of texts short of its
+  // goal, worded the same on this page, the Constituents section, the
+  // priority and its results, and by the agents.
+  shortOfGoal: {
+    title: 'Your civic panel is short of its goal',
+    line: (place: string | null) =>
+      `What you hear may not reflect all of ${place ?? 'your district'}.`,
+  },
   // How the members joined, under the hero's bar and seats. Members the
   // office added by hand count with the door (`joinedBySources`).
   joinedBy: {

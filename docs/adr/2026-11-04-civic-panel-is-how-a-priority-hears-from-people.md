@@ -1,6 +1,6 @@
 ---
 title: A priority hears from people through the civic panel, set up from the thread when there is none
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-11-04
 code: ['#3589']
@@ -11,7 +11,7 @@ scope:
   - packages/gp-webapp/app/dashboard/priorities/[priorityId]/components/PriorityWorkspace.tsx
 supersedes:
   - 2026-10-29-ready-civic-panel-is-a-prioritys-default-first-round.md
-superseded_by:
+superseded_by: 2026-11-23-a-short-civic-panel-can-be-asked.md
 ---
 
 # A priority hears from people through the civic panel, set up from the thread when there is none

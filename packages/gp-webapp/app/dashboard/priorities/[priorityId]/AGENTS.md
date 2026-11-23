@@ -188,8 +188,7 @@ invites go out ..." line (`MANAGED_PANEL_SET_UP_LINE`), the civic panel
 card, and the check deferred to the ready week. Backing out: one line that
 nothing was sent, and the step carries on without a check. In none of
 these does it offer the round one text or calls and doors; it builds them
-only when the official asks
-(`docs/adr/2026-11-04-civic-panel-is-how-a-priority-hears-from-people.md`).
+only when the official asks.
 The page draws the same widgets as the Chief of Staff chat
 (`managedPanelWidgetTools`), counts the offer as a question
 (`isQuestionTool`), and on the invite's close queues the hidden
@@ -203,8 +202,11 @@ brings joining up in chat (`ROUND_ONE_JOIN_RULE`). Every priority text ends
 with the question, then its own last line on how to reply ("Reply YES or
 NO."), and the flow adds only the opt-out under it
 (`PRIORITY_TEXT_LAYOUT_RULE`).
-Exhausted: says so, round one is the way in, and its members can still be
-asked. The agent told an official whose civic panel was filling that the
+Exhausted with at least 30 members: asked like ready, with one line that
+it is short of its goal, so what they hear may not reflect all of their
+place; whether to keep filling it is the official's call. Exhausted under
+30: says so, round one is the way in, and its members can still be asked
+(`docs/adr/2026-11-23-a-short-civic-panel-can-be-asked.md`). The agent told an official whose civic panel was filling that the
 paid round one text was how to build it.
 
 **Nothing is out until the record says so.** `WHAT HAS GONE OUT`
@@ -220,7 +222,9 @@ check was out with residents through a text they discarded. Judge case
 **The civic panel on the page.** `CivicPanelStanding` sits under the read
 until it is good (the desktop rail, and the top of the phone's Where this
 stands sheet): the civic panel page's title for its status and "82 of 240
-residents have joined", or once ready the page's ready line naming the
+residents have joined" (exhausted: "Your civic panel is short of its goal"
+and "182 of 240 residents have joined, so what you hear may not reflect all
+of {place}."), or once ready the page's ready line naming the
 place from `useServePlace` (`civicPanelStanding` in `readStatusCopy.ts`),
 linked to the civic panel page. It reads `managedCivicPanelQueryOptions`
 once with the page (not on turn settle), and shows nothing for none or
@@ -460,7 +464,10 @@ results page loads its results with `PriorityResultsLoader`.
   to lead with them, so it listed what residents raised. Before a good read
   the tool returns only who each send went to and how many answered
   (`goodRead: false` from the handler), and judge case
-  `themes-before-good-read` pins it.
+  `themes-before-good-read` pins it. A read with `shortCivicPanel` is the
+  one exception: the handler passes `goodRead` true, and the agent shares
+  what came back after saying the civic panel is short of its goal
+  (`SHORT_CIVIC_PANEL_WARNING`).
 - **Parts not reached yet**: a proposal on a priority can carry
   `areaTarget: 'unreached'`. Saving its list sends `unreachedAreaOfPriorityId`
   to `POST /v1/voters/voter-file/filter`, and gp-api draws the area and saves
@@ -487,7 +494,12 @@ the answer seats, larger and centered, with their key and "34 of the 100
 answers we need." (the bar instead below `lg`), one line (`READ_STATUS_COPY.heldBack`) holding back the themes, the
 map and who you're hearing from, "Still need: men and people 65 and over."
 (`READ_STATUS_COPY.stillNeed`), and a Get answers button. It never says nobody
-answered. After, it shows everything below.
+answered. After, it shows everything below. A read with `shortCivicPanel`
+(every send asked a civic panel that ran out of texts, short of its goal)
+shows everything below too, under an info `Alert` with the civic panel
+page's `shortOfGoal` words and Get answers inside it, the way the poll
+results page puts its gather button in its low confidence Alert;
+`Results Viewed` then sends `heldBack` false.
 
 - **Behind `serve-citizen-panels`.** The link renders only with the flag on,
   the page reads the flag server-side (`getFlagVariants`) and 404s when off,

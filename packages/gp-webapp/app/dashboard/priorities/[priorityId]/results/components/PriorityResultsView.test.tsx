@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -225,6 +225,35 @@ describe('PriorityResultsView', () => {
         '/dashboard/priorities/p1?getAnswers=1',
       )
     })
+  })
+
+  it('shows what a civic panel short of its goal heard, with the warning and Get answers', () => {
+    renderView(
+      results({
+        readStatus: {
+          answers: 25,
+          needed: 96,
+          groupsHeard: 9,
+          groupsTotal: 12,
+          good: false,
+          status: 'notYetRepresentative',
+          underrepresented: ['men'],
+          checkOut: true,
+          shortCivicPanel: true,
+        },
+      }),
+    )
+
+    expect(screen.queryByTestId('results-held-back')).not.toBeInTheDocument()
+    const warning = screen.getByTestId('results-short-civic-panel')
+    expect(warning).toHaveTextContent('Your civic panel is short of its goal')
+    expect(warning).toHaveTextContent(
+      'What you hear may not reflect all of Asheville.',
+    )
+    expect(
+      within(warning).getByRole('link', { name: 'Get answers' }),
+    ).toHaveAttribute('href', '/dashboard/priorities/p1?getAnswers=1')
+    expect(screen.getByText('Top themes')).toBeInTheDocument()
   })
 
   it('shows everything once there is a good read', () => {

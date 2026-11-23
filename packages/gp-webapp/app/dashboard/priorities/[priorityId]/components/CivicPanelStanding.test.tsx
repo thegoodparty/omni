@@ -61,6 +61,16 @@ describe('CivicPanelStanding', () => {
     expect(link).toHaveTextContent('82 of 240 residents have joined')
   })
 
+  it('warns that a civic panel that ran out of texts is short of its goal', async () => {
+    mockPanel(panel('exhausted', 182))
+    render(<CivicPanelStanding />)
+    const link = await screen.findByTestId('priority-civic-panel')
+    expect(link).toHaveTextContent('Your civic panel is short of its goal')
+    expect(link).toHaveTextContent(
+      '182 of 240 residents have joined, so what you hear may not reflect all of your district.',
+    )
+  })
+
   it('says a ready civic panel is ready', async () => {
     mockPanel(panel('ready', 240))
     render(<CivicPanelStanding />)

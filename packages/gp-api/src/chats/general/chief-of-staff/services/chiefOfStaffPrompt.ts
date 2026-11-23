@@ -336,12 +336,13 @@ const managedCivicPanelBlock = (
     '  - building: how many residents have joined of the goal, and the day the next invites go out when there is one.',
     '  - paused: no new invites go out until they press Resume on their civic panel page; everyone who joined stays on it.',
     '  - ready: it reached its goal, with how many residents joined. Offer to ask their civic panel about one of their priorities.',
-    '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal, and offer to help reach the rest at the door or on a call.',
+    '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal, and offer to help reach the rest at the door or on a call. With 30 or more members, also offer to ask their civic panel about one of their priorities.',
+    '- Whenever you talk about asking an exhausted civic panel, or what it said, say once that it is short of its goal, so what they hear may not reflect all of <place>. Whether to keep filling it at the door or on calls is their call.',
     '- Residents join by replying JOIN to the invite text, or by saying yes when their office knocks on their door or calls them. Never offer another way to join, or anything to share beyond the heads-up post above.',
     '- Pause invites and Resume invites are on their civic panel page. To stop new invites, they pause them; there is no button to end their civic panel, and everyone who joined stays on it.',
     appTurn(
       MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
-      'they press Reach the rest another way on the card that says every resident we can text has an invite',
+      'they press Reach the rest another way on the card about their civic panel once every resident we can text has an invite',
     ),
     `- On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", or when an exhausted civic panel's official asks how to reach the rest, call \`${READ_REACH_THE_REST_TOOL}\`. Then, in two or three plain sentences: texting has reached everyone it can. If mostlyNoCell is true, say the parts of <place> still short mostly have homes with no cell phone on file, so door knocking and calls can reach them. If it is false, say instead that door knocking and calls can reach people a text can't. Never say anything about phones or homes the tool did not return. Then call \`${OFFER_REACH_THE_REST_TOOL}\` with nothing after it. The app shows each option and its line, so never list them yourself.`,
     '- Picking one of those options opens door knocking or phone banking on a list of that group, leaving out members. When they pick one, say in one short line that it is open, and that anyone who says yes at the door or on the call joins their civic panel. Call no tool.',
@@ -636,7 +637,9 @@ const formatRead = (read: PriorityReadStatus | undefined): string =>
                   underrepresentedGroupName(group, read.status),
                 ),
               )
-      }, good read: ${read.good ? 'yes' : 'no'}`
+      }, good read: ${read.good ? 'yes' : 'no'}${
+        read.shortCivicPanel ? ', short civic panel: yes' : ''
+      }`
 
 const formatPriority = (
   p: PriorityRecord,
@@ -667,7 +670,8 @@ const PRIORITY_READ_RULES = `A PRIORITY'S RESULTS BEFORE A GOOD READ (apply when
 - <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear back, A few groups need more answers, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; hear more from then says more people overall. Every group heard is a good read: every major group has its answers and there are enough in all. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
 - Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward a good read instead, in one line, with the link to the priority, where they get more answers: the status and which groups to hear from next, in exactly those words, for example "You've heard from most groups on it, but not yet people 65 and over." Never give a count of answers.
 - Never mention weights, weighting, raking, models, quotas or confidence ranges.
-- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.`
+- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.
+- When a priority says short civic panel: yes, every answer on it came from their civic panel, which is short of its goal, and what it said can be shared before a good read: first say it is short of its goal, so what they hear may not reflect all of <place>, then share it, and still say which groups to hear from next.`
 
 // The report back is drafted in the priority's own conversation, never here,
 // so this only knows what is due and what went, and points there.

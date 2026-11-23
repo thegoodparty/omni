@@ -49,6 +49,12 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   with no members is left out of the legend. Then the four milestones, First
   yes, `PANEL_MIN_MEMBERS_FOR_BALANCE` members, Halfway and Full civic panel
   (`milestones`, from `progress.goal`, never a fixed number).
+- **Short of its goal**: while `exhausted`, an info `Alert` under the hero
+  says `COPY.shortOfGoal` ("Your civic panel is short of its goal" / "What
+  you hear may not reflect all of {place}."), the one warning also on the
+  Constituents section (which reads `managedCivicPanelQueryOptions` for it),
+  Where this stands, the priority results page and the home card. It can
+  still be asked (`docs/adr/2026-11-23-a-short-civic-panel-can-be-asked.md`).
 - **Who joins first** (`CivicPanelFirstJoin`) at 0 members: the first
   wave's day (`firstSendDate`, only while `wavesSent` is 0; without a
   managed panel the sentence is dropped) and what the page will show.
@@ -113,8 +119,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   this page's question, `COPY.chatPlaceholder` ("Ask who still needs to
   join your civic panel", with "civic panel" held together), or
   `COPY.chatPlaceholderFull` once the stage is `ready` (no one left to
-  recruit), or `COPY.chatPlaceholderExhausted` ("Ask how to reach the
-  rest") while `exhausted`; a page placeholder may wrap to two lines on a phone instead of
+  recruit), or `COPY.chatPlaceholderExhausted` ("Ask what your civic panel
+  should weigh in on, or how to reach the rest") while `exhausted`, since it
+  can still be asked; a page placeholder may wrap to two lines on a phone instead of
   being cut off.
 - **Analytics.** The page fires `Contacts - Civic Panel Viewed` once per visit
   (members, goal, expected answers, `howCloseStatus` from the summary's
