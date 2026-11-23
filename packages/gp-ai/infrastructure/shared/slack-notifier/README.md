@@ -4,8 +4,8 @@ One Lambda, `shared-slack-notifier` (us-west-2), posts every gp-ai failure
 alarm to the private Slack channel `#ai-service-failures`. The failure SNS
 topics subscribe to it and find it through this root's state
 (`shared/slack-notifier/terraform.tfstate`): PMF Engine, autopilot agent and
-bot, case scout, DDHQ matcher, serve-analyze, the alert filter's own failures,
-and `gp-api-preview-shared-alarms`. The source is
+bot, DDHQ matcher, serve-analyze, the alert filter's own failures, and
+`gp-api-preview-shared-alarms`. The source is
 `modules/serve-analyze-fargate/slack-notifier/index.ts`.
 
 ## How it posts

@@ -85,9 +85,9 @@ list marked `scored: false` is a normal case whose `condition` starts with
 `Control:`. Run one with `/judge-eval <file stem>`.
 
 The five `cases/<agent>.json` files those lists were are still in
-`packages/gp-api/src/chats/evals/judge/cases/`, but nothing judges them: they
-are the case scout's inbox, which its publisher appends to, and the scout's
-bench reads them back. A change to one changes no verdict.
+`packages/gp-api/src/chats/evals/judge/cases/`, but nothing judges them: the
+case scout reads them for case-id collisions and existing conditions, and the
+scout's bench reads them back. A change to one changes no verdict.
 
 ## Agents with no suite
 

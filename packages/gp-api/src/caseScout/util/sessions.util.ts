@@ -118,10 +118,11 @@ export const selectNewSessions = (
 
 type MarkerSession = { sessionId: string; startedAt: Date }
 
-// The marker the publisher applies once tonight's publish succeeds. Ids older
-// than one overlap window behind the new cutoff can never be read again, so
-// they are dropped; while the old cutoff is still inside that window, every
-// old id is carried forward, since a session it names can still be re-read.
+// The marker the draft job applies once tonight's handoff is held or sent.
+// Ids older than one overlap window behind the new cutoff can never be read
+// again, so they are dropped; while the old cutoff is still inside that
+// window, every old id is carried forward, since a session it names can still
+// be re-read.
 export const newMarkerCandidate = (
   oldMarker: NewMarker,
   sessions: MarkerSession[],

@@ -809,8 +809,8 @@ export const JOBS = {
     schema: z.object({ runId: RunIdSchema }),
     worker: (job, { get }) => get(CaseScoutDraftService).draftNight(job),
     alertAfterWaitingMinutes: 60,
-    // Up to five drafts and gates of 60-second calls, then a publish the
-    // Lambda may spend 300 seconds on.
+    // Up to five drafts and gates of 60-second calls, then the handoff's
+    // 30-second webhook call and the Slack note.
     timeoutMinutes: 30,
     maxConcurrent: 1,
   }),

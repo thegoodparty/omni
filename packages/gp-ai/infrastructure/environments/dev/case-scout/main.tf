@@ -27,48 +27,15 @@ provider "aws" {
   }
 }
 
-variable "failure_notification_email" {
-  description = "Email for failure notifications (optional)"
-  type        = string
-  default     = ""
-}
-
-data "terraform_remote_state" "shared_slack_notifier" {
-  backend = "s3"
-
-  config = {
-    bucket = "goodparty-terraform-state-us-west-2"
-    key    = "shared/slack-notifier/terraform.tfstate"
-    region = "us-west-2"
-  }
-}
-
 module "case_scout" {
   source = "../../../modules/case-scout"
 
-  environment                      = "dev"
-  shared_slack_notifier_lambda_arn = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
-  failure_notification_email       = var.failure_notification_email
-
-  # slack_channel is left at the module's own default (empty):
-  # publisher.py's slack_channel_for_environment() already resolves the dev
-  # channel when CASE_SCOUT_SLACK_CHANNEL is unset. Setting it here would
-  # duplicate that default in a second place that can drift from the code.
-}
-
-output "lambda_function_name" {
-  value       = module.case_scout.lambda_function_name
-  description = "Lambda function name (the Publisher)"
-}
-
-output "lambda_function_arn" {
-  value       = module.case_scout.lambda_function_arn
-  description = "Lambda function ARN"
+  environment = "dev"
 }
 
 output "bucket_name" {
   value       = module.case_scout.bucket_name
-  description = "S3 bucket holding the scout's bundles/ledger/marker"
+  description = "S3 bucket the scout's gp-api jobs read and write"
 }
 
 # The Python reader's resources, dropped from the module when the reader moved
@@ -189,6 +156,115 @@ removed {
 
 removed {
   from = module.case_scout.aws_cloudwatch_event_target.reader_task_failed_to_sns
+  lifecycle {
+    destroy = false
+  }
+}
+
+# The publisher Lambda and its alarms, dropped from the module when gp-api
+# began handing each night to the Delegate swarm. Forgotten rather than
+# destroyed, for the same reason as the reader's above.
+
+removed {
+  from = module.case_scout.aws_lambda_function.case_scout
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_lambda_function_event_invoke_config.case_scout
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_cloudwatch_log_group.lambda
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role.lambda
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy_attachment.lambda_basic
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.lambda_bucket
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.lambda_secrets
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_iam_role_policy.lambda_sns_publish
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_cloudwatch_log_metric_filter.lambda_errors
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_cloudwatch_metric_alarm.lambda_errors
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_sns_topic.failures
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_sns_topic_policy.failures
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_sns_topic_subscription.failures_email
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_sns_topic_subscription.shared_slack_notifier
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.case_scout.aws_lambda_permission.allow_sns_invoke_slack
   lifecycle {
     destroy = false
   }

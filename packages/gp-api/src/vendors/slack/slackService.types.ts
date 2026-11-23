@@ -7,6 +7,7 @@ export enum SlackChannel {
   botTevynApi = 'bot-tevyn-api',
   casClickupTasks = 'cas-clickup-tasks',
   sharedGoodpartyPeerly10Dlc = 'shared-goodparty-peerly-10dlc',
+  productChatsDigest = 'product-chats-digest',
 }
 
 export enum SlackMessageType {

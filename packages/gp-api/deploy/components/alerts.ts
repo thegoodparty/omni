@@ -1613,7 +1613,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     evaluationIntervalSeconds: 300,
     execErrState: 'KeepLast',
     message: [
-      'The latest delivery by `shared-slack-notifier`, the Lambda that posts gp-ai failure alarms to #ai-service-failures, failed. **No gp-ai failure alarm is reaching Slack**: PMF Engine, autopilot, case scout, DDHQ matcher, serve-analyze, the alert filter and the gp-api preview alarms all go through it.',
+      'The latest delivery by `shared-slack-notifier`, the Lambda that posts gp-ai failure alarms to #ai-service-failures, failed. **No gp-ai failure alarm is reaching Slack**: PMF Engine, autopilot, DDHQ matcher, serve-analyze, the alert filter and the gp-api preview alarms all go through it.',
       'Read `/aws/lambda/shared-slack-notifier` in CloudWatch. `Slack API error: 400 - invalid_token` or `404 - no_service` means the incoming webhook was revoked: a Slack admin creates a new incoming webhook for #ai-service-failures, and an admin writes it as `SLACK_WEBHOOK_URL` in `AI_SECRETS_PROD` (docs/secrets.md). A warm container keeps the old URL until it is recycled.',
       'This resolves on the first delivery that succeeds.',
     ].join('\n\n'),
