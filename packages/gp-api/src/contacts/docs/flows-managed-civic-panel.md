@@ -101,8 +101,9 @@ webapp's `priorities/[priorityId]/AGENTS.md`. The civic panel page's rail shows
 `ManagedPanelControls` (the Invites card): the status, the next send day
 and ready week while building, Pause while building and Resume while
 paused, each the `PATCH` below. Nothing stops a panel any more: a panel
-stopped before that, with a wave already sent, was moved to `paused` so it
-can resume; one that never sent a wave still reads and re-approves as below.
+stopped before that, with a wave already sent and no free send still
+pending, was moved to `paused` so it can resume; any other stopped panel
+still reads and re-approves as below.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)

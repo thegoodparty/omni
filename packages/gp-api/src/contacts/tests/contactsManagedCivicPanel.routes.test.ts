@@ -312,9 +312,12 @@ describe('POST /v1/contacts/civic-panel/managed', () => {
     const first = await approve(slug)
     await service.prisma.managedCivicPanel.update({
       where: { organizationSlug: slug },
-      data: { freeTextsUsed: 4000 },
+      data: {
+        freeTextsUsed: 4000,
+        status: ManagedCivicPanelStatus.stopped,
+        stoppedAt: new Date(),
+      },
     })
-    await setStatus(slug, ManagedCivicPanelStatus.stopped)
     const newInvite = `Another invite.\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply STOP to opt out.`
 
     const res = await approve(slug, {

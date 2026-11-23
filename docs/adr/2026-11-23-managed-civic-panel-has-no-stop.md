@@ -18,7 +18,10 @@ scope:
 `stop` is gone from the contract and the route 400s it. A one-time migration
 moves every stopped panel that already sent a wave to `paused`, keeping
 `stopped_at` as its `paused_at`, so the official can resume it. A stopped
-panel that never sent a wave stays stopped and is offered again as before.
+panel that never sent a wave stays stopped and is offered again as before,
+and so does one with a free wave or confirmation text still `pending`: the
+funding gate refuses free sends only for stopped panels, so pausing it would
+let that text go out.
 
 ## Context
 
