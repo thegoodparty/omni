@@ -3,7 +3,7 @@ title: Prod serve-analyze and ddhq-matcher failures go to the swarm webhook, not
 status: active
 decided_by: [swain]
 date: 2026-11-23
-code: ['#PLACEHOLDER']
+code: ['#4022']
 scope:
   - packages/gp-ai/infrastructure/modules/swarm-alert-forwarder/**
   - packages/gp-ai/infrastructure/modules/serve-analyze-fargate/**
