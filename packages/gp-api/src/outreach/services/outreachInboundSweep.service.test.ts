@@ -874,16 +874,11 @@ describe('outreachOptOutReconcile', () => {
     )
 
     expect(deadLetters).toHaveLength(1)
-    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(3)
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
     const person1 = await findInteraction(outreach.id, 'person-1')
     expect(person1.optedOutAt).not.toBeNull()
     const person2 = await findInteraction(outreach.id, 'person-2')
     expect(person2.optedOutAt).toBeNull()
-    expect(
-      await service.prisma.outreachOptOutReconcile.findUnique({
-        where: { outreachId: outreach.id },
-      }),
-    ).toBeNull()
   })
 
   it('skips a flag already recorded from the reply text', async () => {
@@ -1068,7 +1063,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(2)
   })
 
-  it('stamps a job with no captured list, and retries a failed one until it dead-letters', async () => {
+  it('stamps a failed job and one with no captured list, then dead-letters without re-reading', async () => {
     const failing = await createJob('job-failing', 1111)
     await setOutreachDate(failing.id, subHours(NOW, 1))
     const uncaptured = await createSweepableOutreach({
@@ -1088,18 +1083,18 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window 
     )
 
     expect(deadLetters).toHaveLength(1)
-    expect(calledJobIds()).toEqual([
-      'job-failing',
-      'job-failing',
-      'job-failing',
-    ])
-    expect(logSpy).toHaveBeenCalledWith(
+    expect(calledJobIds()).toEqual(['job-failing'])
+    expect(logSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ jobsFailed: 1, jobsWithoutCapture: 1 }),
       expect.any(String),
     )
-    // Unstamped, so the next hour's pass reads the failed job again.
-    const stamps = await service.prisma.outreachOptOutReconcile.findMany()
-    expect(stamps).toEqual([{ outreachId: uncaptured.id, attemptedAt: NOW }])
+    const stamps = await service.prisma.outreachOptOutReconcile.findMany({
+      orderBy: { outreachId: 'asc' },
+    })
+    expect(stamps).toEqual([
+      { outreachId: failing.id, attemptedAt: NOW },
+      { outreachId: uncaptured.id, attemptedAt: NOW },
+    ])
   })
 
   it('reads a send once more on its final day, and not in between', async () => {

@@ -452,7 +452,6 @@ export class OutreachInboundSweepService extends createPrismaBase(
           jobsDeferred += 1
           return
         }
-        let failed = false
         try {
           const polled = await this.reconcileOutreachOptOuts(
             outreach,
@@ -470,7 +469,6 @@ export class OutreachInboundSweepService extends createPrismaBase(
             jobsTimedOut += 1
           } else {
             counters.jobsFailed += 1
-            failed = true
           }
           // Message only: a raw axios error carries the request's auth
           // headers.
@@ -483,14 +481,13 @@ export class OutreachInboundSweepService extends createPrismaBase(
             timedOut
               ? '[Outreach Opt-out Reconcile] report timed out; will retry ' +
                   'once the interval passes'
-              : '[Outreach Opt-out Reconcile] job failed; will retry',
+              : '[Outreach Opt-out Reconcile] job failed; will retry once ' +
+                  'the interval passes',
           )
         }
-        // A timed-out read is stamped: a slow report retried every hour
-        // would cost Peerly six builds for the one answer. A failed one is
-        // not, so the pass's retries read it again and, if it keeps
-        // failing, the run dead-letters and pages.
-        if (failed) return
+        // Stamped whatever the outcome: a report retried every hour would
+        // cost Peerly six builds for the one answer. A failed read pages
+        // through the throw after the pass instead.
         await this.client.outreachOptOutReconcile.upsert({
           where: { outreachId: outreach.id },
           create: { outreachId: outreach.id, attemptedAt: now },
