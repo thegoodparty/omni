@@ -54,11 +54,10 @@ delivers regardless.
 
 ## Configuration
 
-Both values are read from the `AI_SECRETS_<ENV>` bundle at cold start, the same
-way `shared/slack-notifier` reads its webhook. The parsed pair is cached in the
-warm container, and cleared on any failure, so a rotated URL or secret is picked
-up by the next delivery instead of pinning the stale one for the container's
-life.
+Both values are read from the `AI_SECRETS_<ENV>` bundle at cold start. The
+parsed pair is cached in the warm container, and cleared on any failure, so a
+rotated URL or secret is picked up by the next delivery instead of pinning the
+stale one for the container's life.
 
 | Key                          | What                                 |
 | ---------------------------- | ------------------------------------ |

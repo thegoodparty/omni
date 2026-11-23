@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.0"
+  # >= 1.7 for the removed blocks that drop the old Slack subscription.
+  required_version = ">= 1.7.0"
 
   required_providers {
     aws = {
@@ -117,16 +118,11 @@ variable "loki_user" {
   default     = "1489885"
 }
 
-data "terraform_remote_state" "shared_slack_notifier" {
-  backend = "s3"
-
-  config = {
-    bucket = "goodparty-terraform-state-us-west-2"
-    key    = "shared/slack-notifier/terraform.tfstate"
-    region = "us-west-2"
-  }
-}
-
+# This root passes no notifier ARN: the shared Slack notifier was deleted, so
+# `alert-filter-failures-prod` (the module's `handler_errors` and
+# `no_deliveries` alarms) has no subscriber and shows only in the CloudWatch
+# console. Grafana's `alert-notification-delivery-failing` rule still pages on
+# the filter's own delivery failing. See docs/adr/2026-11-23-the-shared-slack-notifier-is-decommissioned.md.
 module "alert_filter" {
   source = "../../../modules/alert-filter"
 
@@ -140,8 +136,6 @@ module "alert_filter" {
 
   loki_url  = var.loki_url
   loki_user = var.loki_user
-
-  shared_slack_notifier_lambda_arn = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
 }
 
 output "failure_sns_topic_arn" {

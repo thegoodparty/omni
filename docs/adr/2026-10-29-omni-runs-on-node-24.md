@@ -13,7 +13,6 @@ scope:
   - packages/gp-ai/pmf_engine/Dockerfile
   - .github/actions/setup-node-workspace/**
   - packages/gp-ai/infrastructure/modules/serve-analyze-fargate/main.tf
-  - packages/gp-ai/infrastructure/shared/slack-notifier/main.tf
 supersedes: []
 superseded_by:
 ---

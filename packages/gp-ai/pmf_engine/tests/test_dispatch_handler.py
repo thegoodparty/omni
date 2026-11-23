@@ -337,14 +337,14 @@ class TestBuildContainerOverrides:
     def test_experiment_id_is_first_env_var(self):
         # CONTRACT: EXPERIMENT_ID MUST be the first entry of the container
         # environment array. The pmf-engine-fargate EventBridge rule extracts
-        # the experiment id for failure Slack alerts via the positional path
+        # the experiment id for failure alerts via the positional path
         # `$.detail.overrides.containerOverrides[0].environment[0].value`
         # (EventBridge input transformers cannot filter an array by key name).
         # Reordering this array would silently surface the WRONG value in the
         # alert — and because BROKER_TOKEN / ANTHROPIC_API_KEY / BRAINTRUST_API_KEY
         # live later in the same array, a reorder that pushed a secret to index 0
-        # would leak it into SNS and the notifier's CloudWatch logs. This test
-        # pins the ordering so any such regression breaks CI loudly instead.
+        # would leak it into SNS. This test pins the ordering so any such
+        # regression breaks CI loudly instead.
         experiment = {
             "harness": "claude_sdk",
             "model": "sonnet",

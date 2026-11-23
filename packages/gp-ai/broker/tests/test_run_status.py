@@ -438,10 +438,10 @@ class TestRunStatusClearsRunLock:
 
 class TestRunStatusTerminalFailureAlerting:
     """Every terminal /run-status (failed | contract_violation | timeout) must
-    emit a structured log line AND a CloudWatch metric so ops gets a Slack
-    alert. Without this, failures land silently in gp-api's experiment_run
-    table and only surface when a user complains. The metric is alarmed in
-    infrastructure/modules/broker/main.tf -> SNS -> shared-slack-notifier.
+    emit a structured log line AND a CloudWatch metric so ops can see it.
+    Without this, failures land silently in gp-api's experiment_run table and
+    only surface when a user complains. The metric is alarmed in
+    infrastructure/modules/broker/main.tf.
     """
 
     def _post(self, status: str, reason_code: str | None = None, ticket=None):

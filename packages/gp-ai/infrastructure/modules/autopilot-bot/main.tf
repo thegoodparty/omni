@@ -99,12 +99,6 @@ variable "github_app_installation_id" {
   default     = "117364330"
 }
 
-variable "shared_slack_notifier_lambda_arn" {
-  description = "ARN of the shared Slack notifier Lambda to subscribe to failure notifications (empty disables)"
-  type        = string
-  default     = ""
-}
-
 variable "failure_notification_email" {
   description = "Email address for failure notifications (empty disables)"
   type        = string
@@ -118,10 +112,10 @@ variable "failure_notification_email" {
 # webhook is registered against it — which is a separate, later step (webhook
 # registration + live checks are ENG-11104). Default true (armed): dev is
 # expected to get its webhook registered soon after this lands. The prod root
-# passes false explicitly until prod rollout, so CI's SNS/Slack channel does
-# not carry a permanently-red alarm for a bot that isn't live yet.
+# passes false explicitly until prod rollout, so the SNS topic does not
+# carry a permanently-red alarm for a bot that isn't live yet.
 variable "no_deliveries_alarm_enabled" {
-  description = "Whether the no-deliveries alarm's actions (SNS -> Slack/email) are armed. The alarm itself is always created; this only controls whether it notifies."
+  description = "Whether the no-deliveries alarm's actions (its SNS topic) are armed. The alarm itself is always created; this only controls whether it notifies."
   type        = bool
   default     = true
 }
@@ -428,7 +422,7 @@ resource "aws_lambda_function_event_invoke_config" "autopilot_bot" {
 # 4xx/5xx returns or swallowed-and-logged errors, never an unhandled
 # exception, so the Lambda "Errors" metric never fires — the only durable
 # signal is the "ERROR" / "Failed to" log lines. This filter + alarm + SNS
-# topic turns those into Slack/email, mirroring clickup-bot's identical
+# topic turns those into a notification, mirroring clickup-bot's identical
 # pattern.
 #
 # SECURITY CONTRACT with the handler code: this pattern is a substring OR
@@ -497,26 +491,6 @@ resource "aws_sns_topic_subscription" "bot_failures_email" {
   endpoint  = var.failure_notification_email
 }
 
-resource "aws_sns_topic_subscription" "shared_slack_notifier" {
-  count     = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  topic_arn = aws_sns_topic.bot_failures.arn
-  protocol  = "lambda"
-  endpoint  = var.shared_slack_notifier_lambda_arn
-}
-
-resource "aws_lambda_permission" "allow_sns_invoke_slack" {
-  count = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  # The notifier lambda is ONE shared function across environments
-  # (shared/slack-notifier state), and permission statement ids are unique per
-  # function — an un-suffixed id lets whichever environment applies first win
-  # and fails the other with ResourceConflictException (prod, run 34764275079).
-  statement_id  = "AllowSNSInvokeFromAutopilotBotFailures-${var.environment}"
-  action        = "lambda:InvokeFunction"
-  function_name = var.shared_slack_notifier_lambda_arn
-  principal     = "sns.amazonaws.com"
-  source_arn    = aws_sns_topic.bot_failures.arn
-}
-
 resource "aws_cloudwatch_metric_alarm" "handler_errors" {
   alarm_name          = "autopilot-bot-handler-errors-${var.environment}"
   alarm_description   = "autopilot-bot ${var.environment} logged handler errors (fail-loud 4xx/5xx, a routed dispatch that refused to fire, or an async worker hard timeout — 'Task timed out': check for a stranded DynamoDB claim). Check /aws/lambda/autopilot-bot-${var.environment} logs. Stranded claim: scan table autopilot-dedup-${var.environment} for the task's pk and delete-item it to unblock a re-entry."
@@ -547,7 +521,7 @@ resource "aws_cloudwatch_metric_alarm" "handler_errors" {
 # moment this Lambda first deploys until a real ClickUp webhook is pointed at
 # it, which is a separate, later step. The toggle controls only alarm_actions/
 # ok_actions, never treat_missing_data or the alarm's existence, so the signal
-# stays visible in the CloudWatch console either way — only the Slack/email
+# stays visible in the CloudWatch console either way — only the notification
 # noise is muted.
 resource "aws_cloudwatch_metric_alarm" "no_deliveries" {
   alarm_name          = "autopilot-bot-no-deliveries-${var.environment}"
@@ -587,4 +561,26 @@ output "lambda_function_name" {
 output "failure_sns_topic_arn" {
   value       = aws_sns_topic.bot_failures.arn
   description = "SNS topic that receives autopilot-bot handler error alarms"
+}
+
+# The shared Slack notifier is gone (its incoming webhook was revoked, and
+# Swain decided autopilot-bot no longer reports failures there). These are
+# Terraform-managed, not deleted here: the release train refuses any plan that
+# deletes (scripts/ci-apply-root.sh), so the subscription and its invoke
+# permission are forgotten from state with destroy = false. They keep working
+# in AWS until an admin deletes them once (the PR body has the commands).
+removed {
+  from = aws_sns_topic_subscription.shared_slack_notifier
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_lambda_permission.allow_sns_invoke_slack
+
+  lifecycle {
+    destroy = false
+  }
 }

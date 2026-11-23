@@ -29,12 +29,6 @@ variable "failure_notification_email" {
   default     = ""
 }
 
-variable "shared_slack_notifier_lambda_arn" {
-  description = "ARN of the shared Slack notifier Lambda function"
-  type        = string
-  default     = ""
-}
-
 variable "task_cpu" {
   description = "CPU units for ECS Fargate task"
   type        = string
@@ -399,9 +393,8 @@ resource "aws_sns_topic_policy" "runner_failures" {
       {
         # CloudWatch Alarms publish from cloudwatch.amazonaws.com — needed
         # so the dispatch Lambda's `Errors > 0` alarm (and the SQS DLQ depth
-        # alarm) can actually deliver to Slack via shared-slack-notifier.
-        # Without this, alarms transition to ALARM but the SNS publish fails
-        # silently and Slack never sees the page.
+        # alarm) can actually publish to this topic. Without this, alarms
+        # transition to ALARM but the SNS publish fails silently.
         Sid    = "AllowCloudWatchAlarmPublish"
         Effect = "Allow"
         Principal = {
@@ -417,22 +410,6 @@ resource "aws_sns_topic_policy" "runner_failures" {
       }
     ]
   })
-}
-
-resource "aws_sns_topic_subscription" "shared_slack_notifier" {
-  count     = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  topic_arn = aws_sns_topic.runner_failures.arn
-  protocol  = "lambda"
-  endpoint  = var.shared_slack_notifier_lambda_arn
-}
-
-resource "aws_lambda_permission" "allow_sns_invoke_slack" {
-  count         = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  statement_id  = "AllowSNSInvokeFromPmfEngineFailures-${var.environment}"
-  action        = "lambda:InvokeFunction"
-  function_name = var.shared_slack_notifier_lambda_arn
-  principal     = "sns.amazonaws.com"
-  source_arn    = aws_sns_topic.runner_failures.arn
 }
 
 output "cluster_name" {
@@ -473,4 +450,26 @@ output "task_role_arn" {
 output "sns_topic_arn" {
   value       = aws_sns_topic.runner_failures.arn
   description = "SNS topic for runner failure notifications"
+}
+
+# The shared Slack notifier is gone (its incoming webhook was revoked, and
+# Swain decided PMF Engine no longer reports failures there). These are
+# Terraform-managed, not deleted here: the release train refuses any plan that
+# deletes (scripts/ci-apply-root.sh), so the subscription and its invoke
+# permission are forgotten from state with destroy = false. They keep working
+# in AWS until an admin deletes them once (the PR body has the commands).
+removed {
+  from = aws_sns_topic_subscription.shared_slack_notifier
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_lambda_permission.allow_sns_invoke_slack
+
+  lifecycle {
+    destroy = false
+  }
 }

@@ -8,7 +8,7 @@ This infrastructure is designed for **scalable AI pipeline processing**:
 - ECS Fargate tasks for message classification, clustering, and analysis
 - Dual trigger modes: HTTP API (via ALB) and S3 file uploads
 - Serverless cost model: Pay only when pipelines run
-- Production-grade monitoring with failure alerts via SNS/Slack
+- Production-grade monitoring with failure alerts via SNS and email
 - Shared infrastructure (ALB, ECR, Route53) across all AI services
 
 ## Shared Resources
@@ -63,10 +63,6 @@ infrastructure/
 │       ├── main.tf
 │       ├── variables.tf
 │       └── outputs.tf
-│
-├── shared/
-│   └── slack-notifier/             # Shared Slack notifier Lambda (applied by
-│                                   #   hand; not part of the release train)
 │
 ├── deploy.sh                       # Deployment script
 └── README.md                       # This file
@@ -126,7 +122,6 @@ Application Load Balancer              S3 Notification
 - **ECR Repository**: Docker images for all AI projects (`gp-ai-projects`)
 - **Application Load Balancer**: HTTPS endpoint with x-api-key auth
 - **Route53**: DNS records (ai-dev.goodparty.org, ai.goodparty.org)
-- **Slack Notifier**: Failure alert Lambda (shared across environments)
 
 **Per-Environment Resources:**
 - **ECS Cluster**: Fargate cluster for pipeline tasks
@@ -434,7 +429,6 @@ AWS_PROFILE=work terraform apply  # ECS cluster/S3/SNS/EventBridge
 ### Failure Monitoring (Configured)
 - **EventBridge Rule**: Captures ECS task failures (exit code ≠ 0)
 - **SNS Topic**: `serve-analyze-pipeline-failures-{env}`
-- **Slack Notifier**: Optional Lambda for Slack alerts
 - **Email Alerts**: Configurable email notifications
 - **CloudWatch Alarm**: High failure rate (>3 tasks in 5 minutes)
 
@@ -502,7 +496,6 @@ For detailed monitoring setup, see:
 **No failure notifications:**
 - Confirm SNS subscription
 - Check EventBridge rule configuration
-- Verify Slack webhook URL (if using Slack)
 
 ### Useful Commands
 

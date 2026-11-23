@@ -76,8 +76,8 @@ infrastructure/shared/environments/*.tfvars
 
 # *.auto.tfvars hold only AWS resource identifiers (vpc/subnet/cert/zone ids and a
 # work email) and are committed so CI can plan and apply with no hand-created
-# files. The blanket rule above STAYS: shared/slack-notifier's terraform.tfvars is
-# a Slack webhook URL, i.e. a bearer credential. Do not widen this.
+# files. The blanket rule above STAYS: a root's terraform.tfvars can hold a
+# bearer credential. Do not widen this.
 !infrastructure/**/*.auto.tfvars
 
 # Node.js
@@ -95,10 +95,6 @@ package-lock.json
 
 # TypeScript build artifacts
 *.d.ts.map
-*.js.map
-
-# Slack notifier secrets
-infrastructure/shared/slack-notifier/terraform.tfvars
 *.js.map
 
 #pickle files
