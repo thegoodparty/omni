@@ -142,6 +142,16 @@ A PR runs its own copy of the guard and can change it, as with every CI workflow
 A new directory of shared code that suites depend on needs a row in `codeMap.ts`;
 its test fails when a pairwise suite has no row of its own.
 
+## Get results as an agent
+
+The job summary is not in the API, and `gh run view --log` does not include it. The reporter prints the same verdict table to stdout, so read it from the log:
+
+```bash
+gh run view <run> --log | grep -A40 "Pairwise eval verdicts"
+```
+
+This works for `/judge-eval` runs and for `Universal judge guard (shadow)` runs. Never tell a reader to open the Summary tab; an agent cannot.
+
 ## Read the results
 
 Start with Vitest annotations. They show the evidence for an individual attempt, such as intermediate results, excerpts, and grading. For expected results, compare the expected judgment with the actual one. For pairwise suites, look at the verdict table first and then inspect the attempts behind it.
