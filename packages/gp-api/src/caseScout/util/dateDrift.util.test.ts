@@ -59,6 +59,11 @@ describe('findDateDrift', () => {
     expect(drift(['The hearing is on 2027-02-10.'])?.years).toEqual([2027])
   })
 
+  it('counts a hyphenated month-day-year date', () => {
+    expect(drift(['Results came in on 12-31-2028.'])?.years).toEqual([2028])
+    expect(drift(['The vote was on 3-9-2028.'])?.years).toEqual([2028])
+  })
+
   it('ignores numbers that are not years', () => {
     expect(
       drift([

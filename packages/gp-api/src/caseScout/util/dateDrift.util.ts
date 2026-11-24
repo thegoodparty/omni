@@ -8,8 +8,9 @@ import { formatInTimeZone } from 'date-fns-tz'
 // A standalone 19xx or 20xx. Not one inside a money amount or a decimal, and
 // not the year half of a short hyphenated identifier (an ordinance number
 // such as 245-2028, or a phone line such as 555-2028), which the drafter
-// invents and the agent cannot check. A year range (2026-2028) still counts.
-const YEAR = /(?<![$.]|(?:^|\D)\d{1,3}-)\b(?:19|20)\d{2}\b(?!\.\d)/g
+// invents and the agent cannot check. A year range (2026-2028) and a
+// hyphenated month-day-year date (12-31-2028) still count.
+const YEAR = /(?<![$.]|(?:^|[^\d-])\d{1,3}-)\b(?:19|20)\d{2}\b(?!\.\d)/g
 
 const yearsIn = (texts: string[]): number[] =>
   texts.flatMap((text) => [...text.matchAll(YEAR)].map(([y]) => Number(y)))
