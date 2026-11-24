@@ -13,8 +13,9 @@ import { MimeTypes } from 'http-constants-ts'
 import { PinoLogger } from 'nestjs-pino'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
+import { SMS_IMAGE_MAX_BYTES } from '@goodparty_org/contracts'
 
-const MAX_FILE_SIZE = 512000
+const MAX_FILE_SIZE = SMS_IMAGE_MAX_BYTES
 
 // Peerly's /v2/media rejects filenames longer than 100 chars with an opaque
 // 400 ("An unknown validation error occurred.") — verified live 2026-07-22.

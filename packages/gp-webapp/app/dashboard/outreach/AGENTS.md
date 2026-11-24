@@ -205,6 +205,11 @@ exact line to restore (`standardsFailureCopy` in `SmsComposeStep.tsx`), with an
 the line back where the flow writes it (`addOptOutBack` and siblings in
 `smsCompose.util.ts`).
 
+The compose step's `N chars` counter turns yellow past contracts'
+`SMS_LONG_MESSAGE_LENGTH` (1,000), with a line asking for a shorter text,
+and red past `SMS_COMPOSED_MAX_LENGTH` (2,000), where Continue stops.
+Long texts are allowed, only discouraged.
+
 `report_back` is never in the picker: its audience is one earlier send, which
 only a priority's report back card names. That card opens the Serve `SmsFlow`
 with `initialPurpose: 'report_back'`, its message seeded (the purpose is kept

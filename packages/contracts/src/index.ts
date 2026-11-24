@@ -1498,6 +1498,8 @@ export {
   type SmsPurpose,
   SMS_COMPOSED_MAX_LENGTH,
   SMS_BODY_MAX_LENGTH,
+  SMS_IMAGE_MAX_BYTES,
+  SMS_LONG_MESSAGE_LENGTH,
   SmsDraftRequestSchema,
   type SmsDraftRequest,
   SmsDraftResponseSchema,
