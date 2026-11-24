@@ -997,11 +997,14 @@ describe('the managed panel wave job', () => {
       })
     })
 
-    it.each(['api_shadow', 'api_auto'])(
-      'sends the manual way for %s when a GoodParty staff member owns the org',
-      async (variant) => {
+    it.each([
+      ['api_shadow', 'GoodParty.org'],
+      ['api_auto', 'test.goodparty.org'],
+    ])(
+      'sends the manual way for %s when an @%s account owns the org',
+      async (variant, domain) => {
         agentVariant = variant
-        const staff = await outsideOwner(`Fake-${randomUUID()}@GoodParty.org`)
+        const staff = await outsideOwner(`fake-${randomUUID()}@${domain}`)
         const { id } = await enroll({}, staff.id)
 
         await job().advance(id, WEDNESDAY)

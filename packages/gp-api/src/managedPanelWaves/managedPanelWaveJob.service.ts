@@ -53,6 +53,7 @@ import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { SERVE_PANEL_WAVE_AGENT_FLAG } from '@/shared/util/servePanelWaveAgentFlag.util'
 import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
+import { isInternalUser } from '@/users/util/users.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
   CIVIC_PANEL_MILESTONES,
@@ -99,8 +100,6 @@ const MILESTONE_ROW: Record<ContractMilestone, CivicPanelMilestone> = {
   halfway: CivicPanelMilestone.halfway,
   full: CivicPanelMilestone.full,
 }
-
-const INTERNAL_EMAIL_SUFFIX = '@goodparty.org'
 
 const AGENT_VARIANT_ROUTES: Record<
   string,
@@ -593,10 +592,9 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       where: { slug: organizationSlug },
       select: { owner: { select: { email: true } } },
     })
-    return (
-      organization?.owner.email.toLowerCase().endsWith(INTERNAL_EMAIL_SUFFIX) ??
-      false
-    )
+    return organization
+      ? isInternalUser({ email: organization.owner.email })
+      : false
   }
 
   private async sendTimeZone(organizationSlug: string): Promise<string> {

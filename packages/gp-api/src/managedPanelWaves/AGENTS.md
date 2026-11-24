@@ -40,5 +40,5 @@ manual wave's upload, the stall alert and the five-day backstop):
   `S2W_PANEL_WAVE_API_ENABLED=true`, because nothing advances an `api` row
   until the Scale to Win sweep ships; the sweep's PR removes the gate. The
   handler and mode are frozen on the hand-off row, `api_auto` acts as shadow
-  outside prod, and an org owned by a `@goodparty.org` address stays manual:
+  outside prod, and an org whose owner `isInternalUser` matches stays manual:
   `docs/adr/2026-11-23-api-panel-waves-progress-on-the-text-handoff.md`.
