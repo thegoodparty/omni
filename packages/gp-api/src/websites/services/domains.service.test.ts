@@ -261,6 +261,91 @@ describe('DomainsService', () => {
       })
     })
 
+    it('answers a terminal refusal as a 409 instead of a 502', async () => {
+      const refusal = new ConflictException({
+        message:
+          'The registrar refused the purchase of test-domain.com; it is not retryable',
+        errorCode: 'DOMAIN_REGISTRAR_ORDER_REJECTED',
+        registrarCode: 'payment-failed',
+        orderId: 'order_refused_1',
+        retryable: false,
+      })
+      vi.spyOn(service, 'completeDomainRegistration').mockRejectedValue(refusal)
+
+      const error = await service
+        .handleDomainPostPurchase(sessionId, metadata)
+        .catch((e: unknown) => e)
+
+      // A Stripe redelivery of this checkout has to read the verdict, not a
+      // 502 that tells it to try again (ENG-11775).
+      expect(error).toBe(refusal)
+      expect(mockPrisma.domain.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: DomainStatus.inactive } }),
+      )
+    })
+
+    it('does not buy a name it already holds a refusal for', async () => {
+      mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
+        content: { contact: {} },
+        domain: {
+          ...mockDomain,
+          status: DomainStatus.inactive,
+          operationId: 'order_refused_1',
+          registrarRefusalCode: 'payment-failed',
+          registrarRefusedAt: new Date(),
+        },
+        campaign: { userId: mockUser.id },
+      })
+      const completeSpy = vi.spyOn(service, 'completeDomainRegistration')
+
+      const error = await service
+        .handleDomainPostPurchase(sessionId, metadata)
+        .catch((e: unknown) => e)
+
+      expect(error).toBeInstanceOf(ConflictException)
+      expect((error as ConflictException).getStatus()).toBe(HttpStatus.CONFLICT)
+      expect((error as ConflictException).getResponse()).toMatchObject({
+        errorCode: 'DOMAIN_REGISTRAR_ORDER_REJECTED',
+        registrarCode: 'payment-failed',
+        orderId: 'order_refused_1',
+        retryable: false,
+      })
+      expect(completeSpy).not.toHaveBeenCalled()
+    })
+
+    it('clears the refusal when it reuses the row for a new payment', async () => {
+      mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
+        content: { contact: {} },
+        domain: {
+          ...mockDomain,
+          paymentId: 'pi_old',
+          status: DomainStatus.inactive,
+          operationId: 'order_refused_1',
+          registrarRefusalCode: 'payment-failed',
+          registrarRefusedAt: new Date(Date.now() - 16 * 60 * 1000),
+        },
+        campaign: { userId: mockUser.id },
+      })
+      vi.spyOn(service, 'completeDomainRegistration').mockResolvedValue({
+        vercelResult: null,
+        projectResult: null,
+        message: 'Disabled',
+      })
+
+      await service.handleDomainPostPurchase(sessionId, metadata)
+
+      // The row is buying again, so the old refusal no longer describes it.
+      expect(mockPrisma.domain.update).toHaveBeenCalledWith({
+        where: { id: mockDomain.id },
+        data: {
+          paymentId: 'pi_123',
+          status: DomainStatus.pending,
+          registrarRefusalCode: null,
+          registrarRefusedAt: null,
+        },
+      })
+    })
+
     it('should send null priceOfSelectedDomain when domain has no price', async () => {
       mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
         content: { contact: {} },
@@ -1260,6 +1345,49 @@ describe('DomainsService', () => {
       expect(mockPrisma.domain.create).toHaveBeenCalled()
     })
 
+    it('buys a different name while the row carries a refusal for another', async () => {
+      mockPrisma.website.findUnique.mockResolvedValue({
+        ...baseWebsite,
+        domain: {
+          ...mockDomain,
+          name: 'refused-name.run',
+          status: DomainStatus.inactive,
+          operationId: 'order_refused_1',
+          registrarRefusalCode: 'payment-failed',
+          registrarRefusedAt: new Date(),
+        },
+      })
+      mockRoute53.checkDomainAvailability.mockResolvedValue({
+        Availability: DomainAvailability.AVAILABLE,
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 12 })
+      mockPrisma.domain.create.mockResolvedValue({
+        ...mockDomain,
+        id: 100,
+        name: domainName,
+        paymentId: null,
+        price: new Decimal(12),
+      })
+      vi.spyOn(service, 'completeDomainRegistration').mockResolvedValue({
+        vercelResult: null,
+        projectResult: null,
+        message: 'Disabled',
+      })
+
+      const result = await service.purchaseDomainForCampaign(
+        campaignWithUser,
+        domainName,
+        maxPrice,
+        DomainSource.manual,
+      )
+
+      // The registrar's code names a cause for that order, and this campaign
+      // may well be asking for a name it can still have.
+      expect(result.alreadyExisted).toBe(false)
+      expect(mockPrisma.domain.delete).toHaveBeenCalled()
+      expect(mockPrisma.domain.create).toHaveBeenCalled()
+    })
+
     it('does NOT hold the advisory lock during external HTTP calls', async () => {
       mockPrisma.website.findUnique.mockResolvedValue(baseWebsite)
       mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
@@ -2202,6 +2330,61 @@ describe('DomainsService', () => {
           registrarCode: 'payment-failed',
         }),
         'Domain registrar rejected the purchase order; not retryable',
+      )
+    })
+
+    it.each([
+      { name: 'carries no registrar code', error: undefined },
+      {
+        name: 'carries a code we cannot call terminal',
+        error: { code: 'registry_rejected' },
+      },
+    ])('keeps the 502 for a failed order that $name', async ({ error }) => {
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockRejectedValue(new Error('not found')),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        purchaseDomain: vi.fn().mockResolvedValue({ orderId: 'order_123' }),
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        // What the E2E mock's `vercel.order.fail` produces, and what Vercel
+        // sends for a failure it does not name a cause for. Re-driving a
+        // failed order is a supported flow (`pending_domain_purchase`), so
+        // this must stay a fault and not become a terminal refusal.
+        getRegistrarOrder: vi.fn().mockResolvedValue({
+          status: GetOrderStatus.Failed,
+          ...(error ? { error } : {}),
+        }),
+        addDomainToProject: vi.fn(),
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        paymentId: null,
+        price: new Decimal(12),
+      })
+
+      const caught = await service
+        .completeDomainRegistration(10, contact, {
+          skipPaymentVerification: true,
+        })
+        .catch((e: unknown) => e)
+
+      expect(caught).toBeInstanceOf(BadGatewayException)
+      expect(mockPrisma.domain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: DomainStatus.inactive } }),
+      )
+      expect(mockPrisma.domain.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            registrarRefusedAt: expect.any(Date) as Date,
+          }),
+        }),
       )
     })
 

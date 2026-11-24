@@ -139,6 +139,19 @@ const REGISTRAR_ORDER_REQUEST_TIMEOUT_MS = 10_000
 // works on its own.
 const DOMAIN_REGISTRAR_REFUSAL_SUPPRESS_MS = 15 * 60 * 1000
 
+// The registrar codes that make a failed order terminal. Only these: a coded
+// verdict we know the same order can never recover from, and that a new order
+// for the same name hits identically until a person fixes the cause. Observed
+// in production, `payment-failed` is a declined charge on GoodParty's own
+// Vercel team payment method (ENG-11775). Everything else the registrar
+// reports — another code, or a failure carrying no code at all — stays a
+// fault the caller may re-drive, which is what it was before: we cannot tell
+// it apart from a transient one, and a campaign's retry after a failed order
+// is a supported flow (`pending_domain_purchase`).
+const TERMINAL_REGISTRAR_ORDER_CODES: ReadonlySet<string> = new Set([
+  'payment-failed',
+])
+
 const GP_CAMPAIGN_DOMAIN_FORWARD_ADDRESS = 'candidate-domains@goodparty.org'
 
 @Injectable()
@@ -430,6 +443,13 @@ export class DomainsService
 
     let domain: Domain | null = website.domain || null
 
+    // The paid checkout path places its own order, outside the reservation
+    // transaction, so it has to answer the refusal too: a Stripe redelivery
+    // for a name the registrar already declined must not buy it again.
+    if (domain && domain.name === domainName) {
+      this.assertNotRecentlyRefused(domain)
+    }
+
     if (!domain) {
       const searchResult = await this.searchForDomain(domainName)
       const domainParams = {
@@ -458,6 +478,10 @@ export class DomainsService
         data: {
           paymentId,
           status: DomainStatus.pending,
+          // This row is being reused for a new order, so the previous order's
+          // refusal no longer describes it.
+          registrarRefusalCode: null,
+          registrarRefusedAt: null,
         },
       })
     }
@@ -492,6 +516,13 @@ export class DomainsService
         message: 'Domain registration initiated with Vercel',
       }
     } catch (error) {
+      // A refusal is the answer, not a gateway fault. Wrapping it in a 502 is
+      // what made the 2026-11-24 incident a retry loop: the caller read "try
+      // again" and placed another order each time (ENG-11775).
+      if (error instanceof ConflictException) {
+        throw error
+      }
+
       await this.model.update({
         where: { id: domain.id },
         data: { status: DomainStatus.inactive },
@@ -902,8 +933,6 @@ export class DomainsService
       }
 
       if (website.domain) {
-        this.assertNotRecentlyRefused(website.domain)
-
         if (website.domain.status !== DomainStatus.inactive) {
           if (website.domain.name === domainName) {
             return {
@@ -920,6 +949,13 @@ export class DomainsService
           throw new ConflictException(
             `A different domain (${website.domain.name}) is already in progress for this campaign`,
           )
+        }
+
+        // Only the same name answers the refusal: the registrar's code names a
+        // cause for that order, and this campaign may well be asking for a
+        // name it can still have.
+        if (website.domain.name === domainName) {
+          this.assertNotRecentlyRefused(website.domain)
         }
 
         await tx.domain.delete({ where: { id: website.domain.id } })
@@ -945,14 +981,16 @@ export class DomainsService
   }
 
   /**
-   * Answer the refusal this campaign already has instead of buying the same
-   * name again.
+   * Answer the refusal this campaign already has for this name instead of
+   * buying it again.
    *
    * A refused order leaves the row inactive, carrying the refused order id and
-   * the registrar's code. Read inside the reservation transaction, so two
-   * retries arriving together cannot both place an order: the advisory lock
-   * makes the first one write and the second one read. Bounded by
-   * DOMAIN_REGISTRAR_REFUSAL_SUPPRESS_MS — see the constant.
+   * the registrar's code; every path that places an order clears those fields
+   * again, so they only ever describe a refusal the row has not moved past.
+   * Read inside the reservation transaction, so two retries arriving together
+   * cannot both place an order: the advisory lock makes the first one write
+   * and the second one read. Bounded by DOMAIN_REGISTRAR_REFUSAL_SUPPRESS_MS —
+   * see the constant.
    */
   private assertNotRecentlyRefused(domain: Domain): void {
     if (!domain.registrarRefusedAt) {
@@ -1631,6 +1669,10 @@ export class DomainsService
       data: {
         operationId: registrarOrderId ?? `vercel-${domain.name}-${Date.now()}`,
         status: DomainStatus.submitted,
+        // The order this row now carries completed, so any earlier refusal is
+        // spent: leaving it would answer a future call with a stale 409.
+        registrarRefusalCode: null,
+        registrarRefusedAt: null,
         // The registrant contact is a constant, already-ICANN-verified
         // GoodParty identity (see DOMAIN_REGISTRANT_CONTACT), so the registrar
         // reuses that verified tuple and the contact is confirmed at
@@ -1692,13 +1734,27 @@ export class DomainsService
         return
       }
       if (order?.status === GetOrderStatus.Failed) {
-        // The registrar's verdict, not ours: this order will never complete,
-        // so the caller must not be told to try again. The rest of this
-        // function is the opposite case — an outcome we could not observe.
-        throw new RegistrarOrderRejectedError(
-          orderId,
-          domainName,
-          order.error?.code ?? null,
+        const registrarCode = order.error?.code ?? null
+        if (
+          registrarCode !== null &&
+          TERMINAL_REGISTRAR_ORDER_CODES.has(registrarCode)
+        ) {
+          // The registrar's verdict, not ours: this order will never
+          // complete, so the caller must not be told to try again. The rest
+          // of this function is the opposite case — an outcome we could not
+          // observe, or one we cannot attribute to a terminal cause.
+          throw new RegistrarOrderRejectedError(
+            orderId,
+            domainName,
+            registrarCode,
+          )
+        }
+        // Unchanged from before: a failed order we cannot call terminal is a
+        // fault the caller may re-drive, so the row goes inactive and the next
+        // attempt places a fresh order.
+        throw new Error(
+          `Registrar order ${orderId} for ${domainName} failed` +
+            (order.error ? `: ${JSON.stringify(order.error)}` : ''),
         )
       }
       const elapsedMs = differenceInMilliseconds(new Date(), startedAt)
