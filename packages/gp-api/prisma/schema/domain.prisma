@@ -25,6 +25,12 @@ model Domain {
   paymentId               String?      @map("payment_id")
   emailForwardingDomainId String?      @map("email_forwarding_domain_id")
   registrantVerifiedAt    DateTime?    @map("registrant_verified_at")
+  // The registrar's own verdict when it refused the purchase order. Written
+  // with the refused order id (operationId) and status inactive, so a retry
+  // of the same name can answer the same terminal refusal instead of placing
+  // a second order. Cleared only by the next reservation of the row.
+  registrarRefusalCode    String?      @map("registrar_refusal_code")
+  registrarRefusedAt      DateTime?    @map("registrar_refused_at")
 
   @@map("domain")
 }

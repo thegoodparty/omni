@@ -63,6 +63,8 @@ const mockDomain: Domain = {
   operationId: null,
   emailForwardingDomainId: null,
   registrantVerifiedAt: null,
+  registrarRefusalCode: null,
+  registrarRefusedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 }
@@ -1177,6 +1179,87 @@ describe('DomainsService', () => {
       },
     )
 
+    it('answers the refusal it already holds instead of buying the same name again', async () => {
+      mockPrisma.website.findUnique.mockResolvedValue({
+        ...baseWebsite,
+        domain: {
+          ...mockDomain,
+          name: domainName,
+          status: DomainStatus.inactive,
+          operationId: 'order_refused_1',
+          registrarRefusalCode: 'payment-failed',
+          registrarRefusedAt: new Date(),
+        },
+      })
+      mockRoute53.checkDomainAvailability.mockResolvedValue({
+        Availability: DomainAvailability.AVAILABLE,
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 12 })
+      const completeSpy = vi.spyOn(service, 'completeDomainRegistration')
+
+      const error = await service
+        .purchaseDomainForCampaign(
+          campaignWithUser,
+          domainName,
+          maxPrice,
+          DomainSource.manual,
+        )
+        .catch((e: unknown) => e)
+
+      expect(error).toBeInstanceOf(ConflictException)
+      expect((error as ConflictException).getResponse()).toMatchObject({
+        errorCode: 'DOMAIN_REGISTRAR_ORDER_REJECTED',
+        registrarCode: 'payment-failed',
+        orderId: 'order_refused_1',
+        retryable: false,
+      })
+      // No second order: the row survived, and nothing reached the registrar.
+      expect(mockPrisma.domain.delete).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.create).not.toHaveBeenCalled()
+      expect(completeSpy).not.toHaveBeenCalled()
+    })
+
+    it('buys again once the refusal is older than the suppression window', async () => {
+      mockPrisma.website.findUnique.mockResolvedValue({
+        ...baseWebsite,
+        domain: {
+          ...mockDomain,
+          name: domainName,
+          status: DomainStatus.inactive,
+          operationId: 'order_refused_1',
+          registrarRefusalCode: 'payment-failed',
+          registrarRefusedAt: new Date(Date.now() - 16 * 60 * 1000),
+        },
+      })
+      mockRoute53.checkDomainAvailability.mockResolvedValue({
+        Availability: DomainAvailability.AVAILABLE,
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 12 })
+      mockPrisma.domain.create.mockResolvedValue({
+        ...mockDomain,
+        id: 100,
+        name: domainName,
+        paymentId: null,
+        price: new Decimal(12),
+      })
+      vi.spyOn(service, 'completeDomainRegistration').mockResolvedValue({
+        vercelResult: null,
+        projectResult: null,
+        message: 'Disabled',
+      })
+
+      const result = await service.purchaseDomainForCampaign(
+        campaignWithUser,
+        domainName,
+        maxPrice,
+        DomainSource.manual,
+      )
+
+      expect(result.alreadyExisted).toBe(false)
+      expect(mockPrisma.domain.delete).toHaveBeenCalled()
+      expect(mockPrisma.domain.create).toHaveBeenCalled()
+    })
+
     it('does NOT hold the advisory lock during external HTTP calls', async () => {
       mockPrisma.website.findUnique.mockResolvedValue(baseWebsite)
       mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
@@ -2052,7 +2135,7 @@ describe('DomainsService', () => {
       )
     })
 
-    it('marks the domain inactive and throws when the registrar order fails', async () => {
+    it('answers a registrar refusal with a 409 and records the refused order', async () => {
       Object.assign(mockPrisma.domain, {
         findFirst: vi.fn(),
         findFirstOrThrow: vi.fn(),
@@ -2069,7 +2152,7 @@ describe('DomainsService', () => {
         getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
         getRegistrarOrder: vi.fn().mockResolvedValue({
           status: GetOrderStatus.Failed,
-          error: { code: 'registry_rejected' },
+          error: { code: 'payment-failed' },
         }),
         addDomainToProject: addDomainToProjectMock,
       })
@@ -2079,13 +2162,81 @@ describe('DomainsService', () => {
         price: new Decimal(12),
       })
 
-      await expect(
-        service.completeDomainRegistration(10, contact, {
+      const error = await service
+        .completeDomainRegistration(10, contact, {
           skipPaymentVerification: true,
-        }),
-      ).rejects.toBeInstanceOf(BadGatewayException)
+        })
+        .catch((e: unknown) => e)
 
+      expect(error).toBeInstanceOf(ConflictException)
+      expect((error as ConflictException).getStatus()).toBe(HttpStatus.CONFLICT)
+      expect((error as ConflictException).getResponse()).toMatchObject({
+        errorCode: 'DOMAIN_REGISTRAR_ORDER_REJECTED',
+        registrarCode: 'payment-failed',
+        orderId: 'order_123',
+        retryable: false,
+      })
+
+      // A refused order is not a domain we own, so nothing is attached and the
+      // row stays out of the way — carrying the refusal a retry must read.
       expect(addDomainToProjectMock).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: {
+            status: DomainStatus.inactive,
+            operationId: 'order_123',
+            registrarRefusalCode: 'payment-failed',
+            registrarRefusedAt: expect.any(Date) as Date,
+          },
+        }),
+      )
+      expect(mockPrisma.domain.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DomainStatus.submitted }),
+        }),
+      )
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domainName: mockDomain.name,
+          orderId: 'order_123',
+          registrarCode: 'payment-failed',
+        }),
+        'Domain registrar rejected the purchase order; not retryable',
+      )
+    })
+
+    it('keeps the 502 for a Vercel fault we could not attribute to the order', async () => {
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockRejectedValue(new Error('not found')),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        purchaseDomain: vi.fn().mockRejectedValue(new Error('Vercel 500')),
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        getRegistrarOrder: vi.fn().mockResolvedValue({
+          status: GetOrderStatus.Completed,
+        }),
+        addDomainToProject: vi.fn().mockResolvedValue({}),
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        paymentId: null,
+        price: new Decimal(12),
+      })
+
+      const error = await service
+        .completeDomainRegistration(10, contact, {
+          skipPaymentVerification: true,
+        })
+        .catch((e: unknown) => e)
+
+      expect(error).toBeInstanceOf(BadGatewayException)
       expect(mockPrisma.domain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { status: DomainStatus.inactive },
@@ -2093,7 +2244,9 @@ describe('DomainsService', () => {
       )
       expect(mockPrisma.domain.update).not.toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: DomainStatus.submitted }),
+          data: expect.objectContaining({
+            registrarRefusedAt: expect.any(Date) as Date,
+          }),
         }),
       )
     })
@@ -2310,10 +2463,10 @@ describe('DomainsService.purchaseDomainForCampaign against Postgres', () => {
         organizationSlug: org.slug,
       },
     })
-    await testService.prisma.website.create({
+    const website = await testService.prisma.website.create({
       data: { campaignId: campaign.id, vanityPath: 'domain-race' },
     })
-    return { ...campaign, user: testService.user }
+    return { ...campaign, user: testService.user, website }
   }
 
   // Both purchases clear the preflight read before either reserves, and the
@@ -2420,5 +2573,62 @@ describe('DomainsService.purchaseDomainForCampaign against Postgres', () => {
     expect(results.map((r) => r.alreadyExisted).sort()).toEqual([false, true])
     expect(results[0].domain.id).toBe(results[1].domain.id)
     expect(await testService.prisma.domain.count()).toBe(1)
+  })
+
+  // The 2026-11-24 incident (ENG-11775) placed three registrar orders for one
+  // name because nothing remembered that the previous order was refused. The
+  // refusal is now read inside the same reservation transaction that would
+  // place the order, so a retry reads the verdict instead.
+  it('answers the refusal it already holds instead of placing a second order', async () => {
+    const campaign = await seedProCampaignWithWebsite()
+    await testService.prisma.domain.create({
+      data: {
+        websiteId: campaign.website.id,
+        name: 'refused-name.run',
+        price: 12,
+        status: DomainStatus.inactive,
+        source: DomainSource.agentic,
+        operationId: 'order_refused_1',
+        registrarRefusalCode: 'payment-failed',
+        registrarRefusedAt: new Date(),
+      },
+    })
+    vi.spyOn(
+      testService.app.get(AwsRoute53Service),
+      'checkDomainAvailability',
+    ).mockResolvedValue({
+      Availability: DomainAvailability.AVAILABLE,
+      $metadata: {},
+    })
+    vi.spyOn(
+      testService.app.get(VercelService),
+      'checkDomainPrice',
+    ).mockResolvedValue({ price: 12 })
+    const purchaseSpy = vi.spyOn(
+      testService.app.get(VercelService),
+      'purchaseDomain',
+    )
+    const domains = testService.app.get(DomainsService)
+
+    const error = await domains
+      .purchaseDomainForCampaign(
+        campaign,
+        'refused-name.run',
+        50,
+        DomainSource.agentic,
+      )
+      .catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictException)
+    expect((error as ConflictException).getResponse()).toMatchObject({
+      errorCode: 'DOMAIN_REGISTRAR_ORDER_REJECTED',
+      registrarCode: 'payment-failed',
+      orderId: 'order_refused_1',
+      retryable: false,
+    })
+    expect(purchaseSpy).not.toHaveBeenCalled()
+    const rows = await testService.prisma.domain.findMany()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.registrarRefusalCode).toBe('payment-failed')
   })
 })

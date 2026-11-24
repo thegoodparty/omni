@@ -1018,6 +1018,28 @@ describe('win-domain-email-forwarding-rejected', () => {
   })
 })
 
+// A refused registrar order answers 409, which the route rule ignores on
+// purpose, so this line is the only report of a declined charge on our own
+// Vercel account (ENG-11775).
+describe('win-domain-registrar-order-rejected', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'win-domain-registrar-order-rejected',
+  )
+
+  it('pages on the refusal line completeDomainRegistration logs', () => {
+    expect(alert?.threshold).toBe(0)
+    expect(alert?.expr).toContain(
+      '|= "Domain registrar rejected the purchase order; not retryable"',
+    )
+  })
+
+  it('promises the reader the window it actually queried', () => {
+    expect(promisedSeconds(alert!.message)).toEqual(
+      widestRangeSeconds(alert!.expr),
+    )
+  })
+})
+
 describe('operational error alerts that replaced #bot-dev posts', () => {
   const find = (slug: string) => {
     const alert = GLOBAL_ALERTS.find((a) => a.slug === slug)

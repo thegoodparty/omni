@@ -189,6 +189,51 @@ describe('DomainsController.purchaseDomain', () => {
     ).rejects.toBeInstanceOf(ConflictException)
   })
 
+  // A registrar refusal is the one answer the caller must not act on again,
+  // so the route has to hand back the code and `retryable: false` unchanged
+  // (ENG-11775).
+  it('forwards a terminal registrar refusal with its code and retryable: false', async () => {
+    mockDomains.purchaseDomainForCampaign.mockRejectedValueOnce(
+      new ConflictException({
+        message:
+          'The registrar refused the purchase of voteforjane.run; it is not retryable',
+        errorCode: 'DOMAIN_REGISTRAR_ORDER_REJECTED',
+        registrarCode: 'payment-failed',
+        orderId: 'order_123',
+        retryable: false,
+      }),
+    )
+
+    const campaign = {
+      ...createMockCampaign({ details: { electionDate: '2026-11-03' } }),
+      user: createMockUser({ firstName: 'Jane', lastName: 'Doe' }),
+    }
+
+    const error = await controller
+      .purchaseDomain(
+        campaign,
+        { domain: 'voteforjane.run', maxPrice: 50 },
+        {} as IncomingRequest,
+      )
+      .catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictException)
+    expect((error as ConflictException).getStatus()).toBe(HttpStatus.CONFLICT)
+    expect((error as ConflictException).getResponse()).toMatchObject({
+      errorCode: 'DOMAIN_REGISTRAR_ORDER_REJECTED',
+      registrarCode: 'payment-failed',
+      orderId: 'order_123',
+      retryable: false,
+    })
+  })
+
+  it('tells the agent a registrar refusal is terminal in the MCP tool description', () => {
+    const mcpMeta = new Reflector().get(MCP_TOOL_KEY, controller.purchaseDomain)
+
+    expect(mcpMeta.description).toContain('DOMAIN_REGISTRAR_ORDER_REJECTED')
+    expect(mcpMeta.description).toContain('must NOT be retried')
+  })
+
   it.each([
     { agentToken: true, expected: DomainSource.agentic },
     { agentToken: false, expected: DomainSource.manual },

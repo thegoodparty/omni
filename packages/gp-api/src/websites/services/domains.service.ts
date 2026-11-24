@@ -59,6 +59,7 @@ import {
   hasSupportedTld,
   PatternedDomainCandidate,
   PatternedDomainSearchResult,
+  RegistrarOrderRejectedError,
   SUPPORTED_TLDS,
 } from '../domains.types'
 import { RegisterDomainSchema } from '../schemas/RegisterDomain.schema'
@@ -127,6 +128,16 @@ const DOMAIN_PURCHASE_IN_PROGRESS_MESSAGE =
 const REGISTRAR_ORDER_POLL_INTERVAL_MS = 3_000
 const REGISTRAR_ORDER_POLL_BUDGET_MS = 45_000
 const REGISTRAR_ORDER_REQUEST_TIMEOUT_MS = 10_000
+
+// How long a refused purchase answers the same refusal, so a caller retrying a
+// failed attempt reads a verdict instead of placing another order that fails
+// the same way. Bounded on purpose: the cause is the payment method on OUR
+// Vercel account, a person fixes it, and the campaign's next purchase after
+// that has to go through without a database edit. Long enough to absorb a
+// retry loop (the 2026-11-24 incident placed three orders in 47 seconds and a
+// fourth eleven minutes later), short enough that a re-drive after the fix
+// works on its own.
+const DOMAIN_REGISTRAR_REFUSAL_SUPPRESS_MS = 15 * 60 * 1000
 
 const GP_CAMPAIGN_DOMAIN_FORWARD_ADDRESS = 'candidate-domains@goodparty.org'
 
@@ -891,6 +902,8 @@ export class DomainsService
       }
 
       if (website.domain) {
+        this.assertNotRecentlyRefused(website.domain)
+
         if (website.domain.status !== DomainStatus.inactive) {
           if (website.domain.name === domainName) {
             return {
@@ -928,6 +941,35 @@ export class DomainsService
         websiteSummary,
         domain: created,
       }
+    })
+  }
+
+  /**
+   * Answer the refusal this campaign already has instead of buying the same
+   * name again.
+   *
+   * A refused order leaves the row inactive, carrying the refused order id and
+   * the registrar's code. Read inside the reservation transaction, so two
+   * retries arriving together cannot both place an order: the advisory lock
+   * makes the first one write and the second one read. Bounded by
+   * DOMAIN_REGISTRAR_REFUSAL_SUPPRESS_MS — see the constant.
+   */
+  private assertNotRecentlyRefused(domain: Domain): void {
+    if (!domain.registrarRefusedAt) {
+      return
+    }
+    if (
+      differenceInMilliseconds(new Date(), domain.registrarRefusedAt) >=
+      DOMAIN_REGISTRAR_REFUSAL_SUPPRESS_MS
+    ) {
+      return
+    }
+    throw new ConflictException({
+      message: `The registrar refused the purchase of ${domain.name}; it is not retryable`,
+      errorCode: 'DOMAIN_REGISTRAR_ORDER_REJECTED',
+      registrarCode: domain.registrarRefusalCode,
+      orderId: domain.operationId,
+      retryable: false,
     })
   }
 
@@ -1522,6 +1564,41 @@ export class DomainsService
           existingProjectDomain ||
           (await this.vercel.addDomainToProject(domain.name))
       } catch (error) {
+        if (error instanceof RegistrarOrderRejectedError) {
+          // A refusal is terminal, and it is ours to see: this order is billed
+          // to GoodParty's own Vercel account, so the registrar declining the
+          // charge fails every campaign's purchase until billing is fixed.
+          // Persisting the refused order and the registrar's code is what lets
+          // a retry answer the same refusal instead of placing another order.
+          await this.model.update({
+            where: { id: domain.id },
+            data: {
+              status: DomainStatus.inactive,
+              operationId: error.orderId,
+              registrarRefusalCode: error.registrarCode,
+              registrarRefusedAt: new Date(),
+            },
+          })
+
+          this.logger.error(
+            {
+              domainId: domain.id,
+              domainName: domain.name,
+              orderId: error.orderId,
+              registrarCode: error.registrarCode,
+            },
+            'Domain registrar rejected the purchase order; not retryable',
+          )
+
+          throw new ConflictException({
+            message: `The registrar refused the purchase of ${domain.name}; it is not retryable`,
+            errorCode: 'DOMAIN_REGISTRAR_ORDER_REJECTED',
+            registrarCode: error.registrarCode,
+            orderId: error.orderId,
+            retryable: false,
+          })
+        }
+
         this.logger.error({ error }, 'Error registering domain with Vercel:')
 
         await this.model.update({
@@ -1615,9 +1692,13 @@ export class DomainsService
         return
       }
       if (order?.status === GetOrderStatus.Failed) {
-        throw new Error(
-          `Registrar order ${orderId} for ${domainName} failed` +
-            (order.error ? `: ${JSON.stringify(order.error)}` : ''),
+        // The registrar's verdict, not ours: this order will never complete,
+        // so the caller must not be told to try again. The rest of this
+        // function is the opposite case — an outcome we could not observe.
+        throw new RegistrarOrderRejectedError(
+          orderId,
+          domainName,
+          order.error?.code ?? null,
         )
       }
       const elapsedMs = differenceInMilliseconds(new Date(), startedAt)
