@@ -13,6 +13,17 @@ h2{font-size:19px;margin:0 0 8px}
 .sev.on{background:#fee2e2;border:2px solid #b91c1c;color:#7f1d1d}
 .sev.on.medium{background:#fef3c7;border-color:#b45309;color:#78350f}
 .sev.on.low{background:#dcfce7;border-color:#15803d;color:#14532d}
+.confidence{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin:0 0 10px}
+.conf{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid #e4e4e7;border-radius:8px;padding:8px 12px;background:#fff;font-size:14px}
+.conf span{color:#52525b}
+.conf strong{font-size:13px;letter-spacing:.04em}
+.conf.high{border-color:#15803d;background:#f0fdf4}
+.conf.high strong{color:#14532d}
+.conf.medium{border-color:#b45309;background:#fffbeb}
+.conf.medium strong{color:#78350f}
+.conf.low{border-color:#b91c1c;background:#fee2e2}
+.conf.low strong{color:#7f1d1d}
+.confnote{margin:0 0 14px;font-size:13px;color:#52525b}
 ol{margin:0;padding-left:24px}li{padding:3px 0}
 .flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0}
 .box{border:1.5px solid #a1a1aa;border-radius:8px;padding:8px 10px;background:#fff;font-size:14px}
@@ -34,6 +45,14 @@ small,footer{color:#52525b}a{color:#4338ca}
 <p><a href="{{ClickUp ticket URL}}">{{Ticket name}}</a></p>
 <small class="status">{{INCOMPLETE INVESTIGATION or ROOT CAUSE CONFIRMED}} · {{area}}</small>
 <h1>{{One-sentence symptom}}</h1>
+
+<!-- Always both chips. Give each the class high, medium or low; never a number. Add class "medium" or "low" only as shown. Do not edit the two labels. -->
+<div class="confidence">
+  <div class="conf high"><span>Root cause confidence</span><strong>High</strong></div>
+  <div class="conf medium"><span>Resolution confidence</span><strong>Medium</strong></div>
+</div>
+<!-- One sentence naming the missing evidence for any score below High. Delete this line when both are High. -->
+<p class="confnote">{{What is unverified, and the check that would settle it.}}</p>
 
 <section class="section" id="impact">
   <h2>Impact</h2>
