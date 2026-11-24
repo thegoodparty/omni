@@ -1,3 +1,4 @@
+import { opportunitiesAndChallengesAgent } from '@/campaignStrategy/opportunitiesAndChallengesAgent/opportunitiesAndChallenges.agent'
 import { oppositionResearchAgent } from '@/campaignStrategy/oppositionResearch/oppositionResearch.agent'
 import { topCommunityIssuesAgent } from '@/communityIssues/topCommunityIssuesAgent/topCommunityIssues.agent'
 import { trendingIssuesAgent } from '@/communityIssues/trendingIssuesAgent/trendingIssues.agent'
@@ -10,6 +11,7 @@ import type { AgentDefinition } from './defineAgent'
 // input).
 export const AGENTS: Record<string, AgentDefinition> = {
   meeting_schedule: meetingScheduleAgent,
+  opportunities_and_challenges: opportunitiesAndChallengesAgent,
   opposition_research: oppositionResearchAgent,
   top_community_issues: topCommunityIssuesAgent,
   trending_issues: trendingIssuesAgent,

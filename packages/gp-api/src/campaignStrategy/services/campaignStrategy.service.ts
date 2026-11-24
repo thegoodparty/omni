@@ -10,7 +10,7 @@ import {
   ExperimentRun,
   ExperimentRunStatus,
 } from '../../generated/prisma'
-import { isBefore, subMinutes } from 'date-fns'
+import { format, isBefore, subMinutes } from 'date-fns'
 import { z } from 'zod'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { runsOnGpApi } from '@/agents/agents.registry'
@@ -105,6 +105,29 @@ type DispatchBase = {
   organizationSlug: string
   clerkUserId: string
   params: StrategicLandscapeParams
+}
+
+// Which engine ran a section, carried from the caller that knows rather than
+// re-read from the switch: a section dispatched to one engine can finish after
+// a deploy flips `AGENTS_ON_GP_API`.
+type SectionEngine = 'gp-api' | 'cap'
+
+type SectionWrite = {
+  section: 'opposition' | 'opportunities'
+  engine: SectionEngine
+  runId: string
+  raceId: string | null
+  artifact: unknown
+  durationSeconds: number | null
+  costUsd: number | null
+}
+
+type NowPersisted = {
+  section: 'opposition' | 'opportunities'
+  engine: SectionEngine
+  runId: string
+  durationSeconds: number | null
+  costUsd: number | null
 }
 
 // Defensive Zod parse over Campaign.details — the column is Prisma JSON,
@@ -445,6 +468,9 @@ export class CampaignStrategyService extends createPrismaBase(
       if (!raw) throw new Error('artifact is missing or empty')
       await this.persistSection(plan, {
         section,
+        // This consumer only ever reads the PMF Engine's queue, so the engine
+        // that ran it is known here rather than re-read from the switch.
+        engine: 'cap',
         runId: run.runId,
         // The race this run generated for, from its own dispatch params — NOT
         // the plan's current stamp, which can change (race reset, or a legacy
@@ -484,6 +510,7 @@ export class CampaignStrategyService extends createPrismaBase(
     if (plan.oppositionPersistedAt) {
       await this.afterSectionPersisted(plan, {
         section: 'opposition',
+        engine: 'gp-api',
         runId: run.runId,
         durationSeconds: null,
         costUsd: null,
@@ -493,11 +520,48 @@ export class CampaignStrategyService extends createPrismaBase(
 
     await this.persistSection(plan, {
       section: 'opposition',
+      engine: 'gp-api',
       runId: run.runId,
       raceId: run.raceId,
       artifact: run.artifact,
       // gp-api's agents store tokens and no price, and onArtifact runs before
       // the run is stamped finished.
+      durationSeconds: null,
+      costUsd: null,
+    })
+  }
+
+  // gp-api's agent's onArtifact for the opportunities section: the same write
+  // the PMF Engine's result consumer makes, from the artifact the run submitted
+  // rather than one in S3. A run no plan links to is a judge run, or one a race
+  // change already orphaned; the run route hands the artifact back instead, so
+  // there is nothing to persist.
+  async onOpportunitiesArtifact(run: {
+    runId: string
+    raceId: string
+    artifact: unknown
+  }): Promise<void> {
+    const plan = await this.planForSection('opportunities', run.runId)
+    if (!plan) return
+    // As onOppositionResearchArtifact: a set marker means the rows are already
+    // written, but the bootstrap still has to run and is idempotent.
+    if (plan.opportunitiesPersistedAt) {
+      await this.afterSectionPersisted(plan, {
+        section: 'opportunities',
+        engine: 'gp-api',
+        runId: run.runId,
+        durationSeconds: null,
+        costUsd: null,
+      })
+      return
+    }
+
+    await this.persistSection(plan, {
+      section: 'opportunities',
+      engine: 'gp-api',
+      runId: run.runId,
+      raceId: run.raceId,
+      artifact: run.artifact,
       durationSeconds: null,
       costUsd: null,
     })
@@ -524,14 +588,7 @@ export class CampaignStrategyService extends createPrismaBase(
   // failed, and must not fail the job into a retry that skips the bootstrap.
   private async persistSection(
     plan: CampaignStrategy,
-    section: {
-      section: 'opposition' | 'opportunities'
-      runId: string
-      raceId: string | null
-      artifact: unknown
-      durationSeconds: number | null
-      costUsd: number | null
-    },
+    section: SectionWrite,
   ): Promise<void> {
     if (section.section === 'opposition') {
       await this.persister.persistOpponents(
@@ -559,12 +616,7 @@ export class CampaignStrategyService extends createPrismaBase(
   // before the bootstrap and leave a completed plan without its tracker.
   private async afterSectionPersisted(
     plan: CampaignStrategy,
-    section: {
-      section: 'opposition' | 'opportunities'
-      runId: string
-      durationSeconds: number | null
-      costUsd: number | null
-    },
+    section: NowPersisted,
   ): Promise<void> {
     try {
       const userId = await this.resolveCampaignUserId(plan.campaignId)
@@ -579,7 +631,11 @@ export class CampaignStrategyService extends createPrismaBase(
             {
               campaignId: plan.campaignId,
               planId: plan.id,
-              generationEngine: 'cap',
+              // The engine that actually ran it, so a funnel joining Started to
+              // Completed does not split one run in two while the switch exists.
+              // Read from the caller, not the switch: a section dispatched to
+              // one engine can finish after a deploy flips the switch.
+              generationEngine: section.engine,
               runId: section.runId,
               durationSeconds: section.durationSeconds,
               costUsd: section.costUsd,
@@ -782,7 +838,7 @@ export class CampaignStrategyService extends createPrismaBase(
           {
             campaignId: plan.campaignId,
             planId: plan.id,
-            generationEngine: 'cap',
+            generationEngine: runsOnGpApi(OPPOSITION) ? 'gp-api' : 'cap',
             runId,
             attempt: plan.oppositionAttempts + 1,
           },
@@ -836,7 +892,7 @@ export class CampaignStrategyService extends createPrismaBase(
           {
             campaignId: plan.campaignId,
             planId: plan.id,
-            generationEngine: 'cap',
+            generationEngine: runsOnGpApi(OPPORTUNITIES) ? 'gp-api' : 'cap',
             runId,
             attempt: plan.opportunitiesAttempts + 1,
           },
@@ -917,6 +973,12 @@ export class CampaignStrategyService extends createPrismaBase(
         const run = await this.agents.run(type, {
           ...input,
           organizationSlug: base.organizationSlug,
+          // The PMF Engine's runner stated the date in its system prompt; here
+          // it is an input field, because the runway to the election is read
+          // off it. Only this agent takes one.
+          ...(type === OPPORTUNITIES
+            ? { today: format(new Date(), 'yyyy-MM-dd') }
+            : {}),
         })
         return run.runId
       }

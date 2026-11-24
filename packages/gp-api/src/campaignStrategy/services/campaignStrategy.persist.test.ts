@@ -4,6 +4,7 @@ import {
   ExperimentRun,
   ExperimentRunStatus,
 } from '@/generated/prisma'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
 import { CampaignStrategyService } from './campaignStrategy.service'
@@ -76,7 +77,16 @@ const stubArtifact = (artifact: unknown) =>
 
 afterEach(() => {
   spies.splice(0).forEach((spy) => spy.mockRestore())
+  vi.unstubAllEnvs()
 })
+
+const completionEventOf = (
+  track: { mock: { calls: unknown[][] } },
+  event: string,
+) =>
+  track.mock.calls.find((call) => call[1] === event)?.[2] as
+    | { generationEngine: string }
+    | undefined
 
 describe('CampaignStrategyService.onExperimentRunCompleted', () => {
   it('persists the section the completed run generated', async () => {
@@ -153,6 +163,33 @@ describe('CampaignStrategyService.onExperimentRunCompleted', () => {
       ).status,
     ).toBe(ExperimentRunStatus.FAILED)
   })
+
+  // The label names the engine that ran the section, so a funnel joining
+  // Started to Completed does not split one run in two. This run was dispatched
+  // to the PMF Engine; a deploy that turns the switch on mid-run must not
+  // relabel its completion as gp-api's.
+  it('labels the completion with the engine that ran it, not the live switch', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
+    const campaign = await seedCampaign()
+    const run = await seedCompletedRun()
+    await seedPlan(campaign.id, {
+      oppositionRunId: run.runId,
+      opportunitiesPersistedAt: new Date(),
+    })
+    stubArtifact({ opponents: [RIVAL] })
+    const track = stub(
+      vi.spyOn(service.app.get(AnalyticsService), 'track'),
+    ).mockResolvedValue({} as never)
+
+    await service.app.get(CampaignStrategyService).onExperimentRunCompleted(run)
+
+    expect(
+      completionEventOf(
+        track,
+        'Campaign Plan V2 - Opposition Research Generation Completed',
+      ),
+    ).toMatchObject({ generationEngine: 'cap' })
+  })
 })
 
 // onArtifact runs before a gp-api run is stamped finished and can run again
@@ -210,5 +247,36 @@ describe('CampaignStrategyService.onOppositionResearchArtifact', () => {
     const read = await planOf(campaign.id)
     expect(read.oppositionPersistedAt).not.toBeNull()
     expect(read.trackerBootstrapped).toBe(true)
+  })
+
+  // The mirror of the PMF Engine case: gp-api's agent wrote this section, so its
+  // completion is gp-api's even if the switch flips off before the event fires.
+  it('labels the completion gp-api even with the switch already off', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', '')
+    const campaign = await seedCampaign()
+    const plan = await seedPlan(campaign.id, {
+      oppositionRunId: 'a-gp-api-run',
+      opportunitiesPersistedAt: new Date(),
+    })
+    const track = stub(
+      vi.spyOn(service.app.get(AnalyticsService), 'track'),
+    ).mockResolvedValue({} as never)
+
+    await service.app
+      .get(CampaignStrategyService)
+      .onOppositionResearchArtifact({
+        runId: 'a-gp-api-run',
+        raceId: RACE_ID,
+        artifact: { opponents: [RIVAL] },
+      })
+
+    expect(
+      completionEventOf(
+        track,
+        'Campaign Plan V2 - Opposition Research Generation Completed',
+      ),
+    ).toMatchObject({ generationEngine: 'gp-api' })
+    expect((await planOf(campaign.id)).oppositionPersistedAt).not.toBeNull()
+    expect(plan.oppositionPersistedAt).toBeNull()
   })
 })

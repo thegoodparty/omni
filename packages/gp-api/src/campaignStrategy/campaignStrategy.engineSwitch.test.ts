@@ -155,6 +155,37 @@ describe('POST /v1/campaignStrategy/mine/strategic-landscape, engine switch', ()
     ).toBe(0)
   })
 
+  // opportunities_and_challenges is the one agent whose input carries the run's
+  // date: the PMF Engine's runner stated it in the system prompt, and the runway
+  // to the election is counted from it. The dispatcher fills it, or the agent's
+  // own input check refuses the run.
+  it('dispatches the switched-on opportunities section with the run’s date', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'opportunities_and_challenges')
+    const campaign = await seedCampaign()
+    stubParams(builtParams())
+    const pmf = stubPmfDispatch()
+
+    const res = await poll()
+
+    expect(res.data).toEqual({ status: 'generating' })
+    const run = await service.prisma.agentRun.findFirstOrThrow({
+      where: {
+        organizationSlug: SLUG,
+        agentName: 'opportunities_and_challenges',
+      },
+    })
+    expect(run.input).toMatchObject({
+      organizationSlug: SLUG,
+      raceId: RACE_ID,
+      today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) as unknown as string,
+    })
+    expect((await planOf(campaign.id)).opportunitiesRunId).toBe(run.id)
+    // The opposition section still went to the PMF Engine on this run.
+    expect(pmf).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ type: 'opposition_research' }),
+    )
+  })
+
   // The params builder leaves an optional field out by setting it to undefined,
   // and the agent's schema declares it optional but not nullable. Writing null
   // for it failed every dispatch whose story read failed or whose story the byte
