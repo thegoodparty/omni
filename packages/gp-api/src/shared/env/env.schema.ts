@@ -379,12 +379,16 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   CAMPAIGN_MANAGER_DATE_CHECK_LINE_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },
   // The nightly case scout (src/caseScout/AGENTS.md): the bucket name, the
-  // two caps, the on switch and the switch that sends the night to Delegate.
+  // caps, the first night's window, the on switch and the switch that sends
+  // the night to Delegate.
   CASE_SCOUT_ENABLED: { tier: 'optional', default: 'false' },
   CASE_SCOUT_SEND_TO_DELEGATE: { tier: 'optional', default: 'false' },
   CASE_SCOUT_BUCKET: { tier: 'optional' },
   CASE_SCOUT_SPEND_CAP_USD: { tier: 'optional', default: '50' },
   CASE_SCOUT_SESSION_CAP: { tier: 'optional', default: '75' },
+  // Unset, the nightly draft cap follows the merge-share ladder.
+  CASE_SCOUT_NIGHTLY_CAP: { tier: 'optional' },
+  CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS: { tier: 'optional', default: '24' },
   // Secrets, read only when CASE_SCOUT_SEND_TO_DELEGATE is on.
   CASE_SCOUT_DELEGATE_WEBHOOK_URL: {
     tier: 'degradable',

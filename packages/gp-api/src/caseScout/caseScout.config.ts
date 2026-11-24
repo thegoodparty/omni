@@ -13,7 +13,7 @@ export const ESTIMATED_COST_PER_CALL_USD = 0.75
 
 // With no marker yet, a night reads one night's worth of chats. All history
 // would load up to 50,000 messages and spend the session cap on the oldest.
-export const FIRST_NIGHT_WINDOW_HOURS = 24
+export const DEFAULT_FIRST_NIGHT_WINDOW_HOURS = 24
 
 export const caseScoutEnabled = (): boolean =>
   process.env.CASE_SCOUT_ENABLED === 'true'
@@ -34,6 +34,29 @@ export const spendCapUsd = (): number =>
     .positive()
     .catch(DEFAULT_SPEND_CAP_USD)
     .parse(process.env.CASE_SCOUT_SPEND_CAP_USD ?? '')
+
+// Set, it replaces the merge-share ladder (util/cap.util.ts) for every night.
+// Blank, non-numeric or out of range keeps the ladder.
+export const nightlyCapOverride = (): number | undefined =>
+  z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(25)
+    .optional()
+    .catch(undefined)
+    .parse(process.env.CASE_SCOUT_NIGHTLY_CAP ?? '')
+
+// Read only with no marker. Blank, non-numeric or out of range reads the
+// default.
+export const firstNightWindowHours = (): number =>
+  z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(336)
+    .catch(DEFAULT_FIRST_NIGHT_WINDOW_HOURS)
+    .parse(process.env.CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS ?? '')
 
 // Dev chats are nearly all staff and test accounts, so only prod drops them.
 // Anything but exactly "prod" reads more, never silently less.

@@ -7,6 +7,7 @@ import {
   caseScoutEnabled,
   COVERED_SCOPES,
   ESTIMATED_COST_PER_CALL_USD,
+  nightlyCapOverride,
   spendCapUsd,
 } from '../caseScout.config'
 import { SCORING_MODEL } from '../caseScout.prompts'
@@ -189,7 +190,9 @@ export class CaseScoutDraftService {
         monthKeysCovering(now, RECENT_PROPOSALS_WINDOW_DAYS),
       )
     ).filter((entry) => entry.runId !== runId)
-    const nightlyCap = nightlyCapForMergeShare(trailingMergeShare(history, now))
+    const nightlyCap =
+      nightlyCapOverride() ??
+      nightlyCapForMergeShare(trailingMergeShare(history, now))
     const working: LedgerEntry[] = [...history]
     const caseLists = new Map<string, CaseListInfo>()
     const spendCap = spendCapUsd()
