@@ -168,7 +168,7 @@ describe('community issues onboarding start', () => {
 
   it('does not pay for the search again when a retry only has the dispatch left', async () => {
     vi.mocked(structuredSpy()).mockRejectedValue(new Error('Gemini down'))
-    dispatchSpy().mockRejectedValueOnce(new Error('dispatch failed'))
+    vi.mocked(dispatchSpy()).mockRejectedValueOnce(new Error('dispatch failed'))
 
     await service.client.post(PATH, {}, eoHeaders())
     await service.jobs.settle()
