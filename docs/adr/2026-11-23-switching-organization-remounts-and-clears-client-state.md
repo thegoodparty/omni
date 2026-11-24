@@ -22,14 +22,16 @@ Organization-specific client data is cleared at the highest level, once, on an
 org switch — never by a feature clearing its own cache, and never by keying a
 query on the org slug to be safe. `OrganizationScope`
 (`app/shared/organization-picker.tsx`) keys the org-scoped subtree on the
-selected slug, and both shells wrap their page content in it. A switch
-therefore unmounts that content and empties the query cache, in that order.
+selected slug, and both shells wrap their page content in it. A switch clears
+the query cache and re-keys that subtree in one batched update: the clear runs
+synchronously first, then React commits the new key.
 
-Order is the whole mechanism. Removing a query does not unmount its consumers,
-so a feature that stays mounted rebuilds its own entry and fetches it
+The pairing is the whole mechanism. Removing a query does not unmount its
+consumers, so a feature that stays mounted rebuilds its own entry and fetches it
 immediately — under the header of the org the user just moved to. That is how a
-row belonging to the org they left came back as a 404 (ENG-10991). Remounting
-first means there is no observer left to rebuild anything.
+row belonging to the org they left came back as a 404 (ENG-10991). Because the
+re-key lands in the same commit, those observers are gone by the time the cache
+is empty, and the tree that comes back reads the new org.
 
 The clear spares exactly two keys, and neither is spared because it is
 org-scoped: `organizations`, which a switch resolves against (a caller that
