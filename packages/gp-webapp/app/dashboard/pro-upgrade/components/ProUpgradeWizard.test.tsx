@@ -140,6 +140,36 @@ describe('ProUpgradeWizard', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard')
   })
 
+  it('returns Back from guidance to the page the candidate came from', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/guidance')
+    vi.spyOn(window.history, 'length', 'get').mockReturnValue(3)
+
+    render(
+      <ProUpgradeWizard>
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+    expect(router.back).toHaveBeenCalledTimes(1)
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('exits to the dashboard from guidance when nothing is behind it', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/guidance')
+    vi.spyOn(window.history, 'length', 'get').mockReturnValue(1)
+
+    render(
+      <ProUpgradeWizard>
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+    expect(router.back).not.toHaveBeenCalled()
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
+  })
+
   it('places filing details between the EIN and payment', () => {
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/filing-details')
 

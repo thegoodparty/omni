@@ -54,6 +54,15 @@ charged through the other.
 - **Pro to Team.** A Pro holder with `plan=team` derives to `payment` alone
   (no stepper, one line item for the difference). `from=pro` rides the
   success return URL so the success step knows only the difference was paid.
+- **Copy and navigation (Nov 23 boards).** Guidance's Payment row reads
+  "...for $299, one payment for your whole race."; Back off it goes to where
+  the candidate came from (`router.back()`, or `/dashboard` with no history
+  behind it) instead of always `/dashboard`. Checkout's verification notice is
+  an info `Alert` (clock icon, `paymentVerificationTitle` / `Detail`), the
+  closing-week warning stays; the footnote carries a lock icon and "no
+  subscription". "Unlocked now" lists the outreach credit as a row, the PIN
+  card is plain `PIN_NOTICE_BODY`, and the standalone Done opens
+  `/dashboard/outreach` (in an outreach flow `complete()` still returns to it).
 - **Success.** `PlanReceiptCard` reads `GET plan-receipt` (cents; card and
   receipt URL null on a full promo). Team's button is "Invite your team",
   going to `/dashboard/team?invite=1`, which `TeamPage` reads to open the

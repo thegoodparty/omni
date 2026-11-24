@@ -5,7 +5,10 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import type { Campaign } from 'helpers/types'
 import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
+import { noop } from '@shared/utils/noop'
+import { EMPTY_PRO_UPGRADE_CARRY } from '../proUpgradePlanParams'
 import GuidanceStep from './GuidanceStep'
+import { ProUpgradeCarryContext } from './proUpgradeCarryContext'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 vi.mock('./ProUpgradeWizard', () => ({
@@ -22,6 +25,13 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
+
+const mockPricingFlag = vi.hoisted(() =>
+  vi.fn(() => ({ ready: true, enabled: false })),
+)
+vi.mock('app/shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: mockPricingFlag,
+}))
 
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const mockUseCampaign = vi.mocked(useCampaign)
@@ -43,6 +53,7 @@ describe('GuidanceStep', () => {
       complete: vi.fn(),
     })
     mockUseCampaign.mockReturnValue([null])
+    mockPricingFlag.mockReturnValue({ ready: true, enabled: false })
   })
 
   it('fires the viewed analytics event on mount', () => {
@@ -154,6 +165,51 @@ describe('GuidanceStep', () => {
 
     expect(exit).toHaveBeenCalledTimes(1)
     expect(goToPreviousStep).not.toHaveBeenCalled()
+  })
+
+  describe('with per-campaign pricing on', () => {
+    beforeEach(() => {
+      mockPricingFlag.mockReturnValue({ ready: true, enabled: true })
+    })
+
+    it('words the Payment row for one payment for the whole race', () => {
+      render(<GuidanceStep />)
+
+      expect(
+        screen.getByText(
+          'Add your payment details to activate Pro for $299, one payment for your whole race.',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('words the Payment row for Team', () => {
+      render(
+        <ProUpgradeCarryContext.Provider
+          value={{
+            ...EMPTY_PRO_UPGRADE_CARRY,
+            plan: 'team',
+            markFromPro: noop,
+          }}
+        >
+          <GuidanceStep />
+        </ProUpgradeCarryContext.Provider>,
+      )
+
+      expect(
+        screen.getByText(
+          'Add your payment details to activate Team for $399, one payment for your whole race.',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('goes back to where the candidate came from instead of the dashboard', () => {
+      render(<GuidanceStep />)
+
+      screen.getByRole('button', { name: 'Back' }).click()
+
+      expect(goToPreviousStep).toHaveBeenCalledTimes(1)
+      expect(exit).not.toHaveBeenCalled()
+    })
   })
 
   describe('SMS compliance window', () => {

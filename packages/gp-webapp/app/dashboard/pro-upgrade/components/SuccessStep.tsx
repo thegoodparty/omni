@@ -59,7 +59,11 @@ const UNLOCKED_ROWS = [
 
 const TEAM_UNLOCKED_ROW = 'Logins for your team'
 
-const PLAN_PIN_BODY = `${PIN_NOTICE_BODY.replace(/\.$/, '')} and your ${formatPlanCents(PLAN_PRICING.includedCreditCents)} outreach credit.`
+// Design: a plan purchase includes the outreach credit, so it is listed with
+// what unlocks.
+const CREDIT_ROW = `${formatPlanCents(PLAN_PRICING.includedCreditCents)} outreach credit`
+
+const OUTREACH_PATH = '/dashboard/outreach'
 
 const VERIFICATION_BODY =
   'Your payment went through. One step left before you can send.'
@@ -144,6 +148,14 @@ const SuccessStep = (): React.JSX.Element => {
     !smsCutoff &&
     getTcrComplianceStatusCompletions(tcrCompliance).filingComplete
 
+  const unlockedRows = fromPro
+    ? [TEAM_UNLOCKED_ROW]
+    : [
+        ...(isTeam ? [TEAM_UNLOCKED_ROW] : []),
+        ...UNLOCKED_ROWS,
+        ...(planPricing ? [CREDIT_ROW] : []),
+      ]
+
   const handleInviteTeam = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.SuccessContinue)
     // Team's reason to exist is the logins, so it lands where they are made:
@@ -157,8 +169,11 @@ const SuccessStep = (): React.JSX.Element => {
     // The route shell's `complete` is campaign verification, which a
     // submitted filing has nothing left to do in. Inside an outreach flow
     // `complete` hands back to the gate, which moves on to its own notice.
+    // With per-campaign pricing the standalone Done opens Voter Outreach,
+    // where the credit is spent.
     if (filingSubmitted && channel === null) {
-      exit()
+      if (planPricing) router.push(OUTREACH_PATH)
+      else exit()
       return
     }
     complete()
@@ -216,12 +231,7 @@ const SuccessStep = (): React.JSX.Element => {
           <div className="flex min-w-0 flex-col gap-2">
             <p className="font-semibold">Unlocked now</p>
             <ul className="flex flex-col gap-1.5">
-              {(fromPro
-                ? [TEAM_UNLOCKED_ROW]
-                : isTeam
-                  ? [TEAM_UNLOCKED_ROW, ...UNLOCKED_ROWS]
-                  : UNLOCKED_ROWS
-              ).map((row) => (
+              {unlockedRows.map((row) => (
                 <li
                   key={row}
                   className="flex items-start gap-2 text-sm text-base-muted-foreground"
@@ -275,9 +285,7 @@ const SuccessStep = (): React.JSX.Element => {
                 {nextStep
                   ? nextStep.body
                   : filingSubmitted
-                    ? planPricing
-                      ? PLAN_PIN_BODY
-                      : PIN_NOTICE_BODY
+                    ? PIN_NOTICE_BODY
                     : 'Add your campaign filing details, we register your texting account with the carriers, and you get a PIN when it clears, usually 1 to 2 weeks.'}
               </p>
             </div>

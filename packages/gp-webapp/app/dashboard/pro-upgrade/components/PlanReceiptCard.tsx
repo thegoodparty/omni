@@ -129,11 +129,11 @@ export const PlanReceiptCard = ({
             <span>{amount}</span>
           </div>
           {receipt.receiptUrl && (
-            <div className="mt-1 flex sm:justify-end">
+            <div className="mt-1 flex lg:justify-end">
               <Button
                 variant="outline"
                 size="small"
-                className="w-full sm:w-auto"
+                className="w-full lg:w-auto"
                 onClick={() =>
                   window.open(receipt.receiptUrl ?? '', '_blank', 'noopener')
                 }
