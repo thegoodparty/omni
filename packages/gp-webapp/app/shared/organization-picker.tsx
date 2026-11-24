@@ -159,11 +159,17 @@ export const OrganizationProvider = ({
   const effectiveSlug = selectedOrganization?.slug
   const lastSlug = useRef(effectiveSlug)
   const lastRefetchedSlug = useRef(effectiveSlug)
+  const cookieDivergedInRender = useRef(false)
   if (lastSlug.current !== effectiveSlug) {
     lastSlug.current = effectiveSlug
     // The cookie first: every request reads its header off it, and the subtree
-    // below subscribes on this same render.
-    if (effectiveSlug) setCookie(ORG_SLUG_COOKIE, effectiveSlug)
+    // below subscribes on this same render. A cookie that did not already name
+    // this org means the org changed under the selection (the list dropped it),
+    // which is the divergence the repair effect below answers with a refresh.
+    if (effectiveSlug && getCookie(ORG_SLUG_COOKIE) !== effectiveSlug) {
+      setCookie(ORG_SLUG_COOKIE, effectiveSlug)
+      cookieDivergedInRender.current = true
+    }
     queryClient.removeQueries({
       predicate: (query) =>
         query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
@@ -207,7 +213,12 @@ export const OrganizationProvider = ({
   useEffect(() => {
     const resolved = selectedOrganization?.slug
     if (!resolved) return
-    if (resolved === getCookie(ORG_SLUG_COOKIE)) return
+    if (
+      resolved === getCookie(ORG_SLUG_COOKIE) &&
+      !cookieDivergedInRender.current
+    )
+      return
+    cookieDivergedInRender.current = false
 
     setCookie(ORG_SLUG_COOKIE, resolved)
 

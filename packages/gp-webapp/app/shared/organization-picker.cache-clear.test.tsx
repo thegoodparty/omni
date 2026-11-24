@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
 import { SidebarProvider } from '@styleguide'
 import { CampaignProvider } from './hooks/CampaignProvider'
@@ -490,6 +491,7 @@ describe('org switch clears the query cache', () => {
   // real one: the org list is invalidated, the left org drops out, and the
   // selection falls back to the next org without any setSelectedSlug call.
   it('clears when the org list drops the selected org', async () => {
+    vi.mocked(router.refresh).mockClear()
     const historyFetcher = vi.fn(async () => [
       { conversationId: `c-${orgCookie}` },
     ])
@@ -540,6 +542,9 @@ describe('org switch clears the query cache', () => {
     expect(
       testQueryClient.getQueryData(['campaign-manager', 'chat-history']),
     ).toEqual([{ conversationId: 'c-org-two' }])
+    // The server tree and the org flags still answer for the org that left, so
+    // the repair that re-runs them has to fire as well.
+    expect(router.refresh).toHaveBeenCalledTimes(1)
   })
 
   // FollowOnFlow lives under app/onboarding with no scope above it. Its switch
