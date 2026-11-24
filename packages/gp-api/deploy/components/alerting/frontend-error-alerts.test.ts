@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { alertQueryModel, alertTimeRange } from '../grafana'
 import {
   DOM_MUTATION_MESSAGES,
+  ERROR_GROUP_MESSAGE_TEMPLATE,
   FRONTEND_ERROR_ALERTS,
   NETWORK_FAILURE_MESSAGES,
   SHIPPED_CODE_FRAMES,
@@ -57,6 +58,33 @@ describe('front-end error alerts', () => {
     expect(spreading.expr).toContain(
       'sum by (error_type, error_message, session_id)',
     )
+  })
+
+  // ENG-11778: the message of a chunk-load failure names the build's own chunk
+  // file, which is new on every deploy, so a group keyed on the raw text can
+  // never match the week before it and every failure files a ticket. The group
+  // is the shape Faro writes as `value_template` instead — one group for the
+  // three rotated chunk names that filed ENG-11656, ENG-11703 and ENG-11778.
+  // Loki evaluates this template; the collapse was measured on prod on
+  // 2026-11-24, not here.
+  it('group an error by its shape, not by text a build or a URL renames', () => {
+    expect(ERROR_GROUP_MESSAGE_TEMPLATE).toContain('{{ .value_template }}')
+    for (const alert of FRONTEND_ERROR_ALERTS) {
+      expect(alert.expr, alert.slug).toContain(
+        `| label_format error_message=\`${ERROR_GROUP_MESSAGE_TEMPLATE}\``,
+      )
+    }
+  })
+
+  // The fallback is load-bearing: without it a line carrying no shape gets an
+  // empty label, and every shapeless error collapses into one group.
+  it('keep the raw message for a line that carries no shape', () => {
+    expect(ERROR_GROUP_MESSAGE_TEMPLATE).toContain('{{ trunc 200 .value }}')
+    for (const alert of FRONTEND_ERROR_ALERTS) {
+      expect(alert.expr, alert.slug).not.toMatch(
+        /label_format error_message=`\{\{ trunc 200 \.value \}\}`/,
+      )
+    }
   })
 
   it('call a group new only when the week before the window lacks it', () => {

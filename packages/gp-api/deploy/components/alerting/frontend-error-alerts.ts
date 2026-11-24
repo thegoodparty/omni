@@ -10,13 +10,23 @@ import { Alert } from './alerts.types'
  * also takes PR previews, so `app_environment` still narrows to the alert's
  * own environment.
  *
- * AN ERROR GROUP IS ITS TYPE AND MESSAGE. That is what Faro's own exception
- * `hash` is computed from, and both come back as labels on every alert
- * instance (`error_type`, `error_message`), so one firing per group reaches
- * the dev-alerts webhook with labels Delegate can file and dedup one ticket
- * on. The policy tree groups notifications by `alert_slug` (and
- * `request_endpoint`, which these do not carry), so two groups firing in the
- * same window arrive in one delivery as two alerts, each with its own labels.
+ * AN ERROR GROUP IS ITS TYPE AND SHAPE. Faro writes a normalised
+ * `value_template` on every exception line (`Failed to load chunk <PATH> from
+ * module 355143`), and that is the group: the raw `value` and the `hash` both
+ * carry whatever build, URL or record id happened to be in the message, so
+ * keying on the text splits one recurring error into a new group per name.
+ * Measured on 2026-11-24: three chunk-load failures in ten days, three rotated
+ * chunk names, three Bugs-board tickets (ENG-11656, ENG-11703, ENG-11778),
+ * all one shape. Grouping both rules on the shape is what stops that churn;
+ * the spreading rule below stays the escalation, so a chunk some deploy
+ * breaks for several sessions still pages someone.
+ *
+ * Both labels come back on every alert instance (`error_type`,
+ * `error_message`), so one firing per group reaches the dev-alerts webhook
+ * with labels Delegate can file and dedup one ticket on. The policy tree
+ * groups notifications by `alert_slug` (and `request_endpoint`, which these do
+ * not carry), so two groups firing in the same window arrive in one delivery
+ * as two alerts, each with its own labels.
  *
  * NOT A STREAM SHARED WITH gp-api, so these sit outside the gp-api budget in
  * global-alerts.test.ts, which counts days of the gp-api prod stream. Their
@@ -138,6 +148,26 @@ export const SHIPPED_CODE_FRAMES = 'turbopack:///|/_next/static/'
 export const DOM_MUTATION_MESSAGES = '.*is not a child of this node.*'
 
 /**
+ * The group's message half: the error's shape, falling back to its text.
+ *
+ * `value_template` is the normalised message Faro writes as structured
+ * metadata on every exception line, with the volatile parts masked —
+ * `Failed to load chunk <PATH> from module 355143`, `[GET] "<URL>": 400`,
+ * `Minified React error #418; visit <URL>...`. It is what makes a group stable
+ * across builds and requests, so it is `error_message`.
+ *
+ * THE RAW TEXT IS THE FALLBACK, not a leftover: a line with no shape would
+ * otherwise get an empty label, and every shapeless error would collapse into
+ * one group. `trunc 200` stays for the same reason it was there — a label is
+ * capped — and a missing or empty field reads as false in the template, so one
+ * expression covers both cases. Verified against prod on 2026-11-24: the three
+ * rotated chunk names above group as one, and a record without
+ * `value_template` still labels as its raw message.
+ */
+export const ERROR_GROUP_MESSAGE_TEMPLATE =
+  '{{ if .value_template }}{{ .value_template }}{{ else }}{{ trunc 200 .value }}{{ end }}'
+
+/**
  * Every prod exception that is ours, with the group and session as labels.
  * The frame filter is a line filter, applied before parsing, because the frame
  * can sit anywhere in the stack trace. The two message filters run after it, on
@@ -153,12 +183,12 @@ const ourExceptions = (keep: string) =>
     `| value !~ \`(?i)${NETWORK_FAILURE_MESSAGES}\``,
     `| value !~ \`(?i)${DOM_MUTATION_MESSAGES}\``,
     '| label_format error_type=type',
-    '| label_format error_message=`{{ trunc 200 .value }}`',
+    `| label_format error_message=\`${ERROR_GROUP_MESSAGE_TEMPLATE}\``,
     `| keep ${keep}`,
   ].join(' ')
 
 const FIND_IT = [
-  'Open Frontend Observability in Grafana (gp-webapp-prod app), Errors tab, and search for the message; the stack trace there is source-mapped.',
+  'Open Frontend Observability in Grafana (gp-webapp-prod app), Errors tab, and search for the message; the stack trace there is source-mapped. The label is the message with its variable parts masked (`<PATH>`, `<URL>`), so search the part that does not change, or the error type.',
   'Or in Explore, on `grafanacloud-logs`: `{service_name="gp-webapp-prod", kind="exception"} | logfmt | app_environment="prod"` and filter on the message.',
 ].join(' ')
 

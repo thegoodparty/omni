@@ -279,9 +279,18 @@ E2E or QA test user is signed in.
   - _New front-end error in prod_ (`frontend-error-new`): an error group seen
     in the last hour and not in the 7 days before it.
 
-  An error group is its type and message. Each firing carries them as
-  `error_type` and `error_message`, which is what a ticket is deduplicated
-  on. Both rules also drop network failures (`Failed to fetch`, `Load failed`
+  An error group is its type and its shape: the message with the volatile
+  parts masked, as Faro writes it in the `value_template` structured metadata
+  (`Failed to load chunk <PATH> from module 355143`, `[GET] "<URL>": 400`).
+  Each firing carries them as `error_type` and `error_message`, which is what a
+  ticket is deduplicated on. A line with no shape falls back to its raw text
+  (cut to 200 characters), so shapeless errors stay separate groups. Grouping
+  on the shape is why a chunk-load failure, whose message names the build's own
+  chunk file, no longer files a fresh ticket on every build: one shape, one
+  group, and `frontend-error-spreading` is what still pages when the same
+  chunk breaks for several sessions (ENG-11778).
+
+  Both rules also drop network failures (`Failed to fetch`, `Load failed`
   and the like), and — the filter that does most of the work — they count only
   an exception with a stack frame in the bundle we shipped: a frame at
   `/_next/static/…`, or at the `turbopack:///…` path Faro source-maps it to.
