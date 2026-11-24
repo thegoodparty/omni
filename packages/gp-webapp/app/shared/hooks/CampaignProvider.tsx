@@ -1,5 +1,5 @@
 'use client'
-import { createContext, useMemo, useState } from 'react'
+import { createContext, useMemo, useRef } from 'react'
 import { Campaign } from 'helpers/types'
 import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
@@ -45,15 +45,18 @@ export const CampaignProvider = ({
   const hasNoCampaign =
     isActiveOrgVolunteer || Boolean(activeOrg?.electedOfficeId)
 
-  // The server's campaign is the one for the org the page was rendered for. A
-  // switch clears this query, and a seed that outlives the org it was made for
-  // would rebuild it counting as fresh, so it applies to that org only.
-  const [seededFor] = useState(activeOrg?.slug)
+  // The server's campaign is the one for the org the page was rendered for, as
+  // it was when the page loaded. Once the org has changed it is wrong for any
+  // org, including the first one if the user comes back to it, because the
+  // cache has moved on since: so the seed is dropped for good at the first
+  // change.
+  const seededFor = useRef(activeOrg?.slug)
+  const seedDropped = useRef(false)
+  if (activeOrg?.slug !== seededFor.current) seedDropped.current = true
   const query = useQuery({
     queryKey: CAMPAIGN_QUERY_KEY,
     queryFn: fetchCampaign,
-    initialData:
-      activeOrg?.slug === seededFor ? (initCampaign ?? undefined) : undefined,
+    initialData: seedDropped.current ? undefined : (initCampaign ?? undefined),
     enabled: !hasNoCampaign,
   })
 

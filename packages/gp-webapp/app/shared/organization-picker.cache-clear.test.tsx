@@ -541,4 +541,118 @@ describe('org switch clears the query cache', () => {
       testQueryClient.getQueryData(['campaign-manager', 'chat-history']),
     ).toEqual([{ conversationId: 'c-org-two' }])
   })
+
+  // FollowOnFlow lives under app/onboarding with no scope above it. Its switch
+  // must clear the cache all the same, and a scope that mounts after it (the
+  // dashboard it navigates to) must not need to see the change to find a clean
+  // cache.
+  it('clears a switch made where no OrganizationScope is mounted, then a scope mounts', async () => {
+    const historyFetcher = vi.fn(async () => [
+      { conversationId: `c-${orgCookie}` },
+    ])
+    const HistoryProbe = () => {
+      const { data } = useQuery({
+        queryKey: ['campaign-manager', 'chat-history'],
+        queryFn: historyFetcher,
+      })
+      return (
+        <div data-testid="history">
+          {data?.[0]?.conversationId ?? 'pending'}
+        </div>
+      )
+    }
+
+    const Onboarding = () => {
+      const setSlug = useSetOrganizationSlug()
+      const [onDashboard, setOnDashboard] = useState(false)
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              setSlug('org-two')
+              setOnDashboard(true)
+            }}
+          >
+            finish onboarding
+          </button>
+          {onDashboard && (
+            <OrganizationScope>
+              <HistoryProbe />
+            </OrganizationScope>
+          )}
+        </>
+      )
+    }
+
+    testQueryClient.setQueryData(
+      ['campaign-manager', 'chat-history'],
+      [{ conversationId: 'c-org-one' }],
+    )
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+          <Onboarding />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+    await settle()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'finish onboarding' }))
+    await settle()
+
+    expect(screen.getByTestId('history')).toHaveTextContent('c-org-two')
+  })
+
+  // Switching away from the org the page was rendered for and back must not
+  // bring the page-load campaign back as fresh: the cache has changed since.
+  it('does not reapply the server campaign when switching back to the rendered org', async () => {
+    const requestedFor: string[] = []
+    api.mock('GET /v1/campaigns/mine', () => {
+      requestedFor.push(String(orgCookie))
+      return {
+        status: 200 as const,
+        data: { slug: `c-${orgCookie}`, fresh: true } as never,
+      }
+    })
+
+    const CampaignProbe = () => {
+      const [campaign] = useCampaign()
+      return <div data-testid="campaign">{campaign?.slug ?? 'null'}</div>
+    }
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+          <CampaignProvider campaign={{ slug: 'c-org-one-seed' } as never}>
+            <OrganizationScope>
+              <CampaignProbe />
+            </OrganizationScope>
+          </CampaignProvider>
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+    await settle()
+    expect(screen.getByTestId('campaign')).toHaveTextContent('c-org-one-seed')
+
+    await switchToOrgTwo()
+    await waitFor(() =>
+      expect(screen.getByTestId('campaign')).toHaveTextContent('c-org-two'),
+    )
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /Organization Two/ }))
+    await user.click(screen.getByText('Organization One'))
+    await waitFor(() => expect(orgCookie).toBe('org-one'))
+    await settle()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('campaign')).toHaveTextContent('c-org-one'),
+    )
+    expect(screen.getByTestId('campaign')).not.toHaveTextContent('seed')
+    expect(requestedFor).toEqual(['org-two', 'org-one'])
+  })
 })

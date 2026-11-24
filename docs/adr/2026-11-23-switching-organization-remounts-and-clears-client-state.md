@@ -20,15 +20,18 @@ superseded_by:
 
 Organization-specific client data is cleared at the highest level, once, on an
 org switch — never by a feature clearing its own cache, and never by keying a
-query on the org slug to be safe. `OrganizationScope`
-(`app/shared/organization-picker.tsx`) keys the org-scoped subtree on the
-effective org, and it is mounted by the route-group layouts
-(`app/dashboard/layout.tsx`, `app/volunteer/layout.tsx`) — above the page, not
-inside `DashboardLayout`, because pages render `DashboardLayout` themselves and
-call org-scoped hooks in their own body. A change of org clears the query cache
-and re-keys that subtree in one batched update, driven from the effective slug,
-so a change to the list under the selection clears the same way an explicit
-switch does.
+query on the org slug to be safe.
+
+`OrganizationProvider` (`app/shared/organization-picker.tsx`) is always
+mounted, so it owns the clear: whenever the effective org changes, by a
+selection or by the org list changing under it, it writes the cookie and empties
+the query cache during render, before anything below re-renders. A switch made
+where no scope is mounted (`FollowOnFlow`, from onboarding) clears the same way.
+`OrganizationScope` only re-keys: the route-group layouts
+(`app/dashboard/layout.tsx`, `app/volunteer/layout.tsx`) mount it above the
+page, not inside `DashboardLayout`, because pages render `DashboardLayout`
+themselves and call org-scoped hooks in their own body. Its subtree unmounts and
+mounts again on the new org in the same commit as the clear.
 
 The pairing is the whole mechanism. Removing a query does not unmount its
 consumers, so a feature that stays mounted rebuilds its own entry and fetches it
@@ -37,12 +40,22 @@ row belonging to the org they left came back as a 404 (ENG-10991). Because the
 re-key lands in the same commit, those observers are gone by the time the cache
 is empty, and the tree that comes back reads the new org.
 
+From a page that is left (not a shared one) the picker updates the selection in
+a transition, together with the navigation it starts, so the page being left
+stays on screen until the next one is ready instead of remounting on the new org
+with the same route params. The cookie is written at once either way, because
+the navigation reads it on the server.
+
 The clear spares exactly two keys, and neither is spared because it is
 org-scoped: `organizations`, which a switch resolves against (a caller that
 creates an org refreshes the list and then selects the new slug, so it is the
 only copy that makes that slug resolvable), and `eligibility`, which is per-user
 and gates onboarding flows mid-wizard. Nothing else gets an exemption, including
 per-row families keyed by a bare id.
+
+A provider above the scope that seeds a query from the server
+(`CampaignProvider`) applies its seed only until the org first changes, and the
+invalidate that follows the commit refetches what is still mounted.
 
 ## Context
 
