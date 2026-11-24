@@ -59,7 +59,9 @@ vi.mock('@shared/organization-picker', () => ({
     <div data-testid="organization-scope">{children}</div>
   ),
 }))
-vi.mock('./DashboardMenu', () => ({ default: () => null }))
+vi.mock('./DashboardMenu', () => ({
+  default: () => <div data-testid="dashboard-menu" />,
+}))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
 vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
 vi.mock('./membership/MembershipChip', () => ({
@@ -510,10 +512,8 @@ describe('DashboardLayout org scope', () => {
   it('renders the page body inside the org scope and the sidebar outside it', () => {
     renderLayout()
 
-    expect(
-      within(screen.getByTestId('organization-scope')).getByText(
-        'dashboard content',
-      ),
-    ).toBeInTheDocument()
+    const scope = screen.getByTestId('organization-scope')
+    expect(within(scope).getByText('dashboard content')).toBeInTheDocument()
+    expect(scope).not.toContainElement(screen.getByTestId('dashboard-menu'))
   })
 })
