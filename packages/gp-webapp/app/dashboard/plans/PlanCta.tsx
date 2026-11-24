@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Badge, Button } from '@styleguide'
+import { Button } from '@styleguide'
 import { PLANS_COPY, type PlanColumn } from './plansCopy'
 
 interface PlanCtaProps {
@@ -23,14 +23,9 @@ export const PlanCta = ({
   const variant = highlighted ? 'default' : 'outline'
   if (isCurrent) {
     return (
-      <div className="flex flex-col items-center gap-2">
-        <Badge variant="soft">{PLANS_COPY.currentBadge}</Badge>
-        {column.cta && (
-          <Button disabled variant={variant} className={className}>
-            {column.cta}
-          </Button>
-        )}
-      </div>
+      <span className="flex h-10 w-full items-center justify-center text-base font-medium text-foreground">
+        {PLANS_COPY.currentBadge}
+      </span>
     )
   }
   if (!offer || !column.cta) return null
