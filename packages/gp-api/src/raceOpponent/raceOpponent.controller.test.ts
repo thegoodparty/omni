@@ -5,8 +5,12 @@ import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.servic
 import { StrategicLandscapeParamsService } from '@/campaignStrategy/services/strategicLandscapeParams.service'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { ExperimentRun, ExperimentRunStatus } from '@/generated/prisma'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  AgentRunStatus,
+  ExperimentRun,
+  ExperimentRunStatus,
+} from '@/generated/prisma'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
@@ -67,6 +71,10 @@ const stubDiscoveryDispatch = () => {
 }
 
 describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('dispatches race_opponent_collection seeded from campaign plan opponents', async () => {
     const campaign = await seedCampaign({
       slug: SLUG,
@@ -322,6 +330,93 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
     )
 
     expect(result.status).toBe(404)
+  })
+
+  // Discovery is opposition_research, so once the switch sends it to gp-api's
+  // agents its run is an AgentRun. A status reader left on the PMF Engine's
+  // table finds no run and settles the page to idle mid-run, so the page stops
+  // polling and never auto-fires collection.
+  it('reads a gp-api discovery run from AgentRun, not the PMF table', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+      raceId: RACE_HASH,
+    })
+    const run = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'opposition_research',
+        organizationSlug: SLUG,
+        status: AgentRunStatus.running,
+        manifest: {},
+        shapeHash: 'a-shape',
+        input: { organizationSlug: SLUG },
+      },
+    })
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        raceId: RACE_HASH,
+        oppositionRunId: run.id,
+      },
+    })
+    stubDiscoveryDispatch()
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    const result = await service.client.post(
+      COLLECT_PATH,
+      {},
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({ runId: run.id, status: 'discovering' })
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  // A superseded gp-api run can never land: supersede starts a successor under a
+  // new run id that nothing points the plan at. Reading it as 'discovering' left
+  // the page polling forever, because it only re-fires collect on a
+  // discovering->idle transition.
+  it('settles to idle when the discovery run was superseded', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+      raceId: RACE_HASH,
+    })
+    const run = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'opposition_research',
+        organizationSlug: SLUG,
+        status: AgentRunStatus.superseded,
+        manifest: {},
+        shapeHash: 'a-shape',
+        input: { organizationSlug: SLUG },
+      },
+    })
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        raceId: RACE_HASH,
+        oppositionRunId: run.id,
+      },
+    })
+    stubDiscoveryDispatch()
+
+    const result = await service.client.post(
+      COLLECT_PATH,
+      {},
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data.status).toBe('idle')
   })
 })
 

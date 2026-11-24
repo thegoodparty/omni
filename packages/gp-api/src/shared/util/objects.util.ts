@@ -62,3 +62,23 @@ export const isJsonObject = (
   value: unknown,
 ): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
+
+// The keys of a JSON value, snake_case to camelCase. A PMF Engine manifest names
+// its fields in snake_case and every gp-api agent names the same fields in
+// camelCase, so this is where the two vocabularies meet (src/agents/AGENTS.md).
+const camelKey = (key: string) =>
+  key.replace(/_([a-z0-9])/g, (_match, char: string) => char.toUpperCase())
+
+// An undefined value is an absent one, not a null: the params builder leaves an
+// optional field out that way (`campaign_story: undefined`), and the agent's own
+// schema declares it `.optional()` but not `.nullable()`. Coercing it to null
+// made every dispatch with no campaign story fail its input check.
+export const snakeToCamelKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(snakeToCamelKeys)
+  if (!isJsonObject(value)) return value
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, item]) =>
+      item === undefined ? [] : [[camelKey(key), snakeToCamelKeys(item)]],
+    ),
+  )
+}

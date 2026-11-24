@@ -58,7 +58,6 @@ describe('CampaignStrategyService', () => {
   let service: CampaignStrategyService
   let params: { build: ReturnType<typeof vi.fn> }
   let experimentRuns: {
-    findUnique: ReturnType<typeof vi.fn>
     dispatchRun: ReturnType<typeof vi.fn>
     markFailed: ReturnType<typeof vi.fn>
   }
@@ -92,6 +91,7 @@ describe('CampaignStrategyService', () => {
       findMany: ReturnType<typeof vi.fn>
     }
     campaign: { findUnique: ReturnType<typeof vi.fn> }
+    experimentRun: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
 
@@ -112,7 +112,6 @@ describe('CampaignStrategyService', () => {
   beforeEach(() => {
     params = { build: vi.fn().mockResolvedValue({ race_id: 'br-general' }) }
     experimentRuns = {
-      findUnique: vi.fn().mockResolvedValue(null),
       dispatchRun: vi.fn(),
       markFailed: vi.fn().mockResolvedValue(undefined),
     }
@@ -154,6 +153,9 @@ describe('CampaignStrategyService', () => {
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
       },
+      experimentRun: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
       // Supports both the array form and the interactive (callback) form,
       // handing the same mock delegates in as the tx client.
       $transaction: vi.fn(
@@ -171,6 +173,9 @@ describe('CampaignStrategyService', () => {
       trackerTasks as never,
       storyState as never,
       raceContext as never,
+      // No case here reaches gp-api's engine: the switch is per agent and unset,
+      // so every dispatch in this file takes the PMF Engine path.
+      { run: vi.fn() } as never,
     )
     Object.defineProperty(service, '_prisma', { value: prisma })
     Object.assign(service, {
@@ -467,7 +472,7 @@ describe('CampaignStrategyService', () => {
         experimentType: 'opportunities_and_challenges',
       }),
     }
-    experimentRuns.findUnique.mockImplementation(
+    prisma.experimentRun.findUnique.mockImplementation(
       (args: { where: { runId: string } }) =>
         Promise.resolve(runsById[args.where.runId] ?? null),
     )
@@ -497,7 +502,7 @@ describe('CampaignStrategyService', () => {
         experimentType: 'opportunities_and_challenges',
       }),
     }
-    experimentRuns.findUnique.mockImplementation(
+    prisma.experimentRun.findUnique.mockImplementation(
       (args: { where: { runId: string } }) =>
         Promise.resolve(runsById[args.where.runId] ?? null),
     )
@@ -566,7 +571,7 @@ describe('CampaignStrategyService', () => {
       }),
       'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.RUNNING }),
     }
-    experimentRuns.findUnique.mockImplementation(
+    prisma.experimentRun.findUnique.mockImplementation(
       (args: { where: { runId: string } }) =>
         Promise.resolve(runsById[args.where.runId] ?? null),
     )
@@ -589,7 +594,7 @@ describe('CampaignStrategyService', () => {
       }),
       'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.QUEUED }),
     }
-    experimentRuns.findUnique.mockImplementation(
+    prisma.experimentRun.findUnique.mockImplementation(
       (args: { where: { runId: string } }) =>
         Promise.resolve(runsById[args.where.runId] ?? null),
     )
@@ -615,7 +620,7 @@ describe('CampaignStrategyService', () => {
         status: ExperimentRunStatus.AWAITING_RESUME,
       }),
     }
-    experimentRuns.findUnique.mockImplementation(
+    prisma.experimentRun.findUnique.mockImplementation(
       (args: { where: { runId: string } }) =>
         Promise.resolve(runsById[args.where.runId] ?? null),
     )
@@ -641,7 +646,7 @@ describe('CampaignStrategyService', () => {
         status: ExperimentRunStatus.SUPERSEDED,
       }),
     }
-    experimentRuns.findUnique.mockImplementation(
+    prisma.experimentRun.findUnique.mockImplementation(
       (args: { where: { runId: string } }) =>
         Promise.resolve(runsById[args.where.runId] ?? null),
     )
@@ -661,7 +666,7 @@ describe('CampaignStrategyService', () => {
       'opp-run': run({ runId: 'opp-run', status: ExperimentRunStatus.FAILED }),
       'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.RUNNING }),
     }
-    experimentRuns.findUnique.mockImplementation(
+    prisma.experimentRun.findUnique.mockImplementation(
       (args: { where: { runId: string } }) =>
         Promise.resolve(runsById[args.where.runId] ?? null),
     )
@@ -690,7 +695,7 @@ describe('CampaignStrategyService', () => {
       'opp-run': run({ runId: 'opp-run', status: ExperimentRunStatus.FAILED }),
       'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.RUNNING }),
     }
-    experimentRuns.findUnique.mockImplementation(
+    prisma.experimentRun.findUnique.mockImplementation(
       (args: { where: { runId: string } }) =>
         Promise.resolve(runsById[args.where.runId] ?? null),
     )
@@ -712,7 +717,7 @@ describe('CampaignStrategyService', () => {
       'opp-run': run({ runId: 'opp-run', status: ExperimentRunStatus.FAILED }),
       'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.RUNNING }),
     }
-    experimentRuns.findUnique.mockImplementation(
+    prisma.experimentRun.findUnique.mockImplementation(
       (args: { where: { runId: string } }) =>
         Promise.resolve(runsById[args.where.runId] ?? null),
     )
@@ -954,7 +959,7 @@ describe('CampaignStrategyService', () => {
         }),
         'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.RUNNING }),
       }
-      experimentRuns.findUnique.mockImplementation(
+      prisma.experimentRun.findUnique.mockImplementation(
         (args: { where: { runId: string } }) =>
           Promise.resolve(runsById[args.where.runId] ?? null),
       )
@@ -993,7 +998,7 @@ describe('CampaignStrategyService', () => {
         }),
         'oc-run': run({ runId: 'oc-run', status: ExperimentRunStatus.RUNNING }),
       }
-      experimentRuns.findUnique.mockImplementation(
+      prisma.experimentRun.findUnique.mockImplementation(
         (args: { where: { runId: string } }) =>
           Promise.resolve(runsById[args.where.runId] ?? null),
       )
@@ -1546,7 +1551,7 @@ describe('CampaignStrategyService', () => {
         ...overrides,
       })
     const runsSaw = (opposition: number, opportunities: number) =>
-      experimentRuns.findUnique.mockImplementation(
+      prisma.experimentRun.findUnique.mockImplementation(
         ({ where }: { where: { runId: string } }) =>
           Promise.resolve(
             where.runId === 'opp-run'

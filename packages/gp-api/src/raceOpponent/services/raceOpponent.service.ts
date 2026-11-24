@@ -29,8 +29,10 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
+import { sectionRunIsInFlight } from '@/campaignStrategy/services/sectionRun'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
+  OPPOSITION_RESEARCH,
   RACE_OPPONENT_ACTIONS,
   RACE_OPPONENT_COLLECTION,
   RACE_OPPONENT_SUMMARY,
@@ -976,18 +978,20 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     })
     if (!plan?.oppositionRunId) return 'idle'
 
-    const discovery = await this.client.experimentRun.findUnique({
-      where: { runId: plan.oppositionRunId },
-      select: { status: true },
-    })
+    // The discovery run is an opposition_research run, so it lives in
+    // whichever engine's table the switch sends that agent to. A reader left on
+    // the PMF Engine's table would read a gp-api run as missing and settle the
+    // page to idle mid-run.
+    const discovery = await this.campaignStrategy.sectionRunFor(
+      OPPOSITION_RESEARCH,
+      plan.oppositionRunId,
+    )
     if (!discovery) return 'idle'
-    if (discovery.status === ExperimentRunStatus.FAILED) return 'failed'
-    const inFlight =
-      discovery.status === ExperimentRunStatus.QUEUED ||
-      discovery.status === ExperimentRunStatus.RUNNING ||
-      discovery.status === ExperimentRunStatus.AWAITING_RESUME ||
-      discovery.status === ExperimentRunStatus.SUPERSEDED
-    return inFlight ? 'discovering' : 'idle'
+    if (discovery.status === 'failed') return 'failed'
+    // The same in-flight rule the plan dispatcher uses, not a status list of its
+    // own: a superseded gp-api run can never land, so reading it as
+    // 'discovering' would leave the page polling a run that will never finish.
+    return sectionRunIsInFlight(discovery) ? 'discovering' : 'idle'
   }
 
   // The relaxed path chains a race_opponent_summary run off a completed

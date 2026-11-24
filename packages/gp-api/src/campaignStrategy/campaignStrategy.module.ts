@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { AgentsModule } from '@/agents/agents.module'
 import { CampaignStrategyContextModule } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
@@ -19,6 +20,7 @@ import { StrategicLandscapePersister } from './services/strategicLandscape.persi
     AwsModule,
     CampaignStoryModule,
     WebsitesModule,
+    AgentsModule,
   ],
   controllers: [CampaignStrategyController],
   providers: [

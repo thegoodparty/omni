@@ -19,7 +19,7 @@ import {
 } from '@/generated/prisma'
 import { OrganizationMembershipService } from '@/organizations/services/organizationMembership.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { isJsonObject } from '@/shared/util/objects.util'
+import { isJsonObject, snakeToCamelKeys } from '@/shared/util/objects.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
   type AgentRunInput,
@@ -70,20 +70,6 @@ const organizationSlugOf = (input: AgentRunInput) => {
     )
   }
   return slug
-}
-
-const camelKey = (key: string) =>
-  key.replace(/_([a-z0-9])/g, (_match, char: string) => char.toUpperCase())
-
-const snakeToCamelKeys = (value: Prisma.JsonValue): Prisma.JsonValue => {
-  if (Array.isArray(value)) return value.map(snakeToCamelKeys)
-  if (!isJsonObject(value)) return value
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      camelKey(key),
-      snakeToCamelKeys(item ?? null),
-    ]),
-  )
 }
 
 const requiresToday = (definition: AgentDefinition) =>
