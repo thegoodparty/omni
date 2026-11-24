@@ -39,8 +39,6 @@ import {
   useOrganization,
   useOrganizationRole,
 } from '@shared/organization-picker'
-import { PLAN_PRICING } from '@goodparty_org/contracts'
-import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { format, parseISO } from 'date-fns'
 import {
@@ -101,7 +99,7 @@ const TeamPage = (): React.JSX.Element => {
     refetchOnMount: 'always',
   })
 
-  const { gated, plan, unavailableReason } = useTeamInviteGate(data?.invites)
+  const { gated, unavailableReason } = useTeamInviteGate(data?.invites)
 
   // Independent of the members query (ENG-11080): a stats failure must never
   // degrade member management, so it gets its own isPending/isError rather
@@ -257,7 +255,7 @@ const TeamPage = (): React.JSX.Element => {
               </h2>
               <p className="m-0 text-sm text-muted-foreground">
                 <span className="font-medium text-foreground">
-                  Campaign Manager
+                  Campaign manager
                 </span>{' '}
                 {ROLE_DESCRIPTIONS.campaignAdmin}
               </p>
@@ -304,21 +302,6 @@ const TeamPage = (): React.JSX.Element => {
                 {UNAVAILABLE_COPY[unavailableReason]}
               </p>
             )}
-            {gated && isOwner && plan === 'pro' && (
-              <div className="rounded-lg bg-muted p-4">
-                <p className="m-0 text-sm font-medium text-foreground">
-                  Logins for your team come with Team
-                </p>
-                <p className="m-0 text-sm text-muted-foreground">
-                  Invite opens the upgrade to Team. You pay the{' '}
-                  {formatPlanCents(
-                    PLAN_PRICING.teamCents - PLAN_PRICING.proCents,
-                  )}{' '}
-                  difference, and your outreach credit comes with you.
-                </p>
-              </div>
-            )}
-
             {isError ? (
               <p className="m-0 text-sm text-destructive">
                 Couldn’t load your team. Try refreshing the page.

@@ -107,8 +107,9 @@ describe('TeamPage — members and pending invites', () => {
     expect(screen.getByText('Owner')).toBeInTheDocument()
     // The manager row and the pending invite both carry the campaignAdmin
     // role in this fixture, so both render the same label — plus one more
-    // from the "How roles work" card's own "Campaign Manager" (ENG-11058).
-    expect(screen.getAllByText('Campaign Manager').length).toBe(3)
+    // from the "How roles work" card's own "Campaign manager" (ENG-11058).
+    expect(screen.getAllByText('Campaign Manager').length).toBe(2)
+    expect(screen.getByText('Campaign manager')).toBeInTheDocument()
     expect(screen.getByText('Invitee Person')).toBeInTheDocument()
     expect(screen.getByText('People')).toBeInTheDocument()
     expect(screen.getByText('2 people on this campaign')).toBeInTheDocument()

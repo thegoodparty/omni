@@ -359,6 +359,145 @@ describe('ProPitchDialog', () => {
       )
     })
 
+    describe('Invite', () => {
+      const renderInvite = (plan: 'free' | 'pro') =>
+        render(
+          <CampaignContext.Provider
+            value={[{ plan, isPro: plan === 'pro' } as unknown as Campaign]}
+          >
+            <ProPitchDialog
+              source="account_settings"
+              channel="generic"
+              open
+              onOpenChange={vi.fn()}
+              invite
+            />
+          </CampaignContext.Provider>,
+        )
+
+      beforeEach(() => {
+        mockPlanFlag.enabled = true
+      })
+
+      it('pitches Team from Free with the gate layout, the Bonus row and verification', () => {
+        renderInvite('free')
+
+        expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
+        expect(
+          screen.getByText('Upgrade to invite your campaign team'),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText('Bring your campaign manager and volunteers in'),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText(
+            'Pay $399 once for your plan, good for your whole race',
+          ),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText(
+            'A campaign manager login to help you share the load',
+          ),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText('Volunteer logins to walk door-knocking turfs'),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText('Voter data, texts and robocalls to reach voters'),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText('$175 outreach credit to get started'),
+        ).toBeInTheDocument()
+        expect(screen.getByText('Bonus')).toBeInTheDocument()
+        expect(
+          screen.getByText('Campaign verification included'),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByRole('button', { name: 'Join Team for $399' }),
+        ).toBeInTheDocument()
+        expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
+        expect(
+          screen.queryByText(/one payment for your whole campaign/),
+        ).not.toBeInTheDocument()
+      })
+
+      it('cross-sells Team from Pro with only the price and the two logins', () => {
+        renderInvite('pro')
+
+        expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
+        expect(
+          screen.getByText(
+            'Pay $100 once to upgrade, good for your whole race',
+          ),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText(
+            'A campaign manager login to help you share the load',
+          ),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText('Volunteer logins to walk door-knocking turfs'),
+        ).toBeInTheDocument()
+        expect(screen.queryByText('Bonus')).not.toBeInTheDocument()
+        expect(screen.queryByText(/Voter data/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/outreach credit/)).not.toBeInTheDocument()
+        expect(
+          screen.queryByText('Campaign verification included'),
+        ).not.toBeInTheDocument()
+        expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
+        expect(
+          screen.getByRole('button', { name: 'Upgrade to Team for $100' }),
+        ).toBeInTheDocument()
+      })
+
+      it('sends the Pro cross-sell to the Team checkout as an upgrade', async () => {
+        renderInvite('pro')
+
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Upgrade to Team for $100' }),
+        )
+
+        expect(router.push).toHaveBeenCalledWith(
+          expect.stringMatching(/[?&]plan=team(&|$)/),
+        )
+        expect(router.push).toHaveBeenCalledWith(
+          expect.stringMatching(/[?&]cta=Join\+Team(&|$)/),
+        )
+      })
+
+      it('drops the verification card and shows the closed reason once texting has closed', () => {
+        render(
+          <CampaignContext.Provider
+            value={[
+              {
+                plan: 'free',
+                smsCompliance: 'closed',
+                smsCutoffDate: '2026-10-15',
+                generalElectionDate: '2026-11-03',
+              } as unknown as Campaign,
+            ]}
+          >
+            <ProPitchDialog
+              source="account_settings"
+              channel="generic"
+              open
+              onOpenChange={vi.fn()}
+              invite
+            />
+          </CampaignContext.Provider>,
+        )
+
+        expect(
+          screen.getByText(
+            'The Oct. 15 deadline to get verified for texting has passed.',
+          ),
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByText('Campaign verification included'),
+        ).not.toBeInTheDocument()
+      })
+    })
+
     it('sends the unpriced plan name as the cta from the invite pitch', async () => {
       mockPlanFlag.enabled = true
       render(
