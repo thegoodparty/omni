@@ -6,13 +6,8 @@ Status: in progress. The core, `AgentMessage` and `trending_issues` are on
 main. `deploy/agentsOnGpApi.ts` says which agents run on gp-api's engine in
 which environment, and it is the only statement of that: a preview names
 every registered agent, because a preview is the Universal Judge's candidate
-arm; dev names `trending_issues` and `top_community_issues`; prod names
-`trending_issues`. So `trending_issues` is on gp-api's engine in all three,
-`top_community_issues` in preview and dev with prod still on the PMF Engine,
-and `meeting_schedule`, `opposition_research` and
-`opportunities_and_challenges` in a preview only, where the judge compares
-them against the PMF Engine. Every other agent runs on the PMF Engine. An
-agent a list leaves out runs in that environment as
+arm. Every other agent runs on the PMF Engine. An agent a list leaves out runs
+in that environment as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
