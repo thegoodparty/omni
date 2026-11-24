@@ -382,7 +382,7 @@ export const JOBS = {
     // waits 60 seconds before saying nothing was found, so the default one
     // slot per task would queue a burst past that window. The org-slug key is
     // what prevents a duplicate paid generation, so no cap on top of this.
-    concurrency: 10,
+    concurrency: 15,
   }),
   ordinanceRefreshDispatch: defineJob({
     schema: z.object({ organizationSlug: z.string().min(1) }),

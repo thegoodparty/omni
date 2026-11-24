@@ -38,7 +38,7 @@ pg-boss is the repo's queue (`2026-11-07-background-jobs-on-pg-boss.md`), and
 its `sendMany` derives the job id from the key, so a retry, a double tap, and
 a burst landing on different tasks leave one job rather than one generation
 each. That key is what prevents a duplicate paid generation; nothing here
-throttles the work on top of it. The queue does set `concurrency: 10` per
+throttles the work on top of it. The queue does set `concurrency: 15` per
 task, because the default of one slot would let a burst queue behind a 25 to
 55 second search and outlast the 60-second window the priorities step keeps
 its searching state open for.
