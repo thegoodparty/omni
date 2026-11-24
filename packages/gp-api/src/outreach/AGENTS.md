@@ -506,6 +506,14 @@ false`: it hands back what was built, not a fresh build. A text holds the
   writes it on a new campaign's anchor envelope only; a key this org already
   spent on a walk leaves the next walk unlinked. See
   `gp-webapp/app/dashboard/shared/agent-chat/AGENTS.md` ("Cards").
+- **Reply intent before and after.** `util/replyIntent.eval.ts` scores
+  `classifyReplyIntent` on 43 invented replies (the labels are the person's
+  intent; the keyword-only join is a regex miss by design). The passed count
+  is the score out of 43 and the failed case ids are the misses. Compare the
+  regex with the decision model from a worktree:
+  `npm run eval -w packages/gp-api -- replyIntent.eval.ts` (regex, free),
+  then the same with `REPLY_INTENT_EVAL_MODE=decision` and `GEMINI_API_KEY`
+  exported (no key fails the run; it never falls back to the regex).
 - Tone vocabulary (`util/messageTone.util.ts`) is shared across every
   stateless compose endpoint — don't redefine `TONE_STYLES` per channel.
 - `nativePhoneBanking` and `nativeDoorKnocking` envelopes are never touched

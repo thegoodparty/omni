@@ -394,6 +394,15 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     tier: 'degradable',
     feature: 'case-scout-delegate-handoff',
   },
+  // Decision models (src/decisionModels/AGENTS.md). Gemini reuses
+  // GEMINI_API_KEY; TYPESAFE_API_KEY is in no secret store yet, so the
+  // typesafe provider fails as not_configured until one is wired.
+  DECISION_MODEL_PROVIDER: { tier: 'optional', default: 'gemini' },
+  DECISION_MODEL_ID: { tier: 'optional' },
+  TYPESAFE_API_KEY: { tier: 'optional' },
+  // Logs a decision model's reading of each ingested text reply beside the
+  // regex's. Changes nothing stored or shown. Off unless "true".
+  REPLY_INTENT_DECISION_SHADOW: { tier: 'optional', default: 'false' },
 
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },
   CV_SCAN_RETRIEVE_SPACING_MS: { tier: 'optional' },
