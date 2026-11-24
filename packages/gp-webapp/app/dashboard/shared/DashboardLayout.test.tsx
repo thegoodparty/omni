@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { waitFor, screen } from '@testing-library/react'
+import { waitFor, screen, within } from '@testing-library/react'
 import { usePathname } from 'next/navigation'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -55,6 +55,9 @@ const mockOrganization = vi.hoisted(() => ({
 }))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => mockOrganization.current,
+  OrganizationScope: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="organization-scope">{children}</div>
+  ),
 }))
 vi.mock('./DashboardMenu', () => ({ default: () => null }))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
@@ -488,5 +491,29 @@ describe('DashboardLayout mobile title on issue capture', () => {
 
     expect(screen.getByText('Outreach')).toBeInTheDocument()
     expect(screen.queryByText('Voter Outreach')).toBeNull()
+  })
+})
+
+describe('DashboardLayout org scope', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseCampaign.mockReturnValue([null])
+    mockIsImpersonating.mockReturnValue(false)
+    mockIsDismissed.mockReturnValue(false)
+    mockWeeksTill.mockReturnValue({ weeks: 99 })
+    window.sessionStorage.clear()
+  })
+
+  // The switch clears the cache by remounting everything under this, so the page
+  // body has to be inside it and the sidebar (which holds the org picker) has to
+  // be outside: a switch taken from the picker cannot unmount the picker.
+  it('renders the page body inside the org scope and the sidebar outside it', () => {
+    renderLayout()
+
+    expect(
+      within(screen.getByTestId('organization-scope')).getByText(
+        'dashboard content',
+      ),
+    ).toBeInTheDocument()
   })
 })
