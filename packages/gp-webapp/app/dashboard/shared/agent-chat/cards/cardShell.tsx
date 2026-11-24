@@ -138,10 +138,16 @@ export const CompactCardStatic = ({
   title,
   subtitle,
   action,
+  body,
+  footer,
 }: {
   title: string
   subtitle?: string
   action?: ReactNode
+  // Content under the title row, such as a drafted message.
+  body?: ReactNode
+  // A bordered action row across the card's full width, under everything.
+  footer?: ReactNode
 }) => (
   <div
     className={cn(OPTION_CARD_CLASS, '@container w-full max-w-md text-left')}
@@ -157,6 +163,15 @@ export const CompactCardStatic = ({
       />
       {action}
     </div>
+    {body}
+    {footer ? (
+      <div
+        data-testid="compact-card-footer"
+        className="border-border -mx-4 mt-3 -mb-4 flex flex-col gap-2 border-t px-4 py-3 @sm:flex-row @sm:justify-end"
+      >
+        {footer}
+      </div>
+    ) : null}
   </div>
 )
 

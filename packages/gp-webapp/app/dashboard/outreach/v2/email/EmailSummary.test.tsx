@@ -21,7 +21,7 @@ const renderSummary = (
 describe('EmailSummary credit lines', () => {
   it('takes the credit off the price and says what is left', () => {
     renderSummary({
-      label: 'From your $175.00 outreach credit',
+      label: 'Outreach credit ($91.00 left after)',
       cents: 8400,
       leftCents: 9100,
     })

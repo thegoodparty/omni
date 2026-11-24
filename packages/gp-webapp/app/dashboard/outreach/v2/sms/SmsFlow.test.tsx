@@ -638,6 +638,54 @@ describe('SmsFlow', () => {
     expect(done[0]?.closest('.space-y-6')).toBeNull()
   })
 
+  it('books a credit-covered send from the footer under per-campaign pricing', async () => {
+    planFlagRef.enabled = true
+    campaignState.campaign.hasFreeTextsOffer = false
+    creditOverride.value = { active: true, balanceCents: 17500 }
+    mockDraft()
+    const { onScheduled } = openFlow()
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Likely voters'))
+    await user.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await screen.findByRole('textbox', { name: 'Message body' })
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByText('Pick a date'))
+    await user.click(await screen.findByRole('button', { name: dayName(4) }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Review and pay' }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText('Outreach credit ($133.00 left after)'),
+    ).toBeInTheDocument()
+    const schedule = await screen.findByRole('button', {
+      name: 'Schedule outreach',
+    })
+    // The button is the shell footer's, beside Back, not the step body's.
+    expect(schedule.closest('.space-y-6')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Schedule campaign' }),
+    ).toBeNull()
+
+    await user.click(schedule)
+
+    await waitFor(() => expect(onScheduled).toHaveBeenCalledTimes(1))
+    expect(completeFreePurchase).toHaveBeenCalledWith(
+      'TEXT',
+      expect.objectContaining({ outreachId: 55 }),
+    )
+  })
+
   it('stops a list over the 200,000 send cap at the audience step', async () => {
     api.mock('GET /v1/contacts/list-detail', {
       status: 200,
@@ -2807,6 +2855,79 @@ describe('SmsFlow', () => {
           await screen.findByRole('dialog', { name: GATE_TITLE }),
         ).toHaveTextContent('Join Pro to send this campaign')
         expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+      })
+
+      // A chat card's "Join Pro to send": nothing is saved, the pitch is up
+      // over the card's message, and leaving it lands back on that message.
+      describe('opened by a card with the Pro gate', () => {
+        const openCardFlow = () => {
+          const onClose = vi.fn()
+          render(
+            <SmsFlow
+              source="campaign_manager"
+              open
+              openProGate
+              initialScript="Early voting opens Saturday at the library."
+              preselectedListId={41}
+              audienceSettled
+              onClose={onClose}
+              onScheduled={vi.fn().mockResolvedValue(undefined)}
+              tcrCompliance={TCR_FIXTURE}
+            />,
+          )
+          return { onClose }
+        }
+
+        it('opens the Pro dialog at once and writes no draft', async () => {
+          openCardFlow()
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+          expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+        })
+
+        it('returns to the dialog on Back off the wizard', async () => {
+          openCardFlow()
+
+          await user.click(
+            await screen.findByRole('button', { name: 'Join Pro for $299' }),
+          )
+          expect(
+            await screen.findByTestId('pro-upgrade-flow'),
+          ).toBeInTheDocument()
+          await user.click(screen.getByRole('button', { name: 'Wizard back' }))
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+        })
+
+        it('leaves the sheet open on the draft when the dialog is closed', async () => {
+          const { onClose } = openCardFlow()
+
+          await user.click(
+            within(
+              await screen.findByRole('dialog', { name: GATE_TITLE }),
+            ).getByRole('button', { name: 'Close' }),
+          )
+
+          await waitFor(() =>
+            expect(
+              screen.queryByRole('dialog', { name: GATE_TITLE }),
+            ).not.toBeInTheDocument(),
+          )
+          expect(onClose).not.toHaveBeenCalled()
+        })
+
+        it('does not open the dialog for a flow opened without it', async () => {
+          openFlow()
+
+          await screen.findByText('Introduce myself to voters')
+          expect(
+            screen.queryByRole('dialog', { name: GATE_TITLE }),
+          ).not.toBeInTheDocument()
+        })
       })
 
       it('closes the sheet on the X, the draft being saved', async () => {

@@ -177,3 +177,24 @@ describe('buildPresentOutreachProposalTool', () => {
     ).toEqual({ presented: true, deepLinkOnly: true })
   })
 })
+
+describe('sendDate', () => {
+  it('is an optional field of the proposal the agent can pass', () => {
+    const { inputSchema } = buildCampaignManagerOutreachProposalTool()
+    const base = {
+      audience: 'Renters on the east side',
+      count: 1200,
+      listName: 'East side renters',
+      message: 'this is Renee Diaz, candidate for City Council. What matters?',
+      channel: 'text',
+      deepLinkOnly: false,
+    }
+    expect(inputSchema.parse(base)).not.toHaveProperty('sendDate')
+    expect(
+      inputSchema.parse({ ...base, sendDate: '2026-10-05' }),
+    ).toMatchObject({ sendDate: '2026-10-05' })
+    expect(
+      inputSchema.safeParse({ ...base, sendDate: 'next Tuesday' }).success,
+    ).toBe(false)
+  })
+})

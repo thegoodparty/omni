@@ -44,6 +44,10 @@ interface CheckoutFormProps {
   // The host draws the promo code control (a link under its order total), so
   // the grey Promo Code box above the form is not rendered.
   hidePromoSection?: boolean
+  // See CheckoutPaymentProps: the Pay button lives outside the form.
+  formId?: string
+  hideSubmit?: boolean
+  onSubmittingChange?: (submitting: boolean) => void
 }
 
 // Only the two wallets the design draws; no Link, PayPal, Amazon Pay or
@@ -85,6 +89,9 @@ export default function CheckoutForm({
   submitLabel,
   walletsAndAccordion,
   hidePromoSection,
+  formId,
+  hideSubmit,
+  onSubmittingChange,
 }: CheckoutFormProps): React.JSX.Element {
   const { setError } = useCheckoutSession()
   const checkoutResult = useCheckout()
@@ -134,6 +141,9 @@ export default function CheckoutForm({
       submitLabel={submitLabel}
       walletsAndAccordion={walletsAndAccordion}
       hidePromoSection={hidePromoSection}
+      formId={formId}
+      hideSubmit={hideSubmit}
+      onSubmittingChange={onSubmittingChange}
       onError={(error) => {
         let msg: string
         if (error instanceof Error) {
@@ -166,6 +176,9 @@ function CheckoutFormContent({
   onTotalChange,
   walletsAndAccordion = false,
   hidePromoSection = false,
+  formId,
+  hideSubmit,
+  onSubmittingChange,
 }: {
   checkout: StripeCheckoutValue
   sessionId?: string
@@ -176,6 +189,9 @@ function CheckoutFormContent({
   onTotalChange?: (totalDollars: number) => void
   walletsAndAccordion?: boolean
   hidePromoSection?: boolean
+  formId?: string
+  hideSubmit?: boolean
+  onSubmittingChange?: (submitting: boolean) => void
 }): React.JSX.Element {
   const promo = usePromoCode(checkout)
   const [hasConfirmedPayment, setHasConfirmedPayment] = useState(false)
@@ -232,6 +248,11 @@ function CheckoutFormContent({
     },
   })
 
+  const isSubmitting = mutation.isPending
+  useEffect(() => {
+    onSubmittingChange?.(isSubmitting)
+  }, [isSubmitting, onSubmittingChange])
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSubmitError(null)
@@ -265,7 +286,7 @@ function CheckoutFormContent({
   }, [currentTotal, onTotalChange])
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form id={formId} onSubmit={handleSubmit}>
       {walletsAndAccordion && (
         <div className="mb-4">
           <ExpressCheckoutElement
@@ -323,15 +344,17 @@ function CheckoutFormContent({
           <AlertDescription>{submitError}</AlertDescription>
         </Alert>
       )}
-      <Button
-        type="submit"
-        disabled={mutation.isPending}
-        loading={mutation.isPending}
-        className="mt-6 w-full whitespace-nowrap"
-        size="large"
-      >
-        {submitLabel}
-      </Button>
+      {!hideSubmit && (
+        <Button
+          type="submit"
+          disabled={mutation.isPending}
+          loading={mutation.isPending}
+          className="mt-6 w-full whitespace-nowrap"
+          size="large"
+        >
+          {submitLabel}
+        </Button>
+      )}
     </form>
   )
 }

@@ -136,6 +136,7 @@ import {
   SmsScheduleStep,
   TIME_OPTIONS,
 } from './SmsScheduleStep'
+import { seedSendDate } from './smsSendDate.util'
 import {
   ServeSmsScheduleStep,
   serveSmsScheduledAt,
@@ -418,6 +419,14 @@ interface SmsFlowProps {
   // details step opens on it.
   initialEvent?: ProposalEvent
   preselectedListId?: number
+  // A chat card's "Join Pro to send" (win_per_campaign_pricing): the flow
+  // opens on the card's draft with the Pro pitch already over it. Nothing is
+  // saved; leaving the pitch lands on the draft, as Edit would have.
+  openProGate?: boolean
+  // The day a chat card suggested ("YYYY-MM-DD"). The schedule step opens on
+  // it when the picker would allow it; a past, invalid or too-soon day is
+  // dropped and the official picks.
+  initialSendDate?: string
   // An audience a chat card counted but did not save: the audience step
   // opens on the list builder already filled in, and saves it when the
   // official confirms and names it.
@@ -710,6 +719,7 @@ export const SmsFlow = ({
   launchSource,
   initialScript,
   initialPurpose,
+  initialSendDate,
   proposedAudience,
   proposalLink,
   audienceSettled = false,
@@ -717,6 +727,7 @@ export const SmsFlow = ({
   roundTwoSize,
   onProposalCreateFailed,
   preselectedListId,
+  openProGate = false,
   preselectedRecommendedVariant,
   resumeDraft = null,
   onDraftSaved,
@@ -932,6 +943,27 @@ export const SmsFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
+
+  // A chat card's "Join Pro to send": the pitch goes up once per open, as
+  // soon as the gate knows the campaign is on the free plan.
+  const proGateShownRef = useRef(false)
+  const { openPitch } = draftGate
+  useEffect(() => {
+    if (!open) {
+      proGateShownRef.current = false
+      return
+    }
+    if (
+      !openProGate ||
+      proGateShownRef.current ||
+      !planPitch.enabled ||
+      gate.requirement !== 'pro' ||
+      resumed
+    )
+      return
+    proGateShownRef.current = true
+    openPitch(planReviewGateCta(planPitch))
+  }, [open, openProGate, planPitch, gate.requirement, resumed, openPitch])
   const { enabled: previewFlagOn } = useWinSmsPreviewEditFlag(
     surface === WIN_SMS_SURFACE,
   )
@@ -1025,6 +1057,16 @@ export const SmsFlow = ({
   const isFreeSend =
     Boolean(campaign?.hasFreeTextsOffer) &&
     (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
+  // Per-campaign pricing's review: one title whether or not the send is free,
+  // and the primary button in the shell footer next to Back. The review step
+  // reports that button up, since only it knows free from paid. Serve, a
+  // campaign on the free-texts offer and the build-mode summary keep theirs.
+  const reviewInFooter =
+    planPitch.enabled &&
+    !surface.isServe &&
+    !campaign?.hasFreeTextsOffer &&
+    !buildMode
+  const [reviewCta, setReviewCta] = useState<FlowShellCta | null>(null)
   // A list create succeeded enough to proceed. The sync path returns a token;
   // an async build (gp-api behind the `win_sms_hold_billing` flag) returns a
   // null token with only the buildId, which is NOT a failure — the checkout
@@ -1121,7 +1163,7 @@ export const SmsFlow = ({
     setNameEdited(Boolean(resumeDraft?.name))
     lastAutoName.current = ''
     lastDatePart.current = ''
-    setDate(undefined)
+    setDate(seedSendDate(initialSendDate))
     setTimeSlot('10')
     setCustomTime('10:00')
     setImage(null)
@@ -1144,6 +1186,7 @@ export const SmsFlow = ({
     resetEventDetails,
     initialScript,
     initialPurpose,
+    initialSendDate,
     preselectedRecommendedVariant,
     resumeDraft,
     surface,
@@ -2406,7 +2449,12 @@ export const SmsFlow = ({
                           disabled: !audience.selectedListId || image === null,
                           loading: draftGate.savingDraft,
                         }
-                      : null
+                      : // The review step owns its button (Schedule outreach or
+                        // Complete purchase) and reports it up under the
+                        // per-campaign pricing flag.
+                        stepId === 'review' && reviewInFooter
+                        ? reviewCta
+                        : null
 
   const cta: FlowShellCta | null = managed
     ? stepId === 'compose'
@@ -2473,9 +2521,11 @@ export const SmsFlow = ({
                 ? NAME_ONLY_COPY.title
                 : stepId === 'review' && buildMode
                   ? 'Review and verify'
-                  : stepId === 'review' && isFreeSend
-                    ? 'Review and send'
-                    : STEP_TITLES[stepId]
+                  : stepId === 'review' && reviewInFooter
+                    ? 'Review and pay'
+                    : stepId === 'review' && isFreeSend
+                      ? 'Review and send'
+                      : STEP_TITLES[stepId]
       }
       headerBadge={
         managed ? (
@@ -2996,6 +3046,7 @@ export const SmsFlow = ({
             onRetryBuild={handleRetryPhoneListBuild}
             readOnlySummary={buildMode}
             onComplete={handleScheduled}
+            {...(reviewInFooter && { onFooterCtaChange: setReviewCta })}
           />
           {draftGate.draftSaveError && (
             <p className="mt-4 text-sm text-destructive">

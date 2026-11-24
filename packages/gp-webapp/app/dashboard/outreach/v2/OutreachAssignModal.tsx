@@ -22,7 +22,8 @@ import {
   SearchIcon,
 } from '@styleguide/components/ui/icons'
 import { cn } from '@styleguide/lib/utils'
-import { ROLE_LABELS, formatName } from 'app/dashboard/team/team.util'
+import { formatName } from 'app/dashboard/team/team.util'
+import { useRoleLabel } from 'app/dashboard/team/useRoleLabel'
 
 export const initialsFor = (name: string): string =>
   name
@@ -33,20 +34,6 @@ export const initialsFor = (name: string): string =>
     .join('') || '?'
 
 type RoleFilter = 'all' | 'owner' | 'campaignAdmin' | 'volunteer'
-
-// ROLE_LABELS is a Record<string, string> (team.util.ts keeps it that wide so
-// an unmapped wire role never renders raw elsewhere) — noUncheckedIndexedAccess
-// reads every access through it as possibly-undefined, so these fallbacks
-// exist only to satisfy that; the three keys below are always present.
-const ROLE_FILTERS: { value: RoleFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'owner', label: ROLE_LABELS.owner ?? 'Owner' },
-  {
-    value: 'campaignAdmin',
-    label: ROLE_LABELS.campaignAdmin ?? 'Campaign Manager',
-  },
-  { value: 'volunteer', label: ROLE_LABELS.volunteer ?? 'Volunteer' },
-]
 
 interface OutreachAssignModalProps {
   open: boolean
@@ -89,6 +76,13 @@ export const OutreachAssignModal = ({
   onRetryTeamQuery,
   onInviteVolunteer,
 }: OutreachAssignModalProps): React.JSX.Element => {
+  const getRoleLabel = useRoleLabel()
+  const roleFilters: { value: RoleFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'owner', label: getRoleLabel('owner') },
+    { value: 'campaignAdmin', label: getRoleLabel('campaignAdmin') },
+    { value: 'volunteer', label: getRoleLabel('volunteer') },
+  ]
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
 
@@ -140,7 +134,7 @@ export const OutreachAssignModal = ({
             if (value) setRoleFilter(value as RoleFilter)
           }}
         >
-          {ROLE_FILTERS.map((filter) => (
+          {roleFilters.map((filter) => (
             <ToggleGroupItem key={filter.value} value={filter.value}>
               {filter.label}
             </ToggleGroupItem>
@@ -198,7 +192,7 @@ export const OutreachAssignModal = ({
                         {displayName}
                       </span>
                       <Badge variant="soft" shape="pill">
-                        {ROLE_LABELS[member.role] ?? member.role}
+                        {getRoleLabel(member.role)}
                       </Badge>
                     </div>
                     <p className="m-0 truncate text-xs text-muted-foreground">

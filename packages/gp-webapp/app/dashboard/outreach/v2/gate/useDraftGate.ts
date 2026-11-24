@@ -59,6 +59,10 @@ export interface DraftGate {
   pitchOpen: boolean
   // "Join Pro" on that dialog: the wizard takes the step's place.
   joinPitch: () => void
+  // The pitch from a gesture that saves nothing (a chat card's "Join Pro to
+  // send"): the same dialog, and finishing or leaving it returns the
+  // candidate to the step they were on.
+  openPitch: (cta?: string) => void
   // Back off the wizard's first step returns to the pitch when the gate was
   // reached through it. Unset otherwise, so the wizard falls back to its own
   // interstitial as it always has.
@@ -105,6 +109,9 @@ export const useDraftGate = ({
   const [gateOrigin, setGateOrigin] = useState<GateOrigin>(null)
   const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [pitchOpen, setPitchOpen] = useState(false)
+  // The pitch came from a gesture that saves nothing (openPitch), so the
+  // wizard's Back returns to it just as it does after a save.
+  const [pitchFromCard, setPitchFromCard] = useState(false)
   const [explainerOpen, setExplainerOpen] = useState(false)
 
   // Reopening starts fresh, exactly as the rest of the flow state does.
@@ -118,6 +125,7 @@ export const useDraftGate = ({
     setGateOrigin(null)
     setGateCta(undefined)
     setPitchOpen(false)
+    setPitchFromCard(false)
     setExplainerOpen(false)
   }, [open, resumeDraft])
 
@@ -239,6 +247,13 @@ export const useDraftGate = ({
     setGateOpen(true)
   }, [])
 
+  const openPitch = useCallback((cta?: string): void => {
+    setGateOrigin('explainer')
+    setGateCta(cta)
+    setPitchFromCard(true)
+    setPitchOpen(true)
+  }, [])
+
   const backToPitch = useCallback((): void => {
     setGateOpen(false)
     setPitchOpen(true)
@@ -260,8 +275,11 @@ export const useDraftGate = ({
     gateCta,
     pitchOpen,
     joinPitch,
+    openPitch,
     wizardBack:
-      pitchAsDialog && gateOrigin === 'save' ? backToPitch : undefined,
+      pitchAsDialog && (gateOrigin === 'save' || pitchFromCard)
+        ? backToPitch
+        : undefined,
     explainerOpen,
     setExplainerOpen,
     savingDraft,

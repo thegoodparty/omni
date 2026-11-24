@@ -96,6 +96,29 @@ describe('TeamPage invite gate', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps the Team info box above the table for a gated Pro owner with the flag off', async () => {
+    state.plan = 'pro'
+    render(<TeamPage />)
+
+    expect(
+      await screen.findByText('Logins for your team come with Team'),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/You pay the \$100 difference/)).toBeInTheDocument()
+  })
+
+  it('does not show the info box to a Free owner or a manager with the flag off', async () => {
+    const { unmount } = render(<TeamPage />)
+    await screen.findByRole('button', { name: 'Invite' })
+    expect(screen.queryByText('Logins for your team come with Team')).toBeNull()
+    unmount()
+
+    state.plan = 'pro'
+    state.role = 'campaignAdmin'
+    render(<TeamPage />)
+    await screen.findByRole('button', { name: 'Invite' })
+    expect(screen.queryByText('Logins for your team come with Team')).toBeNull()
+  })
+
   describe('with win_per_campaign_pricing on (ENG-11764)', () => {
     const TITLE = 'Upgrade to invite your campaign team'
 
@@ -253,6 +276,24 @@ describe('TeamPage invite gate', () => {
     await user.click(screen.getByRole('button', { name: 'Send invite' }))
 
     expect(await screen.findByText(PITCH_TITLE)).toBeInTheDocument()
+  })
+
+  it('names the role card Campaign manager in the invite drawer with the flag on', async () => {
+    const user = userEvent.setup()
+    state.flagOn = true
+    state.invites = { allowed: true, reason: null }
+    mockTeam()
+    render(<TeamPage />)
+
+    await user.click(await screen.findByRole('button', { name: 'Invite' }))
+    await user.type(screen.getByLabelText('Name'), 'New Person')
+    await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      screen.getByRole('radio', { name: /Campaign manager/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: /Campaign Manager/ })).toBeNull()
   })
 
   it('tells a manager the owner must upgrade instead of opening checkout', async () => {
