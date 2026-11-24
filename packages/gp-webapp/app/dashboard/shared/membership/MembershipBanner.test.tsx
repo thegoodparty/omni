@@ -341,37 +341,13 @@ describe('MembershipBanner', () => {
 })
 
 describe('MembershipBanner plan copy', () => {
-  it('shows the Pro price and no plans link for a free campaign with the flag on', () => {
-    mockPlanFlag.enabled = true
-    setup({ state: membership({ tier: 'free' }) })
-
-    expect(
-      screen.getByText(
-        'Unlock voter data and outreach with Pro for $299. Good for your whole campaign.',
-      ),
-    ).toBeInTheDocument()
-    expect(document.body.textContent).not.toMatch(/\$10\b|\/mo|a month/)
-    expect(screen.getByText('See what you get')).toBeInTheDocument()
-    expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
-  })
-
-  it('keeps the legacy copy with the flag off', () => {
-    setup({ state: membership({ tier: 'free' }) })
-
-    expect(
-      screen.getByText(MEMBERSHIP_COPY.banner.free.body),
-    ).toBeInTheDocument()
-    expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
-  })
-
-  it('pitches Team under a TEAM pill in a large race', () => {
-    mockPlanFlag.enabled = true
+  const setupLarge = () => {
     mockUseMembershipState.mockReturnValue({
       ready: true,
       state: membership({ tier: 'free' }),
       tcrCompliance: { status: 'submitted' },
     })
-    render(
+    return render(
       <CampaignContext.Provider
         value={[
           {
@@ -384,12 +360,59 @@ describe('MembershipBanner plan copy', () => {
         <MembershipBanner />
       </CampaignContext.Provider>,
     )
+  }
+
+  it('shows the Pro price a race with the Pro badge, and opens the plan page', async () => {
+    const user = userEvent.setup()
+    mockPlanFlag.enabled = true
+    setup({ state: membership({ tier: 'free' }) })
+
+    expect(
+      screen.getByText('Unlock voter data and outreach for $299 a race.'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('PRO')).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/\$10\b|\/mo|a month/)
+    expect(screen.getByText('See what you get')).toBeInTheDocument()
+    expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button'))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/plans')
+    expect(screen.queryByText(/^pitch:/)).toBeNull()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Membership.BannerClicked,
+      { path: '/' },
+    )
+  })
+
+  it('keeps the legacy copy and the pitch dialog with the flag off', async () => {
+    const user = userEvent.setup()
+    setup({ state: membership({ tier: 'free' }) })
+
+    expect(
+      screen.getByText(MEMBERSHIP_COPY.banner.free.body),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('See all plans')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button'))
+
+    expect(screen.getByText('pitch:true')).toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('pitches Team under a TEAM badge in a large race and opens the plan page on Team', async () => {
+    const user = userEvent.setup()
+    mockPlanFlag.enabled = true
+    setupLarge()
 
     expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
     expect(
-      screen.getByText(
-        'Unlock voter data and outreach for your whole team for $399. Good for your whole campaign.',
-      ),
+      screen.getByText('Unlock voter data and outreach for $399 a race.'),
     ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button'))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/plans?highlight=team')
+    expect(screen.queryByText(/^pitch:/)).toBeNull()
   })
 })

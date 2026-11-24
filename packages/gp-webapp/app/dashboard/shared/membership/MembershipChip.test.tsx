@@ -9,8 +9,7 @@ import type { MembershipState } from './deriveMembershipState'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
 import type { Campaign } from 'helpers/types'
 import { PLAN_PRICING } from '@goodparty_org/contracts'
-import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
-import { buildPlanPitch } from '../plan/planPitch'
+import { MEMBERSHIP_COPY } from './membershipCopy'
 import { MembershipChip } from './MembershipChip'
 
 const { mockUseMembershipState } = vi.hoisted(() => ({
@@ -224,31 +223,42 @@ describe('MembershipChip plan copy', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('reads the Pro price tail with the flag on', () => {
+  it('reads Upgrade with an arrow, no badge or price, and opens the plan page', async () => {
+    const user = userEvent.setup()
     mockPlanFlag.enabled = true
     setup({ state: membership({ tier: 'free' }) })
 
-    expect(
-      screen.getByText(
-        membershipPlanCopy(buildPlanPitch(true, true, false)).chipJoinTail,
-      ),
-    ).toBeInTheDocument()
+    const chip = screen.getByRole('button')
+    expect(chip).toHaveTextContent(/^Upgrade$/)
+    expect(chip.querySelector('svg')).not.toBeNull()
+    expect(screen.queryByLabelText('PRO')).toBeNull()
+    expect(screen.queryByRole('img')).toBeNull()
     expect(screen.queryByText(MEMBERSHIP_COPY.chip.joinTail)).toBeNull()
+
+    await user.click(chip)
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/plans')
+    expect(screen.queryByText(/^pitch:/)).toBeNull()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Membership.BannerClicked,
+      { path: '/' },
+    )
   })
 
-  it('shows the TEAM pill instead of the Pro badge when Team is recommended', () => {
+  it('reads the same and opens the plan page on Team when Team is recommended', async () => {
+    const user = userEvent.setup()
     mockPlanFlag.enabled = true
     setup({
       state: membership({ tier: 'free' }),
       registeredVoters: PLAN_PRICING.teamRecommendVoterThreshold + 1,
     })
 
-    expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
-    expect(screen.queryByAltText(/pro/i)).toBeNull()
-    expect(
-      screen.getByText(
-        membershipPlanCopy(buildPlanPitch(true, true, true)).chipJoinTail,
-      ),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button')).toHaveTextContent(/^Upgrade$/)
+    expect(screen.queryByRole('img', { name: 'TEAM' })).toBeNull()
+
+    await user.click(screen.getByRole('button'))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/plans?highlight=team')
+    expect(screen.queryByText(/^pitch:/)).toBeNull()
   })
 })
