@@ -214,7 +214,7 @@ describe('a Campaign Manager text card', () => {
   it('shows a free campaign the draft, who gets it and when, with Edit and Join Pro to send', async () => {
     renderFreeCard({ ...card, sendDate: '2026-10-06' })
 
-    expect(await screen.findByText('I drafted your first text')).toBeVisible()
+    expect(await screen.findByText('I drafted a text for you')).toBeVisible()
     expect(screen.getByText(MESSAGE)).toBeVisible()
     expect(screen.getByTestId('proposal-meta')).toHaveTextContent(
       'To 58,520 voters · Likely voters in Ward 3 · Tue, Oct 6',
@@ -228,7 +228,7 @@ describe('a Campaign Manager text card', () => {
   it('leaves the date out when the agent sent none', async () => {
     renderFreeCard()
 
-    await screen.findByText('I drafted your first text')
+    await screen.findByText('I drafted a text for you')
     expect(screen.getByTestId('proposal-meta')).toHaveTextContent(
       'To 58,520 voters · Likely voters in Ward 3',
     )
@@ -238,7 +238,7 @@ describe('a Campaign Manager text card', () => {
   it('skips a send date the calendar does not have instead of crashing', async () => {
     renderFreeCard({ ...card, sendDate: '2026-02-31' })
 
-    await screen.findByText('I drafted your first text')
+    await screen.findByText('I drafted a text for you')
     expect(screen.getByTestId('proposal-meta')).toHaveTextContent(
       'To 58,520 voters · Likely voters in Ward 3',
     )
@@ -265,7 +265,7 @@ describe('a Campaign Manager text card', () => {
   ])('opens the flow on the draft, with no gate, from %s', async (_n, find) => {
     renderFreeCard()
 
-    await screen.findByText('I drafted your first text')
+    await screen.findByText('I drafted a text for you')
     await waitFor(() => expect(find()).toBeEnabled())
     await userEvent.click(find())
 
@@ -279,11 +279,45 @@ describe('a Campaign Manager text card', () => {
     )
   })
 
+  it.each([
+    ['Edit', () => screen.getByRole('button', { name: 'Edit' })],
+    [
+      'Join Pro to send',
+      () => screen.getByRole('button', { name: 'Join Pro to send' }),
+    ],
+  ])(
+    "hands the card's send date to the text flow from %s",
+    async (_n, find) => {
+      renderFreeCard({ ...card, sendDate: '2026-10-06' })
+
+      await screen.findByText('I drafted a text for you')
+      await waitFor(() => expect(find()).toBeEnabled())
+      await userEvent.click(find())
+
+      expect(await screen.findByTestId('sms-flow')).toBeInTheDocument()
+      expect(smsFlow.props?.initialSendDate).toBe('2026-10-06')
+    },
+  )
+
+  it('hands the text flow no send date when the card has none', async () => {
+    renderFreeCard()
+
+    await screen.findByText('I drafted a text for you')
+    const edit = screen.getByRole('button', { name: 'Edit' })
+    await waitFor(() => expect(edit).toBeEnabled())
+    await userEvent.click(edit)
+
+    expect(await screen.findByTestId('sms-flow')).toBeInTheDocument()
+    expect(smsFlow.props).not.toHaveProperty('initialSendDate')
+  })
+
   it('still sends a free phone banking card to the pitch from Join Pro to send, and to the flow from Edit', async () => {
     phoneBankingFlow.props = null
     renderFreeCard({ ...card, channel: 'phoneBanking' })
 
-    expect(await screen.findByText('I drafted your call script')).toBeVisible()
+    expect(
+      await screen.findByText('I drafted a phone banking script for you'),
+    ).toBeVisible()
     const join = screen.getByRole('button', { name: 'Join Pro to send' })
     await waitFor(() => expect(join).toBeEnabled())
     await userEvent.click(join)

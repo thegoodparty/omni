@@ -136,6 +136,7 @@ import {
   SmsScheduleStep,
   TIME_OPTIONS,
 } from './SmsScheduleStep'
+import { seedSendDate } from './smsSendDate.util'
 import {
   ServeSmsScheduleStep,
   serveSmsScheduledAt,
@@ -422,6 +423,10 @@ interface SmsFlowProps {
   // opens on the card's draft with the Pro pitch already over it. Nothing is
   // saved; leaving the pitch lands on the draft, as Edit would have.
   openProGate?: boolean
+  // The day a chat card suggested ("YYYY-MM-DD"). The schedule step opens on
+  // it when the picker would allow it; a past, invalid or too-soon day is
+  // dropped and the official picks.
+  initialSendDate?: string
   // An audience a chat card counted but did not save: the audience step
   // opens on the list builder already filled in, and saves it when the
   // official confirms and names it.
@@ -714,6 +719,7 @@ export const SmsFlow = ({
   launchSource,
   initialScript,
   initialPurpose,
+  initialSendDate,
   proposedAudience,
   proposalLink,
   audienceSettled = false,
@@ -1147,7 +1153,7 @@ export const SmsFlow = ({
     setNameEdited(Boolean(resumeDraft?.name))
     lastAutoName.current = ''
     lastDatePart.current = ''
-    setDate(undefined)
+    setDate(seedSendDate(initialSendDate))
     setTimeSlot('10')
     setCustomTime('10:00')
     setImage(null)
@@ -1170,6 +1176,7 @@ export const SmsFlow = ({
     resetEventDetails,
     initialScript,
     initialPurpose,
+    initialSendDate,
     preselectedRecommendedVariant,
     resumeDraft,
     surface,

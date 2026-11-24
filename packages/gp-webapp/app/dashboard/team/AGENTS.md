@@ -20,7 +20,10 @@ the People table's Doors / Calls / Total / Last active columns, read from
 ## Role vocabulary (locked)
 
 UI labels are **Owner / Campaign Manager / Volunteer**, read from
-`team.util.ts`'s `ROLE_LABELS` — never restated as literals. Never "Admin"
+`team.util.ts`'s `ROLE_LABELS` — never restated as literals. Display sites
+read them through `useRoleLabel` (`roleLabel` outside React), which sentence-cases
+Campaign Manager to "Campaign manager" under `win_per_campaign_pricing`; the
+constant itself never changes. Never "Admin"
 (collides with the internal super-admin role in support conversations) and
 never "Candidate" (the account creator isn't always the candidate). The
 Lovable prototype (joy-navigate-palette.lovable.app) still uses the OLD
@@ -37,7 +40,7 @@ can't drift.
 | `components/TeamPage.tsx`           | The page: "How roles work" card, People table, Pending invites table, and the revoke/remove/role-change mutations                                                                                     |
 | `components/InviteMemberDrawer.tsx` | The team page's Invite: a two-step bottom drawer (ENG-11058/ENG-11067) — step 1 name/phone/email, step 2 role cards                                                                                   |
 | `components/InviteMemberDialog.tsx` | The single-step dialog kept for the outreach drawer's list-scoped entry point — it knows `role`/`outreachId` up front, so it has no step to pick either                                               |
-| `team.util.ts`                      | `ROLE_LABELS`, `ROLE_DESCRIPTIONS`, `teamQueryKey`, `formatName`, `toInviteErrorMessage` — shared with the outreach assignees section so the vocabulary and cache key can't drift                     |
+| `team.util.ts`                      | `ROLE_LABELS`, `roleLabel`, `ROLE_DESCRIPTIONS`, `teamQueryKey`, `formatName`, `toInviteErrorMessage` — shared with the outreach assignees section so the vocabulary and cache key can't drift                     |
 
 ## Patterns and gotchas
 

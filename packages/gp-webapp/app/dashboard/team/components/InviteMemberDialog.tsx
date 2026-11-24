@@ -16,6 +16,7 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { toInviteErrorMessage } from '../team.util'
+import { useRoleLabel } from '../useRoleLabel'
 
 interface InviteMemberDialogProps {
   open: boolean
@@ -39,7 +40,8 @@ const InviteMemberDialog = ({
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const roleLabel = role === 'volunteer' ? 'Volunteer' : 'Campaign Manager'
+  const getRoleLabel = useRoleLabel()
+  const roleLabel = getRoleLabel(role)
 
   useEffect(() => {
     if (open) {

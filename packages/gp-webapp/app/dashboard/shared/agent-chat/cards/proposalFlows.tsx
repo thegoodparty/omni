@@ -22,6 +22,7 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import type { ProUpgradeChannel } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
@@ -252,6 +253,7 @@ export const ProposalFlowsProvider = ({
   const queryClient = useQueryClient()
   // Not the treatment surface: the outreach page's SMS card is.
   const sms = useServeSmsFlag(false)
+  const { enabled: planPricing } = useWinPerCampaignPricingFlag(false)
   const winText = useWinOutreachGate(mode === 'win')
   // useSmsCompliance reads 'open' until the campaign loads, so closed is
   // already resolved.
@@ -610,6 +612,8 @@ export const ProposalFlowsProvider = ({
           {...(proposedAudience && { proposedAudience })}
           audienceSettled={readyListId !== undefined}
           {...(opened.proGate && { openProGate: true })}
+          {...(planPricing &&
+            proposal.sendDate && { initialSendDate: proposal.sendDate })}
           {...(winProposalLink && { proposalLink: winProposalLink })}
           onProposalCreateFailed={proposalCreateFailed}
           source="campaign_manager"
