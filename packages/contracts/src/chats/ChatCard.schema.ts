@@ -1,4 +1,7 @@
-import { ProposalEventSchema } from '../outreach/OutreachEvent.schema'
+import {
+  EventDateSchema,
+  ProposalEventSchema,
+} from '../outreach/OutreachEvent.schema'
 import { z } from 'zod'
 import { SupportStatusRollupSchema } from '../generated/enums'
 import {
@@ -118,6 +121,11 @@ export const OutreachProposalSchema = z.object({
   listName: z.string().nullish(),
   /** What goes out under the official's name. */
   message: z.string().min(1),
+  sendDate: EventDateSchema.optional().describe(
+    'The day (YYYY-MM-DD) you suggest sending this. The card shows it ' +
+      'beside the audience. Leave it out when you have no date in mind; ' +
+      'never guess one.',
+  ),
   civicPanelAsk: z
     .boolean()
     .optional()

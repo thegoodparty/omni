@@ -46,6 +46,19 @@ describe('OutreachProposalSchema', () => {
     })
   })
 
+  it('carries an optional send date and refuses a malformed one', () => {
+    expect(OutreachProposalSchema.parse(proposal)).not.toHaveProperty(
+      'sendDate',
+    )
+    expect(
+      OutreachProposalSchema.parse({ ...proposal, sendDate: '2026-10-05' }),
+    ).toMatchObject({ sendDate: '2026-10-05' })
+    expect(
+      OutreachProposalSchema.safeParse({ ...proposal, sendDate: 'Oct 5' })
+        .success,
+    ).toBe(false)
+  })
+
   it('refuses a sample past what one draw can hold', () => {
     expect(
       OutreachProposalSchema.safeParse({

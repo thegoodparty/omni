@@ -308,7 +308,7 @@ const WIN_AREAS: ProductArea[] = [
       `Free costs nothing. Pro is ${usd(PLAN_PRICING.proCents)} and Team is ${usd(PLAN_PRICING.teamCents)}, each paid once for the whole campaign`,
       `Pro and Team include ${usd(PLAN_PRICING.includedCreditCents)} in outreach credit for texts and robocalls. Team adds logins for teammates`,
       `Joining Team from Pro costs the ${usd(PLAN_PRICING.teamCents - PLAN_PRICING.proCents)} difference, and the outreach credit comes along`,
-      'When the campaign agent drafts a text or call on the Free plan, the card keeps the draft and its button reads Join Pro to send, whatever the race size. It opens the Pro pitch',
+      'When the campaign agent drafts a text or call on the Free plan, the card shows the draft message, who it goes to and the send date when the agent suggests one. It has two buttons. Edit (or the message itself) opens the outreach flow with the draft, and the Pro pitch comes up when they try to send. Join Pro to send opens the flow with the Pro pitch over it. Both pitch Pro, whatever the race size',
       'The current plan is marked, and its button is off',
       'Pro and Team each have a button that starts the upgrade. A Pro campaign pays only the difference to join Team',
     ],

@@ -59,6 +59,10 @@ export interface DraftGate {
   pitchOpen: boolean
   // "Join Pro" on that dialog: the wizard takes the step's place.
   joinPitch: () => void
+  // The pitch from a gesture that saves nothing (a chat card's "Join Pro to
+  // send"): the same dialog, and finishing or leaving it returns the
+  // candidate to the step they were on.
+  openPitch: (cta?: string) => void
   // Back off the wizard's first step returns to the pitch when the gate was
   // reached through it. Unset otherwise, so the wizard falls back to its own
   // interstitial as it always has.
@@ -239,6 +243,12 @@ export const useDraftGate = ({
     setGateOpen(true)
   }, [])
 
+  const openPitch = useCallback((cta?: string): void => {
+    setGateOrigin('explainer')
+    setGateCta(cta)
+    setPitchOpen(true)
+  }, [])
+
   const backToPitch = useCallback((): void => {
     setGateOpen(false)
     setPitchOpen(true)
@@ -260,6 +270,7 @@ export const useDraftGate = ({
     gateCta,
     pitchOpen,
     joinPitch,
+    openPitch,
     wizardBack:
       pitchAsDialog && gateOrigin === 'save' ? backToPitch : undefined,
     explainerOpen,
