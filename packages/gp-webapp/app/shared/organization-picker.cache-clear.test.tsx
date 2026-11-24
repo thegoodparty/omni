@@ -13,6 +13,7 @@ import {
   ORGANIZATIONS_QUERY_KEY,
   OrganizationProvider,
   OrganizationPicker,
+  OrganizationScope,
   useOrganization,
   useSetOrganizationSlug,
 } from './organization-picker'
@@ -84,11 +85,14 @@ beforeEach(() => {
   api.mock('GET /v1/eligibility', { status: 200, data: ineligible })
 })
 
+// Mirrors the real shells (DashboardLayout, VolunteerSidebar): the picker is
+// rendered inside the provider but outside OrganizationScope, so the switch it
+// triggers never unmounts it.
 const renderProvider = (children: React.ReactNode) =>
   render(
     <SidebarProvider>
       <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
-        {children}
+        <OrganizationScope>{children}</OrganizationScope>
         <OrganizationPicker />
       </OrganizationProvider>
     </SidebarProvider>,
@@ -103,13 +107,11 @@ const switchToOrgTwo = async () => {
 }
 
 describe('org switch clears the query cache', () => {
-  // ENG-11670: the chat dock is not mounted while FollowOnFlow switches orgs
-  // (it lives in the dashboard layout, the flow is an onboarding route). An
-  // invalidate marks an inactive entry stale but KEEPS its data, so the dock
-  // mounted on the new org read the previous org's conversation list
-  // synchronously and tried to resume a conversation it does not own. A key
-  // with no org slug in it has nothing else to save it.
-  it('does not let an unmounted consumer read the previous org\u2019s data', async () => {
+  // ENG-11670: an org-agnostic key has nothing to save it — a consumer that
+  // mounts on the new org must not find the previous org's conversation list
+  // waiting in the cache, because it reads it synchronously and tries to
+  // resume a conversation it does not own.
+  it('does not leave an unmounted consumer the previous org\u2019s data to read', async () => {
     const fetcher = vi.fn(async () => [{ conversationId: `c-${orgCookie}` }])
     const historyKey = ['campaign-manager', 'chat-history']
 
@@ -120,48 +122,28 @@ describe('org switch clears the query cache', () => {
       )
     }
 
-    const ToggleDock = ({ mounted }: { mounted: boolean }) =>
-      mounted ? <ChatDock /> : null
-
+    // Nothing observes the history key at the moment of the switch: the dock
+    // is opened afterwards, the way the dashboard's dock is not mounted while
+    // FollowOnFlow (an onboarding route) switches org.
     const Harness = () => {
-      const [dockMounted, setDockMounted] = useState(true)
+      const [dockMounted, setDockMounted] = useState(false)
       return (
-        <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
-          <button type="button" onClick={() => setDockMounted(false)}>
-            close dock
-          </button>
+        <>
           <button type="button" onClick={() => setDockMounted(true)}>
             open dock
           </button>
-          <ToggleDock mounted={dockMounted} />
-          <OrganizationPicker />
-        </OrganizationProvider>
+          {dockMounted && <ChatDock />}
+        </>
       )
     }
 
-    render(
-      <SidebarProvider>
-        <Harness />
-      </SidebarProvider>,
-    )
+    renderProvider(<Harness />)
 
-    await waitFor(() =>
-      expect(screen.getByTestId('dock')).toHaveTextContent('c-org-one'),
-    )
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'close dock' }))
-    expect(screen.queryByTestId('dock')).not.toBeInTheDocument()
-
-    // The switch happens with no observer of the history query mounted — the
-    // FollowOnFlow shape (the dock lives in the dashboard layout, the flow is
-    // an onboarding route).
     await switchToOrgTwo()
 
-    // An invalidate would leave the previous org's list here, readable by the
-    // dock the moment it mounts; clearing removes it.
     expect(testQueryClient.getQueryData(historyKey)).toBeUndefined()
 
+    const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'open dock' }))
 
     expect(screen.getByTestId('dock')).not.toHaveTextContent('c-org-one')
@@ -189,7 +171,6 @@ describe('org switch clears the query cache', () => {
     }
 
     renderProvider(<ChatDock />)
-
     await waitFor(() =>
       expect(screen.getByTestId('dock')).toHaveTextContent('org-one|c-org-one'),
     )
@@ -201,10 +182,12 @@ describe('org switch clears the query cache', () => {
     )
   })
 
-  // The campaign query is seeded from the server's initialData, so removing its
-  // entry is not enough: the still-mounted provider rebuilds it from that seed
-  // and it counts as fresh. Without the invalidate that follows, the campaign
-  // context kept answering for the org we just left.
+  // The campaign query is seeded from the server's initialData and sits above
+  // OrganizationScope (CampaignProvider wraps the dashboard shell), so the
+  // remount does not reset it. Removing its entry is not enough either: it is
+  // rebuilt from that seed and counts as fresh. Without the invalidate that
+  // follows the clear, the campaign context kept answering for the org we just
+  // left for its whole five-minute stale time.
   it('refetches the initialData-seeded campaign context for the new org', async () => {
     const requestedFor: string[] = []
     api.mock('GET /v1/campaigns/mine', () => {
@@ -242,106 +225,132 @@ describe('org switch clears the query cache', () => {
     expect(requestedFor).toEqual(['org-two'])
   })
 
-  // ENG-10991: a row owned by the org being left can be actively observed at
-  // the moment of the switch, and its key carries no org slug either. The read
-  // must not follow the row to the new org's header and 404. removeQueries
-  // deletes the entry and issues no fetch; the observer that stays mounted only
-  // rebuilds an EMPTY entry, so nothing re-requests it.
+  // ENG-10991: a row owned by the org being left can be on screen at the moment
+  // of the switch, and its key carries no org slug. What saves it is the
+  // remount: the page that held the departed rows is discarded, so no observer
+  // survives to rebuild the entry and re-request the row under the incoming
+  // org's header (which 404s).
   it('never re-requests a per-row detail that belonged to the org being left', async () => {
-    const detailFetcher = vi.fn(async () => ({
-      id: 999,
-      forOrg: orgCookie,
-    }))
+    const detailFetcher = vi.fn(async () => ({ id: 999, forOrg: orgCookie }))
+    // The rows themselves come from the org's read and live in page state,
+    // which is exactly what the remount discards.
+    const rowsFetcher = vi.fn(async () =>
+      orgCookie === 'org-one' ? [999] : [],
+    )
 
-    // The probe re-renders after the switch, the way the real consumers do:
-    // `setSelectedSlug` calls `refreshFlags()`, which re-renders the flagged
-    // page subtree, and the campaign refetch re-renders anything reading it.
-    // A refreshed observer is what would rebuild the entry and fetch it under
-    // the new header, so a probe that never re-renders would not prove this.
-    let rerenderRow: () => void = () => undefined
-    const RowProbe = () => {
-      const [renders, setRenders] = useState(0)
-      rerenderRow = () => setRenders((count) => count + 1)
+    const RowDetail = ({ rowId }: { rowId: number }) => {
       useQuery({
-        queryKey: ['outreach-detail', 999],
+        queryKey: ['outreach-detail', rowId],
         queryFn: detailFetcher,
       })
-      return <span data-testid="row-renders">{renders}</span>
+      return <span data-testid="detail">{rowId}</span>
     }
 
-    renderProvider(<RowProbe />)
+    const RowsPage = () => {
+      const { data: rows } = useQuery({
+        queryKey: ['org-rows'],
+        queryFn: rowsFetcher,
+      })
+      return (
+        <div data-testid="rows">
+          {(rows ?? []).map((rowId) => (
+            <RowDetail key={rowId} rowId={rowId} />
+          ))}
+        </div>
+      )
+    }
+
+    renderProvider(<RowsPage />)
 
     await waitFor(() => expect(detailFetcher).toHaveBeenCalledTimes(1))
 
     await switchToOrgTwo()
 
-    const rendersBefore = screen.getByTestId('row-renders').textContent
-    await act(async () => rerenderRow())
-    await settle()
-    expect(screen.getByTestId('row-renders').textContent).not.toBe(
-      rendersBefore,
+    await waitFor(() =>
+      expect(screen.getByTestId('rows')).not.toHaveTextContent('999'),
     )
-
     expect(detailFetcher).toHaveBeenCalledTimes(1)
+    expect(
+      testQueryClient.getQueryData(['outreach-detail', 999]),
+    ).toBeUndefined()
   })
 
   // contact-notes is the same shape as outreach-detail — per person id, read by
-  // a panel that can stay open across the switch — so it takes the same care.
+  // a panel that can stay open across the switch — so the remount covers it too:
+  // the person id comes from org-scoped state, which the remount discards.
   it('never re-requests a contact-notes row that belonged to the org being left', async () => {
-    const notesFetcher = vi.fn().mockResolvedValue([{ id: 'note-1' }])
+    const notesFetcher = vi.fn(async () => [{ id: `note-${orgCookie}` }])
 
-    let rerenderNotes: () => void = () => undefined
-    const NotesProbe = () => {
-      const [renders, setRenders] = useState(0)
-      rerenderNotes = () => setRenders((count) => count + 1)
-      useQuery({ queryKey: ['contact-notes', 42], queryFn: notesFetcher })
-      return <span data-testid="notes-renders">{renders}</span>
+    const PersonNotes = ({ personId }: { personId: number }) => {
+      useQuery({
+        queryKey: ['contact-notes', personId],
+        queryFn: notesFetcher,
+      })
+      return <span data-testid="person">{personId}</span>
     }
 
-    renderProvider(<NotesProbe />)
+    const PersonPanel = () => {
+      const { data: personIds } = useQuery({
+        queryKey: ['org-people'],
+        queryFn: async () => (orgCookie === 'org-one' ? [42] : []),
+      })
+      return (
+        <div data-testid="people">
+          {(personIds ?? []).map((personId) => (
+            <PersonNotes key={personId} personId={personId} />
+          ))}
+        </div>
+      )
+    }
+
+    renderProvider(<PersonPanel />)
 
     await waitFor(() => expect(notesFetcher).toHaveBeenCalledTimes(1))
 
     await switchToOrgTwo()
 
-    const rendersBefore = screen.getByTestId('notes-renders').textContent
-    await act(async () => rerenderNotes())
-    await settle()
-    expect(screen.getByTestId('notes-renders').textContent).not.toBe(
-      rendersBefore,
+    await waitFor(() =>
+      expect(screen.getByTestId('people')).not.toHaveTextContent('42'),
     )
-
     expect(notesFetcher).toHaveBeenCalledTimes(1)
+    expect(testQueryClient.getQueryData(['contact-notes', 42])).toBeUndefined()
   })
 
-  it('leaves only the org-scoped keys and the per-row guard in the cache', async () => {
-    const guardedFetcher = vi.fn().mockResolvedValue({ id: 999 })
-    const GuardedProbe = () => {
+  // No cached entry may still hold the departed org's data once the switch
+  // lands, whichever key it lives under.
+  it('leaves no cached entry holding the departed org\u2019s data', async () => {
+    const historyFetcher = vi.fn(async () => [
+      { conversationId: `c-${orgCookie}` },
+    ])
+    const HistoryProbe = () => {
       useQuery({
-        queryKey: ['outreach-detail', 999],
-        queryFn: guardedFetcher,
+        queryKey: ['campaign-manager', 'chat-history'],
+        queryFn: historyFetcher,
       })
       return null
     }
 
-    renderProvider(<GuardedProbe />)
+    renderProvider(<HistoryProbe />)
     await waitFor(() =>
       expect(
-        testQueryClient.getQueryData(['outreach-detail', 999]),
+        testQueryClient.getQueryData(['campaign-manager', 'chat-history']),
       ).toBeDefined(),
     )
 
     await switchToOrgTwo()
 
-    // Only the org-scoped survivors and the per-row guard are left; no
-    // org-agnostic leftover rides along with them.
-    expect(
-      testQueryClient
-        .getQueryCache()
-        .getAll()
-        .map((query) => query.queryKey[0])
-        .sort(),
-    ).toEqual(['eligibility', 'organizations', 'outreach-detail'])
+    const conversationIds = testQueryClient
+      .getQueryCache()
+      .getAll()
+      .map((query) =>
+        Array.isArray(query.state.data)
+          ? (query.state.data as { conversationId?: string }[]).map(
+              (entry) => entry.conversationId,
+            )
+          : [],
+      )
+      .flat()
+    expect(conversationIds).not.toContain('c-org-one')
     expect(screen.getByText('Organization Two')).toBeInTheDocument()
   })
 

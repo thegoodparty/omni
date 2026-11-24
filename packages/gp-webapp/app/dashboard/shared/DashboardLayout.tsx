@@ -19,7 +19,7 @@ import {
   useSidebar,
 } from '@styleguide'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
-import { useOrganization } from '@shared/organization-picker'
+import { OrganizationScope, useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
 import { ElectedOfficeTermDatesModalController } from './ElectedOfficeTermDatesModalController'
 import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
@@ -184,6 +184,11 @@ const DashboardLayout = ({
     </div>
   )
 
+  // Everything below the sidebar reads org-scoped data, so the switch remounts
+  // it (OrganizationScope). The sidebar and the picker in it stay mounted: a
+  // switch taken from the picker must not unmount the picker mid-click.
+  const scopedBody = <OrganizationScope>{pageBody}</OrganizationScope>
+
   return (
     <SidebarProvider>
       {!hideMenu && (
@@ -206,10 +211,10 @@ const DashboardLayout = ({
         )}
         <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
           {hideChatDock ? (
-            pageBody
+            scopedBody
           ) : (
             <DashboardCampaignManagerChat>
-              {pageBody}
+              {scopedBody}
             </DashboardCampaignManagerChat>
           )}
         </NavHeaderActionSlotContext.Provider>

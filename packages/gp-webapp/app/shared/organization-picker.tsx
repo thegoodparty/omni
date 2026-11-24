@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -91,6 +92,18 @@ export const useSetOrganizationSlug = () => {
   return ctx.setSelectedSlug
 }
 
+// Everything that reads org-scoped data renders inside this, and nothing in
+// PageWrapper's provider stack does: a switch unmounts the subtree before the
+// cache clear lands, which is what removes the per-row query families' 404
+// (ENG-10991) and lets the clear exempt no keys but the list and eligibility.
+// The onboarding flows that select a slug they just created (FollowOnFlow,
+// ElectionResultPage, Test mode) stay outside every mount site of this, so a
+// switch cannot reset the state they are still using.
+export const OrganizationScope = ({ children }: { children: ReactNode }) => {
+  const organization = useOrganization()
+  return <Fragment key={organization?.slug ?? NO_ORG_KEY}>{children}</Fragment>
+}
+
 interface OrganizationProviderProps {
   children: ReactNode
   initialOrganizations: Organization[]
@@ -99,14 +112,7 @@ interface OrganizationProviderProps {
 
 export const ORGANIZATIONS_QUERY_KEY = ['organizations']
 export const ELIGIBILITY_QUERY_KEY = ['eligibility']
-// A row id never repeats across orgs, so no reader of the incoming org can ever
-// ask for one of these. They are also the one shape a cache clear cannot touch:
-// an observer that re-renders after the clear rebuilds its entry, and a rebuilt
-// entry fetches immediately — under the header of the org we just MOVED TO —
-// which 404s for a row the org we left owns (ENG-10991).
-const PER_ROW_QUERY_PREFIXES = ['outreach-detail', 'contact-notes']
-const isPerRowQuery = (queryKey: readonly unknown[]): boolean =>
-  PER_ROW_QUERY_PREFIXES.includes(String(queryKey[0]))
+const NO_ORG_KEY = 'no-org'
 
 export const OrganizationProvider = ({
   children,
@@ -183,57 +189,30 @@ export const OrganizationProvider = ({
       setRawSelectedSlug(slug)
       setCookie(ORG_SLUG_COOKIE, slug)
       void refreshFlags()
-      // The org list is the one exception to the clear below, and not because
-      // it is org-scoped: callers that create an org (FollowOnFlow,
-      // ElectionResultPage, Test mode) refresh this list and then select the
-      // new slug, so clearing it would drop the only copy that makes the new
-      // slug resolvable — `selectedOrganization` would fall back to
-      // `organizations[0]`, the stale-cookie repair would write that fallback
-      // over the cookie we just set, and every refetch would go out under the
-      // wrong org. Carried across by hand rather than kept by a predicate, so
-      // it still gets the background re-read the invalidate below triggers.
-      const organizationsBeforeClear = queryClient.getQueryData<Organization[]>(
-        ORGANIZATIONS_QUERY_KEY,
-      )
-      // Nothing else cached may outlive the org it was fetched for, except
-      // eligibility: it is per-user, and FollowOnFlow gates its whole wizard on
-      // it being resolved, so dropping it mid-flow flashes a loading state.
-      // Keys carrying no org slug — Campaign Manager's
-      // ['campaign-manager', 'chat-history'] among them — are how the chat dock
-      // resumed a conversation the new org does not own (ENG-11670):
-      // invalidation left their previous-org data readable, and a switch taken
-      // from a shared path never reloads the page to clear it.
+      // Nothing cached may outlive the org it was fetched for — every org-scoped
+      // family, including the ones that carry no slug in their key and used to
+      // be exempt (the per-row details, ENG-10991). The two survivors are not
+      // org-scoped: the list a switch resolves against, and the viewer's own
+      // eligibility, which FollowOnFlow gates its wizard on.
       queryClient.removeQueries({
         predicate: (query) =>
           query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
-          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0] &&
-          !isPerRowQuery(query.queryKey),
+          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0],
       })
-      if (organizationsBeforeClear) {
-        queryClient.setQueryData(
-          ORGANIZATIONS_QUERY_KEY,
-          organizationsBeforeClear,
-        )
-      }
     },
     [queryClient, refreshFlags],
   )
 
-  // Removing alone is not enough. A query seeded from the server's
-  // `initialData` is rebuilt from that seed by its still-mounted observer and
-  // comes back counting as fresh, so the campaign context and the org list went
-  // on answering for the org the user just left until their 5-minute stale time
-  // ran out. The children have rendered by the time this effect runs, so it
-  // marks exactly what the render brought back and refetches it under the new
-  // org.
+  // Removing alone is not enough: a query seeded from the server's
+  // `initialData` that outlives the clear — the campaign context, which is
+  // above `OrganizationScope` — counts as fresh, so it would answer for the org
+  // the user just left until its 5-minute stale time ran out. Refetch what the
+  // remounted tree subscribed, under the new org.
   const slugAtLastClear = useRef(selectedSlug)
   useEffect(() => {
     if (slugAtLastClear.current === selectedSlug) return
     slugAtLastClear.current = selectedSlug
-    void queryClient.invalidateQueries({
-      refetchType: 'active',
-      predicate: (query) => !isPerRowQuery(query.queryKey),
-    })
+    void queryClient.invalidateQueries({ refetchType: 'active' })
   }, [selectedSlug, queryClient])
 
   const contextValue = useMemo(

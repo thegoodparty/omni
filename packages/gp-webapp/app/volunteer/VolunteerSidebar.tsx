@@ -41,6 +41,7 @@ import {
   useOrganization,
   useOrganizations,
   useSetOrganizationSlug,
+  OrganizationScope,
 } from '@shared/organization-picker'
 
 // The volunteer shell: a left sidebar (logo/wordmark, a bottom user block that
@@ -262,7 +263,7 @@ const VolunteerSidebar = ({
             </span>
           )}
         </header>
-        {children}
+        <OrganizationScope>{children}</OrganizationScope>
       </SidebarInset>
     </SidebarProvider>
   )
