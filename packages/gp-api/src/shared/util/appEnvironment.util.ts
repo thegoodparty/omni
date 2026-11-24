@@ -104,6 +104,7 @@ export type MockedVendor =
   | 'vercel'
   | 'route53'
   | 'ses'
+  | 'scaleToWin'
 
 // Pure so it can be unit-tested without module-reset gymnastics.
 // Prod is always live. Every other env defaults to mock; VENDOR_MODE=live

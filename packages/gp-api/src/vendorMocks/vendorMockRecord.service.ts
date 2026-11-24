@@ -8,6 +8,9 @@ import {
   VERCEL_ORDER_STATUS,
   VercelOrderStateSchema,
 } from '@/vendors/vercel/schemas/vercelMock.schema'
+import { SCALE_TO_WIN_MOCK_KIND } from '@/vendors/scaleToWin/schemas/scaleToWinMock.schema'
+import { ScaleToWinCampaignStatus } from '@/vendors/scaleToWin/schemas/scaleToWinCampaign.schema'
+import { ScaleToWinLoadResult } from '@/vendors/scaleToWin/schemas/scaleToWinContacts.schema'
 
 const MAX_REQUESTS = 10
 const ROUTE_FAIL_KIND = 'route_fail'
@@ -635,6 +638,31 @@ export class VendorMockRecordService extends createPrismaBase(
       )
     }
     return this.patchState(VendorMockVendor.peerly, kind, identityId, patch)
+  }
+
+  async setScaleToWinCampaignStatus(
+    campaignId: string,
+    status: ScaleToWinCampaignStatus,
+  ) {
+    return this.patchState(
+      VendorMockVendor.scale_to_win,
+      SCALE_TO_WIN_MOCK_KIND.campaign,
+      campaignId,
+      { status },
+    )
+  }
+
+  // Stands in for the skip counts Scale to Win reports once a load finishes.
+  async setScaleToWinLoadResult(
+    campaignId: string,
+    result: ScaleToWinLoadResult,
+  ) {
+    return this.patchState(
+      VendorMockVendor.scale_to_win,
+      SCALE_TO_WIN_MOCK_KIND.campaign,
+      campaignId,
+      { scriptedLoadResult: result },
+    )
   }
 
   // Fail-closed to the known non-prod deploys, 404 rather than 403 so the
