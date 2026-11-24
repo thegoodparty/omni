@@ -3,9 +3,9 @@
 // out runs on the PMF Engine (packages/gp-api/src/agents/agents.registry.ts).
 //
 // prod names only an agent the Universal Judge has read as same or better
-// (docs/cap-consolidation.md); dev also names `top_community_issues`, which
-// the eval framework judges against the PMF Engine
-// (docs/agent-evals.md). A preview names every agent gp-api has,
+// (docs/cap-consolidation.md); dev also names the agents whose dev-versus-
+// preview comparison passed, which is where they accumulate real traffic
+// before prod (docs/agent-evals.md). A preview names every agent gp-api has,
 // because a preview is the judge's candidate arm and an agent it left out would
 // run the PMF Engine on both arms — comparing that engine with itself
 // (docs/agent-evals.md).
@@ -25,6 +25,13 @@ export const agentsOnGpApi = (
   environment: 'preview' | 'dev' | 'prod',
 ): string => {
   if (environment === 'preview') return PREVIEW_AGENTS_ON_GP_API.join(',')
-  if (environment === 'dev') return 'trending_issues,top_community_issues'
+  if (environment === 'dev')
+    return [
+      'trending_issues',
+      'top_community_issues',
+      'meeting_schedule',
+      'opportunities_and_challenges',
+      'opposition_research',
+    ].join(',')
   return 'trending_issues'
 }

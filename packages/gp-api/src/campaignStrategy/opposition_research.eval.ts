@@ -1,8 +1,10 @@
 import type { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 
-// opposition_research: the campaign plan's Opposition Research section, judged
-// against the PMF Engine's arm while both engines serve it. Converted from the
+// opposition_research: the campaign plan's Opposition Research section. Judged
+// against the PMF Engine's arm while the two engines split the arms (dev on the
+// PMF Engine, a preview on gp-api's); dev runs it on gp-api's engine now, so
+// this suite is a regression check. Converted from the
 // old judge's case list: `params` is `input`, and `condition`, `handledWhen` and
 // the dimension questions are `grading`.
 //
