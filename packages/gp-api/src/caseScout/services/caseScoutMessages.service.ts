@@ -17,6 +17,15 @@ import {
 // The Databricks view this replaces paged 2,000 rows 25 times; same bound.
 const MAX_MESSAGES_PER_READ = 50_000
 
+// created_at has no index, so the nightly read scans agent_message. Postgres
+// cancels it past this, and the job fails and alerts instead of loading the
+// primary. The transaction gets a little longer than the statement.
+const READ_STATEMENT_TIMEOUT_MS = 120_000
+const READ_TRANSACTION_OPTIONS = {
+  maxWait: 10_000,
+  timeout: READ_STATEMENT_TIMEOUT_MS + 10_000,
+}
+
 // The product chats digest's staff and test-account rule. The owner's email
 // is read here and never leaves this file.
 const INTERNAL_EMAIL_RULES: Prisma.UserWhereInput[] = [
@@ -114,23 +123,34 @@ export class CaseScoutMessagesService extends createPrismaBase(
   }
 
   async readSince(since: Date, dropInternal: boolean): Promise<Message[]> {
-    const agentRows = await this.client.agentMessage.findMany({
-      where: {
-        createdAt: { gte: since },
-        conversation: {
-          deletedAt: null,
-          ...(dropInternal
-            ? { owner: { NOT: { OR: INTERNAL_EMAIL_RULES } } }
-            : {}),
+    const agentRows = await this.client.$transaction(async (tx) => {
+      // SET LOCAL takes no bind parameter; set_config(..., true) is the same
+      // transaction-scoped setting and does.
+      await tx.$queryRaw`
+        SELECT set_config(
+          'statement_timeout',
+          ${String(READ_STATEMENT_TIMEOUT_MS)},
+          true
+        )
+      `
+      return tx.agentMessage.findMany({
+        where: {
+          createdAt: { gte: since },
+          conversation: {
+            deletedAt: null,
+            ...(dropInternal
+              ? { owner: { NOT: { OR: INTERNAL_EMAIL_RULES } } }
+              : {}),
+          },
         },
-      },
-      orderBy: [
-        { createdAt: Prisma.SortOrder.asc },
-        { conversationId: Prisma.SortOrder.asc },
-        { index: Prisma.SortOrder.asc },
-      ],
-      take: MAX_MESSAGES_PER_READ,
-    })
+        orderBy: [
+          { createdAt: Prisma.SortOrder.asc },
+          { conversationId: Prisma.SortOrder.asc },
+          { index: Prisma.SortOrder.asc },
+        ],
+        take: MAX_MESSAGES_PER_READ,
+      })
+    }, READ_TRANSACTION_OPTIONS)
     return this.withContext(this.agentRowsToMessageRows(agentRows))
   }
 

@@ -8,10 +8,11 @@ into the code-form chat suites and opens the PR. Design: the Universal Judge
 Case Iteration TDD; decision record:
 `docs/adr/2026-11-19-case-scout-hands-off-to-delegate.md`.
 
-**On in dev only.** Nothing runs unless `CASE_SCOUT_ENABLED=true`, which
-only dev sets; prod and previews ship it `false`. Nothing is sent to Delegate
-unless `CASE_SCOUT_SEND_TO_DELEGATE=true`, which no environment sets: until
-then each night's handoff is held in the bucket for a person to read.
+**On in dev and prod; sending is off everywhere.** Nothing runs unless
+`CASE_SCOUT_ENABLED=true`, which dev and prod set; previews ship it `false`.
+Nothing is sent to Delegate unless `CASE_SCOUT_SEND_TO_DELEGATE=true`, which
+no environment sets: until then each night's handoff is held in the bucket for
+a person to read, and the Slack note still posts.
 
 **gp-api never opens a PR or holds a GitHub key.** It reads transcripts, so
 the one thing that leaves it is the handoff: gated, de-identified strings and
@@ -106,7 +107,9 @@ The Slack note goes to #bot-dev (the `botDev` webhook) in dev and
 #product-chats-digest (`productChatsDigest`, the Web API) in prod. It lists
 each case with its source conversation, the Databricks query that reads those
 conversations, the night's counts and spend, and whether the handoff was held
-or sent.
+or sent. #product-chats-digest is private, so the Slack app gp-api posts as
+(`SLACK_APP_BOT_TOKEN`) must be a member, or the note fails and the night
+dead-letters.
 
 ## Retries
 
@@ -130,17 +133,19 @@ or sent.
 ## Spend
 
 A flat $0.75 per call, an estimate about 7 times the real price, against
-`CASE_SCOUT_SPEND_CAP_USD` (default $50). The cap reads the night's running
-total from `scores/` before each score call, so with four score jobs in flight
-the score stage can pass the cap by up to 4 calls ($3.00); drafting is
-sequential and passes it by at most one. A capped session is never marked
-processed, so a later night reads it.
+`CASE_SCOUT_SPEND_CAP_USD`: $50 in dev, $65 in prod (the code's default is
+$50). The cap reads the night's running total from `scores/` before each score
+call, so with four score jobs in flight the score stage can pass the cap by up
+to 4 calls ($3.00); drafting is sequential and passes it by at most one. A
+capped session is never marked processed, so a later night reads it.
 
 ## Config
 
 `CASE_SCOUT_ENABLED`, `CASE_SCOUT_SEND_TO_DELEGATE` (off everywhere),
-`CASE_SCOUT_BUCKET`, `CASE_SCOUT_SPEND_CAP_USD`, `CASE_SCOUT_SESSION_CAP`.
-Set in `deploy/index.ts`, with the task role's grants on the bucket. The webhook URL and signing secret
+`CASE_SCOUT_BUCKET`, `CASE_SCOUT_SPEND_CAP_USD` (per environment),
+`CASE_SCOUT_SESSION_CAP`. Set in `deploy/index.ts`, with the task role's grants
+on the bucket; each environment's bucket is its own gp-ai root
+(`environments/<env>/case-scout`). The webhook URL and signing secret
 (`CASE_SCOUT_DELEGATE_WEBHOOK_URL`, `CASE_SCOUT_DELEGATE_WEBHOOK_SECRET`) are
 read only when sending, so no environment declares them yet: the change that
 turns sending on adds them to `deploy/gp-api-secret-keys.ts`, after their
@@ -176,19 +181,21 @@ suite's expected values are what a person ruled, so a red case there is a
 finding about the gate, never a case to edit.
 
 ```bash
-JUDGE_MODEL=anthropic/claude-sonnet-5-5 npm run eval -w packages/gp-api
-npm run eval -w packages/gp-api -- caseScoutGate   # second read only, no JUDGE_MODEL
+JUDGE_MODEL=anthropic/claude-sonnet-5-5 \
+  npm run eval -w packages/gp-api -- src/caseScout/
+npm run eval -w packages/gp-api -- src/caseScout/caseScoutGate   # second read only, no JUDGE_MODEL
 ```
 
-Both need `ANTHROPIC_API_KEY`, and the model calls honor `ANTHROPIC_BASE_URL`,
-so unset it if your shell points it at a proxy. A full run of both takes about
-six minutes and an estimated $4.
+`npm run eval` with no path runs every `*.eval.ts` in gp-api, the paid agent
+suites included, so always pass the path. Both need `ANTHROPIC_API_KEY`, and
+the model calls honor `ANTHROPIC_BASE_URL`, so unset it if your shell points it
+at a proxy. A full run of both takes about six minutes and an estimated $4.
 
-**Prod stays off until** the de-identifier suite shows zero leaks, raw and
-released, on three consecutive full runs; the gate suite is fully green; the
-quality bench's released-case count is no lower than its last run; and a person
-reads the first 20 prod payloads (`runs/<runId>/handoff.json`, held while
-`CASE_SCOUT_SEND_TO_DELEGATE` is off) before anything is sent onward.
+**Sending stays off until** the de-identifier suite shows zero leaks, raw
+and released, on three consecutive full runs; the gate suite is fully green;
+the quality bench's released-case count is no lower than its last run; and a
+person reads the first 20 prod handoffs (`runs/<runId>/handoff.json` in
+`case-scout-prod`) before `CASE_SCOUT_SEND_TO_DELEGATE` turns on.
 
 **Every session and draft in both files is invented.** omni is public, so a
 name, a town and a number there are fiction: 555-01xx numbers, example.com
@@ -202,6 +209,11 @@ drafter's output.
   out of the production build, so `schemas/draftedCase.schema.ts` mirrors it
   and `draftedCase.schema.test.ts` pins the mirror to the real schema. The real
   schema still loads the same five files, which is why it stays.
+- **The nightly read scans `agent_message`.** `created_at` has no index, so
+  `readSince` scans the table, capped by a 120-second statement timeout set in
+  its transaction: a slow scan is cancelled and the job fails loudly. If
+  nights run slow, add the index with a concurrent build, never a plain
+  `CREATE INDEX`, which locks chat writes.
 - **Never log chat text.** Logs and job payloads carry ids and counts only.
   Model spans record neither inputs nor outputs.
 - **Prompts are graded.** The quality bench
