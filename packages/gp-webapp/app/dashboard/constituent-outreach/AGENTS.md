@@ -183,9 +183,9 @@ isServe)` / `answerHeading(isServe)`, because paper is the only thing a
   org-scoped, and a consumer that stays mounted across a switch rebuilds its
   cache entry and re-fetches immediately, under the incoming org's slug header,
   which 404s (ENG-10991, both directions). `OrganizationScope`
-  (`organization-picker.tsx`, wrapped around the page content by
-  `DashboardLayout`) unmounts the page on a switch, so no row query is left with
-  an observer to rebuild it. A new per-row family needs no exemption of its own
+  (`organization-picker.tsx`, mounted by `app/dashboard/layout.tsx`, so above
+  the page) unmounts it on a switch, so no row query is left with an observer to
+  rebuild it — including one a page calls in its own body. A new per-row family needs no exemption of its own
   — but a switch resets this page's local state, including any rows held in
   `useState`.
 - **Nav visibility mirrors page access**: `isElectedOffice` in

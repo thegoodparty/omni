@@ -22,9 +22,13 @@ Organization-specific client data is cleared at the highest level, once, on an
 org switch — never by a feature clearing its own cache, and never by keying a
 query on the org slug to be safe. `OrganizationScope`
 (`app/shared/organization-picker.tsx`) keys the org-scoped subtree on the
-selected slug, and both shells wrap their page content in it. A switch clears
-the query cache and re-keys that subtree in one batched update: the clear runs
-synchronously first, then React commits the new key.
+effective org, and it is mounted by the route-group layouts
+(`app/dashboard/layout.tsx`, `app/volunteer/layout.tsx`) — above the page, not
+inside `DashboardLayout`, because pages render `DashboardLayout` themselves and
+call org-scoped hooks in their own body. A change of org clears the query cache
+and re-keys that subtree in one batched update, driven from the effective slug,
+so a change to the list under the selection clears the same way an explicit
+switch does.
 
 The pairing is the whole mechanism. Removing a query does not unmount its
 consumers, so a feature that stays mounted rebuilds its own entry and fetches it
@@ -52,8 +56,9 @@ about mounts: a new per-row family would have silently inherited the 404 unless
 whoever added it knew the list existed.
 
 The flows that create an org and then select it (`FollowOnFlow`,
-`ElectionResultPage`, Test mode) mount outside every `OrganizationScope`, which
-is what keeps a key at the shell from destroying a wizard's state mid-flow.
+`ElectionResultPage`, Test mode) live in route groups with no
+`OrganizationScope`, which is what keeps a wizard's state from being destroyed
+mid-flow by the very switch it just made.
 
 The cost, accepted: switching organizations on a shared page resets that page's
 local state. Row lists held in `useState` come back empty and refetch instead of

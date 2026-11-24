@@ -92,16 +92,49 @@ export const useSetOrganizationSlug = () => {
   return ctx.setSelectedSlug
 }
 
-// Everything that reads org-scoped data renders inside this, and nothing in
-// PageWrapper's provider stack does: a switch unmounts the subtree before the
-// cache clear lands, which is what removes the per-row query families' 404
-// (ENG-10991) and lets the clear exempt no keys but the list and eligibility.
-// The onboarding flows that select a slug they just created (FollowOnFlow,
-// ElectionResultPage, Test mode) stay outside every mount site of this, so a
-// switch cannot reset the state they are still using.
+// Everything that reads org-scoped data renders inside this, and it sits above
+// the page (the dashboard route group's layout) rather than inside
+// `DashboardLayout`, so a hook a page calls in its own body is inside it too.
+//
+// It is where an org change is handled, once: the cache is cleared during this
+// render — before the re-keyed children render and subscribe — so no observer
+// can read a departed entry or rebuild it under the incoming org's header (the
+// 404 in ENG-10991). The slug it keys on is the EFFECTIVE org, so a change to
+// the list under the selection (the org the cookie named left the list and the
+// effective org falls back) clears just like an explicit switch.
+//
+// The providers above it — the campaign context among them — survive, and a
+// query seeded from the server's `initialData` would come back counting as
+// fresh, so the invalidate in the effect below refetches what is still mounted
+// once the new org is committed.
 export const OrganizationScope = ({ children }: { children: ReactNode }) => {
+  const queryClient = useQueryClient()
   const organization = useOrganization()
-  return <Fragment key={organization?.slug ?? NO_ORG_KEY}>{children}</Fragment>
+  const slug = organization?.slug ?? NO_ORG_KEY
+  const lastSlug = useRef(slug)
+  const lastClearedSlug = useRef(slug)
+
+  if (lastSlug.current !== slug) {
+    lastSlug.current = slug
+    // The cookie first: every request reads the header off it, and the children
+    // rendered below subscribe on this same commit. Then the clear, which is
+    // idempotent, so a discarded or repeated render of this boundary costs
+    // nothing but the refetch that follows the real commit.
+    if (organization?.slug) setCookie(ORG_SLUG_COOKIE, organization.slug)
+    queryClient.removeQueries({
+      predicate: (query) =>
+        query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
+        query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0],
+    })
+  }
+
+  useEffect(() => {
+    if (lastClearedSlug.current === slug) return
+    lastClearedSlug.current = slug
+    void queryClient.invalidateQueries({ refetchType: 'active' })
+  }, [slug, queryClient])
+
+  return <Fragment key={slug}>{children}</Fragment>
 }
 
 interface OrganizationProviderProps {
@@ -119,7 +152,6 @@ export const OrganizationProvider = ({
   initialOrganizations,
   initialSlug = null,
 }: OrganizationProviderProps) => {
-  const queryClient = useQueryClient()
   const router = useRouter()
   // Some flags roll out by org (gp-api's ORGANIZATION_FLAGS, e.g.
   // issue-capture), resolved for the org the cookie names. The flag
@@ -184,36 +216,17 @@ export const OrganizationProvider = ({
     void refreshFlags()
   }, [selectedOrganization?.slug, router, refreshFlags])
 
+  // Selecting records the choice; the cache is cleared by `OrganizationScope`,
+  // which is the one place that knows the org actually changed — a caller here
+  // may resolve to the org already in effect.
   const setSelectedSlug = useCallback(
     (slug: string) => {
       setRawSelectedSlug(slug)
       setCookie(ORG_SLUG_COOKIE, slug)
       void refreshFlags()
-      // Nothing cached may outlive the org it was fetched for — every org-scoped
-      // family, including the ones that carry no slug in their key and used to
-      // be exempt (the per-row details, ENG-10991). The two survivors are not
-      // org-scoped: the list a switch resolves against, and the viewer's own
-      // eligibility, which FollowOnFlow gates its wizard on.
-      queryClient.removeQueries({
-        predicate: (query) =>
-          query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
-          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0],
-      })
     },
-    [queryClient, refreshFlags],
+    [refreshFlags],
   )
-
-  // Removing alone is not enough: a query seeded from the server's
-  // `initialData` that outlives the clear — the campaign context, which is
-  // above `OrganizationScope` — counts as fresh, so it would answer for the org
-  // the user just left until its 5-minute stale time ran out. Refetch what the
-  // remounted tree subscribed, under the new org.
-  const slugAtLastClear = useRef(selectedSlug)
-  useEffect(() => {
-    if (slugAtLastClear.current === selectedSlug) return
-    slugAtLastClear.current = selectedSlug
-    void queryClient.invalidateQueries({ refetchType: 'active' })
-  }, [selectedSlug, queryClient])
 
   const contextValue = useMemo(
     () => ({

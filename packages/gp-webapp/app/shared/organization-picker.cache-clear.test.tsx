@@ -233,8 +233,11 @@ describe('org switch clears the query cache', () => {
         <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
           <CampaignProvider campaign={{ slug: 'c-org-one' } as never}>
             <CampaignProbe />
-            <OrganizationPicker />
           </CampaignProvider>
+          <OrganizationScope>
+            <div />
+          </OrganizationScope>
+          <OrganizationPicker />
         </OrganizationProvider>
       </SidebarProvider>,
     )
@@ -436,5 +439,63 @@ describe('org switch clears the query cache', () => {
     releaseReRead()
     await settle()
     expect(screen.getByText('Organization Two')).toBeInTheDocument()
+  })
+
+  // An org change that does not go through setSelectedSlug still moves the
+  // effective org, and the cache clear has to follow it or the remounted tree
+  // reads the departed org's data. The volunteer sidebar's leave flow is the
+  // real one: the org list is invalidated, the left org drops out, and the
+  // selection falls back to the next org without any setSelectedSlug call.
+  it('clears when the org list drops the selected org', async () => {
+    const historyFetcher = vi.fn(async () => [
+      { conversationId: `c-${orgCookie}` },
+    ])
+    const HistoryProbe = () => {
+      useQuery({
+        queryKey: ['campaign-manager', 'chat-history'],
+        queryFn: historyFetcher,
+      })
+      return null
+    }
+
+    const LeaveOrg = () => {
+      const queryClient = useQueryClient()
+      return (
+        <button
+          type="button"
+          onClick={() =>
+            // The selected org (org-one) leaves the list. No setSelectedSlug:
+            // the effective org falls back to the remaining one.
+            queryClient.setQueryData(ORGANIZATIONS_QUERY_KEY, [orgs[1]])
+          }
+        >
+          leave org one
+        </button>
+      )
+    }
+
+    renderProvider(
+      <>
+        <HistoryProbe />
+        <LeaveOrg />
+      </>,
+    )
+
+    await waitFor(() =>
+      expect(
+        testQueryClient.getQueryData(['campaign-manager', 'chat-history']),
+      ).toBeDefined(),
+    )
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'leave org one' }))
+    await settle()
+
+    // The effective org is org-two now, and the entry the probe rebuilt answers
+    // for org-two — nothing org-one's is left to read.
+    expect(screen.getByText('Organization Two')).toBeInTheDocument()
+    expect(
+      testQueryClient.getQueryData(['campaign-manager', 'chat-history']),
+    ).toEqual([{ conversationId: 'c-org-two' }])
   })
 })
