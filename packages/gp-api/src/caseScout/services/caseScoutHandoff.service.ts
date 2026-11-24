@@ -184,14 +184,24 @@ export class CaseScoutHandoffService {
         `- \`${drafted.caseId}\` (${agentId}, severity ${severity}), ` +
         `conversation \`${conversationIds[index]}\``,
     )
+    const heldConversationIds = bundle.held.map(
+      ({ case: drafted }) =>
+        sources[drafted.caseId]?.conversationId ?? 'unknown',
+    )
+    const heldLines = bundle.held.map(
+      ({ agentId, severity, case: drafted, reason }, index) =>
+        `- \`${drafted.caseId}\` (${agentId}, severity ${severity}), ` +
+        `conversation \`${heldConversationIds[index]}\`: ${reason}`,
+    )
     const table =
       environment === 'prod'
         ? 'gp_api_pg.public.agent_message'
         : 'gp_api_pg_dev.public.agent_message'
+    const queried = [...conversationIds, ...heldConversationIds]
     const query =
-      conversationIds.length > 0
+      queried.length > 0
         ? `SELECT * FROM ${table} WHERE conversation_id IN ` +
-          `(${conversationIds.map((id) => `'${id}'`).join(', ')}) ` +
+          `(${queried.map((id) => `'${id}'`).join(', ')}) ` +
           'ORDER BY conversation_id, `index`'
         : `-- no cases tonight; nothing to query from ${table}`
     const { counts, spendUsd } = record
@@ -201,13 +211,21 @@ export class CaseScoutHandoffService {
       '',
       'Cases:',
       ...(caseLines.length > 0 ? caseLines : ['(none)']),
+      ...(heldLines.length > 0
+        ? [
+            '',
+            `Held for a person (dates), in ${caseScoutBucketName()}/runs/` +
+              `${runId}/bundle.json:`,
+            ...heldLines,
+          ]
+        : []),
       '',
       'Databricks query:',
       `\`\`\`${query}\`\`\``,
       '',
       `Counts: covered=${counts.covered}, needsSetup=${counts.needsSetup}, ` +
         `gated=${counts.gated}, capped=${counts.capped}, ` +
-        `listFull=${counts.listFull}`,
+        `listFull=${counts.listFull}, heldForDate=${counts.heldForDate}`,
       `Spend: tonight $${spendUsd.total.toFixed(2)}, ` +
         `month to date $${monthSpend.toFixed(2)}`,
     ].join('\n')

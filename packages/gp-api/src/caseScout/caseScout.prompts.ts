@@ -200,10 +200,8 @@ export const draftingSystemPrompt = (parts: DraftPromptParts): string =>
     '- Exact figures that could point to one race, place or person ' +
       'become invented or rounded ones: vote totals and margins, signature ' +
       'and petition counts, budgets, populations, addresses, ages, and the ' +
-      'dates of specific events. An invented date stays on the same side ' +
-      'of when the user asked: a past event gets a past date, an upcoming ' +
-      'one a future date. When the failure is in arithmetic, invent new ' +
-      'numbers that keep the same mistake.',
+      'dates of specific events. When the failure is in arithmetic, invent ' +
+      'new numbers that keep the same mistake.',
     '- A description that makes someone or somewhere unique (the only, ' +
       'first or youngest of something, an unusual job, a landmark, a ' +
       'yearly local event, a small group they belong to) becomes an ' +

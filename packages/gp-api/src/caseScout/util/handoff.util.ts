@@ -10,8 +10,8 @@ import { WITHHELD_NEEDS_SETUP } from './gate.util'
 // The night's handoff to the Delegate swarm, built from bundle.json and
 // nothing else. Only gated fields cross: a draft's turns (or its question),
 // condition, handledWhen and caseId, and a needs-setup line that passed the
-// gate. failureSummary, list-full drafts, removals, the withheld placeholder
-// and every source id stay in the bucket.
+// gate. failureSummary, list-full and held drafts, removals, the withheld
+// placeholder and every source id stay in the bucket.
 export const buildHandoff = (
   bundle: Bundle,
   environment: CaseScoutHandoff['environment'],

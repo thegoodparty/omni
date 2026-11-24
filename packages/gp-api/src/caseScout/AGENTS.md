@@ -25,11 +25,11 @@ them, so a change to one has no effect on any gate.
 
 ## Flow
 
-| Step                                          | Where                                  | What                                                                                                                                                                                                                                                                                                         |
-| --------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `caseScoutNightly` schedule, 09:17 UTC        | `services/caseScoutNightly.service.ts` | Claims the night, reads messages since the marker minus 60 minutes (no marker: the last `CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS`, 24 hours unless set and 168 in prod, plus the same 60), splits sessions, caps at 75, writes `manifest.json`, sends one `caseScoutScoreSession` per session in a covered scope |
-| `caseScoutScoreSession`, 4 at once fleet-wide | `services/caseScoutScore.service.ts`   | One Opus call; writes `scores/<sessionId>.json`; the last to finish sends `caseScoutDraft` keyed by the run                                                                                                                                                                                                  |
-| `caseScoutDraft`, one at a time               | `services/caseScoutDraft.service.ts`   | Severity 2 and 3, worst first, up to the nightly cap (`CASE_SCOUT_NIGHTLY_CAP` when set, 10 in prod; unset, 3, moving with the merge share of proposals a person ruled on); drafts and gates one at a time; writes the night's files; holds or sends the handoff, posts the Slack note, moves the marker     |
+| Step                                          | Where                                  | What                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caseScoutNightly` schedule, 09:17 UTC        | `services/caseScoutNightly.service.ts` | Claims the night, reads messages since the marker minus 60 minutes (no marker: the last `CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS`, 24 hours unless set and 168 in prod, plus the same 60), splits sessions, caps at 75, writes `manifest.json`, sends one `caseScoutScoreSession` per session in a covered scope                                                  |
+| `caseScoutScoreSession`, 4 at once fleet-wide | `services/caseScoutScore.service.ts`   | One Opus call; writes `scores/<sessionId>.json`; the last to finish sends `caseScoutDraft` keyed by the run                                                                                                                                                                                                                                                   |
+| `caseScoutDraft`, one at a time               | `services/caseScoutDraft.service.ts`   | Severity 2 and 3, worst first, up to the nightly cap (`CASE_SCOUT_NIGHTLY_CAP` when set, 10 in prod; unset, 3, moving with the merge share of proposals a person ruled on); drafts and gates one at a time; holds a draft that moves its chat into a later year; writes the night's files; holds or sends the handoff, posts the Slack note, moves the marker |
 
 Covered scopes are `chief_of_staff` and `campaign_assistant`
 (`COVERED_SCOPES` in `caseScout.config.ts`). Other sessions count toward the
@@ -40,6 +40,7 @@ session cap and the marker but are never sent to a model.
 | `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                                                                                                                                   |
 | `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist                                                                                                      |
 | `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                                                                                                                            |
+| `util/dateDrift.util.ts`                | The date check: a draft that passed the gate and names a year after its chat's UTC year, when the chat named none, is held for a person                                                                                           |
 | `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy (from every role and tool input, only when the source run carries a number or a mid-sentence capital), contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
 | `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                                                                                                                       |
 | `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                                                                                                                          |
@@ -53,10 +54,8 @@ session cap and the marker but are never sent to a model.
   or an invented name; a child is only "a child"; a claim about a person
   moves to another role and goes generic; exact figures that could point to
   one race, place or person (totals, margins, counts, addresses, ages, event
-  dates) are invented or rounded, an invented date staying on the same side
-  of when the user asked (a past event gets a past date); unique
-  descriptions become ordinary ones; every sentence is written fresh. The
-  failure itself must survive.
+  dates) are invented or rounded; unique descriptions become ordinary ones;
+  every sentence is written fresh. The failure itself must survive.
 - **Contact patterns** catch emails, URLs, ten-digit phones and seven-digit
   local numbers (`555-0123`, `555 0123`). Only a hyphenated one can pass, as
   an ordinance number or a range: one whose last four digits read as a year
@@ -70,16 +69,16 @@ session cap and the marker but are never sent to a model.
 
 ## Bucket (`case-scout-<env>`)
 
-| Key                                                       | Written by                            | Read by                         |
-| --------------------------------------------------------- | ------------------------------------- | ------------------------------- |
-| `claims/<runId>`                                          | nightly, create-only                  | nightly: one run a night        |
-| `marker.json`                                             | draft, once the night is held or sent | nightly, draft                  |
-| `runs/<runId>/manifest.json`                              | nightly, create-only                  | score, draft                    |
-| `runs/<runId>/scores/<sessionId>.json`                    | score, create-only                    | score (spend total), draft      |
-| `runs/<runId>/sources.json`, `record.json`, `bundle.json` | draft                                 | draft (handoff and Slack note)  |
-| `runs/<runId>/handoff.json`                               | draft: the exact bytes held or sent   | a person, before sending is on  |
-| `runs/<runId>/delivery.json`                              | draft, after the webhook answered 2xx | draft: never send a night twice |
-| `ledger/<yyyy-mm>.jsonl`                                  | draft                                 | draft                           |
+| Key                                                       | Written by                            | Read by                                                     |
+| --------------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------- |
+| `claims/<runId>`                                          | nightly, create-only                  | nightly: one run a night                                    |
+| `marker.json`                                             | draft, once the night is held or sent | nightly, draft                                              |
+| `runs/<runId>/manifest.json`                              | nightly, create-only                  | score, draft                                                |
+| `runs/<runId>/scores/<sessionId>.json`                    | score, create-only                    | score (spend total), draft                                  |
+| `runs/<runId>/sources.json`, `record.json`, `bundle.json` | draft                                 | draft (handoff and Slack note); a person, for `held` drafts |
+| `runs/<runId>/handoff.json`                               | draft: the exact bytes held or sent   | a person, before sending is on                              |
+| `runs/<runId>/delivery.json`                              | draft, after the webhook answered 2xx | draft: never send a night twice                             |
+| `ledger/<yyyy-mm>.jsonl`                                  | draft                                 | draft                                                       |
 
 `runId` is the UTC date. `sources.json` (caseId to conversation and session)
 and the ledger stay in the bucket; only the Slack note, which is internal,
@@ -95,9 +94,22 @@ becomes `id`, the suite is the session's scope. A needs-setup line is
 `{ suite, what, severity }`. Built from `bundle.json` only, so every free-text
 string is one `outboundStrings` returns and the gate passed. Never in it:
 conversation, session or message ids, `failureSummary`, list-full drafts,
-a withheld needs-setup line. Before it is held or sent,
+held drafts, a withheld needs-setup line. Before it is held or sent,
 the job checks the exact bytes for every id in the night's manifest and fails
 if one appears.
+
+**Held drafts.** The drafter invents event dates, and can turn a question
+about an election that just happened into one about the next. The agent under
+test is told the real date every turn, so such a case tests nothing. A draft
+that passed the gate is held when its user turns name a standalone year
+(19xx or 20xx, not part of a money amount, decimal or short hyphenated
+identifier like `245-2028`) later than the session's UTC start year, and no
+user turn, assistant turn or tool input in the session names a later year. A
+future year the user really asked about therefore passes, even moved further
+out. A held draft goes to `held` in `bundle.json` with its reason (`names
+2028; the chat is from 2026`), its source in `sources.json`, a `heldForDate`
+ledger line and record count, and a line in the Slack note. It is never
+repaired and never handed off: a person reads it in the bucket and decides.
 
 Sending is a POST of those bytes to `CASE_SCOUT_DELEGATE_WEBHOOK_URL`, signed
 per Standard Webhooks: `webhook-id` (`case-scout-<env>-<runId>`, the same on
@@ -107,7 +119,8 @@ the `whsec_` secret `CASE_SCOUT_DELEGATE_WEBHOOK_SECRET`).
 
 The Slack note goes to #bot-dev (the `botDev` webhook) in dev and
 #product-chats-digest (`productChatsDigest`, the Web API) in prod. It lists
-each case with its source conversation, the Databricks query that reads those
+each case with its source conversation, then each held draft with its source
+conversation and reason, the Databricks query that reads all those
 conversations, the night's counts and spend, and whether the handoff was held
 or sent. #product-chats-digest is private, so the Slack app gp-api posts as
 (`SLACK_APP_BOT_TOKEN`) must be a member, or the note fails and the night

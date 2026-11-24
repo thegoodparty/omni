@@ -116,6 +116,11 @@ const BundleDraftSchema = z.strictObject({
 })
 export type BundleDraft = z.infer<typeof BundleDraftSchema>
 
+// A draft that passed the gate but names a year after its chat's, kept for a
+// person and never handed off (util/dateDrift.util.ts).
+const HeldDraftSchema = BundleDraftSchema.extend({ reason: z.string() })
+export type HeldDraft = z.infer<typeof HeldDraftSchema>
+
 const NeedsSetupSchema = z.strictObject({
   agentId: z.string(),
   severity: SeveritySchema,
@@ -134,6 +139,8 @@ export const BundleSchema = z.strictObject({
   drafts: z.array(BundleDraftSchema),
   needsSetup: z.array(NeedsSetupSchema),
   listFull: z.array(BundleDraftSchema),
+  // Defaulted so a bundle written before the date check still reads.
+  held: z.array(HeldDraftSchema).default([]),
   removals: z.array(RemovalSchema),
 })
 export type Bundle = z.infer<typeof BundleSchema>
@@ -161,6 +168,8 @@ export const RecordSchema = z.strictObject({
     capped: CountSchema,
     spendCapped: CountSchema,
     listFull: CountSchema,
+    // Defaulted so the month's earlier records still read for its spend.
+    heldForDate: CountSchema.default(0),
   }),
   spendUsd: z.strictObject({
     score: z.number().min(0),
@@ -185,6 +194,7 @@ export const DraftOutcome = {
   capped: 'capped',
   spendCapped: 'spendCapped',
   listFull: 'listFull',
+  heldForDate: 'heldForDate',
   suppressed: 'suppressed',
   error: 'error',
 } as const
