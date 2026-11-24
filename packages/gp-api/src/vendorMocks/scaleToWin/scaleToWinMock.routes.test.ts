@@ -39,7 +39,7 @@ const copyCampaign = async () => {
   return res.data.id as string
 }
 
-const loadContacts = async (campaignId: string) => {
+const loadContacts = async (campaignId: string, csv = CSV) => {
   const presigned = await service.client.post(
     `${BASE}/uploads/presigned-put`,
     {
@@ -54,7 +54,7 @@ const loadContacts = async (campaignId: string) => {
   const { signedPutUrl, token } = presigned.data
   const path = new URL(signedPutUrl).pathname
 
-  const put = await service.client.put(path, CSV, {
+  const put = await service.client.put(path, csv, {
     headers: { 'Content-Type': 'text/csv' },
   })
   expect(put.status).toBe(HttpStatus.OK)
@@ -105,6 +105,19 @@ describe('Scale to Win mock', () => {
 
     expect(res.data.status).toBe('DONE')
     expect(res.data.result.nContacts).toBe(2)
+  })
+
+  it("accepts a CSV over Fastify's 1 MiB default body limit", async () => {
+    const id = await copyCampaign()
+    const rows = 80_000
+    const csv =
+      'firstName,lastName,cellPhone\n' + 'A,B,+15555550100\n'.repeat(rows)
+    expect(Buffer.byteLength(csv)).toBeGreaterThan(1024 * 1024)
+
+    await loadContacts(id, csv)
+
+    const res = await service.client.get(`${CAMPAIGNS}/${id}/contacts`, AUTH)
+    expect(res.data.result.nContacts).toBe(rows)
   })
 
   it('returns the load counts a test set', async () => {
@@ -213,6 +226,35 @@ describe('Scale to Win mock', () => {
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(res.data.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('rejects a load with an upload token it never issued', async () => {
+    const id = await copyCampaign()
+
+    const res = await service.client.post(
+      `${CAMPAIGNS}/${id}/contacts/csv-upload`,
+      {
+        uploadToken: 'never-issued',
+        estimatedRowCount: 10,
+        phoneNumberColumn: 'cellPhone',
+        contactFieldMapping: {},
+      },
+      AUTH,
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.code).toBe('INVALID_UPLOAD_TOKEN')
+  })
+
+  it('404s a PUT to an upload token it never issued', async () => {
+    const res = await service.client.put(
+      `${BASE}/mock-uploads/never-issued`,
+      CSV,
+      {
+        headers: { 'Content-Type': 'text/csv' },
+      },
+    )
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 
   it('returns 401 without the mock credentials', async () => {

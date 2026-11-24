@@ -46,6 +46,10 @@ const MOCK_AUTH = `Basic ${Buffer.from(
   `${S2W_MOCK_API_KEY_ID}:${S2W_MOCK_API_KEY_SECRET}`,
 ).toString('base64')}`
 
+// Fastify's 1 MiB default would refuse a real wave's CSV. 500k rows of a
+// few short columns fit well under this.
+const MAX_CSV_BYTES = 64 * 1024 * 1024
+
 const CAMPAIGN_PATH = 'subaccounts/:subaccountId/campaigns/:id'
 
 // Scale to Win's error body is `{ message, code, issues? }`, so the mock's
@@ -89,7 +93,7 @@ export class ScaleToWinMockController {
     ) {
       fastify.addContentTypeParser(
         MimeTypes.IMAGE_CSV,
-        { parseAs: 'string' },
+        { parseAs: 'string', bodyLimit: MAX_CSV_BYTES },
         (_req, body, done) => done(null, body.toString()),
       )
     }
