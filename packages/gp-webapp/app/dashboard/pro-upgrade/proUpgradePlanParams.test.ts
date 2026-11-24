@@ -29,22 +29,26 @@ describe('parseReturnTo', () => {
 })
 
 describe('parseProUpgradeCarry', () => {
-  it('reads plan, returnTo and from', () => {
+  it('reads plan, returnTo, back and from', () => {
     const params = new URLSearchParams(
-      'plan=team&returnTo=%2Fdashboard%2Fteam&from=pro',
+      'plan=team&returnTo=%2Fdashboard%2Fteam&back=%2Fdashboard%2Fplans&from=pro',
     )
     expect(parseProUpgradeCarry(params)).toEqual({
       plan: 'team',
       returnTo: '/dashboard/team',
+      backTo: '/dashboard/plans',
       fromPro: true,
     })
   })
 
   it('ignores an unknown plan and a returnTo outside the allowlist', () => {
-    const params = new URLSearchParams('plan=free&returnTo=https://evil.test')
+    const params = new URLSearchParams(
+      'plan=free&returnTo=https://evil.test&back=//evil.test',
+    )
     expect(parseProUpgradeCarry(params)).toEqual({
       plan: null,
       returnTo: null,
+      backTo: null,
       fromPro: false,
     })
   })
@@ -55,6 +59,7 @@ describe('carryQueryString', () => {
     const carry = {
       plan: 'team',
       returnTo: '/dashboard/team',
+      backTo: '/dashboard/plans',
       fromPro: true,
     } as const
     expect(
@@ -64,7 +69,12 @@ describe('carryQueryString', () => {
 
   it('is empty when nothing is carried', () => {
     expect(
-      carryQueryString({ plan: null, returnTo: null, fromPro: false }),
+      carryQueryString({
+        plan: null,
+        returnTo: null,
+        backTo: null,
+        fromPro: false,
+      }),
     ).toBe('')
   })
 })

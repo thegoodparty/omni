@@ -63,6 +63,7 @@ const setup = (
   vi.mocked(useProUpgradeCarry).mockReturnValue({
     plan,
     returnTo: carry.returnTo ?? null,
+    backTo: null,
     fromPro: carry.fromPro ?? false,
     markFromPro: vi.fn(),
   })

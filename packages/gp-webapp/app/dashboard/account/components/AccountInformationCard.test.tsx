@@ -74,7 +74,7 @@ describe('AccountInformationCard plans', () => {
     const link = screen.getByRole('link', { name: 'Upgrade to Team for $100' })
     expect(link).toHaveAttribute(
       'href',
-      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team',
+      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team&back=%2Fdashboard%2Faccount',
     )
 
     await userEvent.click(screen.getByText('Why this date?'))

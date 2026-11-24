@@ -3,7 +3,11 @@ import { screen, fireEvent } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import ProUpgradeWizard, { useProUpgradeWizard } from './ProUpgradeWizard'
-import { usePathname } from 'next/navigation'
+import {
+  usePathname,
+  useSearchParams,
+  type ReadonlyURLSearchParams,
+} from 'next/navigation'
 import { noop } from '@shared/utils/noop'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
@@ -12,7 +16,7 @@ import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsComplianc
 vi.mock('next/navigation', () => ({
   useRouter: () => router,
   usePathname: vi.fn(),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: vi.fn(),
 }))
 
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
@@ -20,6 +24,7 @@ vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
 }))
 
 const mockUsePathname = vi.mocked(usePathname)
+const mockUseSearchParams = vi.mocked(useSearchParams)
 const mockUseSmsCompliance = vi.mocked(useSmsCompliance)
 
 // Context probe: the wizard chrome no longer renders Back itself (steps own
@@ -62,6 +67,9 @@ describe('ProUpgradeWizard', () => {
     vi.clearAllMocks()
     vi.spyOn(window, 'scrollTo').mockImplementation(noop)
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams() as ReadonlyURLSearchParams,
+    )
     mockUseSmsCompliance.mockReturnValue({
       smsCompliance: 'open',
       smsCutoffDate: null,
@@ -140,9 +148,13 @@ describe('ProUpgradeWizard', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard')
   })
 
-  it('returns Back from guidance to the page the candidate came from', () => {
+  it('returns Back from guidance to the page that carried the candidate in', () => {
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/guidance')
-    vi.spyOn(window.history, 'length', 'get').mockReturnValue(3)
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(
+        'plan=pro&back=%2Fdashboard%2Fplans',
+      ) as ReadonlyURLSearchParams,
+    )
 
     render(
       <ProUpgradeWizard>
@@ -151,13 +163,12 @@ describe('ProUpgradeWizard', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
 
-    expect(router.back).toHaveBeenCalledTimes(1)
-    expect(router.push).not.toHaveBeenCalled()
+    expect(router.push).toHaveBeenCalledWith('/dashboard/plans')
+    expect(router.back).not.toHaveBeenCalled()
   })
 
-  it('exits to the dashboard from guidance when nothing is behind it', () => {
+  it('exits to the dashboard from guidance when nothing carried the candidate in', () => {
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/guidance')
-    vi.spyOn(window.history, 'length', 'get').mockReturnValue(1)
 
     render(
       <ProUpgradeWizard>

@@ -242,7 +242,13 @@ export const AccountInformationCard = ({
           </p>
           <div>
             <Button asChild variant="outline">
-              <Link href={planCheckoutHref('team', 'Join Team')}>
+              <Link
+                href={planCheckoutHref(
+                  'team',
+                  'Join Team',
+                  '/dashboard/account',
+                )}
+              >
                 {TEAM_UPGRADE_CTA}
               </Link>
             </Button>

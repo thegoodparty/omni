@@ -113,18 +113,16 @@ const ProUpgradeWizard = ({
     // The off-order filing-instructions route is only ever entered from the
     // filing-status step, so Back targets it explicitly: router.back() would
     // leave the wizard entirely for a candidate who arrived via a direct URL
-    // (bookmark, emailed link). Guidance is the first ordered step, so it
-    // falls through to router.back() instead, so the candidate returns to the
-    // page they came from; a direct arrival with nothing behind it exits to
-    // the dashboard.
+    // (bookmark, emailed link). Guidance is the first ordered step, and every
+    // step move is a push, so history cannot say where the candidate came
+    // from: it goes to the page that carried them in (`back`), else the
+    // dashboard.
     if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
       router.push(stepHref(PRO_UPGRADE_STEP.STATUS))
     } else if (orderIndex > 0) {
       router.push(stepHref(stepOrder[orderIndex - 1]!))
-    } else if (window.history.length > 1) {
-      router.back()
     } else {
-      router.push('/dashboard')
+      router.push(carryRef.current.backTo ?? '/dashboard')
     }
   }, [currentStep, orderIndex, stepOrder, router, stepHref])
 
