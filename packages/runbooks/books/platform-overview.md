@@ -410,7 +410,7 @@ The P2P (peer-to-peer) texting system allows candidates to send SMS outreach to 
 | `PeerlyIdentityService`       | TCR/10DLC identity management, brand submission, Campaign Verify                                             | `POST /identities`, `GET /identities/listByAccount`, `POST /v2/tdlc/{id}/submit`, `POST /v2/tdlc/{id}/approve`, `POST /v2/tdlc/{id}/submit_cv`, `POST /v2/tdlc/{id}/verify_pin` |
 | `PeerlyPhoneListService`      | Upload voter CSV phone lists, check processing status                                                        | `POST /phonelists`, `GET /phonelists/{token}/checkstatus`, `GET /phonelists/{listId}`                                                                                           |
 | `PeerlyP2pJobService`         | Orchestrates job creation (media → job → assign list). Jobs are created in Paused state for CaS team review. | `POST /1to1/jobs`, `POST /1to1/jobs/{id}/assignlist`, `GET /1to1/jobs`                                                                                                          |
-| `PeerlyMediaService`          | Upload MMS images (JPEG/PNG/GIF, max 500KB)                                                                  | `POST /v2/media`                                                                                                                                                                |
+| `PeerlyMediaService`          | Upload MMS images (JPEG/PNG/GIF, max 745KB)                                                                  | `POST /v2/media`                                                                                                                                                                |
 
 ### Phase 1: TCR 10DLC Compliance Registration
 

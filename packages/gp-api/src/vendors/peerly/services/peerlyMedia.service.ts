@@ -16,6 +16,9 @@ import { PeerlyHttpService } from './peerlyHttp.service'
 import { SMS_IMAGE_MAX_BYTES } from '@goodparty_org/contracts'
 
 const MAX_FILE_SIZE = SMS_IMAGE_MAX_BYTES
+// axios caps the whole multipart body, not the file, so the request needs room
+// for the form fields and boundaries on top of a file right at the limit.
+const MAX_REQUEST_BODY_SIZE = MAX_FILE_SIZE + 64 * 1024
 
 // Peerly's /v2/media rejects filenames longer than 100 chars with an opaque
 // 400 ("An unknown validation error occurred.") — verified live 2026-07-22.
@@ -88,8 +91,8 @@ export class PeerlyMediaService extends PeerlyBaseConfig {
       const response = await this.peerlyHttpService.post('/v2/media', form, {
         headers: form.getHeaders(),
         timeout: this.httpTimeoutMs,
-        maxBodyLength: MAX_FILE_SIZE,
-        maxContentLength: MAX_FILE_SIZE,
+        maxBodyLength: MAX_REQUEST_BODY_SIZE,
+        maxContentLength: MAX_REQUEST_BODY_SIZE,
       })
       // Peerly API response is untyped — third-party SDK has no typed response interface
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
