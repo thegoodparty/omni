@@ -380,6 +380,232 @@ describe('useStreamingTurn', () => {
     }
   })
 
+  it('reconciles a turn that dropped before its first frame, and defers the handoff', async () => {
+    // ENG-11724. The connection went away before any frame. Nothing streamed,
+    // so a poll gated on what arrived never runs, yet the server keeps writing
+    // and persists the reply about 8s later. The client reports the drop, so
+    // the turn reconciles like a stall: poll regardless, and hold onTurnSuccess
+    // until the turn is provably in the transcript (a deferred create's host
+    // swap would otherwise unmount us before the reply could be loaded).
+    vi.useFakeTimers()
+    try {
+      const onTurnSuccess = vi.fn()
+      const start = Date.now()
+      const persisted = {
+        id: 'srv-drop',
+        conversationId: 'c1',
+        role: 'assistant' as const,
+        content: 'The reply the server finished after the socket dropped',
+        createdAt: new Date().toISOString(),
+      }
+      const listMessages = vi.fn(async () =>
+        Date.now() - start >= 9_000 ? [persisted] : [],
+      )
+      const api = {
+        // A drop reports the interruption and yields nothing at all.
+        streamMessage: ({ onInterrupted }: { onInterrupted?: () => void }) =>
+          (async function* (): AsyncGenerator<ChatStreamEvent> {
+            onInterrupted?.()
+          })(),
+        listMessages,
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, { toolLabel: () => null, onTurnSuccess }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'draft it')
+      })
+      // Past the drop, before the server persists.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000)
+      })
+      expect(onTurnSuccess).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000)
+        await sendPromise
+      })
+
+      // The poll ran without any local content, and found the late turn.
+      expect(listMessages.mock.calls.length).toBeGreaterThan(1)
+      expect(result.current.messages.some((m) => m.id === 'srv-drop')).toBe(
+        true,
+      )
+      expect(onTurnSuccess).toHaveBeenCalledTimes(1)
+      expect(result.current.sending).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('surfaces a retryable error when a dropped turn never persists', async () => {
+    // The connection dropped and the server never wrote the turn, so there is
+    // nothing to reconcile to. A silent dead turn is the bug (ENG-11724); the
+    // user needs a Retry.
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const onTurnSuccess = vi.fn()
+      const api = {
+        streamMessage: ({ onInterrupted }: { onInterrupted?: () => void }) =>
+          (async function* (): AsyncGenerator<ChatStreamEvent> {
+            onInterrupted?.()
+          })(),
+        listMessages: vi.fn().mockResolvedValue([
+          {
+            id: 'srv-u',
+            conversationId: 'c1',
+            role: 'user' as const,
+            content: 'draft it',
+            createdAt: new Date().toISOString(),
+          },
+        ]),
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, {
+          toolLabel: () => null,
+          onError,
+          onTurnSuccess,
+        }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'draft it')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200_000)
+        await sendPromise
+      })
+
+      expect(onError).toHaveBeenCalledWith(
+        'The reply was cut off. Try again.',
+        true,
+      )
+      expect(onTurnSuccess).not.toHaveBeenCalled()
+      expect(result.current.sending).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('surfaces a retryable error when a stalled turn never yields a frame', async () => {
+    // A stream that goes idle before its first frame is the same dead turn as a
+    // dropped connection: nothing local to fall back on and nothing persisted.
+    // It must poll for the turn and, when none ever lands, offer a Retry.
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const onTurnSuccess = vi.fn()
+      const listMessages = vi.fn().mockResolvedValue([
+        {
+          id: 'srv-u',
+          conversationId: 'c1',
+          role: 'user' as const,
+          content: 'draft it',
+          createdAt: new Date().toISOString(),
+        },
+      ])
+      const api = {
+        // Never emits and never ends: the idle watchdog is the only way out.
+        streamMessage: () =>
+          (async function* (): AsyncGenerator<ChatStreamEvent> {
+            await new Promise<void>(() => undefined)
+          })(),
+        listMessages,
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, {
+          toolLabel: () => null,
+          onError,
+          onTurnSuccess,
+        }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'draft it')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300_000)
+        await sendPromise
+      })
+
+      // It polled past the stall rather than committing the unpolled read.
+      expect(listMessages.mock.calls.length).toBeGreaterThan(1)
+      expect(onError).toHaveBeenCalledWith(
+        'The reply was cut off. Try again.',
+        true,
+      )
+      expect(onTurnSuccess).not.toHaveBeenCalled()
+      expect(result.current.sending).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a dropped turn’s partial text and still offers a retry when it never persists', async () => {
+    // A drop after some text: the reply the server never wrote cannot be
+    // reconciled, so the turn keeps what streamed and the user is told it was
+    // cut off. The handoff stays unfired — a deferred create's pending callback
+    // has to survive so Retry can still deliver it.
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const onTurnSuccess = vi.fn()
+      const api = {
+        streamMessage: ({ onInterrupted }: { onInterrupted?: () => void }) =>
+          (async function* (): AsyncGenerator<ChatStreamEvent> {
+            yield { type: 'text', delta: 'Half an answer' }
+            onInterrupted?.()
+          })(),
+        listMessages: vi.fn().mockResolvedValue([
+          {
+            id: 'srv-u',
+            conversationId: 'c1',
+            role: 'user' as const,
+            content: 'draft it',
+            createdAt: new Date().toISOString(),
+          },
+        ]),
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, {
+          toolLabel: () => null,
+          onError,
+          onTurnSuccess,
+        }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'draft it')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400_000)
+        await sendPromise
+      })
+
+      expect(onError).toHaveBeenCalledWith(
+        'The reply was cut off. Try again.',
+        true,
+      )
+      expect(onTurnSuccess).not.toHaveBeenCalled()
+      const partial = result.current.messages.find((m) =>
+        m.id.startsWith('local-'),
+      )
+      expect(partial?.content).toBe('Half an answer')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('settles a turn under StrictMode (mountedRef re-armed after the dev remount)', async () => {
     // StrictMode runs effect setup→cleanup→setup. The cleanup flips mountedRef
     // false; if it is not re-armed in setup, `canReconcile()` and the settle

@@ -247,6 +247,11 @@ export function useStreamingTurn(
       const abortController = new AbortController()
       abortRef.current = abortController
       let stalled = false
+      // Whether the client reported the connection ending under the stream, as
+      // opposed to a clean `done`. Handled like a stall: the server may still be
+      // writing the turn, so the success handoff waits for the commit poll and
+      // the poll runs even when no frame ever arrived.
+      let interrupted = false
       // Whether the server signaled a finished turn. Without it the turn may
       // still be generating server-side, so the commit poll waits much longer.
       let doneSeen = false
@@ -264,6 +269,9 @@ export function useStreamingTurn(
             id: opts?.id ?? crypto.randomUUID(),
             attachmentIds: opts?.attachmentIds,
             signal: abortController.signal,
+            onInterrupted: () => {
+              interrupted = true
+            },
           })
           [Symbol.asyncIterator]()
         // Consume events, but race each one against an idle watchdog so a stream
@@ -394,11 +402,12 @@ export function useStreamingTurn(
             abortRef.current === abortController &&
             (!abortController.signal.aborted || stalled)
           // The turn produced its content without error — fire the success
-          // handoff now, before the (possibly long) commit poll below. NOT on a
-          // stall: the server is still generating, so a handoff that swaps the
-          // host surface (e.g. a deferred create's onChatCreated) would unmount
-          // us mid-generation. A stall reconciles via the poll instead.
-          if (!stalled) scope.onTurnSuccess?.()
+          // handoff now, before the (possibly long) commit poll below. NOT when
+          // the stream ended without `done` (a stall or a dropped connection):
+          // the server is still generating, so a handoff that swaps the host
+          // surface (e.g. a deferred create's onChatCreated) would unmount us
+          // mid-generation. Those reconcile via the poll instead.
+          if (!stalled && !interrupted) scope.onTurnSuccess?.()
           // The stream is done: drop `sending` so the composer re-enables for a
           // follow-up send, and mark the turn settling so that send supersedes
           // the drain + reconcile below instead of being blocked by it. The live
@@ -441,7 +450,12 @@ export function useStreamingTurn(
             // was a consumed widget call waits for its row like any other
             // instead of falling straight through to the local rebuild.
             let history = await chatApi.listMessages(conversationId)
-            if (persisted.length > 0) {
+            // Poll when this turn produced content, and also whenever the
+            // stream was cut off before `done` — a stall or a reported drop. A
+            // cut-off before the first frame leaves nothing local to fall back
+            // on, and the reply the server is still writing is the only thing
+            // there is to show.
+            if (persisted.length > 0 || stalled || interrupted) {
               const pollMs = doneSeen ? COMMIT_POLL_MS : DONELESS_COMMIT_POLL_MS
               const maxTries = doneSeen
                 ? COMMIT_MAX_TRIES
@@ -464,18 +478,28 @@ export function useStreamingTurn(
             // screen by appending what streamed. Clear the live render in the
             // same tick so the swap never double-renders or blanks.
             if (canReconcile()) {
+              // A stream that was cut off with nothing to reconcile to (the
+              // server never wrote the turn) leaves no reply to show: surface a
+              // retry rather than commit a turn that silently never arrives.
+              if ((stalled || interrupted) && !hasTurn(history)) {
+                scope.onError?.('The reply was cut off. Try again.', true)
+              }
               // `persisted`, not `segments`: a turn whose only output was a
               // consumed widget call renders no live segment, and gating on
               // that would commit a transcript that does not yet contain the
               // turn and blank the widget.
               if (persisted.length === 0 || hasTurn(history)) {
                 setMessages(history)
-                // A stalled turn deferred its success handoff (we skipped it
+                // A turn that ended without `done` (a stall, or a connection the
+                // client saw drop) deferred its success handoff (we skipped it
                 // above because the server might still be generating). We are
                 // now committing the canonical transcript — fire the deferred
-                // handoff. (A stall whose turn never persisted takes the append
-                // branch below and correctly does not fire it.)
-                if (stalled) scope.onTurnSuccess?.()
+                // handoff, but only once the poll actually found the turn: a
+                // cut-off turn that never persisted has no finished reply to
+                // hand off.
+                if ((stalled || interrupted) && hasTurn(history)) {
+                  scope.onTurnSuccess?.()
+                }
               } else {
                 setMessages((prev) => [
                   ...prev,

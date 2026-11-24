@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { faro } = vi.hoisted(() => ({
-  faro: { api: { pushError: vi.fn() } },
+const { faro, LogLevel } = vi.hoisted(() => ({
+  faro: { api: { pushError: vi.fn(), pushLog: vi.fn() } },
+  LogLevel: { WARN: 'warn' },
 }))
 
-vi.mock('@grafana/faro-web-sdk', () => ({ faro }))
+vi.mock('@grafana/faro-web-sdk', () => ({ faro, LogLevel }))
 
-import { reportClientError } from './reportClientError'
+import {
+  reportClientError,
+  reportClientInterruption,
+} from './reportClientError'
 
 describe('reportClientError', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -55,5 +59,24 @@ describe('reportClientError', () => {
     reportClientError(invalidPassword)
 
     expect(faro.api.pushError).toHaveBeenCalled()
+  })
+})
+
+describe('reportClientInterruption', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  // A dropped connection is a log line, never an exception: the exception
+  // stream is what the front-end error alerts page on (ENG-11724).
+  it('logs it at warn level and pushes no exception', () => {
+    reportClientInterruption('chat stream interrupted', {
+      surface: 'campaign-manager-chat',
+      step: 'iterate',
+    })
+
+    expect(faro.api.pushLog).toHaveBeenCalledWith(['chat stream interrupted'], {
+      level: 'warn',
+      context: { surface: 'campaign-manager-chat', step: 'iterate' },
+    })
+    expect(faro.api.pushError).not.toHaveBeenCalled()
   })
 })
