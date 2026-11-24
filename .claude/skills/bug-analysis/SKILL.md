@@ -15,13 +15,13 @@ The visible page stays short. Put all supporting evidence in a collapsed `<detai
 
 The page has two levels of cards: three section cards (Impact, Five Whys, Resolution), and inside Impact the three High / Medium / Low severity cards. Both are fixed by the template and always present.
 
-Above the Impact card, after the title, the page always carries two confidence chips from the template, in this order: Root cause confidence and Resolution confidence. Both are always shown, and each is High, Medium or Low, copied from the template with the matching class and no number:
+Each of the Five Whys and Resolution cards carries a small confidence pill in its top right corner, inside the card head next to the title. The pill is one short label and one level, uppercase, in the template's colors, and it is always present on both cards. It reads `Root cause High` on Five Whys and `Resolution Medium` on Resolution. Never a number, never a percentage, never a `±`. The level is one of:
 
 - **High:** The evidence in this page confirms it for this bug. Nothing material is missing.
 - **Medium:** The evidence points at it, but a named check could still change it.
 - **Low:** It is a best guess; the evidence needed is unavailable or not yet gathered.
 
-Set the two independently. A confirmed root cause with a resolution that is plausible but unproven is High and Medium. If either is below High, add the one-sentence note under the chips naming exactly what is unverified and the check that would settle it, and keep the analysis labelled incomplete. Leave the note out only when both are High. The chips never replace the incomplete label or the evidence requirement; they let a reader decide how much to inspect before approving.
+Set the two independently. A confirmed cause with a resolution that is plausible but unproven is High on Five Whys and Low on Resolution. When either pill is below High, that card leads with one sentence, styled as the template's `.gap` note, naming exactly what is unverified there and the check that would settle it. Delete the note entirely when the pill is High. The pill never replaces the incomplete label or the evidence requirement; it tells a reader how much to inspect before approving.
 
 ## Impact
 
@@ -46,6 +46,6 @@ If the investigation is incomplete, this section leads with the exact commands t
 - Can you state the actual root cause in one sentence and point to evidence that confirms it for this bug, not just a plausible failure mode?
 - Does the evidence rule out any competing explanation that would change the fix or cleanup plan? A missing log is not proof of which path ran unless the deployed code always logs the alternative and the relevant logs are complete.
 - Does the proposed fix address the confirmed cause, and does the cleanup cover the affected records?
-- Do the two confidence chips match the evidence, and is every chip below High paired with the check that would raise it? A Low or Medium chip with no named gap is a guess wearing a label.
+- Do the two confidence pills match the evidence, and is every pill below High paired with the check that would raise it? A Low or Medium pill with no named gap is a guess wearing a label.
 
 If the cause still needs investigation or confirmation, share only an **Incomplete investigation** if useful. Name the missing evidence and the check that would settle it. Do not call it a finished RCA or request approval. Only a confirmed RCA ends by asking reviewers for a thumbs up or a pinned comment on what to change.
