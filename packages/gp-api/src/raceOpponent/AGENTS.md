@@ -32,7 +32,9 @@ change "opponent research", be explicit about which one.
 |------|------|
 | `raceOpponent.controller.ts` | All routes (`campaigns/mine/race-opponent`). HTTP only; gating + service dispatch. Heavily commented — the routes are the spec. |
 | `raceOpponent.constants.ts` | Experiment-type strings, `MAX_*_ATTEMPTS` caps, `CONTRAST_ALLOWED_CATEGORIES`, `CONTRAST_INFLATION_TERMS`, `DATASET_SOURCE_SCHEMES` |
-| `services/raceOpponent.service.ts` | **Relaxed path** + the module's `assertAccess` (Pro). `collect` / `collectManual` / `get`; dispatches `race_opponent_collection`, reads the summary |
+| `services/raceOpponent.service.ts` | **Relaxed path** + the module's `assertAccess` (Pro). `collect` / `collectManual` / `get`; dispatches the chain and reads the summary |
+| `services/raceOpponentRun.ts` | One chain link's newest run from whichever engine's table the switch names, and the one status vocabulary both tables map onto |
+| `services/raceOpponentPersist.service.ts` | The chain's writes, shared by both engines' completion paths |
 | `services/opponentResearch.service.ts` | **Strict engine** dispatch: `identify` / `start` / `profile`; builds `candidate_platform` from `Website.content.about` (NOT CampaignStory — see ENG-10607) |
 | `services/selfResearch.service.ts` | Strict engine front door: `start` / `status` / `report` of the candidate's own pass |
 | `services/selfResearchGate.service.ts` | The hard 403 gate (PRD Requirement B). `assertSelfResearchComplete` |
@@ -64,26 +66,42 @@ Every route is owner-scoped (`@UseCampaign`) and gated by **`assertAccess`**
 
 `race_opponent_collection`, `race_opponent_summary`, `race_opponent_actions`,
 `self_research`, `opponent_research` — manifests in
-`packages/runbooks/experiments/<id>/`. Dispatch goes through
-`ExperimentRunsService` (SQS → gp-ai pmf_engine). In-flight
-dedup on `ExperimentRun` keyed by type+status prevents double paid runs; the
+`packages/runbooks/experiments/<id>/`. In-flight
+dedup on the run table keyed by type+status prevents double paid runs; the
 auto-dispatch trigger (Pro upgrade) and the daily cron reuse the same guard. Per-row
 lifetime caps (`MAX_SELF_RESEARCH_ATTEMPTS`, `MAX_OPPONENT_RESEARCH_ATTEMPTS`) surface
 `retry` instead of looping paid Fargate runs.
 
-The relaxed pipeline chains: a completed collection persists rows then dispatches
-`race_opponent_summary`; a completed summary persists `RaceOpponentSummary` rows
-then dispatches `race_opponent_actions` (flat `state`/`l2_district_*` params from
-`DistrictResolverService`, omitted all-or-nothing — the dispatch Lambda reserves a
-nested `district` param for scope derivation). Each link has a terminal-state
-re-chain for a newer upstream run its in-flight dedup skipped, and
-`collectionStatus` ignores actions runs entirely. A completed actions run
+**The relaxed chain runs on either engine, per link.** `runsOnGpApi(link)` is read
+by every path that touches a chain run: `dispatchChain` picks `AgentsService.run`
+or the PMF Engine's `dispatchRun`, `findInFlightChainRun` picks the run table, and
+`services/raceOpponentRun.ts` reads the newest run of a link from that same table
+(`collectionStatus`, `postCollectionStatus`, and both re-chain readers go through
+it). A reader left on the other engine's table sees no run, so the chain looks
+idle and the page re-dispatches a paid run — the one mistake that switch exists to
+prevent. `self_research` and `opponent_research` stay on the PMF Engine.
+
+The chain passes output stage to stage **through the database, never through the
+engine**: a completed collection persists its items and rows replace the
+campaign's, then `dispatchSummary` reads those rows back into the summary input; a
+completed summary persists `RaceOpponentSummary` rows, then `dispatchActions`
+flattens them into the actions input. Each link's `onArtifact` calls the SAME
+`persistCollection` / `persistSummary` / `persistActions` body the PMF Engine's
+result consumer calls, so a gp-api run lands exactly where a PMF run does. A
+completed actions run
 persists its cards into `RaceOpponentStandoutAction` (delete+createMany in one
 transaction, `order` = artifact index; per-card contract validation drops a bad
 card, but a non-empty artifact whose EVERY card fails is malformed and fails the
 run without touching prior rows — while a validly-empty `actions: []` clears
-them and stays COMPLETED). `get()` serves the cards as `standoutActions`,
+them and stays completed). `get()` serves the cards as `standoutActions`,
 ordered by `order`, re-validated on read (a bad row is omitted, never thrown).
+
+The chain's agents live next to this module: `raceOpponentCollectionAgent/`,
+`raceOpponentSummaryAgent/`, `raceOpponentActionsAgent/`. Collection and summary
+are web-tools-only. Actions reads the district's `hs_*` sentiment off
+`queryDatabricks`, scoped by the flat `state`/`l2_district_*` params from
+`DistrictResolverService` (omitted all-or-nothing), and declares the manifest's
+`data_required_unless` so a run that read no data cannot claim district numbers.
 
 ## Sourced-or-silent + fair-line (the strict engine's invariants)
 

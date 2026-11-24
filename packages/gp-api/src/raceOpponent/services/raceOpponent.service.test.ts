@@ -22,6 +22,7 @@ describe('RaceOpponentService.autoCollectOnProUpgrade', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     // PrismaBase exposes `client` via a getter over the injected `_prisma`;
     // direct instantiation skips onModuleInit, so wire the campaign delegate
@@ -108,6 +109,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
     rows?: (typeof collectedRow)[]
   }): RaceOpponentService => {
     const service = new RaceOpponentService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -340,6 +342,7 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     Object.defineProperty(service, '_prisma', {
       value: {
@@ -496,6 +499,7 @@ describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     Object.defineProperty(service, '_prisma', {
       value: {
@@ -543,6 +547,7 @@ describe('RaceOpponentService.rechainActionsForNewerSummary', () => {
     latestCompletedSummary: { createdAt: Date } | null,
   ): RaceOpponentService => {
     const service = new RaceOpponentService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

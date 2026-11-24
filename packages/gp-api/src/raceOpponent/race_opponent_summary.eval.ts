@@ -155,6 +155,8 @@ export default definePairwiseAgentEvalSuite<RaceOpponentSummaryEvalInput>(
         grading: {
           condition:
             "No mutation: the captured dispatch unchanged. Its own irregularities are part of the input, not planted. The race context names Mbeki and a City Legislature while every source and the candidate's own platform describe Rockvale and its City Council or mayoral race. The second opponent is listed as Corwin Vasquez while both of his sources call him Curtis Vasquez, and the third is listed as Margot Okonkwo while her sources call her Margot Okonkwo Reyes. The first opponent has a single short source that says no biographical information was received.",
+          handledWhen:
+            "every input opponent appears exactly once in opponents[], in input order, with opponent_name echoed verbatim (including Corwin Vasquez and Margot Okonkwo as the input spells them), and every non-null overview/background/issues_that_matter cites only that opponent's own source_urls. A section whose cited url belongs to another opponent, or to no input source, is not handled; a null section is handled.",
           dimensions: {
             grounding:
               'Does every claim in the artifact trace to evidence this run actually had in its sources? Judge traceability only, not whether the claim is true in the world.',
@@ -1154,6 +1156,8 @@ export default definePairwiseAgentEvalSuite<RaceOpponentSummaryEvalInput>(
         grading: {
           condition:
             'Control: the old list marked this case unscored, so a difference reported here is one called with nothing to find. No stressor. The baseline with three corrections and nothing else: the naturally thin first opponent is dropped, the two opponent names that differed from their own sources are aligned to what the sources say (Curtis Vasquez, Margot Okonkwo Reyes), and the race context is corrected to the city and office every source names (Rockvale City Council). Five opponents remain, each with its original sources. This case exists to show how often and how strongly a difference is called when there is nothing to find.',
+          handledWhen:
+            "all five input opponents appear exactly once, each in input order, with opponent_name echoed verbatim, and every cited source url is one of that opponent's own input source_urls. Exactly one opponent is ranked primary_threat. A citation to a URL outside the input, or two or three primary_threats, is not handled.",
         },
       },
     ],
