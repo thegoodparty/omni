@@ -90,6 +90,7 @@ const setup = ({
   vi.mocked(useProUpgradeCarry).mockReturnValue({
     plan,
     returnTo: null,
+    backTo: null,
     fromPro: false,
     markFromPro,
   })
@@ -147,11 +148,23 @@ describe('PaymentStep with per-campaign pricing on', () => {
     expect(body?.returnUrl).toBe(
       `${window.location.origin}/dashboard/pro-upgrade/success?plan=pro`,
     )
-    expect(screen.getByText('Pro is $299 per campaign.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Pro is $299 for your whole race.'),
+    ).toBeInTheDocument()
+    // Design: verification is an info Alert, split into title and detail.
+    const notice = screen.getByRole('alert')
+    expect(notice).toHaveTextContent('Verification starts when you pay.')
+    expect(notice).toHaveTextContent(
+      'Texting usually opens 1 to 2 weeks later.',
+    )
+    expect(
+      screen.getByText(
+        'Secure payment through Stripe. One payment, no subscription.',
+      ),
+    ).toBeInTheDocument()
     expect(
       screen.getByText('Pro plan with $175 outreach credit'),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/no subscription/i)).not.toBeInTheDocument()
   })
 
   it('shows the Pro to Team breakdown and charges the difference', async () => {
@@ -175,6 +188,30 @@ describe('PaymentStep with per-campaign pricing on', () => {
     expect(screen.getByText('Pro, already paid')).toBeInTheDocument()
     expect(screen.getByText('−$299.00')).toBeInTheDocument()
     expect(screen.getByText('$100.00')).toBeInTheDocument()
+    // Verification already started when they bought Pro.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('keeps the texting-closing warning instead of the info Alert near the cutoff', async () => {
+    setup({ plan: 'pro', held: 'free' })
+    vi.mocked(useSmsCompliance).mockReturnValue({
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-12-01',
+      generalElectionDate: null,
+    })
+    mswServer.use(
+      http.post(CREATE_URL, () =>
+        HttpResponse.json({ id: 'cs_4', clientSecret: 'cs_4_secret_x' }),
+      ),
+    )
+
+    render(<PaymentStep />)
+
+    await screen.findByRole('button', { name: /^Pay / })
+    expect(
+      screen.getByText(/Finish your upgrade by Dec\. 1/),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('completes the session and goes to success, marking a Pro to Team upgrade', async () => {

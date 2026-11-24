@@ -30,7 +30,9 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
     if (plan === 'free' || !column?.cta) return null
     if (planRank(plan) <= planRank(currentPlan)) return null
     if (onSubscription) return { href: null }
-    return { href: planCheckoutHref(plan, `Join ${column.name}`) }
+    return {
+      href: planCheckoutHref(plan, `Join ${column.name}`, '/dashboard/plans'),
+    }
   }
 
   return (

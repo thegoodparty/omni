@@ -56,6 +56,7 @@ const setup = (
   })
   vi.mocked(useProUpgradeCarry).mockReturnValue({
     ...carry,
+    backTo: null,
     fromPro: false,
     markFromPro: vi.fn(),
   })
