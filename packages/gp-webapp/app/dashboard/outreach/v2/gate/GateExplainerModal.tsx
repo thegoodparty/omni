@@ -14,6 +14,8 @@ import {
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { EXPLAINER_COPY, GATE_NOUN, type GateChannel } from './gateCopy'
 import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { GateSurface } from './GateSurface'
+import { ProGateDialog } from './ProGateDialog'
 import { ProPitchPanel } from './ProPitchPanel'
 import type { OutreachGateState } from './useOutreachGate'
 
@@ -79,7 +81,7 @@ export const GateExplainerModal = ({
       ? {
           kind: 'upgrade',
           label: planPitch.enabled
-            ? EXPLAINER_COPY.planCtaJoin(planPitch.name)
+            ? EXPLAINER_COPY.planCtaJoin(planPitch.name, planPitch.price)
             : EXPLAINER_COPY.ctaJoin,
           onClick: onUpgrade,
         }
@@ -99,6 +101,62 @@ export const GateExplainerModal = ({
       requirement,
       cta: kind,
     })
+  }
+
+  const runCta = (): void => {
+    if (!cta) return
+    reportCta(cta.kind)
+    onOpenChange(false)
+    cta.onClick()
+  }
+
+  // Flag on, the explainer is the gate's own dialog (a drawer on a phone)
+  // over the flow's step: stacked buttons, closed with the X.
+  if (planPitch.enabled) {
+    const handleOpenChange = (next: boolean): void => {
+      if (!next) reportCta('dismiss')
+      onOpenChange(next)
+    }
+
+    if (needsPro) {
+      return (
+        <ProGateDialog
+          open={open}
+          onOpenChange={handleOpenChange}
+          channel={channel}
+          title={title}
+          ctaLabel={cta?.label ?? ''}
+          onJoin={runCta}
+        />
+      )
+    }
+
+    return (
+      <GateSurface
+        open={open}
+        onOpenChange={handleOpenChange}
+        title={title}
+        description={body}
+        footer={
+          <>
+            {cta && (
+              <Button size="large" className="w-full" onClick={runCta}>
+                {cta.label}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => handleOpenChange(false)}
+            >
+              {EXPLAINER_COPY.dismissPro}
+            </Button>
+          </>
+        }
+      >
+        <ProPitchPanel channel={channel} hideValue verifyDefaultOpen />
+      </GateSurface>
+    )
   }
 
   return (
@@ -134,11 +192,7 @@ export const GateExplainerModal = ({
           {cta && (
             <Button
               className="w-full sm:w-auto sm:min-w-[360px]"
-              onClick={() => {
-                reportCta(cta.kind)
-                onOpenChange(false)
-                cta.onClick()
-              }}
+              onClick={runCta}
             >
               {cta.label}
             </Button>

@@ -45,6 +45,9 @@ interface OutreachGateProps {
   // position in place of the flow's (design: renderSgModal). `totalSteps`
   // 0 is a screen that draws no header. Null once the gate unmounts.
   onChromeChange?: (chrome: GateChrome | null) => void
+  // Back off the wizard's first step, for a flow that has a pitch to return
+  // to. Without it the wizard shows its own inline interstitial.
+  onFirstStepBack?: () => void
   // Where the flow was opened from and the label of the button that opened
   // the gate, for the wizard's `Pro Upgrade - Flow Started`.
   source: OutreachFlowSource
@@ -70,6 +73,7 @@ export const OutreachGate = ({
   onComplete,
   showInterstitial = true,
   onChromeChange,
+  onFirstStepBack,
   source,
   cta,
   tracker,
@@ -179,6 +183,7 @@ export const OutreachGate = ({
           onExit={onExit}
           onComplete={handleProComplete}
           onPositionChange={reportProPosition}
+          onFirstStepBack={onFirstStepBack}
         />
       </div>
     )

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -53,6 +53,14 @@ describe('GateExplainerModal', () => {
   beforeEach(() => {
     planFlag.enabled = false
     trackEventMock.mockClear()
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      value: 1024,
+      configurable: true,
+      writable: true,
+    })
   })
 
   it('renders nothing when requirement is null', () => {
@@ -395,5 +403,163 @@ describe('GateExplainerModal', () => {
       EVENTS.Outreach.Gate.ExplainerCta,
       { channel: 'sms', requirement: 'in_review', cta: 'dismiss' },
     )
+  })
+
+  describe('with per-campaign pricing on', () => {
+    beforeEach(() => {
+      planFlag.enabled = true
+    })
+
+    it.each(['sms', 'robocall', 'door', 'phone-bank'] as const)(
+      'stacks a priced Join Pro over a ghost See all plans for %s, with no Later',
+      (channel) => {
+        render(
+          <GateExplainerModal
+            channel={channel}
+            state={stateWith({ requirement: 'pro' })}
+            open
+            {...noop}
+          />,
+        )
+
+        expect(
+          screen.getByRole('button', { name: 'Join Pro for $299' }),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByRole('link', { name: 'See all plans' }),
+        ).toHaveAttribute('href', '/dashboard/plans')
+        expect(
+          screen.queryByRole('button', { name: EXPLAINER_COPY.dismissPro }),
+        ).toBeNull()
+        expect(screen.queryByText('Maybe later')).toBeNull()
+        const footer = document.querySelector('[data-slot="dialog-footer"]')
+        expect(footer).toHaveClass('flex-col', 'sm:flex-col')
+      },
+    )
+
+    it('draws four rows with the Bonus pill', () => {
+      render(
+        <GateExplainerModal
+          channel="sms"
+          state={stateWith({ requirement: 'pro', twoStep: true })}
+          open
+          {...noop}
+        />,
+      )
+
+      expect(
+        screen.getByText(
+          'Pay $299 once for your plan, good for your whole race',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('$175 outreach credit to get started'),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Bonus')).toBeInTheDocument()
+      expect(screen.getByText(PITCH_PANEL_COPY.verifyTitle)).toBeInTheDocument()
+      expect(screen.queryByText(PITCH_PANEL_COPY.verifyBody)).toBeNull()
+    })
+
+    it('closes then calls onUpgrade from the priced button, and reports it', async () => {
+      const user = userEvent.setup()
+      const onUpgrade = vi.fn()
+      const onOpenChange = vi.fn()
+      render(
+        <GateExplainerModal
+          channel="door"
+          state={stateWith({ requirement: 'pro' })}
+          open
+          {...noop}
+          onUpgrade={onUpgrade}
+          onOpenChange={onOpenChange}
+        />,
+      )
+
+      await user.click(
+        screen.getByRole('button', { name: 'Join Pro for $299' }),
+      )
+
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+      expect(onUpgrade).toHaveBeenCalledTimes(1)
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.Outreach.Gate.ExplainerCta,
+        { channel: 'door', requirement: 'pro', cta: 'upgrade' },
+      )
+    })
+
+    it('dismisses with the X and reports it', async () => {
+      const user = userEvent.setup()
+      const onOpenChange = vi.fn()
+      render(
+        <GateExplainerModal
+          channel="sms"
+          state={stateWith({ requirement: 'pro' })}
+          open
+          {...noop}
+          onOpenChange={onOpenChange}
+        />,
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Close' }))
+
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.Outreach.Gate.ExplainerCta,
+        { channel: 'sms', requirement: 'pro', cta: 'dismiss' },
+      )
+    })
+
+    it('keeps the verify explainer on the same dialog, with Later under its CTA', async () => {
+      const user = userEvent.setup()
+      const onVerify = vi.fn()
+      render(
+        <GateExplainerModal
+          channel="sms"
+          state={stateWith({ requirement: 'verify', twoStep: true })}
+          open
+          {...noop}
+          onVerify={onVerify}
+        />,
+      )
+
+      expect(
+        screen.getByText('One more step before this text can send'),
+      ).toBeInTheDocument()
+      expect(screen.getByText(PITCH_PANEL_COPY.verifyBody)).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: EXPLAINER_COPY.dismissPro }),
+      ).toBeInTheDocument()
+
+      await user.click(
+        screen.getByRole('button', { name: EXPLAINER_COPY.ctaVerify }),
+      )
+
+      expect(onVerify).toHaveBeenCalledTimes(1)
+    })
+
+    it('is a drawer on a phone', async () => {
+      Object.defineProperty(window, 'innerWidth', {
+        value: 390,
+        configurable: true,
+        writable: true,
+      })
+      render(
+        <GateExplainerModal
+          channel="sms"
+          state={stateWith({ requirement: 'pro' })}
+          open
+          {...noop}
+        />,
+      )
+
+      expect(
+        await screen.findByRole('dialog', {
+          name: 'Join Pro to send this campaign',
+        }),
+      ).toHaveAttribute('data-slot', 'drawer-content')
+      expect(
+        screen.getByRole('button', { name: 'Join Pro for $299' }),
+      ).toBeInTheDocument()
+    })
   })
 })
