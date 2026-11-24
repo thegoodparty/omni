@@ -45,6 +45,8 @@ import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
+import { ProGatePitch } from '../gate/ProGatePitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useOutreachCredit } from 'app/dashboard/outreach/util/outreachCredit'
@@ -188,6 +190,8 @@ export const RobocallFlow = ({
   resumeCta,
 }: RobocallFlowProps) => {
   const gate = useOutreachGate('robocall')
+  // Flag on, the draft save opens the Pro gate as a dialog over the step.
+  const planPitch = useContextualPlanPitch()
   const lockedAtOpen = useLockedAtOpen(open, gate)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
@@ -229,6 +233,7 @@ export const RobocallFlow = ({
     open,
     resumeDraft,
     resumeCta,
+    pitchAsDialog: planPitch.enabled,
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
@@ -1096,7 +1101,12 @@ export const RobocallFlow = ({
         ) : (
           <ChannelBadge
             type={OUTREACH_TYPES.robocall}
-            locked={gate.requirement !== null && !settled && !gateOpen}
+            locked={
+              !planPitch.enabled &&
+              gate.requirement !== null &&
+              !settled &&
+              !gateOpen
+            }
           />
         )
       }
@@ -1141,18 +1151,26 @@ export const RobocallFlow = ({
         onVerify={draftGate.openGateFromExplainer}
         onPin={draftGate.openGateFromExplainer}
       />
+      {draftGate.pitchOpen && (
+        <ProGatePitch
+          channel="robocall"
+          onJoin={draftGate.joinPitch}
+          onDismiss={draftGate.handleGateExit}
+        />
+      )}
       {gateOpen ? (
         <OutreachGate
           channel="robocall"
           state={gate}
           open
           showInterstitial={
-            draftGate.gateOrigin === 'save' ||
+            (draftGate.gateOrigin === 'save' && !planPitch.enabled) ||
             (draftGate.gateOrigin === 'resume' && !resumeStartsOnWizard)
           }
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onChromeChange={setGateChrome}
+          onFirstStepBack={draftGate.wizardBack}
           source={source}
           cta={draftGate.gateCta}
           tracker={tracker}

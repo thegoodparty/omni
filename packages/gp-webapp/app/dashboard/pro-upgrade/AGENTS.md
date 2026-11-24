@@ -57,7 +57,7 @@ charged through the other.
 - **Copy and navigation (Nov 23 boards).** Guidance's Payment row reads
   "...for $299, one payment for your whole race."; Back off it goes to the page
   that carried the candidate in (`back=<path>` on the entry URL, set by
-  `planCheckoutHref`'s third argument from the plans page and account page,
+  `planCheckoutHref`'s third argument from the plans page,
   exact-path allowlist like `returnTo`; history cannot say, since every step
   move is a push) instead of always `/dashboard`, which stays the fallback. Checkout's verification notice is
   an info `Alert` (clock icon, `paymentVerificationTitle` / `Detail`), the

@@ -200,7 +200,7 @@ describe('ProUpgradeWizard', () => {
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
     mockUseSearchParams.mockReturnValue(
       new URLSearchParams(
-        'plan=team&back=%2Fdashboard%2Faccount',
+        'plan=team&back=%2Fdashboard%2Fplans',
       ) as ReadonlyURLSearchParams,
     )
     vi.mocked(usePlan).mockReturnValue({ ...PLAN, plan: 'pro' })
@@ -212,7 +212,7 @@ describe('ProUpgradeWizard', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
 
-    expect(router.push).toHaveBeenCalledWith('/dashboard/account')
+    expect(router.push).toHaveBeenCalledWith('/dashboard/plans')
   })
 
   it('places filing details between the EIN and payment', () => {

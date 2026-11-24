@@ -1,4 +1,7 @@
-import type { PlanPitch } from 'app/dashboard/shared/plan/planPitch'
+import {
+  SEE_ALL_PLANS_LABEL,
+  type PlanPitch,
+} from 'app/dashboard/shared/plan/planPitch'
 import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
 
 // Shared copy for the Pro-and-verification "gate" that blocks an outreach
@@ -90,25 +93,46 @@ export const INTERSTITIAL_COPY = {
 }
 
 // Flag on (win_per_campaign_pricing): the plan name and price come from the
-// PlanPitch, never literals. Flag off keeps the strings above.
+// PlanPitch, never literals. Flag off keeps the strings above. The dialog is
+// dismissed with its X only, so there is no "Maybe later" here, and "See all
+// plans" is its own stacked button under the CTA.
 export const planInterstitialCopy = (
   pitch: PlanPitch,
-): typeof INTERSTITIAL_COPY => ({
+): { title: string; cta: string; seeAllPlans: string } => ({
   title: `Join ${pitch.name} to send this campaign`,
-  cta: `Join ${pitch.name}`,
-  dismiss: INTERSTITIAL_COPY.dismiss,
+  cta: `Join ${pitch.name} for ${pitch.price}`,
+  seeAllPlans: SEE_ALL_PLANS_LABEL,
 })
 
 export const planPriceBullet = (pitch: PlanPitch): string =>
-  `${pitch.price} for your campaign, with ${pitch.credit} in outreach credit`
+  `Pay ${pitch.price} once for your plan, good for your whole race`
 
-// The pitch's first bullet is the price line; flag on swaps it for the plan's.
+export const planCreditBullet = (pitch: PlanPitch): string =>
+  `${pitch.credit} outreach credit to get started`
+
+// The grey pill on the credit row: the credit is a bonus on top of the plan.
+export const PLAN_BONUS_PILL = 'Bonus'
+
+// Flag on, a pitch has four rows: the plan's price line, the channel's two
+// own bullets, and the credit bonus.
+export interface PlanGateCopy {
+  headline: string
+  bullets: [string, string, string, string]
+}
+
+// The pitch's first bullet is the price line and a fourth is the credit
+// bonus; flag on swaps the first and adds the last.
 export const withPlanPriceBullet = (
   copy: { headline: string; bullets: [string, string, string] },
   pitch: PlanPitch,
-): { headline: string; bullets: [string, string, string] } => ({
+): PlanGateCopy => ({
   headline: copy.headline,
-  bullets: [planPriceBullet(pitch), copy.bullets[1], copy.bullets[2]],
+  bullets: [
+    planPriceBullet(pitch),
+    copy.bullets[1],
+    copy.bullets[2],
+    planCreditBullet(pitch),
+  ],
 })
 
 // A channel a saved draft resumes into. Email has no gate of its own, but
@@ -164,6 +188,11 @@ export const REVIEW_GATE_CTA: Record<
   closed: SMS_CUTOFF_COPY.closedLabel,
 }
 
+// Flag on, a free campaign's review button names what it does: it saves the
+// draft and opens the Pro gate over the review.
+export const planReviewGateCta = (pitch: PlanPitch): string =>
+  `Join ${pitch.name} to send`
+
 export const BANNER_COPY = {
   twoStepFree: (noun: string): string =>
     `Two things are needed before this ${noun} can send.`,
@@ -196,7 +225,8 @@ export const EXPLAINER_COPY = {
   bodyInReview:
     'Phone carriers are reviewing your campaign, usually 1 to 2 weeks. We will tell you when it clears.',
   ctaJoin: 'Join Pro',
-  planCtaJoin: (planName: string): string => `Join ${planName}`,
+  planCtaJoin: (planName: string, price: string): string =>
+    `Join ${planName} for ${price}`,
   ctaVerify: 'Start verification',
   ctaPin: 'Enter your PIN',
   dismissPro: 'Later',

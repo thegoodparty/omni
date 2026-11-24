@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Editor } from '@tiptap/react'
 import type { PhoneBankingCreate } from '@goodparty_org/contracts'
@@ -28,6 +28,15 @@ vi.mock('../gate/useOutreachGate', async () => {
   return { useOutreachGate: useMockOutreachGate }
 })
 
+// Per-campaign pricing flag: off keeps the gate exactly as it was.
+const planFlagRef = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: planFlagRef.enabled,
+  }),
+}))
+
 // Mounts real Stripe surfaces; the flow only owns whether it is on screen and
 // what its completion runs, so the stand-in exposes the completion as a
 // button.
@@ -35,11 +44,18 @@ vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
   default: ({
     onComplete,
     onExit,
+    onFirstStepBack,
   }: {
     onComplete: () => void
     onExit: () => void
+    onFirstStepBack?: () => void
   }) => (
     <div data-testid="pro-upgrade-flow">
+      {onFirstStepBack && (
+        <button type="button" onClick={onFirstStepBack}>
+          Wizard back
+        </button>
+      )}
       <button type="button" onClick={onComplete}>
         Finish upgrade
       </button>
@@ -143,6 +159,7 @@ const advanceToSheets = async () => {
 describe('PhoneBankingFlow — the Pro gate', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    planFlagRef.enabled = false
     gateRef.set(PRO_GATE)
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
@@ -180,6 +197,33 @@ describe('PhoneBankingFlow — the Pro gate', () => {
       status: 200,
       data: { draft: 'AI script for phone banking' },
     })
+  })
+
+  it('with per-campaign pricing on: no lock, the banner opens the dialog, and Back from the wizard returns to the flow', async () => {
+    planFlagRef.enabled = true
+    gateRef.set(FREE_GATE)
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
+
+    await user.click(await screen.findByText(GATE_LINE))
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Join Pro to call this list',
+    })
+    expect(document.querySelector('.lucide-lock')).toBeNull()
+    expect(
+      within(dialog).getByRole('link', { name: 'See all plans' }),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText('Later')).toBeNull()
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Join Pro for $299' }),
+    )
+    expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Wizard back' }))
+
+    expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+    expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
   })
 
   it('shows the gate banner on every step for a free candidate', async () => {

@@ -151,6 +151,43 @@ describe('ProUpgradeFlow', () => {
   })
 })
 
+describe('ProUpgradeFlow first-step back', () => {
+  it('shows the inline interstitial on back from guidance by default', () => {
+    render(
+      <ProUpgradeFlow
+        initialStep={PRO_UPGRADE_STEP.GUIDANCE}
+        channel="sms"
+        onExit={vi.fn()}
+        onComplete={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('back'))
+
+    expect(screen.getByText('step:interstitial')).toBeInTheDocument()
+  })
+
+  it("hands back from guidance to the host's own pitch when it has one", () => {
+    const onFirstStepBack = vi.fn()
+    const onExit = vi.fn()
+    render(
+      <ProUpgradeFlow
+        initialStep={PRO_UPGRADE_STEP.GUIDANCE}
+        channel="sms"
+        onExit={onExit}
+        onComplete={vi.fn()}
+        onFirstStepBack={onFirstStepBack}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('back'))
+
+    expect(onFirstStepBack).toHaveBeenCalledTimes(1)
+    expect(onExit).not.toHaveBeenCalled()
+    expect(screen.getByText('step:guidance')).toBeInTheDocument()
+  })
+})
+
 describe('ProUpgradeFlow Flow Started', () => {
   it('fires once per mount with the attribution it was given', () => {
     vi.mocked(trackEvent).mockClear()

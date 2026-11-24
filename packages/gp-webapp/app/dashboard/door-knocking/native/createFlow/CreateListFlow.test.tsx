@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -44,6 +44,15 @@ vi.mock('app/dashboard/outreach/v2/gate/useOutreachGate', async () => {
   return { useOutreachGate: useMockOutreachGate }
 })
 
+// Per-campaign pricing flag: off keeps the gate exactly as it was.
+const planFlagRef = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: planFlagRef.enabled,
+  }),
+}))
+
 // Mounts real Stripe surfaces; the flow only owns whether the gate is on
 // screen and what its completion runs, so the stand-in exposes both as
 // buttons.
@@ -51,11 +60,18 @@ vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
   default: ({
     onComplete,
     onExit,
+    onFirstStepBack,
   }: {
     onComplete: () => void
     onExit: () => void
+    onFirstStepBack?: () => void
   }) => (
     <div data-testid="pro-upgrade-flow">
+      {onFirstStepBack && (
+        <button type="button" onClick={onFirstStepBack}>
+          Wizard back
+        </button>
+      )}
       <button type="button" onClick={onComplete}>
         Finish upgrade
       </button>
@@ -2562,6 +2578,7 @@ describe('CreateListFlow — the Pro gate', () => {
   beforeEach(() => {
     testQueryClient.clear()
     vi.clearAllMocks()
+    planFlagRef.enabled = false
     gateRef.set(FREE_GATE)
   })
 
@@ -2577,6 +2594,31 @@ describe('CreateListFlow — the Pro gate', () => {
     })
     return turfPosts
   }
+
+  it('with per-campaign pricing on: no lock, the banner opens the dialog, and Back from the wizard returns to the step', async () => {
+    planFlagRef.enabled = true
+    render(<CreateListFlow {...baseProps} step="name" />)
+
+    fireEvent.click(screen.getByText(GATE_LINE))
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Join Pro to start knocking',
+    })
+    expect(document.querySelector('.lucide-lock')).toBeNull()
+    expect(
+      within(dialog).getByRole('link', { name: 'See all plans' }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Join Pro for $299' }),
+    )
+    await screen.findByTestId('pro-upgrade-flow')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Wizard back' }))
+
+    expect(screen.queryByTestId('pro-upgrade-flow')).toBeNull()
+    expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
+  })
 
   it('shows the gate banner on the steps before the map for a free candidate', () => {
     const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)

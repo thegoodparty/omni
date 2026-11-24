@@ -33,7 +33,6 @@ const RETURN_TO_ALLOWLIST: readonly string[] = [
   '/dashboard/outreach',
   '/dashboard/contacts',
   '/dashboard/plans',
-  '/dashboard/account',
 ]
 
 const PARSE_ORIGIN = 'http://return-to.invalid'

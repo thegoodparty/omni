@@ -88,7 +88,7 @@ const ProviderIcon = ({ provider }: { provider?: string }): React.ReactNode => {
 
 export const PersonalInformationCard = ({
   user,
-  title = 'Personal Information',
+  title = 'Personal information',
 }: PersonalInformationCardProps): React.JSX.Element => {
   const { user: clerkUser } = useClerkUser()
   const { openUserProfile } = useClerk()
