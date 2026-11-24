@@ -374,10 +374,12 @@ export const JOBS = {
     schema: z.object({ organizationSlug: z.string().min(1) }),
     worker: (job, { get }) =>
       get(CommunityIssueDispatchService).startOnboarding(job),
-    // The priorities step shows "searching" for 60 seconds and polls for two
-    // minutes, so 2 is the longest a user waits for this job to start; paging
-    // and scale-out then begin while they are still on the screen.
-    alertAfterWaitingMinutes: 2,
+    // The step stops saying "searching" 60 seconds after the official reaches
+    // it, and the search takes 25 to 55 of those, so a job can wait about 5 to
+    // 35 seconds to start before the user is told nothing was found. 1 is the
+    // smallest the field takes; paging and scale-out (from half of it) then
+    // begin while the user is still on the step.
+    alertAfterWaitingMinutes: 1,
     // Each job holds its slot for a 25 to 55 second search, and the step only
     // waits 60 seconds before saying nothing was found, so the default one
     // slot per task would queue a burst past that window. The org-slug key is
