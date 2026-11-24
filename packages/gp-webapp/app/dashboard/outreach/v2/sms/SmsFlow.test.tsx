@@ -2839,6 +2839,22 @@ describe('SmsFlow', () => {
           expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
         })
 
+        it('returns to the dialog on Back off the wizard', async () => {
+          openCardFlow()
+
+          await user.click(
+            await screen.findByRole('button', { name: 'Join Pro for $299' }),
+          )
+          expect(
+            await screen.findByTestId('pro-upgrade-flow'),
+          ).toBeInTheDocument()
+          await user.click(screen.getByRole('button', { name: 'Wizard back' }))
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+        })
+
         it('leaves the sheet open on the draft when the dialog is closed', async () => {
           const { onClose } = openCardFlow()
 

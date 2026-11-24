@@ -109,6 +109,9 @@ export const useDraftGate = ({
   const [gateOrigin, setGateOrigin] = useState<GateOrigin>(null)
   const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [pitchOpen, setPitchOpen] = useState(false)
+  // The pitch came from a gesture that saves nothing (openPitch), so the
+  // wizard's Back returns to it just as it does after a save.
+  const [pitchFromCard, setPitchFromCard] = useState(false)
   const [explainerOpen, setExplainerOpen] = useState(false)
 
   // Reopening starts fresh, exactly as the rest of the flow state does.
@@ -122,6 +125,7 @@ export const useDraftGate = ({
     setGateOrigin(null)
     setGateCta(undefined)
     setPitchOpen(false)
+    setPitchFromCard(false)
     setExplainerOpen(false)
   }, [open, resumeDraft])
 
@@ -246,6 +250,7 @@ export const useDraftGate = ({
   const openPitch = useCallback((cta?: string): void => {
     setGateOrigin('explainer')
     setGateCta(cta)
+    setPitchFromCard(true)
     setPitchOpen(true)
   }, [])
 
@@ -272,7 +277,9 @@ export const useDraftGate = ({
     joinPitch,
     openPitch,
     wizardBack:
-      pitchAsDialog && gateOrigin === 'save' ? backToPitch : undefined,
+      pitchAsDialog && (gateOrigin === 'save' || pitchFromCard)
+        ? backToPitch
+        : undefined,
     explainerOpen,
     setExplainerOpen,
     savingDraft,
