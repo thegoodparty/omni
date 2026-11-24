@@ -823,19 +823,25 @@ jwIDAQAB
         prod: 'false',
       }),
       CASE_SCOUT_BUCKET: caseScoutName,
-      // Prod's draft cap, first-night window and higher spend cap are
-      // temporary: they fill the first 20 prod cases quickly while the
-      // handoff is held for a person to read. Revert them after that review.
+      // Prod's session cap, draft cap, first-night window and higher spend
+      // cap are temporary: a person moved prod's marker back to Oct 1, and
+      // these walk that chat history 300 sessions a night to fill the first
+      // 20 prod cases while the handoff is held for a person to read. Revert
+      // them after that review.
       CASE_SCOUT_SPEND_CAP_USD: select({
         preview: '50',
         dev: '50',
-        prod: '100',
+        prod: '300',
       }),
-      CASE_SCOUT_SESSION_CAP: '75',
+      CASE_SCOUT_SESSION_CAP: select({
+        preview: '75',
+        dev: '75',
+        prod: '300',
+      }),
       CASE_SCOUT_NIGHTLY_CAP: select({
         preview: '',
         dev: '',
-        prod: '10',
+        prod: '25',
       }),
       CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS: select({
         preview: '',
