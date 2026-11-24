@@ -107,6 +107,29 @@ type DispatchBase = {
   params: StrategicLandscapeParams
 }
 
+// Which engine ran a section, carried from the caller that knows rather than
+// re-read from the switch: a section dispatched to one engine can finish after
+// a deploy flips `AGENTS_ON_GP_API`.
+type SectionEngine = 'gp-api' | 'cap'
+
+type SectionWrite = {
+  section: 'opposition' | 'opportunities'
+  engine: SectionEngine
+  runId: string
+  raceId: string | null
+  artifact: unknown
+  durationSeconds: number | null
+  costUsd: number | null
+}
+
+type NowPersisted = {
+  section: 'opposition' | 'opportunities'
+  engine: SectionEngine
+  runId: string
+  durationSeconds: number | null
+  costUsd: number | null
+}
+
 // Defensive Zod parse over Campaign.details — the column is Prisma JSON,
 // so we can't trust the shadow type at runtime. Only the keys we read here
 // are declared; everything else passes through silently. raceId is the
@@ -445,6 +468,9 @@ export class CampaignStrategyService extends createPrismaBase(
       if (!raw) throw new Error('artifact is missing or empty')
       await this.persistSection(plan, {
         section,
+        // This consumer only ever reads the PMF Engine's queue, so the engine
+        // that ran it is known here rather than re-read from the switch.
+        engine: 'cap',
         runId: run.runId,
         // The race this run generated for, from its own dispatch params — NOT
         // the plan's current stamp, which can change (race reset, or a legacy
@@ -484,6 +510,7 @@ export class CampaignStrategyService extends createPrismaBase(
     if (plan.oppositionPersistedAt) {
       await this.afterSectionPersisted(plan, {
         section: 'opposition',
+        engine: 'gp-api',
         runId: run.runId,
         durationSeconds: null,
         costUsd: null,
@@ -493,6 +520,7 @@ export class CampaignStrategyService extends createPrismaBase(
 
     await this.persistSection(plan, {
       section: 'opposition',
+      engine: 'gp-api',
       runId: run.runId,
       raceId: run.raceId,
       artifact: run.artifact,
@@ -520,6 +548,7 @@ export class CampaignStrategyService extends createPrismaBase(
     if (plan.opportunitiesPersistedAt) {
       await this.afterSectionPersisted(plan, {
         section: 'opportunities',
+        engine: 'gp-api',
         runId: run.runId,
         durationSeconds: null,
         costUsd: null,
@@ -529,6 +558,7 @@ export class CampaignStrategyService extends createPrismaBase(
 
     await this.persistSection(plan, {
       section: 'opportunities',
+      engine: 'gp-api',
       runId: run.runId,
       raceId: run.raceId,
       artifact: run.artifact,
@@ -558,14 +588,7 @@ export class CampaignStrategyService extends createPrismaBase(
   // failed, and must not fail the job into a retry that skips the bootstrap.
   private async persistSection(
     plan: CampaignStrategy,
-    section: {
-      section: 'opposition' | 'opportunities'
-      runId: string
-      raceId: string | null
-      artifact: unknown
-      durationSeconds: number | null
-      costUsd: number | null
-    },
+    section: SectionWrite,
   ): Promise<void> {
     if (section.section === 'opposition') {
       await this.persister.persistOpponents(
@@ -593,12 +616,7 @@ export class CampaignStrategyService extends createPrismaBase(
   // before the bootstrap and leave a completed plan without its tracker.
   private async afterSectionPersisted(
     plan: CampaignStrategy,
-    section: {
-      section: 'opposition' | 'opportunities'
-      runId: string
-      durationSeconds: number | null
-      costUsd: number | null
-    },
+    section: NowPersisted,
   ): Promise<void> {
     try {
       const userId = await this.resolveCampaignUserId(plan.campaignId)
@@ -615,11 +633,9 @@ export class CampaignStrategyService extends createPrismaBase(
               planId: plan.id,
               // The engine that actually ran it, so a funnel joining Started to
               // Completed does not split one run in two while the switch exists.
-              generationEngine: runsOnGpApi(
-                section.section === 'opposition' ? OPPOSITION : OPPORTUNITIES,
-              )
-                ? 'gp-api'
-                : 'cap',
+              // Read from the caller, not the switch: a section dispatched to
+              // one engine can finish after a deploy flips the switch.
+              generationEngine: section.engine,
               runId: section.runId,
               durationSeconds: section.durationSeconds,
               costUsd: section.costUsd,
