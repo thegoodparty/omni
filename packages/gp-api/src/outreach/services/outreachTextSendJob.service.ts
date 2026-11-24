@@ -18,6 +18,7 @@ type OutreachTextSendJobData = {
   outreachId: number
   sendSeq: number
   agentHandoff?: {
+    handler?: 'agent' | 'api'
     mode: 'shadow' | 'auto'
     sendAt: string
     timeZone: string

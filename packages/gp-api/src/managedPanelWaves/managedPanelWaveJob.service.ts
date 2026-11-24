@@ -13,6 +13,7 @@ import {
   ContactStatusField,
   ManagedCivicPanelStatus,
   OutreachFunding,
+  OutreachHandoffHandler,
   OutreachHandoffStatus,
   OutreachStatus,
   OutreachType,
@@ -52,6 +53,7 @@ import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { SERVE_PANEL_WAVE_AGENT_FLAG } from '@/shared/util/servePanelWaveAgentFlag.util'
 import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
+import { isInternalUser } from '@/users/util/users.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
   CIVIC_PANEL_MILESTONES,
@@ -99,6 +101,16 @@ const MILESTONE_ROW: Record<ContractMilestone, CivicPanelMilestone> = {
   full: CivicPanelMilestone.full,
 }
 
+const AGENT_VARIANT_ROUTES: Record<
+  string,
+  { handler: AgentPlan['handler']; mode: AgentPlan['mode'] } | undefined
+> = {
+  shadow: { handler: 'agent', mode: 'shadow' },
+  auto: { handler: 'agent', mode: 'auto' },
+  api_shadow: { handler: 'api', mode: 'shadow' },
+  api_auto: { handler: 'api', mode: 'auto' },
+}
+
 const SEND_SELECT = {
   status: true,
   fundedBy: true,
@@ -124,6 +136,7 @@ const manualSendDate = (enrollment: Enrollment, now: Date): string =>
 // How an agent-handled wave goes out: the next 11am local slot, weekends
 // allowed. Resolved once per send step from the approving official's flag.
 type AgentPlan = {
+  handler: 'agent' | 'api'
   mode: 'shadow' | 'auto'
   timeZone: string
   sendAt: Date
@@ -446,23 +459,30 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     // post never loses its "agent is handling this" note while the row exists.
     const row = await this.client.outreachTextHandoff.findFirst({
       where: { outreach: { managedPanelWaveId: waveId } },
-      select: { mode: true, sendAt: true, timeZone: true },
+      select: { handler: true, mode: true, sendAt: true, timeZone: true },
     })
     const agentHandled = row !== null || (!handedOff && agent !== null)
     if (!handedOff) {
       if (outreach.status === OutreachStatus.pending_payment) {
         await this.refreshDraft(enrollment, waveId, now, agent)
       }
+      // handler is only sent for api: the previous release's strict
+      // outreachTextSend schema rejects the key, and a rolling deploy can hand
+      // a newly queued agent send to an old worker.
       const claim = await this.funding.claimFree(
         waveId,
         row
           ? {
+              ...(row.handler === OutreachHandoffHandler.api
+                ? { handler: 'api' as const }
+                : {}),
               mode: row.mode === 'auto' ? 'auto' : 'shadow',
               sendAt: row.sendAt,
               timeZone: row.timeZone,
             }
           : agent
             ? {
+                ...(agent.handler === 'api' ? { handler: 'api' as const } : {}),
                 mode: agent.mode,
                 sendAt: agent.sendAt,
                 timeZone: agent.timeZone,
@@ -525,7 +545,9 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
   }
 
   // Null unless the approving official's `serve-panel-wave-agent` flag
-  // assigns shadow or auto; any other variant, or none, is off.
+  // assigns shadow, auto, api_shadow or api_auto; any other variant, or none,
+  // is off. The variant alone decides the handler. api_auto only sends for
+  // real in prod, and a GoodParty-owned org never takes the api path.
   private async agentPlan(
     enrollment: Enrollment,
     now: Date,
@@ -535,16 +557,48 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       user: enrollment.approvedByUserId,
       feature: SERVE_PANEL_WAVE_AGENT_FLAG,
     })
-    if (variant !== 'shadow' && variant !== 'auto') return null
+    const route = AGENT_VARIANT_ROUTES[variant ?? '']
+    if (!route) return null
+    // Nothing advances an api row until the Scale to Win sweep ships, so an
+    // api variant assigned before then would strand the wave unclosed.
+    if (
+      route.handler === 'api' &&
+      process.env.S2W_PANEL_WAVE_API_ENABLED !== 'true'
+    ) {
+      return null
+    }
+    if (
+      route.handler === 'api' &&
+      (await this.isInternalOwner(enrollment.organizationSlug))
+    ) {
+      return null
+    }
     const timeZone = await this.sendTimeZone(enrollment.organizationSlug)
     const start = managedStartDate(enrollment.firstSendDate, now)
+    const mode =
+      route.handler === 'api' &&
+      route.mode === 'auto' &&
+      process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod'
+        ? 'shadow'
+        : route.mode
     return {
-      mode: variant,
+      handler: route.handler,
+      mode,
       timeZone,
       ...(start
         ? agentSendSlotOn(start, now, timeZone)
         : nextAgentSendSlot(now, timeZone)),
     }
+  }
+
+  private async isInternalOwner(organizationSlug: string): Promise<boolean> {
+    const organization = await this.client.organization.findUnique({
+      where: { slug: organizationSlug },
+      select: { owner: { select: { email: true } } },
+    })
+    return organization
+      ? isInternalUser({ email: organization.owner.email })
+      : false
   }
 
   private async sendTimeZone(organizationSlug: string): Promise<string> {

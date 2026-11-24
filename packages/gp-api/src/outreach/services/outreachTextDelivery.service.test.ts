@@ -628,6 +628,54 @@ describe('OutreachTextDeliveryService', () => {
       })
     })
 
+    it('records an api row at pending with the recipient CSV key and count', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001'), person('p-2', '5551230002')]),
+      )
+
+      const result = await delivery.requestSend(
+        input(outreach.id, {
+          audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+          agentHandoff: { ...agentHandoff, handler: 'api', mode: 'shadow' },
+        }),
+      )
+
+      const rows = await handoffRows(outreach.id)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        handler: 'api',
+        mode: 'shadow',
+        status: 'queued',
+        apiStep: 'pending',
+        recipientCsvKey: result.sendKey,
+        recipientCount: 2,
+        apiCampaignId: null,
+        sentAt: null,
+      })
+    })
+
+    it('leaves the api columns null on an agent row', async () => {
+      const { outreach, filter } = await seedSend()
+      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+        peoplePage([person('p-1', '5551230001')]),
+      )
+
+      await delivery.requestSend(
+        input(outreach.id, {
+          audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+          agentHandoff,
+        }),
+      )
+
+      expect((await handoffRows(outreach.id))[0]).toMatchObject({
+        handler: 'agent',
+        apiStep: null,
+        recipientCsvKey: null,
+        recipientCount: null,
+      })
+    })
+
     it('writes no row and flags nothing without agentHandoff', async () => {
       const { outreach, filter } = await seedSend()
       vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(

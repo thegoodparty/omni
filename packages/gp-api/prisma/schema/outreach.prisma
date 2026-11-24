@@ -275,6 +275,19 @@ model Outreach {
 enum OutreachHandoffHandler {
   agent
   manual
+  api
+}
+
+// Forward-only progress of an api-handled wave. Null on agent and manual rows.
+enum OutreachHandoffApiStep {
+  pending
+  created
+  loading
+  checked
+  starting
+  ready
+  sending
+  sent
 }
 
 enum OutreachHandoffStatus {
@@ -300,6 +313,18 @@ model OutreachTextHandoff {
   needsHumanAt       DateTime?              @map("needs_human_at")
   needsHumanReason   String?                @map("needs_human_reason")
 
+  // Api-handler columns. Agent and manual rows leave all of these null.
+  apiStep            OutreachHandoffApiStep? @map("api_step")
+  apiCampaignId      String?                 @unique @map("api_campaign_id")
+  recipientCsvKey    String?                 @map("recipient_csv_key")
+  recipientCount     Int?                    @map("recipient_count")
+  sendingPhoneNumber String?                 @map("sending_phone_number")
+  loadedCount        Int?                    @map("loaded_count")
+  loadSkips          Json?                   @map("load_skips")
+  previewSentAt      DateTime?               @map("preview_sent_at")
+  sentAt             DateTime?               @map("sent_at")
+
   @@index([status, sendAt])
+  @@index([handler, apiStep])
   @@map("outreach_text_handoff")
 }

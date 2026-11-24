@@ -18,6 +18,7 @@ import type { PersonOutput } from '@/contacts/schemas/person.schema'
 import { resolveFilterAudience } from '@/contacts/utils/audienceResolution.util'
 import {
   Organization,
+  OutreachHandoffApiStep,
   OutreachHandoffHandler,
   OutreachHandoffStatus,
   OutreachStatus,
@@ -91,6 +92,8 @@ export interface RequestSendInput {
    * the Slack post; it never learns why the caller chose the agent.
    */
   agentHandoff?: {
+    /** Missing reads as 'agent'. */
+    handler?: 'agent' | 'api'
     mode: 'shadow' | 'auto'
     sendAt: Date
     timeZone: string
@@ -611,11 +614,18 @@ export class OutreachTextDeliveryService extends createPrismaBase(
               data: [
                 {
                   outreachId,
-                  handler: OutreachHandoffHandler.agent,
                   status: OutreachHandoffStatus.queued,
                   mode: agentHandoff.mode,
                   sendAt: agentHandoff.sendAt,
                   timeZone: agentHandoff.timeZone,
+                  ...(agentHandoff.handler === 'api'
+                    ? {
+                        handler: OutreachHandoffHandler.api,
+                        apiStep: OutreachHandoffApiStep.pending,
+                        recipientCsvKey: sendKey,
+                        recipientCount: captured.length,
+                      }
+                    : { handler: OutreachHandoffHandler.agent }),
                 },
               ],
               skipDuplicates: true,

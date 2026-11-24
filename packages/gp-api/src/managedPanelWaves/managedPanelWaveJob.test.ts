@@ -161,12 +161,19 @@ beforeEach(() => {
   ).mockResolvedValue('Mayor')
 })
 
+// The test user is GoodParty staff, whose orgs never take the api path.
+const outsideOwner = (email = `fake-${randomUUID()}@example.com`) =>
+  service.prisma.user.create({
+    data: { email, firstName: 'Fake', lastName: 'Owner' },
+  })
+
 const enroll = async (
   overrides: Partial<Prisma.ManagedCivicPanelUncheckedCreateInput> = {},
+  ownerId: number = service.user.id,
 ) => {
   const slug = `eo-managed-job-${randomUUID()}`
   await service.prisma.organization.create({
-    data: { slug, ownerId: service.user.id, overrideDistrictId: randomUUID() },
+    data: { slug, ownerId, overrideDistrictId: randomUUID() },
   })
   const enrollment = await service.prisma.managedCivicPanel.create({
     data: {
@@ -873,6 +880,14 @@ describe('the managed panel wave job', () => {
   })
 
   describe('agent-handled waves', () => {
+    beforeEach(() => {
+      vi.stubEnv('S2W_PANEL_WAVE_API_ENABLED', 'true')
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
     // Saturday 2026-10-24, 8am Pacific: 11am Pacific is three hours away.
     const SATURDAY = new Date('2026-10-24T15:00:00Z')
     // Saturday 11:30am Pacific: today's slot is gone, so Sunday's is next.
@@ -930,6 +945,125 @@ describe('the managed panel wave job', () => {
         })
       },
     )
+
+    it.each([
+      ['shadow', 'agent', 'shadow'],
+      ['auto', 'agent', 'auto'],
+      ['api_shadow', 'api', 'shadow'],
+      ['api_auto', 'api', 'shadow'],
+    ] as const)(
+      'hands a %s wave to the %s handler in %s mode outside prod, with no window',
+      async (variant, handler, mode) => {
+        vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+        agentVariant = variant
+        const { id } = await enroll({}, (await outsideOwner()).id)
+
+        expect(await job().advance(id, SATURDAY)).toBe('sent')
+
+        const wave = await waveAt(id, 1)
+        expect(wave.replyWindowEndsAt).toBeNull()
+        const data = textSends()[0]?.[1][0]?.data
+        expect(data).toMatchObject({
+          outreachId: wave.outreach?.id,
+          agentHandoff: { mode },
+        })
+        // An agent payload keeps the shape the previous release's strict
+        // schema accepts, so a rolling deploy never strands it.
+        if (handler === 'api') {
+          expect(data).toHaveProperty('agentHandoff.handler', 'api')
+        } else {
+          expect(data).not.toHaveProperty('agentHandoff.handler')
+        }
+      },
+    )
+
+    it.each(['api_shadow', 'api_auto'])(
+      'sends %s the manual way while the api path is not enabled',
+      async (variant) => {
+        vi.stubEnv('S2W_PANEL_WAVE_API_ENABLED', '')
+        agentVariant = variant
+        const { id } = await enroll({}, (await outsideOwner()).id)
+
+        await job().advance(id, WEDNESDAY)
+
+        const wave = await waveAt(id, 1)
+        expect(wave.replyWindowEndsAt).toEqual(WEDNESDAY_REPLIES_CLOSE)
+        expect(textSends()[0]?.[1][0]?.data).not.toHaveProperty('agentHandoff')
+        expect(await service.prisma.outreachTextHandoff.count()).toBe(0)
+      },
+    )
+
+    it('lets api_auto send for real in prod', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+      agentVariant = 'api_auto'
+      const { id } = await enroll({}, (await outsideOwner()).id)
+
+      await job().advance(id, SATURDAY)
+
+      expect(textSends()[0]?.[1][0]?.data).toMatchObject({
+        agentHandoff: { handler: 'api', mode: 'auto' },
+      })
+    })
+
+    it.each([
+      ['api_shadow', 'GoodParty.org'],
+      ['api_auto', 'test.goodparty.org'],
+    ])(
+      'sends the manual way for %s when an @%s account owns the org',
+      async (variant, domain) => {
+        agentVariant = variant
+        const staff = await outsideOwner(`fake-${randomUUID()}@${domain}`)
+        const { id } = await enroll({}, staff.id)
+
+        await job().advance(id, WEDNESDAY)
+
+        const wave = await waveAt(id, 1)
+        expect(wave.replyWindowEndsAt).toEqual(WEDNESDAY_REPLIES_CLOSE)
+        expect(textSends()[0]?.[1][0]?.data).not.toHaveProperty('agentHandoff')
+      },
+    )
+
+    it('does not treat a lookalike email domain as GoodParty staff', async () => {
+      agentVariant = 'api_shadow'
+      const other = await outsideOwner(
+        `fake-${randomUUID()}@goodparty.org.example.com`,
+      )
+      const { id } = await enroll({}, other.id)
+
+      await job().advance(id, SATURDAY)
+
+      expect(textSends()[0]?.[1][0]?.data).toMatchObject({
+        agentHandoff: { handler: 'api' },
+      })
+    })
+
+    it('keeps an api hand-off an api hand-off on a re-queue after the flag changed', async () => {
+      const { slug, id } = await enroll({ freeTextsUsed: 40 })
+      await waveWithDraft(id, slug, {
+        status: OutreachStatus.pending,
+        fundedBy: OutreachFunding.goodparty_pilot,
+        billableTextCount: 40,
+      })
+      await service.prisma.outreachTextHandoff.create({
+        data: {
+          outreachId: (await waveAt(id, 1)).outreach?.id ?? -1,
+          handler: OutreachHandoffHandler.api,
+          apiStep: 'pending',
+          status: OutreachHandoffStatus.queued,
+          mode: 'shadow',
+          sendAt: SATURDAY,
+          timeZone: 'US/Pacific',
+        },
+      })
+      agentVariant = 'shadow'
+
+      await job().advance(id, SATURDAY)
+
+      expect(textSends()[0]?.[1][0]?.data).toMatchObject({
+        agentHandoff: { handler: 'api', mode: 'shadow' },
+      })
+      expect((await waveAt(id, 1)).replyWindowEndsAt).toBeNull()
+    })
 
     it('rolls to Sunday once the day slot is under two hours away', async () => {
       agentVariant = 'auto'
