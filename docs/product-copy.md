@@ -155,7 +155,9 @@ the get-started cards in
 ## Mechanics
 
 - Sentence case for every heading, label, and button. No title case.
-- No em dashes. Use a period or a comma.
+- No em dashes. Use a period or a comma. One exception: an empty value in a
+  table cell reads as an em dash ("—"), never "n/a", as in the Voter Outreach
+  history table.
 - No exclamation points. No emoji. One exception: the win celebration's
   title, "Congratulations, you won!" (`WON_COPY.title` in
   `packages/gp-webapp/app/dashboard/election-result/electionResultCopy.ts`).

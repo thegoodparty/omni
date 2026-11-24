@@ -59,6 +59,19 @@ const SERVE_HISTORY_COPY: OutreachHistoryCopy = {
   turfsSection: 'Turfs in this outreach',
 }
 
+// With per-campaign pricing on, the Win hub's section is "Send outreach", so
+// its history reads "Active outreach"; every other string stays.
+const WIN_PLAN_PRICING_HISTORY_COPY: OutreachHistoryCopy = {
+  ...WIN_HISTORY_COPY,
+  activeTitle: 'Active outreach',
+}
+
 export const getOutreachHistoryCopy = (
   isServe: boolean,
-): OutreachHistoryCopy => (isServe ? SERVE_HISTORY_COPY : WIN_HISTORY_COPY)
+  planPricing = false,
+): OutreachHistoryCopy =>
+  isServe
+    ? SERVE_HISTORY_COPY
+    : planPricing
+      ? WIN_PLAN_PRICING_HISTORY_COPY
+      : WIN_HISTORY_COPY

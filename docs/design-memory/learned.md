@@ -25,7 +25,8 @@ social flow, a chat card showing the whole post, a hidden turn drawn as a messag
 
 1. Plain US English. Short sentences. If a candidate or a part-time council member
    would not say it out loud, rewrite it. (seeded)
-2. No em dashes. Ever. (seeded)
+2. No em dashes. Ever. One exception: an empty value in a table cell is an em dash
+   ("—"), never "n/a". (seeded)
 3. No emoji. (seeded)
 4. Sentence case for every heading, label, button, and nav item. Not title case. (seeded)
 5. Call them agents, never chatbots. (seeded)
