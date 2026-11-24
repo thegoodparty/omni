@@ -37,7 +37,8 @@ const badgeVariants = cva(
  * icon, not a badge. Use shape="pill" for counts.
  *
  * @summary Use for a short tag or count on an item. For an item's status use
- * StatusText, for the Pro plan ProBadge, and for merge tags TokenPill.
+ * StatusText, for the Pro or Team plan ProBadge or TeamBadge, and for merge tags
+ * TokenPill.
  */
 function Badge({
   className,

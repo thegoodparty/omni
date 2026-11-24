@@ -5,12 +5,13 @@ import {
   Button,
   Card,
   ExternalLinkIcon,
+  IconButton,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Progress,
   Separator,
 } from '@styleguide'
+import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { PLAN_PRICING } from '@goodparty_org/contracts'
@@ -18,8 +19,8 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { useOrganizationRole } from '@shared/organization-picker'
 import { PaymentPortalButton } from '@shared/PaymentPortalButton'
 import { SUPPORT_EMAIL } from '@shared/utils/supportContact'
-import { planCheckoutHref } from 'app/dashboard/plans/planCheckoutHref'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
+import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import { PlanBadge } from 'app/dashboard/shared/plan/PlanBadge'
 import {
   buildPlanPitch,
@@ -29,6 +30,7 @@ import { formatPlanEndDate } from 'app/dashboard/shared/plan/formatPlanEndDate'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { AccountSettingsButton } from 'app/dashboard/profile/components/AccountSettingsButton'
 import { SubscriptionPendingCancellationAlert } from 'app/dashboard/profile/components/SubscriptionPendingCancellationAlert'
+import { InfoIcon } from '@styleguide/components/ui/icons'
 import { User } from 'helpers/types'
 
 interface AccountInformationCardProps {
@@ -50,7 +52,7 @@ const formatJoined = (createdAt?: Date | string): string => {
   })
 }
 
-const TEAM_UPGRADE_CTA = `Upgrade to Team for ${formatPlanCents(
+const TEAM_UPGRADE_CTA = `Upgrade for ${formatPlanCents(
   PLAN_PRICING.teamCents - PLAN_PRICING.proCents,
 )}`
 
@@ -63,7 +65,8 @@ export const AccountInformationCard = ({
 }: AccountInformationCardProps): React.JSX.Element => {
   const userType = isElectedOffice ? 'Elected official' : 'Candidate'
   const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
-  const { plan, planEndsAt, creditCents } = usePlan()
+  const { plan, planEndsAt } = usePlan()
+  const [teamPitchOpen, setTeamPitchOpen] = useState(false)
   const [campaign] = useCampaign()
   const role = useOrganizationRole()
   const paidPlan = buildPlanPitch(true, planPricingEnabled, plan === 'team')
@@ -75,10 +78,7 @@ export const AccountInformationCard = ({
     !isElectedOffice &&
     campaign?.planPricingModel === 'one_time'
   const freePlan = planPricingEnabled && !isPro && !isElectedOffice
-  const creditTotalCents = Math.max(
-    PLAN_PRICING.includedCreditCents,
-    creditCents,
-  )
+  const canUpgradeToTeam = oneTimePlan && plan === 'pro' && role === 'owner'
   const planLabel = oneTimePlan
     ? `GoodParty.org ${paidPlan.name} Plan`
     : isPro
@@ -91,7 +91,7 @@ export const AccountInformationCard = ({
     <Card className="w-full max-w-[640px] gap-4 p-6">
       <div className="flex items-center justify-between gap-4">
         <h2 className="m-0 text-xl font-semibold text-foreground">
-          Account Information
+          {planPricingEnabled ? 'Account information' : 'Account Information'}
         </h2>
         {oneTimePlan ? (
           <PaymentPortalButton variant="outline">
@@ -123,65 +123,66 @@ export const AccountInformationCard = ({
 
       {oneTimePlan ? (
         <>
-          <Separator />
           <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between gap-4">
+            <span className="text-xs font-medium text-muted-foreground">
+              Account type
+            </span>
+            <div>
               <PlanBadge plan={plan} />
-              <span className="text-sm font-semibold text-foreground">
-                {paidPlan.price}
-              </span>
             </div>
-            <p className="m-0 text-sm text-muted-foreground">
-              One payment.
-              {planEndsAt
-                ? ` Good through ${formatPlanEndDate(planEndsAt)}. `
-                : ' '}
-              {planEndsAt && (
+            {canUpgradeToTeam && (
+              <p className="m-0 text-sm text-foreground">
+                Need team logins?{' '}
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-sm"
+                  onClick={() => setTeamPitchOpen(true)}
+                >
+                  {TEAM_UPGRADE_CTA}
+                </Button>
+              </p>
+            )}
+          </div>
+          {planEndsAt && (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-medium text-muted-foreground">
+                Good through
+              </span>
+              <div className="flex items-center gap-1">
+                <p className="m-0 text-sm text-foreground">
+                  {formatPlanEndDate(planEndsAt, 'long')}
+                </p>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button
+                    <IconButton
                       type="button"
-                      variant="link"
-                      className="h-auto p-0 text-sm text-muted-foreground"
+                      variant="ghost"
+                      size="small"
+                      aria-label="How this date is set"
                     >
-                      Why this date?
-                    </Button>
+                      <InfoIcon />
+                    </IconButton>
                   </PopoverTrigger>
-                  <PopoverContent className="text-sm">
-                    <p className="m-0">
-                      Your plan runs {PLAN_PRICING.accessDaysAfterElection / 7}{' '}
-                      weeks after election day, so this date moves if the
-                      election moves. Headed to a runoff?{' '}
-                      <a href={`mailto:${SUPPORT_EMAIL}`} className="underline">
-                        Contact us
-                      </a>
+                  <PopoverContent>
+                    <p className="m-0 text-sm">
+                      Your plan lasts until{' '}
+                      {PLAN_PRICING.accessDaysAfterElection / 7} weeks after
+                      your election. Need to extend?{' '}
+                      <Button
+                        asChild
+                        variant="link"
+                        className="h-auto p-0 text-sm"
+                      >
+                        <a href={`mailto:${SUPPORT_EMAIL}`}>Contact support</a>
+                      </Button>
                       .
                     </p>
                   </PopoverContent>
                 </Popover>
-              )}
-            </p>
-          </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-4">
-              <h3 className="m-0 text-sm font-semibold text-foreground">
-                Outreach credit
-              </h3>
-              <span className="text-sm font-semibold text-foreground">
-                {formatPlanCents(creditCents)} of{' '}
-                {formatPlanCents(creditTotalCents)} left
-              </span>
+              </div>
             </div>
-            <Progress
-              value={(creditCents / creditTotalCents) * 100}
-              aria-label="Outreach credit left"
-            />
-            <p className="m-0 text-sm text-muted-foreground">
-              {formatPlanCents(PLAN_PRICING.includedCreditCents)} came with{' '}
-              {paidPlan.name}.
-            </p>
-          </div>
-          <Separator />
+          )}
         </>
       ) : freePlan ? (
         <>
@@ -232,24 +233,6 @@ export const AccountInformationCard = ({
         </div>
       )}
 
-      {oneTimePlan && plan === 'pro' && role === 'owner' && (
-        <div className="flex flex-col gap-2">
-          <p className="m-0 text-sm text-foreground">
-            Working with a campaign manager or volunteers? Upgrade to Team to
-            give them their own logins. You pay the{' '}
-            {formatPlanCents(PLAN_PRICING.teamCents - PLAN_PRICING.proCents)}{' '}
-            difference, and your outreach credit and dates stay the same.
-          </p>
-          <div>
-            <Button asChild variant="outline">
-              <Link href={planCheckoutHref('team', 'Join Team')}>
-                {TEAM_UPGRADE_CTA}
-              </Link>
-            </Button>
-          </div>
-        </div>
-      )}
-
       <div className="flex flex-col gap-0.5">
         <span className="text-xs font-medium text-muted-foreground">
           Joined
@@ -258,6 +241,15 @@ export const AccountInformationCard = ({
           {formatJoined(user.createdAt)}
         </p>
       </div>
+      {canUpgradeToTeam && (
+        <ProPitchDialog
+          open={teamPitchOpen}
+          onOpenChange={setTeamPitchOpen}
+          source="account_settings"
+          channel="generic"
+          invite
+        />
+      )}
     </Card>
   )
 }

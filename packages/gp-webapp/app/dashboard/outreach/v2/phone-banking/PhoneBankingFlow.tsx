@@ -53,6 +53,7 @@ import { EXPLAINER_COPY } from '../gate/gateCopy'
 import { OutreachGate } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { PurposeStep } from '../PurposeStep'
 // Intro is a channel-generic v2 component that currently lives under
 // social/; reused read-only here (same precedent as RobocallPurposeStep).
@@ -399,6 +400,7 @@ export const PhoneBankingFlow = ({
   // the deliverable and nothing exists until create — so the gate stands in
   // front of the one write instead of behind a saved row.
   const gate = useOutreachGate('phone-bank')
+  const planPitch = useContextualPlanPitch()
   const lockedAtOpen = useLockedAtOpen(open, gate)
   const [gateOpen, setGateOpen] = useState(false)
   // WHICH gesture opened the gate. The banner rides every step, so its
@@ -982,6 +984,11 @@ export const PhoneBankingFlow = ({
               audience.createRecommendedListPending,
           }
 
+  const exitGate = (): void => {
+    setGateOpen(false)
+    setGateOrigin(null)
+  }
+
   const openGateFromExplainer = (): void => {
     setGateOrigin('explainer')
     setGateCta(EXPLAINER_COPY.ctaJoin)
@@ -1101,7 +1108,12 @@ export const PhoneBankingFlow = ({
       headerBadge={
         <ChannelBadge
           type={OUTREACH_TYPES.nativePhoneBanking}
-          locked={gate.requirement !== null && !saved && !gateOpen}
+          locked={
+            !planPitch.enabled &&
+            gate.requirement !== null &&
+            !saved &&
+            !gateOpen
+          }
         />
       }
       currentStep={stepIndex + 1}
@@ -1144,10 +1156,8 @@ export const PhoneBankingFlow = ({
           source={source}
           cta={gateCta}
           tracker={tracker}
-          onExit={() => {
-            setGateOpen(false)
-            setGateOrigin(null)
-          }}
+          onFirstStepBack={planPitch.enabled ? exitGate : undefined}
+          onExit={exitGate}
           onComplete={() => {
             setGateOpen(false)
             const origin = gateOrigin

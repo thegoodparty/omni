@@ -3,8 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
 import { PLAN_PRICING } from '@goodparty_org/contracts'
-import { Badge, Button, ProBadge, Spinner } from '@styleguide'
-import { CalendarClockIcon } from '@styleguide/components/ui/icons'
+import { Button, ProBadge, Spinner, TeamBadge, cn } from '@styleguide'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from '@styleguide/components/ui/alert'
+import {
+  CalendarClockIcon,
+  ClockIcon,
+  LockIcon,
+} from '@styleguide/components/ui/icons'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
@@ -15,6 +24,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import { useCheckoutSession } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import CheckoutPayment from 'app/dashboard/purchase/components/CheckoutPayment'
+import { PromoCodeLink } from 'app/dashboard/purchase/components/PromoCodeSection'
 import PurchaseError from 'app/dashboard/purchase/components/PurchaseError'
 import {
   completeCheckoutSession,
@@ -106,19 +116,15 @@ const PlanOrderSummary = ({
   checkout: PlanCheckout
 }): React.JSX.Element => {
   const checkoutResult = useCheckout()
-  const total =
-    checkoutResult.type === 'loading' || checkoutResult.type === 'error'
-      ? null
-      : checkoutResult.checkout.total.total.minorUnitsAmount
+  const checkout =
+    checkoutResult.type === 'success' ? checkoutResult.checkout : null
+  const total = checkout ? checkout.total.total.minorUnitsAmount : null
+  const discount = checkout?.discountAmounts?.[0]
   return (
     <div className="flex flex-col gap-2.5 rounded-xl border border-base-border bg-card p-4">
       <div className="flex items-center justify-between gap-3">
         <span className="text-[15px] font-semibold">{order.name}</span>
-        {order.plan === 'team' ? (
-          <Badge className="font-bold italic">TEAM</Badge>
-        ) : (
-          <ProBadge />
-        )}
+        {order.plan === 'team' ? <TeamBadge /> : <ProBadge />}
       </div>
       <div className="h-px bg-base-border" />
       {order.isUpgrade ? (
@@ -142,11 +148,20 @@ const PlanOrderSummary = ({
           <span className="font-medium">{dollars(order.priceCents)}</span>
         </div>
       )}
+      {discount?.promotionCode && (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span>{`Promo code ${discount.promotionCode}`}</span>
+          <span className="font-medium text-success-dark">
+            &minus;{dollars(discount.minorUnitsAmount)}
+          </span>
+        </div>
+      )}
       <div className="h-px bg-base-border" />
       <div className="flex items-center justify-between gap-3 text-[15px] font-semibold">
         <span>Total</span>
         <span>{total === null ? '—' : dollars(total)}</span>
       </div>
+      {checkout && <PromoCodeLink checkout={checkout} />}
     </div>
   )
 }
@@ -155,19 +170,40 @@ const PlanOrderSummary = ({
 // under the price. In the closing week it names the cutoff instead, and once
 // texting has closed there is nothing to verify, so it says nothing.
 const SmsVerificationLine = ({
-  openCopy = SMS_CUTOFF_COPY.paymentVerificationStarts,
+  asAlert = false,
 }: {
-  openCopy?: string
+  // Per-campaign pricing draws the open notice as an info Alert (design:
+  // the checkout board); the subscription checkout keeps the plain line.
+  asAlert?: boolean
 }): React.JSX.Element | null => {
   const { channel } = useProUpgradeWizard()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   if (channel !== 'sms' && channel !== null) return null
   if (smsCompliance === 'open') {
-    return <p className="mt-2 text-sm text-base-muted-foreground">{openCopy}</p>
+    if (asAlert) {
+      return (
+        <Alert variant="info" icon={<ClockIcon />}>
+          <AlertTitle>{SMS_CUTOFF_COPY.paymentVerificationTitle}</AlertTitle>
+          <AlertDescription>
+            {SMS_CUTOFF_COPY.paymentVerificationDetail}
+          </AlertDescription>
+        </Alert>
+      )
+    }
+    return (
+      <p className="mt-2 text-sm text-base-muted-foreground">
+        {SMS_CUTOFF_COPY.paymentVerificationStarts}
+      </p>
+    )
   }
   if (smsCompliance === 'closing' && smsCutoffDate) {
     return (
-      <p className="mt-2 flex items-center gap-2 text-sm font-medium text-warning-dark">
+      <p
+        className={cn(
+          'flex items-center gap-2 text-sm font-medium text-warning-dark',
+          !asAlert && 'mt-2',
+        )}
+      >
         <CalendarClockIcon className="size-4 shrink-0" aria-hidden />
         {SMS_CUTOFF_COPY.paymentClosing(formatSmsCutoffDate(smsCutoffDate))}
       </p>
@@ -183,13 +219,16 @@ const PaymentFrame = ({
   onBack,
   summary,
   intro,
+  notice,
   footnote,
   children,
 }: {
   onBack: () => void
   summary?: React.ReactNode
   intro: React.ReactNode
-  footnote: string
+  // Its own block under the title, as the per-campaign checkout draws it.
+  notice?: React.ReactNode
+  footnote: React.ReactNode
   children: React.ReactNode
 }): React.JSX.Element => (
   <div className="flex min-h-full flex-1 flex-col gap-4">
@@ -197,12 +236,13 @@ const PaymentFrame = ({
       <h1 className="mb-2 text-xl font-semibold">Complete your upgrade</h1>
       {intro}
     </div>
+    {notice}
     {summary}
     <div className="rounded-xl border border-base-border bg-card p-4">
       <p className="mb-3 font-semibold">Payment details</p>
       {children}
     </div>
-    <p className="text-xs text-base-muted-foreground">{footnote}</p>
+    <div className="text-xs text-base-muted-foreground">{footnote}</div>
     <StepFooter align="start">
       <Button variant="ghost" size="large" onClick={onBack}>
         Back
@@ -220,23 +260,32 @@ const SUBSCRIPTION_INTRO = (
   </>
 )
 
-const SUBSCRIPTION_FOOTNOTE =
-  'By subscribing, you authorize us to charge you according to the terms until you cancel.'
+const SUBSCRIPTION_FOOTNOTE = (
+  <p>
+    By subscribing, you authorize us to charge you according to the terms until
+    you cancel.
+  </p>
+)
 
 const planIntro = (order: PlanCheckout): React.ReactNode => (
   <>
     <p className="text-base text-base-muted-foreground">
       {order.isUpgrade
         ? 'You only pay the difference from Pro.'
-        : `${order.name} is ${formatPlanCents(order.priceCents)} per campaign.`}
+        : `${order.name} is ${formatPlanCents(order.priceCents)} for your whole race.`}
     </p>
-    {!order.isUpgrade && (
-      <SmsVerificationLine openCopy="Texting registration takes 1 to 2 weeks. Everything else unlocks now." />
-    )}
   </>
 )
 
-const PLAN_FOOTNOTE = 'Secure payment through Stripe. One payment.'
+const planNotice = (order: PlanCheckout): React.ReactNode =>
+  order.isUpgrade ? null : <SmsVerificationLine asAlert />
+
+const PLAN_FOOTNOTE = (
+  <p className="flex items-center gap-2">
+    <LockIcon className="size-4 shrink-0" aria-hidden />
+    Secure payment through Stripe. One payment, no subscription.
+  </p>
+)
 
 interface PaymentContentProps {
   onConfirmed?: () => void
@@ -244,8 +293,12 @@ interface PaymentContentProps {
   onBack: () => void
   submitLabel: string | ((totalDollars: number | null) => string)
   intro: React.ReactNode
-  footnote: string
+  notice?: React.ReactNode
+  footnote: React.ReactNode
   summary: React.ReactNode
+  // Per-campaign plan checkout: wallets, accordion, and the promo link in the
+  // order summary instead of the box above the form.
+  planForm?: boolean
 }
 
 const PaymentContent = ({
@@ -254,8 +307,10 @@ const PaymentContent = ({
   onBack,
   submitLabel,
   intro,
+  notice,
   footnote,
   summary,
+  planForm = false,
 }: PaymentContentProps): React.JSX.Element => {
   const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
   const hasFetchedSession = useRef(false)
@@ -276,7 +331,12 @@ const PaymentContent = ({
   // being bounced to an error screen.
   if (error && !checkoutSession) {
     return (
-      <PaymentFrame onBack={onBack} intro={intro} footnote={footnote}>
+      <PaymentFrame
+        onBack={onBack}
+        intro={intro}
+        notice={notice}
+        footnote={footnote}
+      >
         <PurchaseError error={error} serverError={undefined} />
       </PaymentFrame>
     )
@@ -284,7 +344,12 @@ const PaymentContent = ({
 
   if (!checkoutSession) {
     return (
-      <PaymentFrame onBack={onBack} intro={intro} footnote={footnote}>
+      <PaymentFrame
+        onBack={onBack}
+        intro={intro}
+        notice={notice}
+        footnote={footnote}
+      >
         <div className="flex justify-center py-12">
           <Spinner />
         </div>
@@ -297,6 +362,8 @@ const PaymentContent = ({
       onPaymentConfirmed={onConfirmed}
       onPaymentSuccess={onPaymentSuccess}
       onTotalChange={setTotal}
+      walletsAndAccordion={planForm}
+      hidePromoSection={planForm}
       submitLabel={
         typeof submitLabel === 'string' ? submitLabel : submitLabel(total)
       }
@@ -305,6 +372,7 @@ const PaymentContent = ({
           onBack={onBack}
           summary={summary}
           intro={intro}
+          notice={notice}
           footnote={footnote}
         >
           {form}
@@ -401,8 +469,10 @@ const PlanPayment = (): React.JSX.Element => {
         onBack={goToPreviousStep}
         submitLabel={submitLabel}
         intro={planIntro(order)}
+        notice={planNotice(order)}
         footnote={PLAN_FOOTNOTE}
         summary={<PlanOrderSummary checkout={order} />}
+        planForm
       />
     </CheckoutSessionProvider>
   )

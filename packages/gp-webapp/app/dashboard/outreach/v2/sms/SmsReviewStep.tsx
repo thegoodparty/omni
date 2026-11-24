@@ -32,9 +32,8 @@ import { Spinner } from '@styleguide'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import {
-  creditLeftNote,
   creditLines,
-  creditSourceLabel,
+  creditRowLabel,
   useOutreachCredit,
 } from 'app/dashboard/outreach/util/outreachCredit'
 import {
@@ -43,6 +42,7 @@ import {
 } from 'app/dashboard/outreach/util/outreachPricing'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { z } from 'zod'
+import type { FlowShellCta } from '../OutreachFlowShell'
 import { Intro } from '../social/Intro'
 import { SMS_GREETING_PREVIEW, withSampleFirstName } from './smsCompose.util'
 
@@ -56,6 +56,9 @@ const purchaseErrorSchema = z.object({
 // The checkout-session endpoint returns amount in DOLLARS
 // (stripe.service.ts divides amount_total by 100).
 const money = (dollars: number): string => dollars.toFixed(2)
+
+// The pay form's id, so the shell footer's Pay button can submit it.
+const PAY_FORM_ID = 'sms-review-pay-form'
 
 // What the follow-up is for, in the official's words: no draws or models.
 export const FOLLOW_UP_NOTE =
@@ -137,6 +140,10 @@ interface SmsReviewStepProps {
   // paid=false on the free-texts redemption path — the success screen only
   // fetches a Stripe receipt for a real charge.
   onComplete: (paid: boolean) => Promise<void>
+  // Win with per-campaign pricing: the flow shell's footer carries the primary
+  // button (Schedule outreach / Complete purchase), so this step reports it
+  // up and drops its own. Without it the button stays in the body.
+  onFooterCtaChange?: (cta: FlowShellCta | null) => void
 }
 
 export const SmsReviewStep = ({
@@ -166,6 +173,7 @@ export const SmsReviewStep = ({
   onRetryBuild,
   readOnlySummary = false,
   onComplete,
+  onFooterCtaChange,
 }: SmsReviewStepProps) => {
   const [campaign] = useCampaign()
   const { checkoutSession, error, setError, fetchClientSecret } =
@@ -183,6 +191,7 @@ export const SmsReviewStep = ({
   // purchase-error card read as "Failed to initialize purchase" and forced a
   // Back that minted a new draft and session (Dujuan Thomas, 2026-10-06).
   const [cardError, setCardError] = useState<string | null>(null)
+  const [paySubmitting, setPaySubmitting] = useState(false)
   const isRedeemingRef = useRef(false)
   const hasFetchedSession = useRef(false)
 
@@ -195,6 +204,12 @@ export const SmsReviewStep = ({
     (hasFreeTextsOffer &&
       contactCount !== null &&
       contactCount <= FREE_TEXTS_OFFER.COUNT)
+  // The Nov 23 review: one wording and one credit row whether or not the send
+  // is free. A campaign on the free-texts offer, Serve and the build-mode
+  // summary keep theirs.
+  const pricingReview =
+    planPricingEnabled && !isServe && !hasFreeTextsOffer && !readOnlySummary
+  const footerMode = pricingReview && Boolean(onFooterCtaChange)
   const credit = useOutreachCredit()
   const costCents =
     contactCount === null
@@ -299,22 +314,172 @@ export const SmsReviewStep = ({
     await onComplete(true)
   }
 
+  // What the footer button does, from the same states the body walks below.
+  const footerAction: 'free' | 'pay' | null =
+    readOnlySummary ||
+    buildFailed ||
+    prepareError ||
+    preparing ||
+    !outreachId ||
+    (!isFree && !checkoutSession && !error) ||
+    payError ||
+    sessionError
+      ? null
+      : isFree
+        ? 'free'
+        : 'pay'
+  // The footer's onClick is stable: it reads the latest handler from here.
+  const completeFreeRef = useRef(handleFreeComplete)
+  useEffect(() => {
+    completeFreeRef.current = handleFreeComplete
+  })
+  useEffect(() => {
+    if (!footerMode || !onFooterCtaChange) return
+    onFooterCtaChange(
+      footerAction === 'free'
+        ? {
+            label: 'Schedule outreach',
+            onClick: () => {
+              void completeFreeRef.current()
+            },
+            disabled: isRedeeming,
+            loading: isRedeeming,
+          }
+        : footerAction === 'pay'
+          ? {
+              label: 'Complete purchase',
+              onClick: () => {
+                const form = document.getElementById(PAY_FORM_ID)
+                if (form instanceof HTMLFormElement) form.requestSubmit()
+              },
+              loading: paySubmitting,
+            }
+          : null,
+    )
+    return () => onFooterCtaChange(null)
+  }, [footerMode, footerAction, isRedeeming, paySubmitting, onFooterCtaChange])
+
+  const payBlock = readOnlySummary ? null : buildFailed ? (
+    <Card className="items-start gap-3 border-destructive p-4">
+      <p className="text-sm text-foreground">
+        We couldn&apos;t prepare this audience. Try again.
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={onRetryBuild}
+        disabled={retryingBuild}
+        loading={retryingBuild}
+      >
+        Try again
+      </Button>
+    </Card>
+  ) : prepareError ? (
+    <Card className="items-start gap-3 border-destructive p-4">
+      <p className="text-sm text-foreground">
+        We couldn&apos;t set up your purchase. Go back a step and try again.
+      </p>
+      {prepareErrorMessage && (
+        <p className="text-sm text-muted-foreground">{prepareErrorMessage}</p>
+      )}
+    </Card>
+  ) : preparing ||
+    !outreachId ||
+    // The paid card and its "$X due today" note render only once the
+    // session amount is known — mounting earlier flashed "$0.00 due
+    // today" while Stripe loaded.
+    (!isFree && !checkoutSession && !error) ? (
+    <div className="flex justify-center py-6">
+      <Spinner />
+    </div>
+  ) : payError || sessionError ? (
+    <PurchaseError
+      serverError={
+        payErrorMessage ?? (sessionError ? error : null) ?? undefined
+      }
+    />
+  ) : isFree ? (
+    footerMode ? null : (
+      <Button
+        type="button"
+        size="large"
+        className="w-full"
+        onClick={handleFreeComplete}
+        disabled={isRedeeming}
+        loading={isRedeeming}
+      >
+        {pricingReview
+          ? 'Schedule outreach'
+          : (copy?.scheduleAction ?? 'Schedule campaign')}
+      </Button>
+    )
+  ) : (
+    <>
+      <Card className="gap-3 p-4">
+        <p className="font-medium text-foreground">Payment details</p>
+        <CheckoutPayment
+          onPaymentSuccess={handlePaidComplete}
+          onPaymentError={setCardError}
+          onTotalChange={setLiveTotalDollars}
+          walletsAndAccordion={planPricingEnabled}
+          {...(footerMode && {
+            formId: PAY_FORM_ID,
+            hideSubmit: true,
+            onSubmittingChange: setPaySubmitting,
+          })}
+        />
+      </Card>
+      {inlineCardError && (
+        <Alert
+          variant="destructive"
+          icon={<CircleAlertIcon className="size-4" />}
+        >
+          <AlertTitle>Your payment didn&apos;t go through</AlertTitle>
+          <AlertDescription>{inlineCardError}</AlertDescription>
+        </Alert>
+      )}
+      {!pricingReview && (
+        <Alert variant="info" icon={<InfoIcon className="size-4" />}>
+          <AlertTitle>
+            {priceIsCeiling
+              ? `Up to $${money(totalDollars)}`
+              : `$${money(totalDollars)} due today`}
+          </AlertTitle>
+          <AlertDescription>
+            <p>
+              {priceIsCeiling
+                ? 'Charged for your reachable list, up to this amount. Your Pro subscription is billed separately.'
+                : (copy?.chargeNote ??
+                  'One-time charge for this campaign. Your Pro subscription is billed separately.')}
+            </p>
+            {showsLargerHold && (
+              <p>{`Your bank may show a temporary hold of $${money(stripeDollars)}.`}</p>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+    </>
+  )
   return (
     <div className="space-y-6">
       <Intro
         title={
           readOnlySummary
             ? 'Review and verify'
-            : (copy?.title ?? (isFree ? 'Review and send' : 'Review & pay'))
+            : pricingReview
+              ? 'Review and pay'
+              : (copy?.title ?? (isFree ? 'Review and send' : 'Review & pay'))
         }
         body={
           readOnlySummary
             ? 'Review your campaign details, then verify your campaign so this can send.'
-            : isFree
-              ? (copy?.freeBody ??
-                'Review your campaign details and schedule your send.')
-              : (copy?.paidBody ??
-                'Review your campaign details and complete your payment.')
+            : pricingReview
+              ? 'Review your details and pay.'
+              : isFree
+                ? (copy?.freeBody ??
+                  'Review your campaign details and schedule your send.')
+                : (copy?.paidBody ??
+                  'Review your campaign details and complete your payment.')
         }
       />
 
@@ -410,7 +575,7 @@ export const SmsReviewStep = ({
                 {lines.creditCents > 0 && (
                   <div className="flex justify-between gap-4">
                     <dt className="text-muted-foreground">
-                      {creditSourceLabel(credit.balanceCents)}
+                      {creditRowLabel(lines.leftCents)}
                     </dt>
                     <dd className="text-foreground">
                       {`\u2212${formatOutreachCost(lines.creditCents)}`}
@@ -465,12 +630,9 @@ export const SmsReviewStep = ({
             )}
           </span>
         </div>
-        {lines && lines.creditCents > 0 && lines.leftCents > 0 && (
-          <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
-            {creditLeftNote(lines.leftCents)}
-          </p>
-        )}
       </Card>
+
+      {pricingReview && payBlock}
 
       <Button
         type="button"
@@ -521,97 +683,7 @@ export const SmsReviewStep = ({
         </p>
       )}
 
-      {readOnlySummary ? null : buildFailed ? (
-        <Card className="items-start gap-3 border-destructive p-4">
-          <p className="text-sm text-foreground">
-            We couldn&apos;t prepare this audience. Try again.
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onRetryBuild}
-            disabled={retryingBuild}
-            loading={retryingBuild}
-          >
-            Try again
-          </Button>
-        </Card>
-      ) : prepareError ? (
-        <Card className="items-start gap-3 border-destructive p-4">
-          <p className="text-sm text-foreground">
-            We couldn&apos;t set up your purchase. Go back a step and try again.
-          </p>
-          {prepareErrorMessage && (
-            <p className="text-sm text-muted-foreground">
-              {prepareErrorMessage}
-            </p>
-          )}
-        </Card>
-      ) : preparing ||
-        !outreachId ||
-        // The paid card and its "$X due today" note render only once the
-        // session amount is known — mounting earlier flashed "$0.00 due
-        // today" while Stripe loaded.
-        (!isFree && !checkoutSession && !error) ? (
-        <div className="flex justify-center py-6">
-          <Spinner />
-        </div>
-      ) : payError || sessionError ? (
-        <PurchaseError
-          serverError={
-            payErrorMessage ?? (sessionError ? error : null) ?? undefined
-          }
-        />
-      ) : isFree ? (
-        <Button
-          type="button"
-          size="large"
-          className="w-full"
-          onClick={handleFreeComplete}
-          disabled={isRedeeming}
-          loading={isRedeeming}
-        >
-          {copy?.scheduleAction ?? 'Schedule campaign'}
-        </Button>
-      ) : (
-        <>
-          <Card className="gap-3 p-4">
-            <p className="font-medium text-foreground">Payment details</p>
-            <CheckoutPayment
-              onPaymentSuccess={handlePaidComplete}
-              onPaymentError={setCardError}
-              onTotalChange={setLiveTotalDollars}
-            />
-          </Card>
-          {inlineCardError && (
-            <Alert
-              variant="destructive"
-              icon={<CircleAlertIcon className="size-4" />}
-            >
-              <AlertTitle>Your payment didn&apos;t go through</AlertTitle>
-              <AlertDescription>{inlineCardError}</AlertDescription>
-            </Alert>
-          )}
-          <Alert variant="info" icon={<InfoIcon className="size-4" />}>
-            <AlertTitle>
-              {priceIsCeiling
-                ? `Up to $${money(totalDollars)}`
-                : `$${money(totalDollars)} due today`}
-            </AlertTitle>
-            <AlertDescription>
-              <p>
-                {priceIsCeiling
-                  ? 'Charged for your reachable list, up to this amount. Your Pro subscription is billed separately.'
-                  : (copy?.chargeNote ??
-                    'One-time charge for this campaign. Your Pro subscription is billed separately.')}
-              </p>
-              {showsLargerHold && (
-                <p>{`Your bank may show a temporary hold of $${money(stripeDollars)}.`}</p>
-              )}
-            </AlertDescription>
-          </Alert>
-        </>
-      )}
+      {!pricingReview && payBlock}
     </div>
   )
 }

@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  Badge,
   Button,
   Dialog,
   DialogContent,
@@ -12,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
   ProBadge,
+  TeamBadge,
 } from '@styleguide'
 import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import {
@@ -36,7 +36,7 @@ import {
   type ProUpgradeSource,
 } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { buildPlanPitch } from '../plan/planPitch'
-import { usePlanPitch } from '../plan/usePlanPitch'
+import { useContextualPlanPitch } from '../plan/usePlanPitch'
 import { SEE_ALL_PLANS_LABEL } from '../plan/planPitch'
 import { usePlan } from './deriveMembershipState'
 import {
@@ -44,7 +44,9 @@ import {
   PLAN_PITCH_ROWS,
   membershipInviteCopy,
   membershipPlanCopy,
+  teamInvitePitchCopy,
 } from './membershipCopy'
+import { TeamInvitePitch } from './TeamInvitePitch'
 
 const TILE_ICONS = [UsersIcon, MessageSquareIcon, DoorOpenIcon, ShieldCheckIcon]
 
@@ -97,11 +99,17 @@ export const ProPitchDialog = ({
   const router = useRouter()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
-  const flagPitch = usePlanPitch()
+  // Every caller is a contextual gate, so the dialog always pitches Pro. The
+  // banner and chip pitch by race size on the plan page instead.
+  const flagPitch = useContextualPlanPitch()
   const { plan } = usePlan()
   const planPitch = invite
     ? buildPlanPitch(flagPitch.ready, flagPitch.enabled, true)
     : flagPitch
+  // Flag on, Invite is its own pitch: the Team pitch from Free, the Team
+  // cross-sell from Pro. Flag off keeps the legacy Team copy and tiles.
+  const invitePitch =
+    invite && planPitch.enabled ? teamInvitePitchCopy(plan === 'pro') : null
   const copy = invite
     ? membershipInviteCopy(plan === 'pro')
     : planPitch.enabled
@@ -156,7 +164,12 @@ export const ProPitchDialog = ({
           channel,
           cta: planPitch.enabled ? `Join ${planPitch.name}` : copy.pitchJoin,
         },
-        invite ? { plan: 'team', returnTo: TEAM_SETTINGS_PATH } : undefined,
+        invite
+          ? { plan: 'team', returnTo: TEAM_SETTINGS_PATH }
+          : // The wizard sells what the dialog showed, not its own default.
+            planPitch.enabled
+            ? { plan: planPitch.plan }
+            : undefined,
       ),
     )
   }
@@ -184,23 +197,25 @@ export const ProPitchDialog = ({
               the wrapped lines needs the sm: breakpoint spelled out too. */}
           <DialogHeader className="items-center gap-3 text-center sm:text-center">
             {planPitch.enabled && planPitch.plan === 'team' ? (
-              <Badge>TEAM</Badge>
+              <TeamBadge size="large" className="h-[30px] w-[85px]" />
             ) : (
               <ProBadge size="large" className="h-[30px] w-[66px]" />
             )}
             <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
-              {copy.pitchTitle}
+              {invitePitch?.title ?? copy.pitchTitle}
             </DialogTitle>
-            <span className="rounded-xl bg-info-50 px-3.5 py-1.5 text-center text-[15px] font-medium text-primary sm:rounded-full">
-              {planPitch.enabled ? (
-                <>
-                  <strong className="font-semibold">{pillPrice}</strong>
-                  {pillRest}
-                </>
-              ) : (
-                copy.pitchPill
-              )}
-            </span>
+            {!invitePitch && (
+              <span className="rounded-xl bg-info-50 px-3.5 py-1.5 text-center text-[15px] font-medium text-primary sm:rounded-full">
+                {planPitch.enabled ? (
+                  <>
+                    <strong className="font-semibold">{pillPrice}</strong>
+                    {pillRest}
+                  </>
+                ) : (
+                  copy.pitchPill
+                )}
+              </span>
+            )}
           </DialogHeader>
           {smsClosed && (
             <Alert variant="info" icon={<InfoIcon />}>
@@ -211,7 +226,12 @@ export const ProPitchDialog = ({
               </AlertTitle>
             </Alert>
           )}
-          {planPitch.enabled ? (
+          {invitePitch ? (
+            <TeamInvitePitch
+              copy={invitePitch}
+              showVerification={plan !== 'pro' && !smsClosed}
+            />
+          ) : planPitch.enabled ? (
             <ul className="flex flex-col divide-y divide-brand-blue-200 rounded-xl border border-brand-blue-200">
               {planRows.map((key) => {
                 const Icon = PLAN_ROW_ICONS[key]
@@ -263,9 +283,9 @@ export const ProPitchDialog = ({
             }
             onClick={handleJoin}
           >
-            {copy.pitchJoin}
+            {invitePitch?.join ?? copy.pitchJoin}
           </Button>
-          {planPitch.enabled && (
+          {planPitch.enabled && !invite && (
             <Button variant="ghost" asChild className="w-full">
               <Link
                 href={planPitch.allPlansHref}

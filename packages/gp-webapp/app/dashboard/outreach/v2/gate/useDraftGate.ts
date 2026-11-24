@@ -41,6 +41,10 @@ interface UseDraftGateParams {
   // The label of the button that resumed the draft, when one did (the draft
   // drawer's footer). A tile or deep link resume has none.
   resumeCta?: string
+  // Flag on (win_per_campaign_pricing): a free candidate's draft save opens
+  // the Pro pitch as a dialog over the step they pressed it on, not as the
+  // wizard's inline interstitial in place of it.
+  pitchAsDialog?: boolean
 }
 
 export interface DraftGate {
@@ -51,6 +55,18 @@ export interface DraftGate {
   // The label of the button that opened the gate, for the Pro wizard's
   // `Flow Started`.
   gateCta: string | undefined
+  // The Pro pitch dialog is up over the flow's step (`pitchAsDialog` only).
+  pitchOpen: boolean
+  // "Join Pro" on that dialog: the wizard takes the step's place.
+  joinPitch: () => void
+  // The pitch from a gesture that saves nothing (a chat card's "Join Pro to
+  // send"): the same dialog, and finishing or leaving it returns the
+  // candidate to the step they were on.
+  openPitch: (cta?: string) => void
+  // Back off the wizard's first step returns to the pitch when the gate was
+  // reached through it. Unset otherwise, so the wizard falls back to its own
+  // interstitial as it always has.
+  wizardBack: (() => void) | undefined
   explainerOpen: boolean
   setExplainerOpen: (open: boolean) => void
   savingDraft: boolean
@@ -77,6 +93,7 @@ export const useDraftGate = ({
   onCampaignCreated,
   onClose,
   resumeCta,
+  pitchAsDialog = false,
 }: UseDraftGateParams): DraftGate => {
   // The saved draft row this flow is working against: the one the hub
   // resumed, the one a 409 says already exists, or the one just written.
@@ -91,6 +108,10 @@ export const useDraftGate = ({
   const [gateOpen, setGateOpen] = useState(false)
   const [gateOrigin, setGateOrigin] = useState<GateOrigin>(null)
   const [gateCta, setGateCta] = useState<string | undefined>(undefined)
+  const [pitchOpen, setPitchOpen] = useState(false)
+  // The pitch came from a gesture that saves nothing (openPitch), so the
+  // wizard's Back returns to it just as it does after a save.
+  const [pitchFromCard, setPitchFromCard] = useState(false)
   const [explainerOpen, setExplainerOpen] = useState(false)
 
   // Reopening starts fresh, exactly as the rest of the flow state does.
@@ -103,6 +124,8 @@ export const useDraftGate = ({
     setGateOpen(false)
     setGateOrigin(null)
     setGateCta(undefined)
+    setPitchOpen(false)
+    setPitchFromCard(false)
     setExplainerOpen(false)
   }, [open, resumeDraft])
 
@@ -156,7 +179,10 @@ export const useDraftGate = ({
       setSavedDraft(draft)
       setGateOrigin('save')
       setGateCta(cta)
-      setGateOpen(true)
+      // Only the free tier's pitch is a dialog; a Pro candidate who still has
+      // to verify goes straight to the verification screens.
+      if (pitchAsDialog && gate.requirement === 'pro') setPitchOpen(true)
+      else setGateOpen(true)
       setSavingDraft(false)
       // The row exists once the 201 lands; a failed history refetch here is
       // not a failed save, and the hub refetches again when the sheet closes.
@@ -209,11 +235,29 @@ export const useDraftGate = ({
   // also what Back on the upgrade wizard's first step calls.
   const handleGateExit = (): void => {
     setGateOpen(false)
+    setPitchOpen(false)
     const origin = gateOrigin
     setGateOrigin(null)
     if (origin === 'explainer' || savedDraft === null) return
     onClose()
   }
+
+  const joinPitch = useCallback((): void => {
+    setPitchOpen(false)
+    setGateOpen(true)
+  }, [])
+
+  const openPitch = useCallback((cta?: string): void => {
+    setGateOrigin('explainer')
+    setGateCta(cta)
+    setPitchFromCard(true)
+    setPitchOpen(true)
+  }, [])
+
+  const backToPitch = useCallback((): void => {
+    setGateOpen(false)
+    setPitchOpen(true)
+  }, [])
 
   // Only a Pro explainer's CTA reaches the wizard, so its label is the one
   // Flow Started can report.
@@ -229,6 +273,13 @@ export const useDraftGate = ({
     gateOpen,
     gateOrigin,
     gateCta,
+    pitchOpen,
+    joinPitch,
+    openPitch,
+    wizardBack:
+      pitchAsDialog && (gateOrigin === 'save' || pitchFromCard)
+        ? backToPitch
+        : undefined,
     explainerOpen,
     setExplainerOpen,
     savingDraft,

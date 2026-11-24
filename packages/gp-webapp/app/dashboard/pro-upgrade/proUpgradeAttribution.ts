@@ -59,6 +59,8 @@ const CTA_MAX_LENGTH = 80
 export interface ProUpgradeEntryCarry {
   plan?: 'pro' | 'team'
   returnTo?: string
+  // The page to return to from Back on the first step.
+  backTo?: string
 }
 
 export const proUpgradeHref = (
@@ -69,6 +71,7 @@ export const proUpgradeHref = (
   if (cta) params.set('cta', cta)
   if (carry.plan) params.set('plan', carry.plan)
   if (carry.returnTo) params.set('returnTo', carry.returnTo)
+  if (carry.backTo) params.set('back', carry.backTo)
   return `${PRO_UPGRADE_ENTRY_PATH}?${params.toString()}`
 }
 

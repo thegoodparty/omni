@@ -11,19 +11,21 @@ import {
   MessageSquareIcon,
   Share2Icon,
 } from '@styleguide/components/ui/icons'
+import { TILE_PRICES } from 'app/dashboard/outreach/v2/channelPrices'
 
 interface ServeChannelDefinition {
   key: string
   label: string
   icon: React.ReactNode
   iconClassName: string
+  price: string
 }
 
 // Icon + label per channel, read off the v2 hub's ChannelTileGrid/channelMeta
 // (not imported — that grid is candidate-specific: swap flags, Pro gates,
 // TaskFlow launches — and channelMeta is keyed on every OutreachType,
-// including channels Serve doesn't have yet). No subCopy: the candidate
-// grid's subCopy is per-message pricing, which doesn't apply here.
+// including channels Serve doesn't have yet). The price line is the candidate
+// grid's own `TILE_PRICES`, so one unit price reads the same on both hubs.
 //
 // All four are wired. Door knocking was the omission this comment used to
 // record — it had no serve wiring at all, and a permanently disabled
@@ -47,6 +49,7 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     label: 'Social media',
     icon: <Share2Icon />,
     iconClassName: 'bg-secondary-light',
+    price: TILE_PRICES.free,
   },
   // Second, matching the candidate grid's TILE_ORDER, where texting sits
   // right after social. Label and icon are the history table's
@@ -59,6 +62,7 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     label: 'SMS',
     icon: <MessageSquareIcon />,
     iconClassName: 'bg-info-light',
+    price: TILE_PRICES.text,
   },
   // Behind `serve-self-serve-polls`, switched off the same way SMS is: the
   // page passes a handler only once the flag has resolved on.
@@ -67,24 +71,28 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     label: 'Poll / Survey',
     icon: <ClipboardListIcon />,
     iconClassName: 'bg-brand-bright-yellow-200',
+    price: TILE_PRICES.text,
   },
   {
     key: 'email',
     label: 'Email',
     icon: <MailIcon />,
     iconClassName: 'bg-brand-midnight-100',
+    price: TILE_PRICES.email,
   },
   {
     key: 'phoneBanking',
     label: 'Phone banking',
     icon: <HeadsetIcon />,
     iconClassName: 'bg-destructive-light',
+    price: TILE_PRICES.free,
   },
   {
     key: 'doorKnocking',
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
     iconClassName: 'bg-brand-halo-green-200',
+    price: TILE_PRICES.free,
   },
 ]
 
@@ -159,6 +167,7 @@ const ServeChannelCards = ({
             icon={channel.icon}
             iconClassName={channel.iconClassName}
             label={channel.label}
+            subCopy={channel.price}
             onClick={handlers[channel.key]}
           />
         ))}

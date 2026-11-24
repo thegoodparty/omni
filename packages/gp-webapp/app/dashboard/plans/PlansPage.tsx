@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { IconButton } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { WIN_PER_CAMPAIGN_PRICING_FLAG_KEY } from '@shared/experiments/winPerCampaignPricingFlag'
@@ -19,6 +20,9 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
   const { plan: currentPlan, onSubscription, recommendTeam } = usePlan()
   const highlighted: PlanKey =
     highlightTeam || (currentPlan === 'free' && recommendTeam) ? 'team' : 'pro'
+  // Only a Free campaign is told which plan fits its race.
+  const recommended: PlanKey | null =
+    currentPlan === 'free' ? highlighted : null
   const offerFor = (plan: PlanKey): { href: string | null } | null => {
     const column = planColumnsFor(currentPlan, onSubscription).find(
       (c) => c.plan === plan,
@@ -26,7 +30,9 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
     if (plan === 'free' || !column?.cta) return null
     if (planRank(plan) <= planRank(currentPlan)) return null
     if (onSubscription) return { href: null }
-    return { href: planCheckoutHref(plan, `Join ${column.name}`) }
+    return {
+      href: planCheckoutHref(plan, `Join ${column.name}`, '/dashboard/plans'),
+    }
   }
 
   return (
@@ -37,13 +43,11 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
       <DashboardLayout pathname="/dashboard/plans" hideMenu>
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6">
           <div className="flex items-center gap-3">
-            <Link
-              href="/dashboard"
-              aria-label={PLANS_COPY.back}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <ArrowLeftIcon className="size-5" aria-hidden />
-            </Link>
+            <IconButton asChild variant="ghost" size="small">
+              <Link href="/dashboard" aria-label={PLANS_COPY.back}>
+                <ArrowLeftIcon className="size-5" aria-hidden />
+              </Link>
+            </IconButton>
             <span className="text-base font-semibold">{PLANS_COPY.title}</span>
           </div>
           <div className="flex flex-col gap-1.5 md:items-center md:text-center">
@@ -54,9 +58,6 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
               {onSubscription
                 ? PLANS_COPY.subscriptionNote
                 : PLANS_COPY.subtitle}
-              {!onSubscription && (
-                <span className="md:hidden"> {PLANS_COPY.upgradeAnytime}.</span>
-              )}
             </p>
           </div>
           <div className="hidden md:block">
@@ -64,6 +65,7 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
               currentPlan={currentPlan}
               onSubscription={onSubscription}
               highlighted={highlighted}
+              recommended={recommended}
               offerFor={offerFor}
             />
           </div>
@@ -72,6 +74,7 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
               currentPlan={currentPlan}
               onSubscription={onSubscription}
               highlighted={highlighted}
+              recommended={recommended}
               offerFor={offerFor}
             />
           </div>

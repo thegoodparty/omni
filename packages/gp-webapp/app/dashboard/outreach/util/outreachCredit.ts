@@ -50,8 +50,10 @@ export const useOutreachCredit = (): OutreachCredit => {
 export const creditLeftNote = (leftCents: number): string =>
   `${formatOutreachCost(leftCents)} outreach credit left after it sends.`
 
-export const creditSourceLabel = (balanceCents: number): string =>
-  `From your ${formatOutreachCost(balanceCents)} outreach credit`
+// The one credit row on a review card: what is left once the send has used
+// its share, shown even when that is $0.00.
+export const creditRowLabel = (leftCents: number): string =>
+  `Outreach credit (${formatOutreachCost(leftCents)} left after)`
 
 // Read off the outreach row rather than the checkout, because every channel
 // stamps the same column when it reserves. Its own key and no stale time: the

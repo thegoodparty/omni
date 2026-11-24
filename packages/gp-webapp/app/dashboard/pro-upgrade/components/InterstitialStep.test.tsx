@@ -20,6 +20,14 @@ vi.mock('./ProUpgradeWizard', () => ({
   useProUpgradeWizard: vi.fn(),
 }))
 
+const planFlag = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: planFlag.enabled,
+  }),
+}))
+
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const goToNextStep = vi.fn()
 const exit = vi.fn()
@@ -38,6 +46,7 @@ const setChannel = (channel: 'sms' | 'robocall' | 'door' | 'phone-bank') =>
 describe('InterstitialStep', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    planFlag.enabled = false
     setChannel('sms')
   })
 
@@ -137,5 +146,67 @@ describe('InterstitialStep analytics', () => {
       { channel: 'robocall' },
     )
     expect(exit).toHaveBeenCalled()
+  })
+})
+
+describe('InterstitialStep with per-campaign pricing on', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    planFlag.enabled = true
+    setChannel('robocall')
+  })
+
+  it('is the gate dialog: priced Join Pro, See all plans, no Maybe later', () => {
+    render(<InterstitialStep />)
+
+    expect(
+      screen.getByRole('dialog', { name: 'Join Pro to send this campaign' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Join Pro for $299' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'See all plans' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(INTERSTITIAL_COPY.dismiss)).toBeNull()
+    expect(screen.getByText('Bonus')).toBeInTheDocument()
+  })
+
+  it('reports one view, then Join Pro, and moves on', async () => {
+    render(<InterstitialStep />)
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.InterstitialViewed,
+      { channel: 'robocall', plan: 'free' },
+    )
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.ProUpgrade.Compliance.InterstitialViewed,
+        ),
+    ).toHaveLength(1)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Join Pro for $299' }),
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.InterstitialCompleted,
+      { channel: 'robocall', plan: 'free' },
+    )
+    expect(goToNextStep).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports the X as a dismissal and exits', async () => {
+    render(<InterstitialStep />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.InterstitialDismissed,
+      { channel: 'robocall' },
+    )
+    expect(exit).toHaveBeenCalledTimes(1)
   })
 })

@@ -3,6 +3,12 @@ import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import DeleteAccountPage from './DeleteAccountPage'
 
+const { mockFlag } = vi.hoisted(() => ({ mockFlag: vi.fn() }))
+
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => mockFlag(),
+}))
+
 vi.mock('gpApi/clientFetch', () => ({
   clientFetch: vi.fn(),
 }))
@@ -23,12 +29,30 @@ const mockUseClerk = vi.mocked(useClerk)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockFlag.mockReturnValue({ enabled: false })
   mockUseClerk.mockReturnValue({ signOut: vi.fn() } as unknown as ReturnType<
     typeof useClerk
   >)
 })
 
 describe('DeleteAccountPage', () => {
+  it('uses sentence case with the pricing flag on and title case with it off', () => {
+    mockFlag.mockReturnValue({ enabled: true })
+    const { unmount } = render(<DeleteAccountPage />)
+    expect(
+      screen.getByRole('heading', { name: 'Delete account' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Delete account' }),
+    ).toBeInTheDocument()
+    unmount()
+    mockFlag.mockReturnValue({ enabled: false })
+    render(<DeleteAccountPage />)
+    expect(
+      screen.getByRole('heading', { name: 'Delete Account' }),
+    ).toBeInTheDocument()
+  })
+
   it('renders the Delete Account button and no modal on initial load', () => {
     render(<DeleteAccountPage />)
     expect(

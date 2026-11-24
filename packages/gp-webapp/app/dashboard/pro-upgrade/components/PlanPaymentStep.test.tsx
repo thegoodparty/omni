@@ -22,7 +22,9 @@ const { confirmMock, checkoutValue, flag } = vi.hoisted(() => {
         total: { minorUnitsAmount: 29900 },
         subtotal: { minorUnitsAmount: 29900 },
       },
-      discountAmounts: undefined,
+      discountAmounts: undefined as
+        | undefined
+        | { promotionCode: string; minorUnitsAmount: number }[],
       applyPromotionCode: vi.fn(),
       removePromotionCode: vi.fn(),
     },
@@ -52,6 +54,7 @@ vi.mock('@stripe/react-stripe-js/checkout', () => ({
   ),
   useCheckout: () => ({ type: 'success', checkout: checkoutValue }),
   PaymentElement: () => <div data-testid="payment-element" />,
+  ExpressCheckoutElement: () => <div data-testid="express-element" />,
 }))
 vi.mock('@shared/utils/Snackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
@@ -90,6 +93,7 @@ const setup = ({
   vi.mocked(useProUpgradeCarry).mockReturnValue({
     plan,
     returnTo: null,
+    backTo: null,
     fromPro: false,
     markFromPro,
   })
@@ -108,6 +112,8 @@ describe('PaymentStep with per-campaign pricing on', () => {
     vi.clearAllMocks()
     confirmMock.mockResolvedValue({ type: 'success' })
     checkoutValue.total.total.minorUnitsAmount = 29900
+    checkoutValue.discountAmounts = undefined
+    checkoutValue.applyPromotionCode.mockResolvedValue({ type: 'success' })
     vi.mocked(useSmsCompliance).mockReturnValue({
       smsCompliance: 'open',
       smsCutoffDate: null,
@@ -147,11 +153,23 @@ describe('PaymentStep with per-campaign pricing on', () => {
     expect(body?.returnUrl).toBe(
       `${window.location.origin}/dashboard/pro-upgrade/success?plan=pro`,
     )
-    expect(screen.getByText('Pro is $299 per campaign.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Pro is $299 for your whole race.'),
+    ).toBeInTheDocument()
+    // Design: verification is an info Alert, split into title and detail.
+    const notice = screen.getByRole('alert')
+    expect(notice).toHaveTextContent('Verification starts when you pay.')
+    expect(notice).toHaveTextContent(
+      'Texting usually opens 1 to 2 weeks later.',
+    )
+    expect(
+      screen.getByText(
+        'Secure payment through Stripe. One payment, no subscription.',
+      ),
+    ).toBeInTheDocument()
     expect(
       screen.getByText('Pro plan with $175 outreach credit'),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/no subscription/i)).not.toBeInTheDocument()
   })
 
   it('shows the Pro to Team breakdown and charges the difference', async () => {
@@ -175,6 +193,30 @@ describe('PaymentStep with per-campaign pricing on', () => {
     expect(screen.getByText('Pro, already paid')).toBeInTheDocument()
     expect(screen.getByText('−$299.00')).toBeInTheDocument()
     expect(screen.getByText('$100.00')).toBeInTheDocument()
+    // Verification already started when they bought Pro.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('keeps the texting-closing warning instead of the info Alert near the cutoff', async () => {
+    setup({ plan: 'pro', held: 'free' })
+    vi.mocked(useSmsCompliance).mockReturnValue({
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-12-01',
+      generalElectionDate: null,
+    })
+    mswServer.use(
+      http.post(CREATE_URL, () =>
+        HttpResponse.json({ id: 'cs_4', clientSecret: 'cs_4_secret_x' }),
+      ),
+    )
+
+    render(<PaymentStep />)
+
+    await screen.findByRole('button', { name: /^Pay / })
+    expect(
+      screen.getByText(/Finish your upgrade by Dec\. 1/),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('completes the session and goes to success, marking a Pro to Team upgrade', async () => {
@@ -219,5 +261,53 @@ describe('PaymentStep with per-campaign pricing on', () => {
 
     expect(await screen.findByText(text)).toBeInTheDocument()
     expect(goToStep).not.toHaveBeenCalled()
+  })
+
+  it('draws wallets above the methods and moves the promo box to a link under Total', async () => {
+    setup({ plan: 'pro', held: 'free' })
+    mswServer.use(
+      http.post(CREATE_URL, () =>
+        HttpResponse.json({ id: 'cs_4', clientSecret: 'cs_4_secret_x' }),
+      ),
+    )
+
+    render(<PaymentStep />)
+
+    expect(await screen.findByTestId('express-element')).toBeInTheDocument()
+    expect(screen.queryByText('Promo Code')).not.toBeInTheDocument()
+    expect(
+      screen.queryByPlaceholderText('Enter promo code'),
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a promo code' }))
+    const input = screen.getByPlaceholderText('Enter promo code')
+    fireEvent.change(input, { target: { value: 'SAVE10' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() =>
+      expect(checkoutValue.applyPromotionCode).toHaveBeenCalledWith('SAVE10'),
+    )
+  })
+
+  it('shows an applied code as a discount row above Total', async () => {
+    setup({ plan: 'pro', held: 'free' })
+    checkoutValue.total.total.minorUnitsAmount = 26900
+    checkoutValue.discountAmounts = [
+      { promotionCode: 'SAVE30', minorUnitsAmount: 3000 },
+    ]
+    mswServer.use(
+      http.post(CREATE_URL, () =>
+        HttpResponse.json({ id: 'cs_5', clientSecret: 'cs_5_secret_x' }),
+      ),
+    )
+
+    render(<PaymentStep />)
+
+    expect(await screen.findByText('Promo code SAVE30')).toBeInTheDocument()
+    expect(screen.getByText('−$30.00')).toBeInTheDocument()
+    expect(screen.getByText('$269.00')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Add a promo code' }),
+    ).not.toBeInTheDocument()
   })
 })

@@ -2,7 +2,11 @@
 
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { ShieldCheckIcon } from '@styleguide/components/ui/icons'
+import { ProBadge } from '@styleguide'
+import {
+  ArrowRightIcon,
+  ShieldCheckIcon,
+} from '@styleguide/components/ui/icons'
 import { trackEvent } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import {
@@ -12,9 +16,8 @@ import {
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
-import { PlanBadge } from '../plan/PlanBadge'
 import { usePlanPitch } from '../plan/usePlanPitch'
-import { MEMBERSHIP_COPY, membershipPlanCopy } from './membershipCopy'
+import { MEMBERSHIP_COPY } from './membershipCopy'
 import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
 import {
@@ -76,23 +79,30 @@ export const MembershipChip = (): React.JSX.Element | null => {
     if (action) {
       trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
     }
-    if (action === 'pitch') setPitchOpen(true)
-    else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
+    if (action === 'pitch') {
+      // Flag on, the chip opens the plan comparison page instead of the pitch
+      // dialog.
+      if (planPitch.enabled) router.push(planPitch.allPlansHref)
+      else setPitchOpen(true)
+    } else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
     else if (action === 'pin') setPinOpen(true)
     else if (action === 'schedule') router.push(MEMBERSHIP_SCHEDULE_HREF)
   }
 
   const body =
     state.tier === 'free' ? (
-      <>
-        <span>{MEMBERSHIP_COPY.chip.joinLead}</span>
-        <PlanBadge plan={planPitch.enabled ? planPitch.plan : 'pro'} />
-        <span>
-          {planPitch.enabled
-            ? membershipPlanCopy(planPitch).chipJoinTail
-            : MEMBERSHIP_COPY.chip.joinTail}
-        </span>
-      </>
+      planPitch.enabled ? (
+        <>
+          {MEMBERSHIP_COPY.chip.upgrade}
+          <ArrowRightIcon className="size-3.5" aria-hidden />
+        </>
+      ) : (
+        <>
+          <span>{MEMBERSHIP_COPY.chip.joinLead}</span>
+          <ProBadge size="small" />
+          <span>{MEMBERSHIP_COPY.chip.joinTail}</span>
+        </>
+      )
     ) : (
       <>
         <ShieldCheckIcon className="size-3.5" aria-hidden />

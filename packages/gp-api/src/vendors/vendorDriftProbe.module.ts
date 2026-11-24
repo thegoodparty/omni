@@ -3,6 +3,7 @@ import { AwsModule } from './aws/aws.module'
 import { CallhubModule } from './callhub/callhub.module'
 import { GeoapifyModule } from './geoapify/geoapify.module'
 import { PeerlyModule } from './peerly/peerly.module'
+import { ScaleToWinModule } from './scaleToWin/scaleToWin.module'
 import { SlackModule } from './slack/slack.module'
 import { VendorDriftProbeService } from './vendorDriftProbe.service'
 import { VercelModule } from './vercel/vercel.module'
@@ -18,6 +19,7 @@ import { VercelModule } from './vercel/vercel.module'
     GeoapifyModule,
     VercelModule,
     AwsModule,
+    ScaleToWinModule,
   ],
   providers: [VendorDriftProbeService],
 })

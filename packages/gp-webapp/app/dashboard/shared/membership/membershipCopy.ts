@@ -25,10 +25,12 @@ export const MEMBERSHIP_COPY = {
     },
   },
   chip: {
-    // The free chip reads as three inline parts so the Pro badge sits between
-    // the words rather than leading them: "Join [PRO] for $10/mo".
+    // Flag off: the free chip reads as three inline parts so the Pro badge sits
+    // between the words rather than leading them: "Join [PRO] for $10/mo".
     joinLead: 'Join',
     joinTail: 'for $10/mo',
+    // Flag on: one generic label for Pro and Team races, with an arrow.
+    upgrade: 'Upgrade',
     needsVerification: 'Verification needed',
     inReview: 'Verification in review',
     awaitingPin: 'Enter your PIN',
@@ -90,26 +92,63 @@ export const membershipPlanCopy = (
   pitch: PlanPitch,
 ): {
   bannerFree: { body: string; cta: string }
-  chipJoinTail: string
   pitchTitle: string
   pitchPill: string
   pitchJoin: string
 } => ({
   bannerFree: {
-    body:
-      pitch.plan === 'team'
-        ? `Unlock voter data and outreach for your whole team for ${pitch.price}. Good for your whole campaign.`
-        : `Unlock voter data and outreach with ${pitch.name} for ${pitch.price}. Good for your whole campaign.`,
+    body: `Unlock voter data and outreach for ${pitch.price} a race.`,
     cta: MEMBERSHIP_COPY.banner.free.cta,
   },
-  chipJoinTail: `for ${pitch.price}`,
   pitchTitle: `Join ${pitch.name} to unlock voter data and outreach`,
   pitchPill: `${pitch.price}, one payment for your whole campaign`,
   pitchJoin: `Join ${pitch.name} for ${pitch.price}`,
 })
 
-// Invite on a gated campaign opens the Team pitch (design: Invite). From Pro
-// only the difference is charged, so the pill and the button carry that price.
+// Flag on: Invite on a gated campaign opens the Team pitch from Free and the
+// Team cross-sell from Pro (design: G-AcctTeamProInvite and ...InviteCross).
+// Both reuse the gate layout: a headline row, then check bullets. From Pro only
+// the difference is charged and the pitch drops what Pro already has.
+export const teamInvitePitchCopy = (
+  fromPro: boolean,
+): {
+  title: string
+  headline: string
+  bullets: { text: string; bonus?: boolean }[]
+  join: string
+} => {
+  const price = formatPlanCents(
+    fromPro
+      ? PLAN_PRICING.teamCents - PLAN_PRICING.proCents
+      : PLAN_PRICING.teamCents,
+  )
+  const logins = [
+    { text: 'A campaign manager login to help you share the load' },
+    { text: 'Volunteer logins to walk door-knocking turfs' },
+  ]
+  return {
+    title: 'Upgrade to invite your campaign team',
+    headline: 'Bring your campaign manager and volunteers in',
+    bullets: fromPro
+      ? [
+          { text: `Pay ${price} once to upgrade, good for your whole race` },
+          ...logins,
+        ]
+      : [
+          { text: `Pay ${price} once for your plan, good for your whole race` },
+          ...logins,
+          { text: 'Voter data, texts and robocalls to reach voters' },
+          {
+            text: `${formatPlanCents(PLAN_PRICING.includedCreditCents)} outreach credit to get started`,
+            bonus: true,
+          },
+        ],
+    join: fromPro ? `Upgrade to Team for ${price}` : `Join Team for ${price}`,
+  }
+}
+
+// Flag off: Invite opens the Team pitch (design: Invite). From Pro only the
+// difference is charged, so the pill and the button carry that price.
 export const membershipInviteCopy = (
   fromPro: boolean,
 ): { pitchTitle: string; pitchPill: string; pitchJoin: string } => {

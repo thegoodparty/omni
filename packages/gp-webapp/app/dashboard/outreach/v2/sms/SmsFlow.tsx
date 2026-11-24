@@ -105,13 +105,15 @@ import {
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { outreachLandingStep } from '../landingStep'
-import { REVIEW_GATE_CTA } from '../gate/gateCopy'
+import { REVIEW_GATE_CTA, planReviewGateCta } from '../gate/gateCopy'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
+import { ProGatePitch } from '../gate/ProGatePitch'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import {
   SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
@@ -134,6 +136,7 @@ import {
   SmsScheduleStep,
   TIME_OPTIONS,
 } from './SmsScheduleStep'
+import { seedSendDate } from './smsSendDate.util'
 import {
   ServeSmsScheduleStep,
   serveSmsScheduledAt,
@@ -416,6 +419,14 @@ interface SmsFlowProps {
   // details step opens on it.
   initialEvent?: ProposalEvent
   preselectedListId?: number
+  // A chat card's "Join Pro to send" (win_per_campaign_pricing): the flow
+  // opens on the card's draft with the Pro pitch already over it. Nothing is
+  // saved; leaving the pitch lands on the draft, as Edit would have.
+  openProGate?: boolean
+  // The day a chat card suggested ("YYYY-MM-DD"). The schedule step opens on
+  // it when the picker would allow it; a past, invalid or too-soon day is
+  // dropped and the official picks.
+  initialSendDate?: string
   // An audience a chat card counted but did not save: the audience step
   // opens on the list builder already filled in, and saves it when the
   // official confirms and names it.
@@ -531,6 +542,45 @@ export const SuccessScreen = ({
     creditBeforeCents !== null,
   )
   const showCredit = creditBeforeCents !== null && creditUsedCents > 0
+  // A credit-priced send (per-campaign pricing on): the Nov 23 board's copy
+  // and layout. Everything else keeps the original screen.
+  const priced = creditBeforeCents !== null
+  const campaignLabel = priced ? 'SMS campaign' : 'sms campaign'
+  // The Stripe charge is only the card's share; the line item is the full
+  // price, so the credit that covered the rest goes back on top of it.
+  const lineItemDollars = receipt
+    ? (Math.round(receipt.amount * 100) + (showCredit ? creditUsedCents : 0)) /
+      100
+    : 0
+  const creditLabel = priced
+    ? `Outreach credit used (${formatOutreachCost(
+        Math.max((creditBeforeCents ?? 0) - creditUsedCents, 0),
+      )} left after)`
+    : 'Outreach credit used'
+
+  const creditRow = showCredit && (
+    <div className="flex justify-between gap-4">
+      <dt className="text-muted-foreground">{creditLabel}</dt>
+      <dd className="text-foreground">
+        {`\u2212${formatOutreachCost(creditUsedCents)}`}
+      </dd>
+    </div>
+  )
+
+  const downloadButton = receipt?.receiptUrl && (
+    <Button
+      type="button"
+      variant="outline"
+      size={priced ? 'small' : undefined}
+      className={priced ? 'w-full lg:w-auto' : 'w-full'}
+      onClick={() => {
+        window.open(receipt.receiptUrl ?? '', '_blank', 'noopener')
+      }}
+    >
+      <DownloadIcon className="size-4" />
+      Download receipt
+    </Button>
+  )
 
   return (
     <div className="space-y-6 py-8 text-center">
@@ -541,10 +591,14 @@ export const SuccessScreen = ({
       </div>
       <div className="space-y-2">
         <h2 className="text-2xl font-semibold text-foreground">
-          {paid ? 'Payment successful!' : 'Scheduled!'}
+          {paid
+            ? priced
+              ? 'Payment successful'
+              : 'Payment successful!'
+            : 'Scheduled!'}
         </h2>
         <p className="text-muted-foreground">
-          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
+          Your {campaignLabel} will reach {contactCount.toLocaleString()}{' '}
           recipients
           {sendAt
             ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
@@ -570,25 +624,17 @@ export const SuccessScreen = ({
                   SMS campaign, {contactCount.toLocaleString()} recipients
                 </dt>
                 <dd className="text-foreground">
-                  ${receipt.amount.toFixed(2)}
+                  ${lineItemDollars.toFixed(2)}
                 </dd>
               </div>
-              {showCredit && (
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">
-                    Outreach credit used
-                  </dt>
-                  <dd className="text-foreground">
-                    {`\u2212${formatOutreachCost(creditUsedCents)}`}
-                  </dd>
-                </div>
-              )}
+              {!priced && creditRow}
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Cost per outreach</dt>
                 <dd className="text-foreground">
                   ${PRICE_PER_MESSAGE.toFixed(3)}
                 </dd>
               </div>
+              {priced && creditRow}
               {receipt.cardBrand && receipt.cardLast4 && (
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Card</dt>
@@ -605,6 +651,11 @@ export const SuccessScreen = ({
               ${receipt.amount.toFixed(2)}
             </span>
           </div>
+          {priced && downloadButton && (
+            <div className="flex border-t border-border px-4 py-4 lg:justify-end">
+              {downloadButton}
+            </div>
+          )}
         </Card>
       )}
       {showCredit && !receipt && (
@@ -635,19 +686,7 @@ export const SuccessScreen = ({
           </div>
         </Card>
       )}
-      {receipt?.receiptUrl && (
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          onClick={() => {
-            window.open(receipt.receiptUrl ?? '', '_blank', 'noopener')
-          }}
-        >
-          <DownloadIcon className="size-4" />
-          Download receipt
-        </Button>
-      )}
+      {!priced && downloadButton}
       {showTestSend && outreachId !== null && (
         <SmsTestSendForm
           outreachId={outreachId}
@@ -655,9 +694,11 @@ export const SuccessScreen = ({
           ready={Boolean(jobQuery.data?.projectId)}
         />
       )}
-      <Button size="large" className="w-full" onClick={onDone}>
-        Done
-      </Button>
+      {!priced && (
+        <Button size="large" className="w-full" onClick={onDone}>
+          Done
+        </Button>
+      )}
     </div>
   )
 }
@@ -678,6 +719,7 @@ export const SmsFlow = ({
   launchSource,
   initialScript,
   initialPurpose,
+  initialSendDate,
   proposedAudience,
   proposalLink,
   audienceSettled = false,
@@ -685,6 +727,7 @@ export const SmsFlow = ({
   roundTwoSize,
   onProposalCreateFailed,
   preselectedListId,
+  openProGate = false,
   preselectedRecommendedVariant,
   resumeDraft = null,
   onDraftSaved,
@@ -722,6 +765,10 @@ export const SmsFlow = ({
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
+  // Flag on, a free candidate reaches the review step and the Pro gate opens
+  // over it as a dialog; flag off, the name step writes the draft and the
+  // gate takes the step's place.
+  const planPitch = useContextualPlanPitch()
   const { smsCutoffDate } = useSmsCompliance()
   const lockedAtOpen = useLockedAtOpen(open, gate)
   // gp-api reads the picked wall-clock window in the campaign state's zone
@@ -860,6 +907,7 @@ export const SmsFlow = ({
     open,
     resumeDraft,
     resumeCta,
+    pitchAsDialog: planPitch.enabled,
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
@@ -895,6 +943,27 @@ export const SmsFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
+
+  // A chat card's "Join Pro to send": the pitch goes up once per open, as
+  // soon as the gate knows the campaign is on the free plan.
+  const proGateShownRef = useRef(false)
+  const { openPitch } = draftGate
+  useEffect(() => {
+    if (!open) {
+      proGateShownRef.current = false
+      return
+    }
+    if (
+      !openProGate ||
+      proGateShownRef.current ||
+      !planPitch.enabled ||
+      gate.requirement !== 'pro' ||
+      resumed
+    )
+      return
+    proGateShownRef.current = true
+    openPitch(planReviewGateCta(planPitch))
+  }, [open, openProGate, planPitch, gate.requirement, resumed, openPitch])
   const { enabled: previewFlagOn } = useWinSmsPreviewEditFlag(
     surface === WIN_SMS_SURFACE,
   )
@@ -906,7 +975,7 @@ export const SmsFlow = ({
   const baseStepOrder = withPreviewStep(
     !buildMode
       ? STEP_ORDER
-      : gate.requirement === 'pro'
+      : gate.requirement === 'pro' && !planPitch.enabled
         ? PRO_BUILD_STEP_ORDER
         : VERIFY_BUILD_STEP_ORDER,
     showPreviewStep,
@@ -988,6 +1057,16 @@ export const SmsFlow = ({
   const isFreeSend =
     Boolean(campaign?.hasFreeTextsOffer) &&
     (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
+  // Per-campaign pricing's review: one title whether or not the send is free,
+  // and the primary button in the shell footer next to Back. The review step
+  // reports that button up, since only it knows free from paid. Serve, a
+  // campaign on the free-texts offer and the build-mode summary keep theirs.
+  const reviewInFooter =
+    planPitch.enabled &&
+    !surface.isServe &&
+    !campaign?.hasFreeTextsOffer &&
+    !buildMode
+  const [reviewCta, setReviewCta] = useState<FlowShellCta | null>(null)
   // A list create succeeded enough to proceed. The sync path returns a token;
   // an async build (gp-api behind the `win_sms_hold_billing` flag) returns a
   // null token with only the buildId, which is NOT a failure — the checkout
@@ -1084,7 +1163,7 @@ export const SmsFlow = ({
     setNameEdited(Boolean(resumeDraft?.name))
     lastAutoName.current = ''
     lastDatePart.current = ''
-    setDate(undefined)
+    setDate(seedSendDate(initialSendDate))
     setTimeSlot('10')
     setCustomTime('10:00')
     setImage(null)
@@ -1107,6 +1186,7 @@ export const SmsFlow = ({
     resetEventDetails,
     initialScript,
     initialPurpose,
+    initialSendDate,
     preselectedRecommendedVariant,
     resumeDraft,
     surface,
@@ -2204,7 +2284,11 @@ export const SmsFlow = ({
     : !scheduled && purpose !== null && savedDraft === null
 
   const reviewGateCta =
-    gate.requirement !== null ? REVIEW_GATE_CTA[gate.requirement] : undefined
+    gate.requirement === null
+      ? undefined
+      : gate.requirement === 'pro' && planPitch.enabled
+        ? planReviewGateCta(planPitch)
+        : REVIEW_GATE_CTA[gate.requirement]
   const baseCta: FlowShellCta | null = scheduled
     ? null
     : // The gate screens carry their own buttons.
@@ -2283,7 +2367,7 @@ export const SmsFlow = ({
               ? {
                   label: 'Continue',
                   onClick: () => {
-                    if (gate.requirement === 'pro') {
+                    if (gate.requirement === 'pro' && !planPitch.enabled) {
                       void draftGate.saveDraft('Continue')
                       return
                     }
@@ -2358,14 +2442,19 @@ export const SmsFlow = ({
                         buildMode &&
                         gate.requirement !== null
                       ? {
-                          label: REVIEW_GATE_CTA[gate.requirement],
+                          label: reviewGateCta ?? '',
                           onClick: () => {
                             void draftGate.saveDraft(reviewGateCta)
                           },
                           disabled: !audience.selectedListId || image === null,
                           loading: draftGate.savingDraft,
                         }
-                      : null
+                      : // The review step owns its button (Schedule outreach or
+                        // Complete purchase) and reports it up under the
+                        // per-campaign pricing flag.
+                        stepId === 'review' && reviewInFooter
+                        ? reviewCta
+                        : null
 
   const cta: FlowShellCta | null = managed
     ? stepId === 'compose'
@@ -2432,9 +2521,11 @@ export const SmsFlow = ({
                 ? NAME_ONLY_COPY.title
                 : stepId === 'review' && buildMode
                   ? 'Review and verify'
-                  : stepId === 'review' && isFreeSend
-                    ? 'Review and send'
-                    : STEP_TITLES[stepId]
+                  : stepId === 'review' && reviewInFooter
+                    ? 'Review and pay'
+                    : stepId === 'review' && isFreeSend
+                      ? 'Review and send'
+                      : STEP_TITLES[stepId]
       }
       headerBadge={
         managed ? (
@@ -2447,7 +2538,12 @@ export const SmsFlow = ({
         ) : (
           <ChannelBadge
             type={OUTREACH_TYPES.text}
-            locked={gate.requirement !== null && !scheduled && !gateOpen}
+            locked={
+              !planPitch.enabled &&
+              gate.requirement !== null &&
+              !scheduled &&
+              !gateOpen
+            }
           />
         )
       }
@@ -2479,7 +2575,13 @@ export const SmsFlow = ({
             ? handleBack
             : undefined
       }
-      cta={cta}
+      cta={
+        // The credit-priced confirmation keeps Done in the shell footer (the
+        // Nov 23 board); SuccessScreen renders none of its own then.
+        scheduled && outreachCredit.active && !surface.isServe
+          ? { label: 'Done', onClick: onClose }
+          : cta
+      }
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner).
       banner={
@@ -2491,7 +2593,11 @@ export const SmsFlow = ({
               {MANAGED_PANEL_COPY.flow.agreement(managedInvite?.place ?? null)}
             </p>
           ) : undefined
-        ) : gate.requirement !== null && !scheduled && !gateOpen ? (
+        ) : gate.requirement !== null &&
+          // Flag on, a free candidate's review button opens the gate itself.
+          !(planPitch.enabled && gate.requirement === 'pro') &&
+          !scheduled &&
+          !gateOpen ? (
           <GateBanner
             channel="sms"
             state={gate}
@@ -2564,6 +2670,13 @@ export const SmsFlow = ({
         onVerify={draftGate.openGateFromExplainer}
         onPin={draftGate.openGateFromExplainer}
       />
+      {draftGate.pitchOpen && (
+        <ProGatePitch
+          channel="sms"
+          onJoin={draftGate.joinPitch}
+          onDismiss={draftGate.handleGateExit}
+        />
+      )}
       {scheduled ? (
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
@@ -2585,12 +2698,13 @@ export const SmsFlow = ({
           state={gate}
           open
           showInterstitial={
-            draftGate.gateOrigin === 'save' ||
+            (draftGate.gateOrigin === 'save' && !planPitch.enabled) ||
             (draftGate.gateOrigin === 'resume' && !resumeStartsOnWizard)
           }
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onChromeChange={setGateChrome}
+          onFirstStepBack={draftGate.wizardBack}
           source={source}
           cta={draftGate.gateCta}
           tracker={tracker}
@@ -2821,6 +2935,12 @@ export const SmsFlow = ({
                     initialCrop={cropBox}
                     onCropChange={setCropBox}
                     onCropReady={setCroppedImage}
+                    onRemove={() => {
+                      setImage(null)
+                      setUploadedImage(null)
+                      setCroppedImage(null)
+                      setCropBox(null)
+                    }}
                   />
                 ),
               })}
@@ -2926,6 +3046,7 @@ export const SmsFlow = ({
             onRetryBuild={handleRetryPhoneListBuild}
             readOnlySummary={buildMode}
             onComplete={handleScheduled}
+            {...(reviewInFooter && { onFooterCtaChange: setReviewCta })}
           />
           {draftGate.draftSaveError && (
             <p className="mt-4 text-sm text-destructive">

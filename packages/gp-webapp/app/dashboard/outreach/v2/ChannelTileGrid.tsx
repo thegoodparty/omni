@@ -27,7 +27,8 @@ import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffN
 import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { CHANNEL_META } from './channelMeta'
-import { TILE_PRICES } from './channelPrices'
+import { TILE_PRICES, WIN_PRICING_TILE_PRICES } from './channelPrices'
+import { OutreachCreditBalance } from './OutreachCreditBalance'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -63,12 +64,14 @@ const preselectKey = (
   recommendedVariant: RecommendedListVariant | undefined,
 ): string => `${listId ?? ''}|${recommendedVariant ?? ''}`
 
-const tilePrice = (type: OutreachType): string | undefined =>
-  type === OUTREACH_TYPES.text
-    ? TILE_PRICES.text
+const tilePrice = (type: OutreachType, planPricing: boolean): string => {
+  const prices = planPricing ? WIN_PRICING_TILE_PRICES : TILE_PRICES
+  return type === OUTREACH_TYPES.text
+    ? prices.text
     : type === OUTREACH_TYPES.robocall
-      ? TILE_PRICES.robocall
-      : undefined
+      ? prices.robocall
+      : TILE_PRICES.free
+}
 
 const SMS_TILE_CLOSED_COPY = 'Not available for this race'
 
@@ -100,7 +103,7 @@ export const ChannelTileGrid = ({
   const smsClosed = smsCompliance === 'closed'
   const [showSmsCutoffNotice, setShowSmsCutoffNotice] = useState(false)
   const { offer: freeOffer } = useRobocallFreeOffer()
-  const { enabled: showPrices } = useWinPerCampaignPricingFlag(false)
+  const { enabled: planPricing } = useWinPerCampaignPricingFlag(false)
   // The Pro/compliance gate lives inside the text, robocall and phone-banking
   // flows, so the tiles never refuse a click.
 
@@ -210,13 +213,18 @@ export const ChannelTileGrid = ({
 
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">
-          Create a campaign
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Pick a channel to draft and send a new campaign.
-        </p>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">
+            {planPricing ? 'Send outreach' : 'Create a campaign'}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {planPricing
+              ? 'Pick a channel to draft and send.'
+              : 'Pick a channel to draft and send a new campaign.'}
+          </p>
+        </div>
+        <OutreachCreditBalance />
       </div>
       <div
         className={cn(
@@ -254,11 +262,7 @@ export const ChannelTileGrid = ({
               tag={tag}
               tagTone={hasFreeOffer && !smsCountdown ? 'info' : 'muted'}
               subCopy={
-                textClosed
-                  ? SMS_TILE_CLOSED_COPY
-                  : showPrices
-                    ? tilePrice(type)
-                    : undefined
+                textClosed ? SMS_TILE_CLOSED_COPY : tilePrice(type, planPricing)
               }
               className={cn(
                 textClosed && 'bg-muted opacity-70 hover:border-border',
@@ -284,7 +288,9 @@ export const ChannelTileGrid = ({
             icon={CHANNEL_META.email.icon}
             iconClassName={CHANNEL_META.email.iconTint}
             label={CHANNEL_META.email.label}
-            subCopy={showPrices ? TILE_PRICES.email : undefined}
+            subCopy={
+              planPricing ? WIN_PRICING_TILE_PRICES.email : TILE_PRICES.email
+            }
             onClick={() => {
               trackEvent(EVENTS.Outreach.ClickCreate, { type: 'email' })
               onCreateEmail()

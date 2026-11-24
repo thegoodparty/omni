@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { format } from 'date-fns'
+import { format, isValid, parseISO } from 'date-fns'
 import { outreachHasGoneOut, type ChatCard } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
+import { CalendarIcon, PencilIcon } from '@styleguide/components/ui/icons'
 import { getChannelLabel } from 'app/dashboard/outreach/v2/channelMeta'
 import type { OutreachLaunchSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { shortOutreachDate } from 'app/dashboard/outreach/v2/outreachDate.util'
@@ -13,7 +14,7 @@ import {
 } from './cardShell'
 import { proposalOutreachQueryOptions } from './cardQueries'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 import {
   PROPOSAL_CTA,
@@ -32,6 +33,12 @@ export const SERVE_OUTREACH_PROPOSAL_COPY = {
 
 export const WIN_OUTREACH_PROPOSAL_COPY = {
   sentTo: 'Sent to',
+  edit: 'Edit',
+  // Fixed per channel, not written by the agent.
+  draftedTitle: {
+    text: 'I drafted a text for you',
+    phoneBanking: 'I drafted a phone banking script for you',
+  },
 }
 
 const SENT_TO: Record<CardMode, string> = {
@@ -40,6 +47,19 @@ const SENT_TO: Record<CardMode, string> = {
 }
 
 type OutreachProposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
+
+// "To 2,400 voters · Likely voters in Ward 3 · Tue, Oct 5": who, how many and,
+// when the agent suggested one, the day.
+const winMetaLine = (proposal: OutreachProposal): string =>
+  [
+    `To ${peopleCount(proposal.count, 'win')}`,
+    proposal.audience,
+    proposal.sendDate &&
+      isValid(parseISO(proposal.sendDate)) &&
+      format(parseISO(proposal.sendDate), 'EEE, MMM d'),
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
 type OutreachProposalCardProps = {
   proposal: OutreachProposal
@@ -66,7 +86,7 @@ const ProposalChip = ({
 }: OutreachProposalCardProps) => {
   const flows = useProposalFlows()
   const mode = flows?.mode ?? 'serve'
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
   const { plan } = usePlan()
   const {
     data: sent,
@@ -137,14 +157,83 @@ const ProposalChip = ({
     )
   }
 
-  // Free stays on the card: the press opens the plan pitch (the Pro gate in
-  // the flows), and the draft is still here after it closes. Social and door
-  // knocking have no "send" to join for.
+  // Free stays on the card, which shows the draft: Join Pro to send puts the
+  // Pro pitch over the flow, Edit and the message open the flow itself, and
+  // its own gate meets them at send. Social and door knocking have no "send"
+  // to join for.
   const joinToSend =
     mode === 'win' &&
     planPitch.enabled &&
     plan === 'free' &&
     (proposal.channel === 'text' || proposal.channel === 'phoneBanking')
+
+  if (
+    joinToSend &&
+    (proposal.channel === 'text' || proposal.channel === 'phoneBanking')
+  ) {
+    // Win's gate reads the campaign first, and a text its texting
+    // registration too; a press before they arrive would gate on neither.
+    const ready =
+      Boolean(flows) &&
+      (proposal.channel === 'text' ? flows?.textResolved : flows?.winResolved)
+    const edit = () => flows?.open(proposal, priorityId, launchSource, 'edit')
+    return (
+      <CompactCardStatic
+        title={WIN_OUTREACH_PROPOSAL_COPY.draftedTitle[proposal.channel]}
+        body={
+          <div className="mt-3 flex flex-col gap-2">
+            <div
+              role="button"
+              tabIndex={ready ? 0 : -1}
+              aria-label={`Edit the draft: ${proposal.message}`}
+              aria-disabled={!ready}
+              onClick={ready ? edit : undefined}
+              onKeyDown={(event) => {
+                if (ready && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault()
+                  edit()
+                }
+              }}
+              className="bg-muted text-foreground hover:bg-muted/80 cursor-pointer rounded-2xl px-3 py-2 text-left text-sm whitespace-pre-wrap aria-disabled:cursor-not-allowed"
+            >
+              {proposal.message}
+            </div>
+            <p
+              data-testid="proposal-meta"
+              className="text-muted-foreground flex items-center gap-1.5 text-sm"
+            >
+              <CalendarIcon className="size-4 shrink-0" aria-hidden />
+              <span>{winMetaLine(proposal)}</span>
+            </p>
+          </div>
+        }
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="small"
+              disabled={!ready}
+              onClick={edit}
+            >
+              <PencilIcon className="size-4" aria-hidden />
+              {WIN_OUTREACH_PROPOSAL_COPY.edit}
+            </Button>
+            <Button
+              type="button"
+              size="small"
+              disabled={!ready}
+              onClick={() =>
+                flows?.open(proposal, priorityId, launchSource, 'joinPro')
+              }
+            >
+              {`Join ${planPitch.name} to send`}
+            </Button>
+          </>
+        }
+      />
+    )
+  }
 
   return (
     <CompactCardStatic
@@ -167,9 +256,7 @@ const ProposalChip = ({
           }
           onClick={() => flows?.open(proposal, priorityId, launchSource)}
         >
-          {joinToSend
-            ? `Join ${planPitch.name} to send`
-            : PROPOSAL_CTA[mode][proposal.channel]}
+          {PROPOSAL_CTA[mode][proposal.channel]}
         </Button>
       }
     />

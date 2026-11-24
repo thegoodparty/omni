@@ -178,10 +178,11 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
-      'Where per-campaign pricing is on, the top of Voter Outreach shows your outreach credit left and about how many texts it buys, and the text, robocall and email tiles show their price (3.5¢ a text, 4.5¢ a call, 1¢ an email with a 50-email minimum). Review for a text, robocall or email shows Cost, the outreach credit taken off it and the Total, with the credit left after it sends. A send the credit covers has nothing to pay; a bigger one pays the rest by card. There is no Add credit button. The screen after booking shows the credit used and Charged today',
+      'Each channel tile shows its price: $0.035/text, $0.045/call, $0.01/email, and Free for social media, phone banking and door knocking. Where per-campaign pricing is on, the email tile reads 1¢ each, 50¢ minimum',
+      'Where per-campaign pricing is on, the top of Voter Outreach is headed Send outreach, with Outreach credit and the balance beside the title, or under it on a phone, and no texts estimate; the history below is titled Active outreach, and an empty value in it shows a dash. Review for a text, robocall or email is headed Review and pay and shows Cost, the outreach credit taken off it (the row names the credit left after the send) and the Total. A send the credit covers has nothing to pay; a bigger one pays the rest by card. On a text, Schedule outreach or Complete purchase is in the footer beside Back, and the payment details sit above Preview message. There is no Add credit button. The screen after booking shows the credit used and Charged today',
       'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this campaign. The new turfs use the campaign’s list and talking points',
       'Each channel starts by asking who to reach, which reads from your saved lists',
-      'A text asks for the message before the date it goes out: purpose, who to reach, message, date, then review and pay. Where the text preview is on for a candidate, an image attached on the message step shows there with corners to drag, to choose what voters see (a GIF is used whole), then a Does this look right? step shows the message and image as they appear on a phone, between the message and the date; Back goes to the message and Continue goes on to the date. Review and pay shows the same phone',
+      'A text asks for the message before the date it goes out: purpose, who to reach, message, date, then review and pay. Where the text preview is on for a candidate, an image attached on the message step shows there with Crop and Remove image under it: press Crop to drag the corners and choose what voters see, then Done (a GIF is used whole), then a Does this look right? step shows the message and image as they appear on a phone, between the message and the date; Back goes to the message and Continue goes on to the date. Review and pay shows the same phone',
       'Where the text preview is on for a candidate, a scheduled text’s details drawer shows its message as the phone preview, with the image and the first name filled in, and has an Edit message button above Cancel campaign. It opens What do you want to change? with the message and Cancel to go back to the drawer, then its preview, with the image shown but not changeable, and Save changes updates the text. Once the text is queued for sending the button goes away and the drawer says so',
       'Where the text preview is on for a candidate, a scheduled text can be tried out before it sends. The screen after booking and the text’s details panel in the outreach history both have a Send a test box: your own number is filled in, Add a number allows up to five, each added number has a remove button, empty added boxes are ignored, each number shows whether it was sent or is not a cell number, and a line above says how many numbers the test reached. A text still being set up asks you to try again in a minute',
       'Picking an event invite for a text, phone banking or door knocking asks for the event date, start time and place first, and the draft writes them in',
@@ -295,8 +296,9 @@ const WIN_AREAS: ProductArea[] = [
     ],
   },
   {
-    // No tab: reached from "See all plans" in the Pro and Team pitches. Only
-    // exists while the per-campaign pricing flag is on.
+    // No tab: reached from the sidebar banner, the phone top bar's Upgrade
+    // chip, the Account page, and "See all plans" in the Pro and Team pitches.
+    // Only exists while the per-campaign pricing flag is on.
     navId: null,
     name: 'Plans',
     path: '/dashboard/plans',
@@ -307,11 +309,11 @@ const WIN_AREAS: ProductArea[] = [
       `Free costs nothing. Pro is ${usd(PLAN_PRICING.proCents)} and Team is ${usd(PLAN_PRICING.teamCents)}, each paid once for the whole campaign`,
       `Pro and Team include ${usd(PLAN_PRICING.includedCreditCents)} in outreach credit for texts and robocalls. Team adds logins for teammates`,
       `Joining Team from Pro costs the ${usd(PLAN_PRICING.teamCents - PLAN_PRICING.proCents)} difference, and the outreach credit comes along`,
-      'When the campaign agent drafts a text or call on the Free plan, the card keeps the draft and its button reads Join Pro to send (Join Team to send for a large race). It opens the plan pitch',
+      'When the campaign agent drafts a text or call on the Free plan, the card shows the draft message, who it goes to and the send date when the agent suggests one. It has two buttons. Edit (or the message itself) opens the outreach flow with the draft, and the Pro pitch comes up when they try to send. On a text, Join Pro to send opens the flow with the Pro pitch over it; on a call, it opens the Pro pitch on its own. Both pitch Pro, whatever the race size',
       'The current plan is marked, and its button is off',
       'Pro and Team each have a button that starts the upgrade. A Pro campaign pays only the difference to join Team',
     ],
-    gate: 'No tab. Reached from See all plans in a Pro or Team pitch, and only for campaigns on per-campaign pricing.',
+    gate: 'No tab. Reached from the Upgrade banner in the left rail, the Upgrade chip in the phone top bar, the Account page, and See all plans in a Pro or Team pitch. Only for campaigns on per-campaign pricing.',
   },
   {
     // No tab: candidates reach this from the membership status shown at the
@@ -481,6 +483,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Four channels: Social media, SMS, Phone banking, and Door knocking. Where self-serve polls are on, a fifth, Poll / Survey, sits beside them',
       'Poll / Survey walks topic, who, question, date, then review and pay. Picking a topic drafts the question; the tone (Neutral, Warm, Direct, Friendly) and Regenerate rewrite it, the question is checked for bias once the official stops typing, and a question flagged as leading people toward an answer cannot continue until it is reworded, by hand or with Improve with AI. It goes to a random sample of constituents, sized for a reliable read, or to a saved list. The greeting and the opt-out line are fixed. It is paid per text at checkout and then held for review, within 2 business days, before it sends at 11am local on the date chosen',
       'Door knocking opens its own page rather than a flow here',
+      'Each channel card shows its price: $0.035/text for SMS and Poll / Survey, $0.01/email, and Free for social media, phone banking and door knocking',
       'To add turfs to a door knocking campaign, open it in the outreach history and press Add turf beside Turfs in this outreach. The new turfs use the campaign’s list and talking points',
       'What has gone out is listed under Your outreach, most recent first. A finished text shows its responses and unsubscribes, and a phone banking row shows how many people need a follow-up',
       'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',

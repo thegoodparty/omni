@@ -21,8 +21,12 @@ const mockCampaign = vi.hoisted(() => ({
     raceTargetMetrics: {
       projectedTurnout: number
       winNumber: number
+      registeredVoters?: number
     } | null
   } | null,
+}))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: true }),
 }))
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [mockCampaign.current],
@@ -574,6 +578,26 @@ describe('CrmContactsPage — page contents', () => {
     await user.click(screen.getByRole('button', { name: 'Create new list' }))
 
     expect(screen.queryByTestId('create-list-wizard')).not.toBeInTheDocument()
+  })
+
+  it('pitches Pro, never Team, to a free campaign on a large race', async () => {
+    const user = userEvent.setup()
+    setContext({ canUseProFeatures: false })
+    mockCampaign.current = {
+      raceTargetMetrics: {
+        projectedTurnout: 1,
+        winNumber: 1,
+        registeredVoters: 50_000,
+      },
+    }
+    render(<CrmContactsPage />)
+
+    await user.click(screen.getByRole('button', { name: 'Create new list' }))
+
+    expect(
+      screen.getByText('Join Pro to unlock voter data and outreach'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Join Team/)).not.toBeInTheDocument()
   })
 
   it('opens the list-detail sheet from the provider list selection and closes it via selectList(null)', async () => {

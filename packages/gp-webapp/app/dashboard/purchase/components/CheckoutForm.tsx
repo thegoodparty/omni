@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import {
+  ExpressCheckoutElement,
   PaymentElement,
   useCheckout,
   StripeCheckoutValue,
@@ -11,7 +12,13 @@ import { Alert, AlertDescription } from '@styleguide/components/ui/alert'
 import { useSnackbar } from '@shared/utils/Snackbar'
 import { reportClientError } from '@shared/observability/reportClientError'
 import { useMutation } from '@tanstack/react-query'
-import { StripeError } from '@stripe/stripe-js'
+import {
+  StripeCheckoutExpressCheckoutElementOptions,
+  StripeCheckoutPaymentElementOptions,
+  StripeError,
+  StripeExpressCheckoutElementConfirmEvent,
+  StripeExpressCheckoutElementReadyEvent,
+} from '@stripe/stripe-js'
 import { useCheckoutSession } from './CheckoutSessionProvider'
 import { Spinner } from '@styleguide'
 import PromoCodeSection, { usePromoCode } from './PromoCodeSection'
@@ -30,6 +37,47 @@ interface CheckoutFormProps {
   onTotalChange?: (totalDollars: number) => void
   sessionId?: string
   submitLabel?: string
+  // Per-campaign pricing layout: Apple Pay / Google Pay buttons on top, then
+  // "Or pay another way" and the methods as a stacked accordion. Off keeps the
+  // tabbed Payment Element exactly as it was.
+  walletsAndAccordion?: boolean
+  // The host draws the promo code control (a link under its order total), so
+  // the grey Promo Code box above the form is not rendered.
+  hidePromoSection?: boolean
+  // See CheckoutPaymentProps: the Pay button lives outside the form.
+  formId?: string
+  hideSubmit?: boolean
+  onSubmittingChange?: (submitting: boolean) => void
+}
+
+// Only the two wallets the design draws; no Link, PayPal, Amazon Pay or
+// Klarna button.
+const EXPRESS_CHECKOUT_OPTIONS: StripeCheckoutExpressCheckoutElementOptions = {
+  buttonHeight: 48,
+  buttonTheme: { applePay: 'black', googlePay: 'black' },
+  buttonType: { applePay: 'plain', googlePay: 'plain' },
+  layout: { maxColumns: 2, maxRows: 1, overflow: 'never' },
+  paymentMethodOrder: ['apple_pay', 'google_pay'],
+  paymentMethods: {
+    applePay: 'auto',
+    googlePay: 'auto',
+    link: 'never',
+    amazonPay: 'never',
+    paypal: 'never',
+    klarna: 'never',
+  },
+}
+
+// Wallets ride on the Express Checkout buttons above, so the Payment Element
+// must not offer them a second time.
+const ACCORDION_PAYMENT_ELEMENT_OPTIONS: StripeCheckoutPaymentElementOptions = {
+  layout: {
+    type: 'accordion',
+    radios: true,
+    spacedAccordionItems: true,
+    defaultCollapsed: false,
+  },
+  wallets: { applePay: 'never', googlePay: 'never', link: 'never' },
 }
 
 export default function CheckoutForm({
@@ -39,6 +87,11 @@ export default function CheckoutForm({
   onTotalChange,
   sessionId,
   submitLabel,
+  walletsAndAccordion,
+  hidePromoSection,
+  formId,
+  hideSubmit,
+  onSubmittingChange,
 }: CheckoutFormProps): React.JSX.Element {
   const { setError } = useCheckoutSession()
   const checkoutResult = useCheckout()
@@ -86,6 +139,11 @@ export default function CheckoutForm({
       onConfirmed={onConfirmed}
       onTotalChange={onTotalChange}
       submitLabel={submitLabel}
+      walletsAndAccordion={walletsAndAccordion}
+      hidePromoSection={hidePromoSection}
+      formId={formId}
+      hideSubmit={hideSubmit}
+      onSubmittingChange={onSubmittingChange}
       onError={(error) => {
         let msg: string
         if (error instanceof Error) {
@@ -116,6 +174,11 @@ function CheckoutFormContent({
   submitLabel = 'Complete Purchase',
   onError,
   onTotalChange,
+  walletsAndAccordion = false,
+  hidePromoSection = false,
+  formId,
+  hideSubmit,
+  onSubmittingChange,
 }: {
   checkout: StripeCheckoutValue
   sessionId?: string
@@ -124,6 +187,11 @@ function CheckoutFormContent({
   submitLabel?: string
   onError: (error: Error | StripeError) => void
   onTotalChange?: (totalDollars: number) => void
+  walletsAndAccordion?: boolean
+  hidePromoSection?: boolean
+  formId?: string
+  hideSubmit?: boolean
+  onSubmittingChange?: (submitting: boolean) => void
 }): React.JSX.Element {
   const promo = usePromoCode(checkout)
   const [hasConfirmedPayment, setHasConfirmedPayment] = useState(false)
@@ -133,9 +201,14 @@ function CheckoutFormContent({
   // The toast is gone in 4s and sits over Back, so a declined or failed
   // confirm also stays on the form until the next attempt.
   const [submitError, setSubmitError] = useState<string | null>(null)
+  // The divider only makes sense when a wallet button actually rendered on
+  // this device; Stripe reports that on ready.
+  const [hasWallet, setHasWallet] = useState(false)
 
   const mutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (
+      expressEvent?: StripeExpressCheckoutElementConfirmEvent,
+    ) => {
       // One-time purchases complete via `onSuccess(sessionId)`. Without a
       // session id and without an `onConfirmed` fallback we'd charge the card
       // and then silently skip fulfillment, so fail before confirming. (The
@@ -145,9 +218,15 @@ function CheckoutFormContent({
       }
 
       if (!hasConfirmedPayment) {
-        const result = await checkout.confirm({ redirect: 'if_required' })
+        const result = await checkout.confirm({
+          redirect: 'if_required',
+          ...(expressEvent && { expressCheckoutConfirmEvent: expressEvent }),
+        })
 
         if (result.type === 'error') {
+          // Closes the wallet sheet with a failure instead of leaving it
+          // spinning.
+          expressEvent?.paymentFailed({ reason: 'fail' })
           throw result.error
         }
 
@@ -169,10 +248,41 @@ function CheckoutFormContent({
     },
   })
 
+  const isSubmitting = mutation.isPending
+  useEffect(() => {
+    onSubmittingChange?.(isSubmitting)
+  }, [isSubmitting, onSubmittingChange])
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSubmitError(null)
-    mutation.mutate()
+    mutation.mutate(undefined)
+  }
+
+  // The wallet sheet confirms the same session as Pay, then takes the same
+  // success path (completeCheckoutSession / onConfirmed).
+  const handleExpressConfirm = (
+    event: StripeExpressCheckoutElementConfirmEvent,
+  ) => {
+    // A wallet tap mid-confirm would start a second confirm on the session,
+    // and after a confirmed payment it would re-run fulfillment. Close the
+    // sheet instead.
+    if (mutation.isPending || hasConfirmedPayment) {
+      event.paymentFailed({ reason: 'fail' })
+      return
+    }
+    setSubmitError(null)
+    mutation.mutate(event)
+  }
+
+  const handleExpressReady = ({
+    availablePaymentMethods,
+  }: StripeExpressCheckoutElementReadyEvent) => {
+    setHasWallet(
+      Boolean(
+        availablePaymentMethods?.applePay || availablePaymentMethods?.googlePay,
+      ),
+    )
   }
 
   const currentTotal = checkout.total.total.minorUnitsAmount / 100
@@ -183,8 +293,28 @@ function CheckoutFormContent({
   }, [currentTotal, onTotalChange])
 
   return (
-    <form onSubmit={handleSubmit}>
-      {originalTotal > 0 && (
+    <form id={formId} onSubmit={handleSubmit}>
+      {walletsAndAccordion && (
+        <div className="mb-4">
+          <ExpressCheckoutElement
+            options={EXPRESS_CHECKOUT_OPTIONS}
+            onReady={handleExpressReady}
+            onConfirm={handleExpressConfirm}
+          />
+          {hasWallet && (
+            <div
+              aria-hidden="true"
+              className="mt-4 flex items-center gap-3 text-sm text-base-muted-foreground"
+            >
+              <span className="flex-1 border-t border-base-border" />
+              Or pay another way
+              <span className="flex-1 border-t border-base-border" />
+            </div>
+          )}
+        </div>
+      )}
+
+      {originalTotal > 0 && !hidePromoSection && (
         <div className="mb-6">
           <PromoCodeSection {...promo} />
 
@@ -210,24 +340,28 @@ function CheckoutFormContent({
         onLoadError={({ error }) => {
           onError(error)
         }}
-        options={{
-          layout: 'tabs',
-        }}
+        options={
+          walletsAndAccordion
+            ? ACCORDION_PAYMENT_ELEMENT_OPTIONS
+            : { layout: 'tabs' }
+        }
       />
       {submitError && (
         <Alert variant="destructive" className="mt-4">
           <AlertDescription>{submitError}</AlertDescription>
         </Alert>
       )}
-      <Button
-        type="submit"
-        disabled={mutation.isPending}
-        loading={mutation.isPending}
-        className="mt-6 w-full whitespace-nowrap"
-        size="large"
-      >
-        {submitLabel}
-      </Button>
+      {!hideSubmit && (
+        <Button
+          type="submit"
+          disabled={mutation.isPending}
+          loading={mutation.isPending}
+          className="mt-6 w-full whitespace-nowrap"
+          size="large"
+        >
+          {submitLabel}
+        </Button>
+      )}
     </form>
   )
 }

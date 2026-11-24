@@ -423,24 +423,131 @@ describe('SmsReviewStep outreach credit', () => {
     credit.enabled = true
   })
 
-  it('covers the whole send and says what is left', async () => {
+  it('covers the whole send with one credit row and no footnote', async () => {
     credit.cents = 17500
     checkout.amount = 0
 
     renderStep({ contactCount: 2400 })
 
     expect(
-      await screen.findByRole('button', { name: 'Schedule campaign' }),
+      await screen.findByRole('heading', { name: 'Review and pay' }),
     ).toBeInTheDocument()
+    expect(screen.getByText('Review your details and pay.')).toBeInTheDocument()
     expect(screen.getByText('$84.00')).toBeInTheDocument()
     expect(
-      screen.getByText('From your $175.00 outreach credit'),
+      screen.getByText('Outreach credit ($91.00 left after)'),
     ).toBeInTheDocument()
     expect(screen.getByText('\u2212$84.00')).toBeInTheDocument()
     expect(screen.getByText('$0.00')).toBeInTheDocument()
+    expect(screen.queryByText(/credit left after it sends/)).toBeNull()
+    expect(screen.queryByText(/From your/)).toBeNull()
+  })
+
+  it('keeps the credit row when nothing is left after', async () => {
+    credit.cents = 8400
+    checkout.amount = 0
+
+    renderStep({ contactCount: 2400 })
+
     expect(
-      screen.getByText('$91.00 outreach credit left after it sends.'),
+      await screen.findByText('Outreach credit ($0.00 left after)'),
     ).toBeInTheDocument()
+  })
+
+  it('keeps the schedule button in the body without a footer', async () => {
+    credit.cents = 17500
+    checkout.amount = 0
+
+    renderStep({ contactCount: 2400 })
+
+    expect(
+      await screen.findByRole('button', { name: 'Schedule outreach' }),
+    ).toBeInTheDocument()
+  })
+
+  it('hands a free send to the footer as Schedule outreach', async () => {
+    credit.cents = 17500
+    checkout.amount = 0
+    const onComplete = vi.fn().mockResolvedValue(undefined)
+    const onFooterCtaChange = vi.fn()
+    mswServer.use(
+      http.post('/api/v1/payments/purchase/complete-free-purchase', () =>
+        HttpResponse.json({}),
+      ),
+    )
+
+    renderStep({ contactCount: 2400, onComplete, onFooterCtaChange })
+
+    await waitFor(() =>
+      expect(onFooterCtaChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ label: 'Schedule outreach' }),
+      ),
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Schedule outreach' }),
+    ).toBeNull()
+
+    onFooterCtaChange.mock.lastCall?.[0].onClick()
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(false))
+  })
+
+  it('hands a paid send to the footer as Complete purchase, payment before preview, no due-today alert', async () => {
+    credit.cents = 2750
+    checkout.amount = 56.5
+    const onFooterCtaChange = vi.fn()
+
+    renderStep({ contactCount: 2400, onFooterCtaChange })
+
+    await waitFor(() =>
+      expect(onFooterCtaChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ label: 'Complete purchase' }),
+      ),
+    )
+    expect(
+      screen.getByText('Outreach credit ($0.00 left after)'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/due today/)).toBeNull()
+    expect(screen.queryByText(/One-time charge/)).toBeNull()
+    const payment = screen.getByTestId('checkout-payment')
+    const preview = screen.getByRole('button', { name: 'Preview message' })
+    expect(
+      payment.compareDocumentPosition(preview) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('submits the pay form from the footer button', async () => {
+    credit.cents = 2750
+    checkout.amount = 56.5
+    const onFooterCtaChange = vi.fn()
+    const form = document.createElement('form')
+    form.id = 'sms-review-pay-form'
+    const requestSubmit = vi.fn()
+    form.requestSubmit = requestSubmit
+    document.body.appendChild(form)
+
+    renderStep({ contactCount: 2400, onFooterCtaChange })
+
+    await waitFor(() =>
+      expect(onFooterCtaChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ label: 'Complete purchase' }),
+      ),
+    )
+    onFooterCtaChange.mock.lastCall?.[0].onClick()
+    expect(requestSubmit).toHaveBeenCalledTimes(1)
+    form.remove()
+  })
+
+  it('titles a free send the same way as a paid one', async () => {
+    credit.cents = 17500
+    checkout.amount = 0
+
+    renderStep({ contactCount: 2400 })
+
+    expect(
+      await screen.findByRole('heading', { name: 'Review and pay' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Review and send')).toBeNull()
   })
 
   it('charges the card for what the credit does not cover', async () => {
@@ -449,9 +556,9 @@ describe('SmsReviewStep outreach credit', () => {
 
     renderStep({ contactCount: 2400 })
 
-    expect(await screen.findByText('$42.00 due today')).toBeInTheDocument()
+    expect(await screen.findByText('$42.00')).toBeInTheDocument()
     expect(screen.getByText('\u2212$42.00')).toBeInTheDocument()
-    expect(screen.queryByText(/credit left after/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/credit left after it sends/)).toBeNull()
   })
 
   it('takes the whole balance off a send that is bigger than it', async () => {
@@ -460,22 +567,20 @@ describe('SmsReviewStep outreach credit', () => {
 
     renderStep({ contactCount: 10000 })
 
-    expect(await screen.findByText('$175.00 due today')).toBeInTheDocument()
-    expect(screen.getByText('$350.00')).toBeInTheDocument()
+    expect(await screen.findByText('$350.00')).toBeInTheDocument()
     expect(screen.getByText('\u2212$175.00')).toBeInTheDocument()
+    expect(screen.getByText('$175.00')).toBeInTheDocument()
   })
 
-  it('keeps the bank hold note for the full amount on a hold', async () => {
+  it('states the hold only through the total, with no bank hold note', async () => {
     credit.cents = 4200
     checkout.amount = 84
     checkout.isHold = true
 
     renderStep({ contactCount: 2400 })
 
-    expect(await screen.findByText('$42.00 due today')).toBeInTheDocument()
-    expect(
-      screen.getByText('Your bank may show a temporary hold of $84.00.'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('$42.00')).toBeInTheDocument()
+    expect(screen.queryByText(/temporary hold/)).toBeNull()
   })
 
   it('shows no credit rows when the balance is empty', async () => {
@@ -483,9 +588,8 @@ describe('SmsReviewStep outreach credit', () => {
 
     renderStep({ contactCount: 2400 })
 
-    expect(await screen.findByText('$84.00 due today')).toBeInTheDocument()
-    expect(screen.getByText('Cost')).toBeInTheDocument()
-    expect(screen.queryByText(/outreach credit/)).not.toBeInTheDocument()
+    expect(await screen.findByText('Cost')).toBeInTheDocument()
+    expect(screen.queryByText(/outreach credit/i)).toBeNull()
   })
 
   it('leaves the free-texts campaign on its own rows', async () => {
@@ -496,7 +600,7 @@ describe('SmsReviewStep outreach credit', () => {
     renderStep()
 
     expect(await screen.findByText('$1022.42 due today')).toBeInTheDocument()
-    expect(screen.queryByText(/From your/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Outreach credit \(/)).not.toBeInTheDocument()
   })
 
   it('shows no credit rows with the flag off', async () => {
@@ -507,6 +611,7 @@ describe('SmsReviewStep outreach credit', () => {
     renderStep({ contactCount: 2400 })
 
     expect(await screen.findByText('$84.00 due today')).toBeInTheDocument()
-    expect(screen.queryByText(/From your/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Outreach credit \(/)).not.toBeInTheDocument()
+    expect(screen.getByText('Review & pay')).toBeInTheDocument()
   })
 })

@@ -49,9 +49,20 @@ vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
   useRobocallFreeOffer: () => mockFreeOffer,
 }))
 
-let mockPricingOn = false
+// Per-campaign pricing, off unless a test turns it on, and the credit it shows.
+const pricing = vi.hoisted(() => ({
+  on: false,
+  creditCents: 17500,
+  onSubscription: false,
+}))
 vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
-  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: mockPricingOn }),
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: pricing.on }),
+}))
+vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
+  usePlan: () => ({
+    creditCents: pricing.creditCents,
+    onSubscription: pricing.onSubscription,
+  }),
 }))
 
 const renderGrid = (
@@ -123,7 +134,7 @@ describe('ChannelTileGrid — robocall tile', () => {
     renderGrid()
     expect(screen.getByText('Free offer')).toBeInTheDocument()
     expect(
-      screen.getAllByRole('button', { name: 'Robocall' }).at(-1),
+      screen.getAllByRole('button', { name: /^Robocall/ }).at(-1),
     ).toHaveAccessibleDescription('Free offer')
     mockFreeOffer = { offer: null }
   })
@@ -134,7 +145,7 @@ describe('ChannelTileGrid — robocall tile', () => {
     renderGrid()
 
     expect(
-      screen.getByRole('button', { name: 'Robocall' }),
+      screen.getByRole('button', { name: /^Robocall/ }),
     ).toHaveAccessibleDescription('Free offer')
     mockFreeOffer = { offer: null }
   })
@@ -178,7 +189,7 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
     renderGrid()
 
     expect(
-      screen.getByRole('button', { name: 'SMS' }),
+      screen.getByRole('button', { name: /^SMS/ }),
     ).toHaveAccessibleDescription('Verify by Oct. 15')
   })
 
@@ -193,7 +204,7 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
     renderGrid()
 
     expect(
-      screen.getByRole('button', { name: 'SMS' }),
+      screen.getByRole('button', { name: /^SMS/ }),
     ).toHaveAccessibleDescription('Verify by Oct. 15')
   })
 
@@ -557,26 +568,105 @@ describe('ChannelTileGrid — the tiles open the gated flows', () => {
 })
 
 describe('ChannelTileGrid — unit prices', () => {
+  it('prices every tile, the free channels as Free', () => {
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    const subCopy = (label: string) =>
+      screen.getByText(label).closest('button')?.textContent
+
+    expect(subCopy('Social media')).toContain('Free')
+    expect(subCopy('SMS')).toContain('$0.035/text')
+    expect(subCopy('Robocall')).toContain('$0.045/call')
+    expect(subCopy('Phone banking')).toContain('Free')
+    expect(subCopy('Door knocking')).toContain('Free')
+    expect(subCopy('Email')).toContain('$0.01/email')
+  })
+})
+
+describe('ChannelTileGrid — header with per-campaign pricing', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    pricing.on = true
+    pricing.creditCents = 17500
+    pricing.onSubscription = false
+  })
   afterEach(() => {
-    mockPricingOn = false
+    pricing.on = false
   })
 
-  it('prices the paid tiles with the pricing flag on', () => {
-    mockPricingOn = true
+  it('reads Send outreach with the credit balance in the header', () => {
     renderGrid({ onCreateEmail: vi.fn() })
 
-    expect(screen.getByText('3.5\u00a2 a text')).toBeInTheDocument()
-    expect(screen.getByText('4.5\u00a2 a call')).toBeInTheDocument()
     expect(
-      screen.getByText('1\u00a2 each, 50-email minimum'),
+      screen.getByRole('heading', { name: 'Send outreach' }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText('Pick a channel to draft and send.'),
+    ).toBeInTheDocument()
+    const credit = screen.getByTestId('outreach-credit-balance')
+    expect(credit).toHaveTextContent('Outreach credit $175.00')
+    expect(credit.parentElement).toBe(
+      screen.getByRole('heading', { name: 'Send outreach' }).parentElement
+        ?.parentElement,
+    )
+    expect(screen.queryByText(/left/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/About .* texts/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Add credit')).not.toBeInTheDocument()
   })
 
-  it('shows no prices with the flag off', () => {
+  it('shows an empty balance as $0.00', () => {
+    pricing.creditCents = 0
+    renderGrid()
+
+    expect(screen.getByTestId('outreach-credit-balance')).toHaveTextContent(
+      'Outreach credit $0.00',
+    )
+  })
+
+  it('shows no credit for a monthly subscriber', () => {
+    pricing.onSubscription = true
+    renderGrid()
+
+    expect(
+      screen.getByRole('heading', { name: 'Send outreach' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('outreach-credit-balance'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('prices the email tile with its 50¢ minimum', () => {
     renderGrid({ onCreateEmail: vi.fn() })
 
-    expect(screen.queryByText(/a text/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/a call/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/50-email/)).not.toBeInTheDocument()
+    expect(screen.getByText('Email').closest('button')?.textContent).toContain(
+      '1\u00a2 each, 50\u00a2 minimum',
+    )
+  })
+
+  it('prices the text and robocall tiles in cents', () => {
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    const subCopy = (label: string) =>
+      screen.getByText(label).closest('button')?.textContent
+    expect(subCopy('SMS')).toContain('3.5\u00a2/text')
+    expect(subCopy('Robocall')).toContain('4.5\u00a2/call')
+  })
+
+  it('keeps the live header and email price with the flag off', () => {
+    pricing.on = false
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    expect(
+      screen.getByRole('heading', { name: 'Create a campaign' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Pick a channel to draft and send a new campaign.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('outreach-credit-balance'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Email').closest('button')?.textContent).toContain(
+      '$0.01/email',
+    )
   })
 })

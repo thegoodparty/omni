@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import type { CropperProps, CropperRef } from 'react-advanced-cropper'
 import userEvent from '@testing-library/user-event'
@@ -40,11 +40,18 @@ vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
   default: ({
     onComplete,
     onExit,
+    onFirstStepBack,
   }: {
     onComplete: () => void
     onExit: () => void
+    onFirstStepBack?: () => void
   }) => (
     <div data-testid="pro-upgrade-flow">
+      {onFirstStepBack && (
+        <button type="button" onClick={onFirstStepBack}>
+          Wizard back
+        </button>
+      )}
       <button type="button" onClick={onComplete}>
         Finish upgrade
       </button>
@@ -125,6 +132,15 @@ vi.mock('app/shared/experiments/winSmsHoldFlag', () => ({
   useWinSmsHoldFlag: () => ({ ready: true, enabled: winSmsHoldRef.enabled }),
 }))
 
+// Per-campaign pricing flag: off keeps the gate exactly as it was.
+const planFlagRef = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: planFlagRef.enabled,
+  }),
+}))
+
 const winSmsPreviewRef = vi.hoisted(() => ({ enabled: false }))
 vi.mock('app/shared/experiments/winSmsPreviewEditFlag', () => ({
   useWinSmsPreviewEditFlag: () => ({
@@ -132,6 +148,25 @@ vi.mock('app/shared/experiments/winSmsPreviewEditFlag', () => ({
     enabled: winSmsPreviewRef.enabled,
   }),
 }))
+
+// Per-campaign pricing's credit hook, passed through unless a test pins it.
+const creditOverride = vi.hoisted(() => ({
+  value: null as { active: boolean; balanceCents: number } | null,
+}))
+vi.mock(
+  'app/dashboard/outreach/util/outreachCredit',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('app/dashboard/outreach/util/outreachCredit')
+      >()
+    return {
+      ...actual,
+      useOutreachCredit: () =>
+        creditOverride.value ?? actual.useOutreachCredit(),
+    }
+  },
+)
 
 const completeFreePurchase = vi.fn(
   async (
@@ -293,6 +328,7 @@ describe('SmsFlow', () => {
     campaignState.campaign = campaignState.base()
     winSmsHoldRef.enabled = false
     winSmsPreviewRef.enabled = false
+    planFlagRef.enabled = false
     // Reset the module mock a pay-before-ready test overrides to 'building', so
     // it never leaks a non-ready build into a later test.
     vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
@@ -342,6 +378,7 @@ describe('SmsFlow', () => {
   })
 
   afterEach(() => {
+    creditOverride.value = null
     vi.useRealTimers()
   })
 
@@ -459,7 +496,7 @@ describe('SmsFlow', () => {
       ).toBeInTheDocument()
     })
   })
-  it('runs purpose → audience → compose → schedule → review and schedules free', async () => {
+  const runFreeFlowToScheduled = async () => {
     const draftCalls = mockDraft()
     let receiptCalls = 0
     api.mock('GET /v1/outreach/:id/receipt', () => {
@@ -578,11 +615,75 @@ describe('SmsFlow', () => {
     // the endpoint must never be called (it would 404 the free row).
     expect(
       screen.getByText(
-        /Your sms campaign will reach 1,200 recipients starting/,
+        /Your sms campaign will reach 1,200 recipients starting/i,
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
     expect(receiptCalls).toBe(0)
+  }
+
+  it('runs purpose → audience → compose → schedule → review and schedules free', async () => {
+    await runFreeFlowToScheduled()
+    // Pricing off: Done is the screen's own body button.
+    const done = screen.getAllByRole('button', { name: 'Done' })
+    expect(done).toHaveLength(1)
+    expect(done[0]?.closest('.space-y-6')).not.toBeNull()
+  })
+
+  it('puts Done in the flow footer once the send is credit-priced', async () => {
+    creditOverride.value = { active: true, balanceCents: 0 }
+    await runFreeFlowToScheduled()
+    const done = screen.getAllByRole('button', { name: 'Done' })
+    expect(done).toHaveLength(1)
+    expect(done[0]?.closest('.space-y-6')).toBeNull()
+  })
+
+  it('books a credit-covered send from the footer under per-campaign pricing', async () => {
+    planFlagRef.enabled = true
+    campaignState.campaign.hasFreeTextsOffer = false
+    creditOverride.value = { active: true, balanceCents: 17500 }
+    mockDraft()
+    const { onScheduled } = openFlow()
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Likely voters'))
+    await user.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await screen.findByRole('textbox', { name: 'Message body' })
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByText('Pick a date'))
+    await user.click(await screen.findByRole('button', { name: dayName(4) }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Review and pay' }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText('Outreach credit ($133.00 left after)'),
+    ).toBeInTheDocument()
+    const schedule = await screen.findByRole('button', {
+      name: 'Schedule outreach',
+    })
+    // The button is the shell footer's, beside Back, not the step body's.
+    expect(schedule.closest('.space-y-6')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Schedule campaign' }),
+    ).toBeNull()
+
+    await user.click(schedule)
+
+    await waitFor(() => expect(onScheduled).toHaveBeenCalledTimes(1))
+    expect(completeFreePurchase).toHaveBeenCalledWith(
+      'TEXT',
+      expect.objectContaining({ outreachId: 55 }),
+    )
   })
 
   it('stops a list over the 200,000 send cap at the audience step', async () => {
@@ -2667,6 +2768,184 @@ describe('SmsFlow', () => {
       expect(onScheduled).toHaveBeenCalledTimes(1)
     })
 
+    // Flag on, the free build reaches the review step and the gate is a
+    // dialog over it, not a banner and an inline screen.
+    describe('with per-campaign pricing on', () => {
+      const GATE_TITLE = 'Join Pro to send this campaign'
+
+      beforeEach(() => {
+        planFlagRef.enabled = true
+        gateRef.set(FREE_GATE)
+        mockDraft()
+        mockFreeAudience()
+      })
+
+      const reachReview = async () => {
+        await buildToName()
+        await user.click(screen.getByRole('button', { name: 'Continue' }))
+        return screen.findByRole('button', { name: 'Join Pro to send' })
+      }
+
+      it('shows no gate banner and no lock on the channel badge', async () => {
+        openFlow()
+
+        await user.click(screen.getByText('Introduce myself to voters'))
+
+        expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+        expect(document.querySelector('.lucide-lock')).toBeNull()
+      })
+
+      it('writes no draft until the review button is pressed', async () => {
+        openFlow()
+
+        await reachReview()
+
+        expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+        expect(
+          screen.queryByRole('dialog', { name: GATE_TITLE }),
+        ).not.toBeInTheDocument()
+      })
+
+      it('saves the draft and opens the gate over the still-visible review', async () => {
+        openFlow()
+
+        await user.click(await reachReview())
+
+        const dialog = await screen.findByRole('dialog', { name: GATE_TITLE })
+        expect(dialog).toHaveTextContent('Join Pro to send this campaign')
+        expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
+          expect.objectContaining({ name: 'Likely voters' }),
+          expect.any(File),
+        )
+        expect(
+          within(dialog).getByRole('button', { name: 'Join Pro for $299' }),
+        ).toBeInTheDocument()
+        expect(
+          within(dialog).queryByRole('button', { name: /Maybe later/ }),
+        ).not.toBeInTheDocument()
+        // The step behind it is still mounted, not replaced by the wizard.
+        expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+        // (aria-hidden behind the modal, but still mounted.)
+        expect(
+          screen.getByRole('button', {
+            name: 'Join Pro to send',
+            hidden: true,
+          }),
+        ).toBeInTheDocument()
+      })
+
+      it('hands the dialog to the wizard on Join Pro and back again on Back', async () => {
+        openFlow()
+        await user.click(await reachReview())
+
+        await user.click(
+          await screen.findByRole('button', { name: 'Join Pro for $299' }),
+        )
+
+        expect(
+          await screen.findByTestId('pro-upgrade-flow'),
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByRole('dialog', { name: GATE_TITLE }),
+        ).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', { name: 'Wizard back' }))
+
+        expect(
+          await screen.findByRole('dialog', { name: GATE_TITLE }),
+        ).toHaveTextContent('Join Pro to send this campaign')
+        expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+      })
+
+      // A chat card's "Join Pro to send": nothing is saved, the pitch is up
+      // over the card's message, and leaving it lands back on that message.
+      describe('opened by a card with the Pro gate', () => {
+        const openCardFlow = () => {
+          const onClose = vi.fn()
+          render(
+            <SmsFlow
+              source="campaign_manager"
+              open
+              openProGate
+              initialScript="Early voting opens Saturday at the library."
+              preselectedListId={41}
+              audienceSettled
+              onClose={onClose}
+              onScheduled={vi.fn().mockResolvedValue(undefined)}
+              tcrCompliance={TCR_FIXTURE}
+            />,
+          )
+          return { onClose }
+        }
+
+        it('opens the Pro dialog at once and writes no draft', async () => {
+          openCardFlow()
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+          expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+        })
+
+        it('returns to the dialog on Back off the wizard', async () => {
+          openCardFlow()
+
+          await user.click(
+            await screen.findByRole('button', { name: 'Join Pro for $299' }),
+          )
+          expect(
+            await screen.findByTestId('pro-upgrade-flow'),
+          ).toBeInTheDocument()
+          await user.click(screen.getByRole('button', { name: 'Wizard back' }))
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+        })
+
+        it('leaves the sheet open on the draft when the dialog is closed', async () => {
+          const { onClose } = openCardFlow()
+
+          await user.click(
+            within(
+              await screen.findByRole('dialog', { name: GATE_TITLE }),
+            ).getByRole('button', { name: 'Close' }),
+          )
+
+          await waitFor(() =>
+            expect(
+              screen.queryByRole('dialog', { name: GATE_TITLE }),
+            ).not.toBeInTheDocument(),
+          )
+          expect(onClose).not.toHaveBeenCalled()
+        })
+
+        it('does not open the dialog for a flow opened without it', async () => {
+          openFlow()
+
+          await screen.findByText('Introduce myself to voters')
+          expect(
+            screen.queryByRole('dialog', { name: GATE_TITLE }),
+          ).not.toBeInTheDocument()
+        })
+      })
+
+      it('closes the sheet on the X, the draft being saved', async () => {
+        const { onClose } = openFlow()
+        await user.click(await reachReview())
+
+        await user.click(
+          within(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).getByRole('button', {
+            name: 'Close',
+          }),
+        )
+
+        expect(onClose).toHaveBeenCalled()
+      })
+    })
+
     it('switches into resume mode when a draft already exists', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
@@ -3439,9 +3718,72 @@ describe('SuccessScreen outreach credit', () => {
       />,
     )
 
-    expect(await screen.findByText('Outreach credit used')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Outreach credit used ($0.00 left after)'),
+    ).toBeInTheDocument()
     expect(screen.getByText('\u2212$42.00')).toBeInTheDocument()
     expect(screen.getByText('Charged today')).toBeInTheDocument()
+  })
+
+  it('shows the full price as the line item when credit covers part of it', async () => {
+    api.mock('GET /v1/outreach/:id', detail(2750))
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 200,
+      data: {
+        amount: 56.5,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: 'https://pay.stripe.com/receipts/rcpt_2',
+        paidAt: '2026-08-24T12:00:00.000Z',
+      },
+    })
+    const onDone = vi.fn()
+    render(
+      <SuccessScreen
+        contactCount={2400}
+        sendAt={new Date('2026-09-08T10:00:00')}
+        outreachId={57}
+        paid
+        creditBeforeCents={2750}
+        onDone={onDone}
+      />,
+    )
+
+    expect(await screen.findByText('Payment successful')).toBeInTheDocument()
+    expect(
+      screen.getByText(/^Your SMS campaign will reach 2,400 recipients/),
+    ).toBeInTheDocument()
+    const lineItem = (await screen.findByText('SMS campaign, 2,400 recipients'))
+      .parentElement as HTMLElement
+    expect(within(lineItem).getByText('$84.00')).toBeInTheDocument()
+    expect(
+      screen.getByText('Outreach credit used ($0.00 left after)'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('\u2212$27.50')).toBeInTheDocument()
+    const charged = screen.getByText('Charged today')
+      .parentElement as HTMLElement
+    expect(within(charged).getByText('$56.50')).toBeInTheDocument()
+
+    // Board row order: line item, cost per outreach, credit, card, charged.
+    const labels = Array.from(document.querySelectorAll('dt')).map(
+      (el) => el.textContent,
+    )
+    expect(labels).toEqual([
+      'SMS campaign, 2,400 recipients',
+      'Cost per outreach',
+      'Outreach credit used ($0.00 left after)',
+      'Card',
+    ])
+
+    // Download sits inside the receipt card; Done lives in the flow footer,
+    // so the screen itself renders no Done.
+    const card = screen.getByText('Receipt').closest('[data-slot="card"]')
+    expect(
+      within(card as HTMLElement).getByRole('button', {
+        name: 'Download receipt',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
   })
 
   it('shows no credit rows when the send did not run on credit', () => {

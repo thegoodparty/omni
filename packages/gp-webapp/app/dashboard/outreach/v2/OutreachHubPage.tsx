@@ -33,7 +33,6 @@ import type {
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
 import { ChannelTileGrid } from './ChannelTileGrid'
-import { OutreachCreditBalance } from './OutreachCreditBalance'
 import { OutreachHistoryTable } from './OutreachHistoryTable'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import { SocialFlow } from './social/SocialFlow'
@@ -364,7 +363,6 @@ const OutreachHubContent = ({
 
   return (
     <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
-      <OutreachCreditBalance />
       <ChannelTileGrid
         preselectedListId={preselectedListId}
         preselectedRecommendedVariant={preselectedRecommendedVariant}

@@ -89,16 +89,26 @@ function DrawerOverlay({
   )
 }
 
-function DrawerHandle({ className, ...props }: React.ComponentProps<'div'>) {
+function DrawerHandle({
+  className,
+  size = 'default',
+  ...props
+}: React.ComponentProps<'div'> & {
+  // `sm` is the common phone grab-handle, 36x5, for a short sheet that sits
+  // over the page. The default stays 120x8 for every other drawer.
+  size?: 'default' | 'sm'
+}) {
   return (
     <div
       data-slot="drawer-handle"
+      data-size={size}
       // `bg-muted-foreground/50` rather than `bg-border` so the handle
       // actually reads against the drawer's `bg-background` — border-tinted
       // on card-tinted is near-invisible, and a handle a candidate can't
       // see is one they won't reach for.
       className={cn(
-        'bg-muted-foreground/50 mx-auto mt-4 mb-2 h-2 w-30 rounded-full',
+        'bg-muted-foreground/50 mx-auto mt-4 mb-2 rounded-full',
+        size === 'sm' ? 'h-[5px] w-9' : 'h-2 w-30',
         className,
       )}
       {...props}

@@ -25,10 +25,10 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
-import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import {
   PITCH_PANEL_COPY,
+  PLAN_BONUS_PILL,
   PRO_COPY,
   PRO_COPY_SMS_CLOSED,
   withPlanPriceBullet,
@@ -101,7 +101,7 @@ export const ProPitchPanel = ({
   const sellsClosedSms = channel === 'sms' && smsClosed
   const tint = CHANNEL_TINT[channel]
   const ChannelIcon = sellsClosedSms ? UsersIcon : CHANNEL_ICON[channel]
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
   const baseCopy = sellsClosedSms ? PRO_COPY_SMS_CLOSED : PRO_COPY[channel]
   const pitch = planPitch.enabled
     ? withPlanPriceBullet(baseCopy, planPitch)
@@ -134,7 +134,7 @@ export const ProPitchPanel = ({
             <p className="font-semibold">{pitch.headline}</p>
           </div>
           <div className="flex flex-col gap-3.5 px-5 pt-4 pb-5 sm:px-6 sm:pt-5 sm:pb-6">
-            {pitch.bullets.map((bullet) => (
+            {pitch.bullets.map((bullet, index) => (
               <div key={bullet} className="flex items-center gap-3">
                 <span
                   className={`flex size-7 shrink-0 items-center justify-center rounded-full ${tint.check}`}
@@ -142,11 +142,15 @@ export const ProPitchPanel = ({
                   <CheckIcon className="size-4 text-foreground" aria-hidden />
                 </span>
                 <span className="text-base leading-normal">{bullet}</span>
+                {/* Flag on, the fourth row is the plan's credit: a bonus on
+                    top of what the candidate is buying. */}
+                {planPitch.enabled && index === pitch.bullets.length - 1 && (
+                  <Badge variant="soft" shape="pill">
+                    {PLAN_BONUS_PILL}
+                  </Badge>
+                )}
               </div>
             ))}
-            {planPitch.enabled && (
-              <SeeAllPlansLink href={planPitch.allPlansHref} />
-            )}
           </div>
         </div>
       )}

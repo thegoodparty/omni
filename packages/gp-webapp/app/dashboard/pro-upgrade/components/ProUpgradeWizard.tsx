@@ -113,16 +113,25 @@ const ProUpgradeWizard = ({
     // The off-order filing-instructions route is only ever entered from the
     // filing-status step, so Back targets it explicitly: router.back() would
     // leave the wizard entirely for a candidate who arrived via a direct URL
-    // (bookmark, emailed link). Guidance is the first ordered step, so it
-    // falls through to router.back() instead.
+    // (bookmark, emailed link). Guidance is the first ordered step, and every
+    // step move is a push, so history cannot say where the candidate came
+    // from: it goes to the page that carried them in (`back`), else the
+    // dashboard.
+    // A Pro holder buying Team is derived to payment alone, so payment is
+    // their first step and Back leaves the way guidance does.
+    const firstStep =
+      orderIndex === 0 ||
+      (currentStep === PRO_UPGRADE_STEP.PAYMENT &&
+        carryRef.current.plan === 'team' &&
+        heldPlan === 'pro')
     if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
       router.push(stepHref(PRO_UPGRADE_STEP.STATUS))
-    } else if (orderIndex > 0) {
+    } else if (!firstStep) {
       router.push(stepHref(stepOrder[orderIndex - 1]!))
     } else {
-      router.back()
+      router.push(carryRef.current.backTo ?? '/dashboard')
     }
-  }, [currentStep, orderIndex, stepOrder, router, stepHref])
+  }, [currentStep, orderIndex, stepOrder, router, stepHref, heldPlan])
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
   const handleChromeExit = useCallback(() => {

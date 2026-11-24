@@ -1135,22 +1135,43 @@ describe('the managed panel wave job', () => {
       expect((await waveAt(id, 1)).replyWindowEndsAt).toBeNull()
     })
 
-    it('does not close an agent wave with no window, whether or not delivery has made its hand-off', async () => {
+    it('does not close an agent wave whose hand-off has not been made yet', async () => {
       agentVariant = 'shadow'
       const { id } = await enroll({ goalMembers: 10 })
       await job().advance(id, SATURDAY)
       const later = new Date('2026-11-20T15:00:00Z')
 
       expect(await job().advance(id, later)).toBe('waiting')
-      await handoffOf((await waveAt(id, 1)).outreach?.id ?? -1)
-      await service.prisma.outreach.updateMany({
-        where: { managedPanelWave: { enrollmentId: id } },
-        data: { status: OutreachStatus.completed },
-      })
-      expect(await job().advance(id, later)).toBe('waiting')
 
       expect((await waveAt(id, 1)).closedAt).toBeNull()
       expect(await waves(id)).toHaveLength(1)
+    })
+
+    it('closes an agent wave nobody ever reported, from its hand-off send time', async () => {
+      agentVariant = 'shadow'
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, SATURDAY)
+      await handoffOf((await waveAt(id, 1)).outreach?.id ?? -1)
+      const later = new Date('2026-11-20T15:00:00Z')
+
+      expect(await job().advance(id, later)).toBe('sent')
+
+      expect((await waveAt(id, 1)).closedAt).toEqual(later)
+      expect(await waves(id)).toHaveLength(2)
+    })
+
+    it('posts the stall notice from the hand-off send time', async () => {
+      agentVariant = 'shadow'
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, SATURDAY)
+      await handoffOf((await waveAt(id, 1)).outreach?.id ?? -1)
+      // SATURDAY plus the 48-hour reply window plus the two-day stall wait.
+      const stalled = new Date('2026-10-28T15:00:00Z')
+
+      expect(await job().advance(id, stalled)).toBe('waiting')
+
+      expect((await waveAt(id, 1)).stallAlertedAt).toEqual(stalled)
+      expect((await waveAt(id, 1)).closedAt).toBeNull()
     })
 
     it('closes an agent wave on the next run once its replies are in', async () => {
@@ -1159,7 +1180,8 @@ describe('the managed panel wave job', () => {
       await job().advance(id, SATURDAY)
       const { outreach } = await waveAt(id, 1)
       const row = await handoffOf(outreach?.id ?? -1)
-      const later = new Date('2026-11-20T15:00:00Z')
+      // Past the hand-off's reply window, inside the upload wait.
+      const later = new Date('2026-10-30T15:00:00Z')
       expect(await job().advance(id, later)).toBe('waiting')
 
       await service.prisma.outreachTextHandoff.update({

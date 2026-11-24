@@ -11,9 +11,16 @@ import type {
 import { useSearchParams } from 'next/navigation'
 import TeamPage from './TeamPage'
 
-const { mockUseOrganization, mockUseOrganizationRole } = vi.hoisted(() => ({
-  mockUseOrganization: vi.fn(),
-  mockUseOrganizationRole: vi.fn(),
+const { mockUseOrganization, mockUseOrganizationRole, flag } = vi.hoisted(
+  () => ({
+    mockUseOrganization: vi.fn(),
+    mockUseOrganizationRole: vi.fn(),
+    flag: { on: false },
+  }),
+)
+
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: flag.on }),
 }))
 
 vi.mock('@shared/organization-picker', () => ({
@@ -80,6 +87,7 @@ let stats: TeamMemberStats[]
 
 beforeEach(() => {
   testQueryClient.clear()
+  flag.on = false
   mockUseOrganization.mockReturnValue({ slug: 'campaign-1' })
   mockUseOrganizationRole.mockReturnValue('owner')
   members = [owner, manager]
@@ -107,11 +115,21 @@ describe('TeamPage — members and pending invites', () => {
     expect(screen.getByText('Owner')).toBeInTheDocument()
     // The manager row and the pending invite both carry the campaignAdmin
     // role in this fixture, so both render the same label — plus one more
-    // from the "How roles work" card's own "Campaign Manager" (ENG-11058).
-    expect(screen.getAllByText('Campaign Manager').length).toBe(3)
+    // from the "How roles work" card's own "Campaign manager" (ENG-11058).
+    expect(screen.getAllByText('Campaign Manager').length).toBe(2)
+    expect(screen.getByText('Campaign manager')).toBeInTheDocument()
     expect(screen.getByText('Invitee Person')).toBeInTheDocument()
     expect(screen.getByText('People')).toBeInTheDocument()
     expect(screen.getByText('2 people on this campaign')).toBeInTheDocument()
+  })
+
+  it('reads Campaign manager everywhere with win_per_campaign_pricing on', async () => {
+    flag.on = true
+    render(<TeamPage />)
+
+    expect(await screen.findByText('Manager Person')).toBeInTheDocument()
+    expect(screen.getAllByText('Campaign manager').length).toBe(3)
+    expect(screen.queryByText('Campaign Manager')).toBeNull()
   })
 
   it('renders an empty pending-invites state when there are none', async () => {
@@ -555,6 +573,31 @@ describe('TeamPage — role change (ENG-11049)', () => {
     const row = (await screen.findByText('Val Volunteer')).closest('tr')
     expect(row).not.toBeNull()
     expect(within(row!).getByText('Campaign Manager')).toBeInTheDocument()
+  })
+
+  it('offers Make Campaign manager on a volunteer row with win_per_campaign_pricing on', async () => {
+    flag.on = true
+    const user = userEvent.setup()
+    members = [
+      owner,
+      {
+        userId: 3,
+        name: 'Val Volunteer',
+        email: 'val@example.com',
+        role: 'volunteer',
+        createdAt: '2024-01-05T00:00:00.000Z',
+      },
+    ]
+    pendingInvites = []
+    render(<TeamPage />)
+
+    await screen.findByText('Val Volunteer')
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Val Volunteer' }),
+    )
+
+    expect(await screen.findByText('Make Campaign manager')).toBeVisible()
+    expect(screen.queryByText('Make Campaign Manager')).toBeNull()
   })
 
   it('never offers a role-change action to a manager (no Manage menu at all)', async () => {

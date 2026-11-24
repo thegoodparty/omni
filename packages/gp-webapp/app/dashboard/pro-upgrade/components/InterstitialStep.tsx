@@ -5,11 +5,11 @@ import { Button, ProBadge } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   INTERSTITIAL_COPY,
-  planInterstitialCopy,
   type GateChannel,
 } from 'app/dashboard/outreach/v2/gate/gateCopy'
 import { ProPitchPanel } from 'app/dashboard/outreach/v2/gate/ProPitchPanel'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { ProGatePitch } from 'app/dashboard/outreach/v2/gate/ProGatePitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -23,18 +23,17 @@ const InterstitialStep = (): React.JSX.Element => {
   // whenever an outreach flow launches the wizard on this step — but sms is
   // the safest fallback shape (the two-step texting-plus-verification copy).
   const gateChannel: GateChannel = channel ?? 'sms'
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
   const { plan } = usePlan()
-  const copy = planPitch.enabled
-    ? planInterstitialCopy(planPitch)
-    : INTERSTITIAL_COPY
-
   useEffect(() => {
+    // Flag on, the pitch is a dialog that reports its own events. Wait for
+    // the flag to settle so a late-resolving one doesn't report a view twice.
+    if (!planPitch.ready || planPitch.enabled) return
     trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, {
       channel: gateChannel,
       plan,
     })
-  }, [gateChannel, plan])
+  }, [gateChannel, plan, planPitch.ready, planPitch.enabled])
 
   const handleJoin = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, {
@@ -51,13 +50,26 @@ const InterstitialStep = (): React.JSX.Element => {
     exit()
   }
 
+  // Flag on, the pitch is the same dialog the flow opens over its step,
+  // closed with its X. Here it stands in front of the wizard, which is where
+  // a host with no pitch of its own lands on Back from the first step.
+  if (planPitch.enabled) {
+    return (
+      <ProGatePitch
+        channel={gateChannel}
+        onJoin={goToNextStep}
+        onDismiss={exit}
+      />
+    )
+  }
+
   return (
     // Centered in the sheet's column (design: renderSgModal stacks and
     // centers the pause screen); the host stretches this to the body height.
     <div className="flex min-h-full flex-1 flex-col items-center justify-center gap-6 py-6 text-center">
       <ProBadge size="large" className="h-[30px] w-[66px]" />
       <h3 className="text-xl font-semibold tracking-tight sm:text-2xl">
-        {copy.title}
+        {INTERSTITIAL_COPY.title}
       </h3>
       <ProPitchPanel channel={gateChannel} />
       <div className="flex w-full flex-col items-center gap-3">
@@ -66,7 +78,7 @@ const InterstitialStep = (): React.JSX.Element => {
           className="w-full sm:w-auto sm:min-w-[360px]"
           onClick={handleJoin}
         >
-          {copy.cta}
+          {INTERSTITIAL_COPY.cta}
         </Button>
         <Button
           variant="ghost"
@@ -74,7 +86,7 @@ const InterstitialStep = (): React.JSX.Element => {
           className="w-full sm:w-auto"
           onClick={handleMaybeLater}
         >
-          {copy.dismiss}
+          {INTERSTITIAL_COPY.dismiss}
         </Button>
       </div>
     </div>
