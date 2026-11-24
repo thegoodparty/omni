@@ -36,7 +36,7 @@ import {
   type ProUpgradeSource,
 } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { buildPlanPitch } from '../plan/planPitch'
-import { useContextualPlanPitch, usePlanPitch } from '../plan/usePlanPitch'
+import { useContextualPlanPitch } from '../plan/usePlanPitch'
 import { SEE_ALL_PLANS_LABEL } from '../plan/planPitch'
 import { usePlan } from './deriveMembershipState'
 import {
@@ -84,9 +84,6 @@ interface ProPitchDialogProps {
   // Invite on a gated campaign: always the Team pitch, titled for inviting,
   // and checkout returns to the team page.
   invite?: boolean
-  // The banner and chip pitch by race size (Team over 10,000 voters). Every
-  // other caller is a contextual gate and always pitches Pro.
-  raceSizePitch?: boolean
 }
 
 // The membership surface's Pro pitch (design: renderProPitch): what Pro costs
@@ -98,14 +95,13 @@ export const ProPitchDialog = ({
   source,
   channel,
   invite = false,
-  raceSizePitch = false,
 }: ProPitchDialogProps): React.JSX.Element => {
   const router = useRouter()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
-  const racePitch = usePlanPitch()
-  const contextualPitch = useContextualPlanPitch()
-  const flagPitch = raceSizePitch ? racePitch : contextualPitch
+  // Every caller is a contextual gate, so the dialog always pitches Pro. The
+  // banner and chip pitch by race size on the plan page instead.
+  const flagPitch = useContextualPlanPitch()
   const { plan } = usePlan()
   const planPitch = invite
     ? buildPlanPitch(flagPitch.ready, flagPitch.enabled, true)
