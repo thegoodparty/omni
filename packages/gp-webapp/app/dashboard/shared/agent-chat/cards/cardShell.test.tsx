@@ -25,6 +25,30 @@ describe('CompactCardStatic', () => {
   })
 })
 
+describe('CompactCardStatic footer', () => {
+  it('puts the footer in a bordered, full-bleed row under the body', () => {
+    render(
+      <CompactCardStatic
+        title={TITLE}
+        body={<p>The drafted message</p>}
+        footer={<Button size="small">Join Pro to send</Button>}
+      />,
+    )
+
+    const footer = screen.getByTestId('compact-card-footer')
+    expect(footer).toHaveClass('border-t', '-mx-4', '@sm:justify-end')
+    expect(footer).toContainElement(
+      screen.getByRole('button', { name: 'Join Pro to send' }),
+    )
+    expect(screen.getByText('The drafted message')).toBeVisible()
+  })
+
+  it('renders no footer row without one', () => {
+    render(<CompactCardStatic title={TITLE} />)
+    expect(screen.queryByTestId('compact-card-footer')).toBeNull()
+  })
+})
+
 describe('CompactCardLink', () => {
   it('wraps the text rather than truncating it', () => {
     render(<CompactCardLink title={TITLE} subtitle={SUBTITLE} href="/x" />)

@@ -198,7 +198,7 @@ describe('a Campaign Manager text card', () => {
     expect(screen.queryByTestId('sms-flow')).toBeNull()
   })
 
-  it('offers a free campaign to join Pro to send, still opening the pitch', async () => {
+  const renderFreeCard = (proposal: Proposal = card) => {
     planFlag.enabled = true
     api.mock('GET /v1/outreach/by-proposal-key/:proposalKey', {
       status: 404,
@@ -206,9 +206,46 @@ describe('a Campaign Manager text card', () => {
     })
     render(
       <ProposalFlowsProvider mode="win">
-        <OutreachProposalCard proposal={card} />
+        <OutreachProposalCard proposal={proposal} />
       </ProposalFlowsProvider>,
     )
+  }
+
+  it('shows a free campaign the draft, who gets it and when, with Edit and Join Pro to send', async () => {
+    renderFreeCard({ ...card, sendDate: '2026-10-06' })
+
+    expect(await screen.findByText('I drafted your first text')).toBeVisible()
+    expect(screen.getByText(MESSAGE)).toBeVisible()
+    expect(screen.getByTestId('proposal-meta')).toHaveTextContent(
+      'To 58,520 voters · Likely voters in Ward 3 · Tue, Oct 6',
+    )
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Join Pro to send' }),
+    ).toBeInTheDocument()
+  })
+
+  it('leaves the date out when the agent sent none', async () => {
+    renderFreeCard()
+
+    await screen.findByText('I drafted your first text')
+    expect(screen.getByTestId('proposal-meta')).toHaveTextContent(
+      'To 58,520 voters · Likely voters in Ward 3',
+    )
+    expect(screen.getByTestId('proposal-meta')).not.toHaveTextContent('Oct')
+  })
+
+  it('skips a send date the calendar does not have instead of crashing', async () => {
+    renderFreeCard({ ...card, sendDate: '2026-02-31' })
+
+    await screen.findByText('I drafted your first text')
+    expect(screen.getByTestId('proposal-meta')).toHaveTextContent(
+      'To 58,520 voters · Likely voters in Ward 3',
+    )
+  })
+
+  it('opens the flow with the Pro gate over it from Join Pro to send, not the race-size pitch', async () => {
+    renderFreeCard()
 
     const button = await screen.findByRole('button', {
       name: 'Join Pro to send',
@@ -216,7 +253,47 @@ describe('a Campaign Manager text card', () => {
     await waitFor(() => expect(button).toBeEnabled())
     await userEvent.click(button)
 
-    expect(await screen.findByTestId('pro-pitch')).toBeInTheDocument()
+    expect(await screen.findByTestId('sms-flow')).toBeInTheDocument()
+    expect(smsFlow.props?.openProGate).toBe(true)
+    expect(smsFlow.props?.initialScript).toBe(MESSAGE)
+    expect(screen.queryByTestId('pro-pitch')).toBeNull()
+  })
+
+  it.each([
+    ['Edit', () => screen.getByRole('button', { name: 'Edit' })],
+    ['the message', () => screen.getByText(MESSAGE)],
+  ])('opens the flow on the draft, with no gate, from %s', async (_n, find) => {
+    renderFreeCard()
+
+    await screen.findByText('I drafted your first text')
+    await waitFor(() => expect(find()).toBeEnabled())
+    await userEvent.click(find())
+
+    expect(await screen.findByTestId('sms-flow')).toBeInTheDocument()
+    expect(smsFlow.props).not.toHaveProperty('openProGate')
+    expect(smsFlow.props?.initialScript).toBe(MESSAGE)
+    expect(screen.queryByTestId('pro-pitch')).toBeNull()
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.LockedItemClicked,
+      expect.anything(),
+    )
+  })
+
+  it('still sends a free phone banking card to the pitch from Join Pro to send, and to the flow from Edit', async () => {
+    phoneBankingFlow.props = null
+    renderFreeCard({ ...card, channel: 'phoneBanking' })
+
+    expect(await screen.findByText('I drafted your call script')).toBeVisible()
+    const join = screen.getByRole('button', { name: 'Join Pro to send' })
+    await waitFor(() => expect(join).toBeEnabled())
+    await userEvent.click(join)
+    expect(await screen.findByTestId('pro-pitch')).toHaveTextContent(
+      'campaign_manager:phone-bank',
+    )
+    expect(phoneBankingFlow.props).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(await screen.findByTestId('phone-banking-flow')).toBeInTheDocument()
   })
 
   it('offers Join Pro to send, never Team, on a race over the Team threshold', async () => {
@@ -259,6 +336,7 @@ describe('a Campaign Manager text card', () => {
       await screen.findByRole('button', { name: 'Start the text' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Join/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
   })
 
   it('holds a Pro campaign whose texting registration is not approved', async () => {

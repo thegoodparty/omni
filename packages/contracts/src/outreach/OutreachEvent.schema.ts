@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 export const OUTREACH_EVENT_LOCATION_MAX_LENGTH = 200
 
-const EventDateSchema = z
+export const EventDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .refine((v) => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)), 'Invalid date')

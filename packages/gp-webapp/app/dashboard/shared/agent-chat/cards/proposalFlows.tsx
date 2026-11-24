@@ -68,6 +68,9 @@ type Opened = {
   // message with that list picked rather than on the list builder.
   listId?: number
   launchSource: OutreachLaunchSource
+  // A free campaign's text card pressed "Join Pro to send": the flow opens
+  // with the Pro pitch over the draft.
+  proGate?: boolean
 }
 
 // The list a card's audience was saved as, kept by the card's key so opening
@@ -100,6 +103,12 @@ const READY_CHANNELS: ReadonlySet<ProposalChannel> = new Set([
   'phoneBanking',
 ])
 
+// Which control on a free campaign's card opened the flow (win_per_campaign_
+// pricing). Edit and the drafted message go to the flow itself, whose own gate
+// meets the candidate at send. Join Pro to send opens a text's flow with the
+// pitch over it; the other channels still go to the pitch first.
+export type ProposalOpenIntent = 'edit' | 'joinPro'
+
 type SentListener = (proposal: OutreachProposal) => void
 
 type ProposalFlows = {
@@ -110,6 +119,7 @@ type ProposalFlows = {
     proposal: OutreachProposal,
     priorityId?: string,
     launchSource?: OutreachLaunchSource,
+    intent?: ProposalOpenIntent,
   ) => void
   // The conversation listens for a send finishing, to refresh what it shows
   // and tell the agent.
@@ -423,10 +433,17 @@ export const ProposalFlowsProvider = ({
       proposal: OutreachProposal,
       priorityId?: string,
       launchSource?: OutreachLaunchSource,
+      intent?: ProposalOpenIntent,
     ) => {
+      const proGate = intent === 'joinPro' && proposal.channel === 'text'
+      // The flow's own gate fires at send, so the free short-circuit to the
+      // pitch is skipped for Edit, and for a text's Join Pro to send, whose
+      // pitch the flow opens.
+      const skipsPitch = intent === 'edit' || proGate
       if (
         mode === 'win' &&
         proposal.channel !== 'social' &&
+        !skipsPitch &&
         !winGateRun.current(proposal.channel)
       ) {
         return
@@ -440,6 +457,7 @@ export const ProposalFlowsProvider = ({
             : priorityId !== undefined
               ? 'priorities'
               : 'chief_of_staff'),
+        ...(proGate && { proGate }),
       } satisfies Omit<Opened, 'proposal'>
       if (proposal.channel === 'doorKnocking') {
         void openDoorKnocking({ proposal, ...link })
@@ -591,6 +609,7 @@ export const ProposalFlowsProvider = ({
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}
           audienceSettled={readyListId !== undefined}
+          {...(opened.proGate && { openProGate: true })}
           {...(winProposalLink && { proposalLink: winProposalLink })}
           onProposalCreateFailed={proposalCreateFailed}
           source="campaign_manager"

@@ -2809,6 +2809,79 @@ describe('SmsFlow', () => {
         expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
       })
 
+      // A chat card's "Join Pro to send": nothing is saved, the pitch is up
+      // over the card's message, and leaving it lands back on that message.
+      describe('opened by a card with the Pro gate', () => {
+        const openCardFlow = () => {
+          const onClose = vi.fn()
+          render(
+            <SmsFlow
+              source="campaign_manager"
+              open
+              openProGate
+              initialScript="Early voting opens Saturday at the library."
+              preselectedListId={41}
+              audienceSettled
+              onClose={onClose}
+              onScheduled={vi.fn().mockResolvedValue(undefined)}
+              tcrCompliance={TCR_FIXTURE}
+            />,
+          )
+          return { onClose }
+        }
+
+        it('opens the Pro dialog at once and writes no draft', async () => {
+          openCardFlow()
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+          expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+        })
+
+        it('returns to the dialog on Back off the wizard', async () => {
+          openCardFlow()
+
+          await user.click(
+            await screen.findByRole('button', { name: 'Join Pro for $299' }),
+          )
+          expect(
+            await screen.findByTestId('pro-upgrade-flow'),
+          ).toBeInTheDocument()
+          await user.click(screen.getByRole('button', { name: 'Wizard back' }))
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+        })
+
+        it('leaves the sheet open on the draft when the dialog is closed', async () => {
+          const { onClose } = openCardFlow()
+
+          await user.click(
+            within(
+              await screen.findByRole('dialog', { name: GATE_TITLE }),
+            ).getByRole('button', { name: 'Close' }),
+          )
+
+          await waitFor(() =>
+            expect(
+              screen.queryByRole('dialog', { name: GATE_TITLE }),
+            ).not.toBeInTheDocument(),
+          )
+          expect(onClose).not.toHaveBeenCalled()
+        })
+
+        it('does not open the dialog for a flow opened without it', async () => {
+          openFlow()
+
+          await screen.findByText('Introduce myself to voters')
+          expect(
+            screen.queryByRole('dialog', { name: GATE_TITLE }),
+          ).not.toBeInTheDocument()
+        })
+      })
+
       it('closes the sheet on the X, the draft being saved', async () => {
         const { onClose } = openFlow()
         await user.click(await reachReview())

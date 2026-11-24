@@ -418,6 +418,10 @@ interface SmsFlowProps {
   // details step opens on it.
   initialEvent?: ProposalEvent
   preselectedListId?: number
+  // A chat card's "Join Pro to send" (win_per_campaign_pricing): the flow
+  // opens on the card's draft with the Pro pitch already over it. Nothing is
+  // saved; leaving the pitch lands on the draft, as Edit would have.
+  openProGate?: boolean
   // An audience a chat card counted but did not save: the audience step
   // opens on the list builder already filled in, and saves it when the
   // official confirms and names it.
@@ -717,6 +721,7 @@ export const SmsFlow = ({
   roundTwoSize,
   onProposalCreateFailed,
   preselectedListId,
+  openProGate = false,
   preselectedRecommendedVariant,
   resumeDraft = null,
   onDraftSaved,
@@ -932,6 +937,27 @@ export const SmsFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
+
+  // A chat card's "Join Pro to send": the pitch goes up once per open, as
+  // soon as the gate knows the campaign is on the free plan.
+  const proGateShownRef = useRef(false)
+  const { openPitch } = draftGate
+  useEffect(() => {
+    if (!open) {
+      proGateShownRef.current = false
+      return
+    }
+    if (
+      !openProGate ||
+      proGateShownRef.current ||
+      !planPitch.enabled ||
+      gate.requirement !== 'pro' ||
+      resumed
+    )
+      return
+    proGateShownRef.current = true
+    openPitch(planReviewGateCta(planPitch))
+  }, [open, openProGate, planPitch, gate.requirement, resumed, openPitch])
   const { enabled: previewFlagOn } = useWinSmsPreviewEditFlag(
     surface === WIN_SMS_SURFACE,
   )
