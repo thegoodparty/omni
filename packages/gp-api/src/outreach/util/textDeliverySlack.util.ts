@@ -29,6 +29,9 @@ export const outreachResultsUploadUrl = (kind: 'sms' | 'poll', id: string) => {
 export const AGENT_HANDLING_NOTE =
   '*Delegate is handling this wave.* Do not schedule it by hand unless it posts that it needs help.'
 
+export const API_HANDLING_NOTE =
+  "gp-api is building this wave through the Scale to Win API. Don't build it by hand."
+
 export type TextDeliverySlackMessageArgs = {
   /** The spine outreach id. Scopes the upload page and identifies the send. */
   outreachId: string
@@ -47,7 +50,13 @@ export type TextDeliverySlackMessageArgs = {
   imageUrl?: string
   officialInfo: { name: string; email: string; phone?: string }
   /** Set for an agent wave: what the swarm needs to schedule and report it. */
-  agentHandoff?: { mode: 'shadow' | 'auto'; sendAt: Date; timeZone: string }
+  agentHandoff?: {
+    /** Missing reads as 'agent'. */
+    handler?: 'agent' | 'api'
+    mode: 'shadow' | 'auto'
+    sendAt: Date
+    timeZone: string
+  }
 }
 
 /**
@@ -83,6 +92,7 @@ export const sendTextDeliverySlackMessage = async (
 ) => {
   const isResend = sendSeq > 1
   const uploadUrl = outreachResultsUploadUrl('sms', outreachId)
+  const handler = agentHandoff?.handler ?? 'agent'
 
   await client.filesUploadV2({
     channel_id: SLACK_CHANNEL_IDS[SlackChannel.botTevynApi].channelId,
@@ -117,7 +127,8 @@ export const sendTextDeliverySlackMessage = async (
               type: 'section' as const,
               text: {
                 type: 'mrkdwn' as const,
-                text: AGENT_HANDLING_NOTE,
+                text:
+                  handler === 'api' ? API_HANDLING_NOTE : AGENT_HANDLING_NOTE,
               },
             },
             {
@@ -130,8 +141,11 @@ export const sendTextDeliverySlackMessage = async (
                   `sendAt: ${agentHandoff.sendAt.toISOString()}`,
                   `timeZone: ${agentHandoff.timeZone}`,
                   `mode: ${agentHandoff.mode}`,
+                  `handler: ${handler}`,
                   `env: ${process.env.OTEL_SERVICE_ENVIRONMENT ?? ''}`,
-                  `repliesKey: agent-replies/${outreachId}.csv`,
+                  ...(handler === 'api'
+                    ? []
+                    : [`repliesKey: agent-replies/${outreachId}.csv`]),
                   '```',
                 ].join('\n'),
               },

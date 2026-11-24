@@ -508,6 +508,12 @@ webhook or a sweep instead of an upload. The interface, the scrub, the
 recipient map, the dedupe, the opt-out predicate, and every consumer above the
 layer are untouched. Polls keeps its pipeline, now fed from the same ingest.
 
+The first step of that swap is the panel wave `api` handler. The handoff port
+keeps posting to Slack, now with `handler: api` in the machine block as the audit
+trail, and the Scale to Win sweep owns the API calls. The port does not call the
+vendor itself. See
+`docs/adr/2026-11-23-panel-waves-send-through-the-scale-to-win-api.md`.
+
 A real two-way number is also the precondition for reply threads, for both
 products at once. That is one decision, not three.
 
