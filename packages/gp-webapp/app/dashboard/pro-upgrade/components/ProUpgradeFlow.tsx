@@ -34,6 +34,9 @@ interface ProUpgradeFlowProps {
   // Where the wizard is, for a host that draws the stepper in its own
   // header (the outreach sheet). Must be referentially stable.
   onPositionChange?: (position: ProUpgradeFlowPosition) => void
+  // Where Back off the guidance step goes when the host has a pitch of its
+  // own to return to. Without it Back shows the wizard's inline interstitial.
+  onFirstStepBack?: () => void
 }
 
 // State-driven twin of the route-based ProUpgradeWizard, for mounting the
@@ -45,6 +48,7 @@ export const ProUpgradeFlow = ({
   onExit,
   onComplete,
   onPositionChange,
+  onFirstStepBack,
 }: ProUpgradeFlowProps): React.JSX.Element => {
   const [currentStep, setCurrentStep] = useState<ProUpgradeStep>(initialStep)
 
@@ -99,6 +103,10 @@ export const ProUpgradeFlow = ({
     // Inside an outreach flow the pitch stands in front of the wizard, so
     // Back off its first step returns to it; "Maybe later" there is the exit.
     if (currentStep === PRO_UPGRADE_STEP.GUIDANCE && channel) {
+      if (onFirstStepBack) {
+        onFirstStepBack()
+        return
+      }
       setCurrentStep(PRO_UPGRADE_STEP.INTERSTITIAL)
       return
     }
@@ -108,7 +116,7 @@ export const ProUpgradeFlow = ({
     }
     if (orderIndex > 0) setCurrentStep(stepOrder[orderIndex - 1]!)
     else onExit()
-  }, [currentStep, orderIndex, stepOrder, onExit, channel])
+  }, [currentStep, orderIndex, stepOrder, onExit, onFirstStepBack, channel])
 
   const value = useMemo<ProUpgradeWizardContextValue>(
     () => ({

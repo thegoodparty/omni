@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import type { CropperProps, CropperRef } from 'react-advanced-cropper'
 import userEvent from '@testing-library/user-event'
@@ -40,11 +40,18 @@ vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
   default: ({
     onComplete,
     onExit,
+    onFirstStepBack,
   }: {
     onComplete: () => void
     onExit: () => void
+    onFirstStepBack?: () => void
   }) => (
     <div data-testid="pro-upgrade-flow">
+      {onFirstStepBack && (
+        <button type="button" onClick={onFirstStepBack}>
+          Wizard back
+        </button>
+      )}
       <button type="button" onClick={onComplete}>
         Finish upgrade
       </button>
@@ -123,6 +130,15 @@ vi.mock('helpers/createOutreach', () => ({
 const winSmsHoldRef = vi.hoisted(() => ({ enabled: false }))
 vi.mock('app/shared/experiments/winSmsHoldFlag', () => ({
   useWinSmsHoldFlag: () => ({ ready: true, enabled: winSmsHoldRef.enabled }),
+}))
+
+// Per-campaign pricing flag: off keeps the gate exactly as it was.
+const planFlagRef = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: planFlagRef.enabled,
+  }),
 }))
 
 const winSmsPreviewRef = vi.hoisted(() => ({ enabled: false }))
@@ -293,6 +309,7 @@ describe('SmsFlow', () => {
     campaignState.campaign = campaignState.base()
     winSmsHoldRef.enabled = false
     winSmsPreviewRef.enabled = false
+    planFlagRef.enabled = false
     // Reset the module mock a pay-before-ready test overrides to 'building', so
     // it never leaks a non-ready build into a later test.
     vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
@@ -2665,6 +2682,111 @@ describe('SmsFlow', () => {
         expect.any(File),
       )
       expect(onScheduled).toHaveBeenCalledTimes(1)
+    })
+
+    // Flag on, the free build reaches the review step and the gate is a
+    // dialog over it, not a banner and an inline screen.
+    describe('with per-campaign pricing on', () => {
+      const GATE_TITLE = 'Join Pro to send this campaign'
+
+      beforeEach(() => {
+        planFlagRef.enabled = true
+        gateRef.set(FREE_GATE)
+        mockDraft()
+        mockFreeAudience()
+      })
+
+      const reachReview = async () => {
+        await buildToName()
+        await user.click(screen.getByRole('button', { name: 'Continue' }))
+        return screen.findByRole('button', { name: 'Join Pro to send' })
+      }
+
+      it('shows no gate banner and no lock on the channel badge', async () => {
+        openFlow()
+
+        await user.click(screen.getByText('Introduce myself to voters'))
+
+        expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+        expect(document.querySelector('.lucide-lock')).toBeNull()
+      })
+
+      it('writes no draft until the review button is pressed', async () => {
+        openFlow()
+
+        await reachReview()
+
+        expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+        expect(
+          screen.queryByRole('dialog', { name: GATE_TITLE }),
+        ).not.toBeInTheDocument()
+      })
+
+      it('saves the draft and opens the gate over the still-visible review', async () => {
+        openFlow()
+
+        await user.click(await reachReview())
+
+        const dialog = await screen.findByRole('dialog', { name: GATE_TITLE })
+        expect(dialog).toHaveTextContent('Join Pro to send this campaign')
+        expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
+          expect.objectContaining({ name: 'Likely voters' }),
+          expect.any(File),
+        )
+        expect(
+          within(dialog).getByRole('button', { name: 'Join Pro for $299' }),
+        ).toBeInTheDocument()
+        expect(
+          within(dialog).queryByRole('button', { name: /Maybe later/ }),
+        ).not.toBeInTheDocument()
+        // The step behind it is still mounted, not replaced by the wizard.
+        expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+        // (aria-hidden behind the modal, but still mounted.)
+        expect(
+          screen.getByRole('button', {
+            name: 'Join Pro to send',
+            hidden: true,
+          }),
+        ).toBeInTheDocument()
+      })
+
+      it('hands the dialog to the wizard on Join Pro and back again on Back', async () => {
+        openFlow()
+        await user.click(await reachReview())
+
+        await user.click(
+          await screen.findByRole('button', { name: 'Join Pro for $299' }),
+        )
+
+        expect(
+          await screen.findByTestId('pro-upgrade-flow'),
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByRole('dialog', { name: GATE_TITLE }),
+        ).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', { name: 'Wizard back' }))
+
+        expect(
+          await screen.findByRole('dialog', { name: GATE_TITLE }),
+        ).toHaveTextContent('Join Pro to send this campaign')
+        expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+      })
+
+      it('closes the sheet on the X, the draft being saved', async () => {
+        const { onClose } = openFlow()
+        await user.click(await reachReview())
+
+        await user.click(
+          within(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).getByRole('button', {
+            name: 'Close',
+          }),
+        )
+
+        expect(onClose).toHaveBeenCalled()
+      })
     })
 
     it('switches into resume mode when a draft already exists', async () => {

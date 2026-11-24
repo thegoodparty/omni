@@ -105,13 +105,15 @@ import {
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { outreachLandingStep } from '../landingStep'
-import { REVIEW_GATE_CTA } from '../gate/gateCopy'
+import { REVIEW_GATE_CTA, planReviewGateCta } from '../gate/gateCopy'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
+import { ProGatePitch } from '../gate/ProGatePitch'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import {
   SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
@@ -722,6 +724,10 @@ export const SmsFlow = ({
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
+  // Flag on, a free candidate reaches the review step and the Pro gate opens
+  // over it as a dialog; flag off, the name step writes the draft and the
+  // gate takes the step's place.
+  const planPitch = useContextualPlanPitch()
   const { smsCutoffDate } = useSmsCompliance()
   const lockedAtOpen = useLockedAtOpen(open, gate)
   // gp-api reads the picked wall-clock window in the campaign state's zone
@@ -860,6 +866,7 @@ export const SmsFlow = ({
     open,
     resumeDraft,
     resumeCta,
+    pitchAsDialog: planPitch.enabled,
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
@@ -906,7 +913,7 @@ export const SmsFlow = ({
   const baseStepOrder = withPreviewStep(
     !buildMode
       ? STEP_ORDER
-      : gate.requirement === 'pro'
+      : gate.requirement === 'pro' && !planPitch.enabled
         ? PRO_BUILD_STEP_ORDER
         : VERIFY_BUILD_STEP_ORDER,
     showPreviewStep,
@@ -2204,7 +2211,11 @@ export const SmsFlow = ({
     : !scheduled && purpose !== null && savedDraft === null
 
   const reviewGateCta =
-    gate.requirement !== null ? REVIEW_GATE_CTA[gate.requirement] : undefined
+    gate.requirement === null
+      ? undefined
+      : gate.requirement === 'pro' && planPitch.enabled
+        ? planReviewGateCta(planPitch)
+        : REVIEW_GATE_CTA[gate.requirement]
   const baseCta: FlowShellCta | null = scheduled
     ? null
     : // The gate screens carry their own buttons.
@@ -2283,7 +2294,7 @@ export const SmsFlow = ({
               ? {
                   label: 'Continue',
                   onClick: () => {
-                    if (gate.requirement === 'pro') {
+                    if (gate.requirement === 'pro' && !planPitch.enabled) {
                       void draftGate.saveDraft('Continue')
                       return
                     }
@@ -2358,7 +2369,7 @@ export const SmsFlow = ({
                         buildMode &&
                         gate.requirement !== null
                       ? {
-                          label: REVIEW_GATE_CTA[gate.requirement],
+                          label: reviewGateCta ?? '',
                           onClick: () => {
                             void draftGate.saveDraft(reviewGateCta)
                           },
@@ -2447,7 +2458,12 @@ export const SmsFlow = ({
         ) : (
           <ChannelBadge
             type={OUTREACH_TYPES.text}
-            locked={gate.requirement !== null && !scheduled && !gateOpen}
+            locked={
+              !planPitch.enabled &&
+              gate.requirement !== null &&
+              !scheduled &&
+              !gateOpen
+            }
           />
         )
       }
@@ -2491,7 +2507,11 @@ export const SmsFlow = ({
               {MANAGED_PANEL_COPY.flow.agreement(managedInvite?.place ?? null)}
             </p>
           ) : undefined
-        ) : gate.requirement !== null && !scheduled && !gateOpen ? (
+        ) : gate.requirement !== null &&
+          // Flag on, a free candidate's review button opens the gate itself.
+          !(planPitch.enabled && gate.requirement === 'pro') &&
+          !scheduled &&
+          !gateOpen ? (
           <GateBanner
             channel="sms"
             state={gate}
@@ -2564,6 +2584,13 @@ export const SmsFlow = ({
         onVerify={draftGate.openGateFromExplainer}
         onPin={draftGate.openGateFromExplainer}
       />
+      {draftGate.pitchOpen && (
+        <ProGatePitch
+          channel="sms"
+          onJoin={draftGate.joinPitch}
+          onDismiss={draftGate.handleGateExit}
+        />
+      )}
       {scheduled ? (
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
@@ -2585,12 +2612,13 @@ export const SmsFlow = ({
           state={gate}
           open
           showInterstitial={
-            draftGate.gateOrigin === 'save' ||
+            (draftGate.gateOrigin === 'save' && !planPitch.enabled) ||
             (draftGate.gateOrigin === 'resume' && !resumeStartsOnWizard)
           }
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onChromeChange={setGateChrome}
+          onFirstStepBack={draftGate.wizardBack}
           source={source}
           cta={draftGate.gateCta}
           tracker={tracker}

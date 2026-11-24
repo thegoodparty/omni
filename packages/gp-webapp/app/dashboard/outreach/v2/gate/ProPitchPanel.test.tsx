@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -12,9 +12,21 @@ import {
 } from './gateCopy'
 import { ProPitchPanel } from './ProPitchPanel'
 
+const planFlag = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: planFlag.enabled,
+  }),
+}))
+
 const CHANNELS: GateChannel[] = ['sms', 'robocall', 'door', 'phone-bank']
 
 describe('ProPitchPanel', () => {
+  beforeEach(() => {
+    planFlag.enabled = false
+  })
+
   it.each(CHANNELS)(
     'renders the %s headline and all three bullets',
     (channel) => {
@@ -117,6 +129,50 @@ describe('ProPitchPanel', () => {
       )
 
       expect(container).toBeEmptyDOMElement()
+    })
+  })
+  describe('with per-campaign pricing on', () => {
+    beforeEach(() => {
+      planFlag.enabled = true
+    })
+
+    it.each(CHANNELS)(
+      'draws four rows for %s with the credit last',
+      (channel) => {
+        render(<ProPitchPanel channel={channel} />)
+
+        expect(
+          screen.getByText(
+            'Pay $299 once for your plan, good for your whole race',
+          ),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText(PRO_COPY[channel].bullets[1]!),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText(PRO_COPY[channel].bullets[2]!),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByText('$175 outreach credit to get started'),
+        ).toBeInTheDocument()
+        expect(screen.queryByText(PRO_COPY[channel].bullets[0]!)).toBeNull()
+      },
+    )
+
+    it('marks only the credit row with the grey Bonus pill', () => {
+      render(<ProPitchPanel channel="sms" />)
+
+      const pills = screen.getAllByText('Bonus')
+      expect(pills).toHaveLength(1)
+      expect(pills[0]!.parentElement).toHaveTextContent(
+        '$175 outreach credit to get started',
+      )
+    })
+
+    it('keeps "See all plans" out of the card: it is the dialog footer now', () => {
+      render(<ProPitchPanel channel="sms" />)
+
+      expect(screen.queryByText('See all plans')).toBeNull()
     })
   })
 })

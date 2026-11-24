@@ -19,6 +19,7 @@ import {
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { GateBanner } from 'app/dashboard/outreach/v2/gate/GateBanner'
 import { GateExplainerModal } from 'app/dashboard/outreach/v2/gate/GateExplainerModal'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { EXPLAINER_COPY } from 'app/dashboard/outreach/v2/gate/gateCopy'
 import { OutreachGate } from 'app/dashboard/outreach/v2/gate/OutreachGate'
 import { useOutreachGate } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
@@ -892,6 +893,7 @@ export default function CreateListFlow({
   // where the candidate is told, not about what is enforced. Moving it onto
   // the knock press is the follow-up.
   const gate = useOutreachGate('door')
+  const planPitch = useContextualPlanPitch()
   const lockedAtOpen = useLockedAtOpen(true, gate)
   const [gateOpen, setGateOpen] = useState(false)
   // WHICH gesture opened the gate. The banner rides every step but the draw,
@@ -904,6 +906,11 @@ export default function CreateListFlow({
   // The label of the button that opened the gate, for Flow Started.
   const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [explainerOpen, setExplainerOpen] = useState(false)
+
+  const exitGate = (): void => {
+    setGateOpen(false)
+    setGateOrigin(null)
+  }
 
   const openGateFromExplainer = (): void => {
     setGateOrigin('explainer')
@@ -1749,7 +1756,7 @@ export default function CreateListFlow({
       headerBadge={
         <ChannelBadge
           type="nativeDoorKnocking"
-          locked={gate.requirement !== null && !gateOpen}
+          locked={!planPitch.enabled && gate.requirement !== null && !gateOpen}
         />
       }
       currentStep={currentStep}
@@ -1925,10 +1932,8 @@ export default function CreateListFlow({
           showInterstitial={false}
           source={source}
           cta={gateCta}
-          onExit={() => {
-            setGateOpen(false)
-            setGateOrigin(null)
-          }}
+          onFirstStepBack={planPitch.enabled ? exitGate : undefined}
+          onExit={exitGate}
           onComplete={() => {
             setGateOpen(false)
             const origin = gateOrigin

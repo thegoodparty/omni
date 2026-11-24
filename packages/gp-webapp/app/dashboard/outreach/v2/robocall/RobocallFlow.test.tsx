@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import { addDays, format } from 'date-fns'
@@ -52,6 +52,15 @@ vi.mock('../gate/useOutreachGate', async () => {
     await import('../gate/testing/mockReactiveGate')
   return { useOutreachGate: useMockOutreachGate }
 })
+
+// Per-campaign pricing flag: off keeps the gate exactly as it was.
+const planFlagRef = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: planFlagRef.enabled,
+  }),
+}))
 
 // Both mount real Stripe / filing surfaces; the flow only owns whether they
 // are on screen.
@@ -422,6 +431,7 @@ afterEach(() => {
 // every click fires a round of hover events (and re-renders) for nothing.
 let user: ReturnType<typeof userEvent.setup>
 beforeEach(() => {
+  planFlagRef.enabled = false
   user = userEvent.setup({ skipHover: true })
 })
 
@@ -2885,6 +2895,30 @@ describe('RobocallFlow', () => {
           callbackNumber: '+12025550147',
         }),
       ])
+    })
+
+    it('with per-campaign pricing on, opens the pitch as a dialog over the compose step', async () => {
+      planFlagRef.enabled = true
+      gateRef.set(FREE_GATE)
+      mockSaveDraft()
+
+      await buildToCompose()
+      await saveDraft()
+
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Join Pro to send this campaign',
+      })
+      expect(
+        within(dialog).getByRole('button', { name: 'Join Pro for $299' }),
+      ).toBeInTheDocument()
+      expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+      expect(document.querySelector('.lucide-lock')).toBeNull()
+
+      await user.click(
+        within(dialog).getByRole('button', { name: 'Join Pro for $299' }),
+      )
+
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
     })
 
     it('switches into resume mode when a draft already exists', async () => {
