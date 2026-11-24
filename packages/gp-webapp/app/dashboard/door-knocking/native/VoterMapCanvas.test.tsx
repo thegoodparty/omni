@@ -126,6 +126,8 @@ const gl = vi.hoisted(() => {
     overlay,
     style,
     mapOptions: null as { attributionControl?: unknown } | null,
+    // What a browser with no WebGL does to maplibre: the constructor throws.
+    constructionFailure: null as Error | null,
   }
 })
 
@@ -133,6 +135,7 @@ vi.mock('maplibre-gl', () => ({
   default: {
     Map: class {
       constructor(options: { attributionControl?: unknown }) {
+        if (gl.constructionFailure) throw gl.constructionFailure
         gl.mapOptions = options
         return gl.map
       }
@@ -327,6 +330,7 @@ describe('VoterMapCanvas drawing', () => {
     gl.overlay.lastPick = null
     gl.overlay.options = null
     gl.style.layers = []
+    gl.constructionFailure = null
     vi.clearAllMocks()
   })
 
@@ -385,6 +389,28 @@ describe('VoterMapCanvas drawing', () => {
       `opened at ${center.join(', ')}, where there is no dot`,
     ).toBeDefined()
   }
+
+  // Without a map there is nothing to zoom, pan or centre on, so the map's
+  // place says why instead of the canvas taking the page down with it
+  // (ENG-11720: a GPU path that is off or sandboxed throws out of maplibre's
+  // constructor, and from an effect React gives that to the error boundary).
+  it('says the map could not be drawn instead of throwing', () => {
+    gl.constructionFailure = new Error('Failed to initialize WebGL')
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByText(/could not be drawn on this device/),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('voter-map')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Zoom in')).not.toBeInTheDocument()
+  })
 
   it('undoes the most recently placed point', () => {
     const onPolygonChange = vi.fn()
@@ -1759,6 +1785,7 @@ describe('VoterMapCanvas label ordering', () => {
     gl.overlay.layers = []
     gl.overlay.options = null
     gl.style.layers = []
+    gl.constructionFailure = null
     vi.clearAllMocks()
   })
 

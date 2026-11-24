@@ -33,6 +33,10 @@ import {
   ringInsertIndex,
   type PolygonRing,
 } from 'app/dashboard/shared/ringGeometry'
+import {
+  createMap,
+  MAP_UNAVAILABLE_MESSAGE,
+} from 'app/dashboard/shared/mapCanvas'
 import { STATUS_RGB } from './statusPresentation'
 import { DecodedPack } from './packDecoder'
 import { FilterResult } from './filterEngine'
@@ -587,6 +591,7 @@ export default function VoterMapCanvas({
 
   const containerRef = useRef<HTMLDivElement>(null)
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
+  const [mapUnavailable, setMapUnavailable] = useState(false)
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   // The basemap's first symbol layer, resolved from the style once it loads.
@@ -661,15 +666,22 @@ export default function VoterMapCanvas({
   useEffect(() => {
     if (!containerRef.current || !hasTilesKey) return
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: `https://maps.geoapify.com/v1/styles/osm-liberty/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`,
-      center: [-98, 39],
-      zoom: 4,
-      // Added by hand below so it can be placed; maplibre's default is the
-      // bottom-RIGHT corner, which on this page is under the rail.
-      attributionControl: false,
-    })
+    const map = createMap(
+      {
+        container: containerRef.current,
+        style: `https://maps.geoapify.com/v1/styles/osm-liberty/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`,
+        center: [-98, 39],
+        zoom: 4,
+        // Added by hand below so it can be placed; maplibre's default is the
+        // bottom-RIGHT corner, which on this page is under the rail.
+        attributionControl: false,
+      },
+      'voter-map-canvas',
+    )
+    if (!map) {
+      setMapUnavailable(true)
+      return
+    }
     mapRef.current = map
     // The camera, written onto the container for end-to-end specs. A spec
     // that draws a boundary has to turn a longitude and latitude into a pixel,
@@ -1548,6 +1560,16 @@ export default function VoterMapCanvas({
       <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
         Set NEXT_PUBLIC_GEOAPIFY_TILES_KEY (a domain-restricted Geoapify tiles
         key) to render the map.
+      </div>
+    )
+  }
+
+  // Without a map there is nothing to zoom, pan or centre on, so the control
+  // cluster goes with it rather than sitting over a message it cannot act on.
+  if (mapUnavailable) {
+    return (
+      <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
+        {MAP_UNAVAILABLE_MESSAGE}
       </div>
     )
   }
