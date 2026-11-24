@@ -3,6 +3,7 @@ import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import type { OnboardingPriorityOptions } from '@goodparty_org/contracts'
+import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
 import {
   CommunityIssueCategory,
   CommunityIssueList,
@@ -84,6 +85,59 @@ describe('serve onboarding priorities', () => {
       { kind: 'community', title: 'Traffic', selected: false },
       { kind: 'community', title: 'Parks', selected: false },
     ])
+  })
+
+  it('reports the queued onboarding search until the queue lets the job go', async () => {
+    const electedOffice = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { id: eoId },
+    })
+    // This app runs no workers, so the job stays where the start put it.
+    await service.app
+      .get(CommunityIssueDispatchService)
+      .queueOnboardingStart(electedOffice)
+
+    const queued = await service.client.get<OnboardingPriorityOptions>(
+      PATH,
+      eoHeaders(),
+    )
+    expect(queued.status).toBe(HttpStatus.OK)
+    expect(queued.data).toMatchObject({ options: [], searchPending: true })
+
+    // What pg-boss's maintenance pass does a minute after a job settles.
+    await service.prisma.$executeRaw`
+      DELETE FROM pgboss.job WHERE name = 'communityIssueOnboarding'`
+
+    const over = await service.client.get<OnboardingPriorityOptions>(
+      PATH,
+      eoHeaders(),
+    )
+    expect(over.data.searchPending).toBe(false)
+  })
+
+  it.each([
+    ['created', true],
+    ['retry', true],
+    ['active', true],
+    ['completed', false],
+    ['failed', false],
+    ['cancelled', false],
+  ])('reads a %s search as pending=%s', async (state, pending) => {
+    const electedOffice = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { id: eoId },
+    })
+    await service.app
+      .get(CommunityIssueDispatchService)
+      .queueOnboardingStart(electedOffice)
+    await service.prisma.$executeRawUnsafe(
+      `UPDATE pgboss.job SET state = '${state}'::pgboss.job_state WHERE name = 'communityIssueOnboarding'`,
+    )
+
+    const res = await service.client.get<OnboardingPriorityOptions>(
+      PATH,
+      eoHeaders(),
+    )
+
+    expect(res.data.searchPending).toBe(pending)
   })
 
   it('saves the picked issues and keeps every campaign issue', async () => {

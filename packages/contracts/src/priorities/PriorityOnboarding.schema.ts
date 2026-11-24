@@ -30,6 +30,11 @@ export type OnboardingPriorityOption = z.infer<
 
 export const OnboardingPriorityOptionsSchema = z.object({
   options: z.array(OnboardingPriorityOptionSchema),
+  // Whether the queued starter-issue search is still waiting or running. The
+  // onboarding step reads this instead of deciding from a timer that the
+  // search is over: a job stuck behind others and a job that found nothing
+  // look the same to a clock.
+  searchPending: z.boolean(),
 })
 
 export type OnboardingPriorityOptions = z.infer<

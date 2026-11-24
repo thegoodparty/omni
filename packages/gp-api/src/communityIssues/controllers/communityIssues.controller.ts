@@ -39,7 +39,6 @@ import { CommunityIssueDispatchService } from '../services/communityIssueDispatc
 import { CommunityIssuePrioritizeService } from '../services/communityIssuePrioritize.service'
 import { CommunityIssueReadService } from '../services/communityIssueRead.service'
 import { CommunityIssueSeedService } from '../services/communityIssueSeed.service'
-import { CommunityIssueStarterService } from '../services/communityIssueStarter.service'
 
 @Controller('community-issues')
 @UsePipes(ZodValidationPipe)
@@ -50,7 +49,6 @@ export class CommunityIssuesController {
     private readonly prioritize: CommunityIssuePrioritizeService,
     private readonly dispatch: CommunityIssueDispatchService,
     private readonly seedService: CommunityIssueSeedService,
-    private readonly starter: CommunityIssueStarterService,
   ) {}
 
   // Preview/dev-only deterministic seeding for e2e tests; the service rejects
@@ -111,22 +109,19 @@ export class CommunityIssuesController {
   }
 
   /**
-   * Serve onboarding calls this once the office is known. Starter issues are
-   * written before the full runs dispatch so those runs read them back as
-   * the existing feed and build on them. The office was created bare earlier
-   * in onboarding, so this is also the first dispatch with a resolvable
-   * office; it is idempotent, like the create-time dispatch it stands in for.
+   * Serve onboarding calls this once the office is known, and returns before the
+   * paid work runs: a Gemini search for starter issues, then the full runs, took
+   * 25 to 55 seconds and a mobile browser gave up on the connection first. The
+   * priorities step already polls for issues that land late, so the work moved
+   * to the communityIssueOnboarding job and this only queues it.
    */
   @Post('onboarding')
   @UseElectedOffice()
   @HttpCode(HttpStatus.OK)
   @ResponseSchema(OnboardingStartResponseSchema)
   async startForOnboarding(@ReqElectedOffice() electedOffice: ElectedOffice) {
-    const starterIssueCount = await this.starter.seed(
-      electedOffice.organizationSlug,
-    )
-    await this.dispatch.onElectedOfficeCreated(electedOffice)
-    return { starterIssueCount }
+    await this.dispatch.queueOnboardingStart(electedOffice)
+    return { queued: true }
   }
 
   @Get()

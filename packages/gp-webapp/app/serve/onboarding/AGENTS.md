@@ -122,11 +122,25 @@ the data-derived step. Story steps navigate first and save the checkpoint
 behind, so the save never holds the motion.
 
 The priorities step's issues come from `POST /v1/community-issues/onboarding`,
-started as soon as the office is on the org. A failed start retries once on
-its own. The step has three list states: the "Finding issues" spinner while
-the list loads, "We couldn't load issues for your area" with Try again when
-the search failed twice (Other and skip stay available), and the "couldn't
-find issues" empty line only when the search succeeded with nothing.
+started as soon as the office is on the org. gp-api queues the paid search and
+answers before it runs, so that call returning tells the step nothing about
+whether issues exist. The step waits 10 seconds for it, then reads
+`GET /v1/priorities/onboarding` once and polls it every 4 seconds for up to 120
+(a real starter search takes 25 to 55 seconds). A failed start retries once on
+its own. That read is also where the step learns whether the search is over:
+the queue is the only thing that knows, so every read's `searchPending` sets
+`starterSearchPending` (true on a start, cleared when the job is gone from the
+queue) and no local window decides. Because the first read lands before the
+queued search can have written anything, an empty list while `searchPending`
+is true is the search still running, not nothing found, however long the job
+waits. So the step has four list states. "Finding issues in your community"
+while the list loads or the search is still out (Continue stays available, so
+nobody is held on the step), "We couldn't load issues for your area" with Try
+again when the search failed twice (Other and skip stay available), the
+"couldn't find issues" empty line once the queue reports the search over with
+nothing (the only state that fires Priorities Errored `none_found`), and the
+list itself. Priorities Viewed waits for the search to settle too, so `loadMs`
+measures the real wait.
 
 ## The district story
 

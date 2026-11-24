@@ -21,6 +21,7 @@ import {
   fromPrisma,
   PgBoss,
   type JobSpyInterface,
+  type JobWithMetadata,
   type PrismaTransactionLike,
   type WorkOptions,
 } from 'pg-boss'
@@ -130,6 +131,10 @@ const RETIRED_QUEUES = ['jobsLoadTest', 'campaignPlanComplete']
 // this namespace, so the same key always maps to the same id.
 const SEND_MANY_ID_NAMESPACE = '42bdefc4-b9f4-4820-817b-03f15259366a'
 const SEND_MANY_CHUNK_SIZE = 1000
+const sendManyJobId = (name: string, key: string): string =>
+  uuidv5(`${name}:${key}`, SEND_MANY_ID_NAMESPACE)
+
+export type JobState = JobWithMetadata['state']
 
 export type JobSendOptions = {
   // Jobs in one group run one at a time, in send order. Without one the job
@@ -346,7 +351,7 @@ export class JobsService
   ): Promise<string[]> {
     const { schema, maxConcurrent } = this.definitionOf(name)
     const jobs = items.map((item) => {
-      const id = uuidv5(`${name}:${item.key}`, SEND_MANY_ID_NAMESPACE)
+      const id = sendManyJobId(name, item.key)
       return {
         id,
         data: schema.parse(item.data),
@@ -374,6 +379,20 @@ export class JobsService
       'jobs sent',
     )
     return jobs.map((job) => job.id)
+  }
+
+  /**
+   * The pg-boss state of the job sendMany() queued under this key, or null
+   * when there is no such row. The key names the job, so a reader can ask
+   * about it without keeping the id. This reports the row as it is: a null
+   * can mean the job never existed, or that pg-boss deleted it after it
+   * settled, and the state alone does not say how a settled job ended.
+   */
+  async getJobState(name: JobName, key: string): Promise<JobState | null> {
+    const [job] = await this.boss.findJobs(name, {
+      id: sendManyJobId(name, key),
+    })
+    return job?.state ?? null
   }
 
   /**

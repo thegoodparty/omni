@@ -111,6 +111,14 @@ await this.jobs.sendMany(
   a retry fills in the rest.
 - `group` per item works as on `send()`. One `jobs sent` log line per call,
   with the count and chunk count, not each payload.
+- `getJobState(name, key)` returns the pg-boss state of the job `sendMany()`
+  queued under that key (`created`, `retry`, `active`, `completed`,
+  `cancelled` or `failed`), or null when there is no row. It reports the row
+  and nothing more: a settled job is deleted a minute later, so null can mean
+  the job finished, or never existed, and `failed` and a deleted job look the
+  same afterwards. What a state means for a caller is the caller's call
+  (`GET /v1/priorities/onboarding` reads `created`, `retry` and `active` as
+  still searching).
 
 ## Schedules
 

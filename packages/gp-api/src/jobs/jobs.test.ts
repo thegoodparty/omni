@@ -224,6 +224,31 @@ describe('JobsService', () => {
       for (const row of rows) expect(row.singleton_key).toBe(row.id)
     })
 
+    it('reports the state of the job a key names, and null when there is none', async () => {
+      const jobs = service.app.get(JobsService)
+      const key = randomUUID()
+      expect(await jobs.getJobState('contactUploadProcess', key)).toBeNull()
+
+      await jobs.sendMany('contactUploadProcess', [
+        { data: { uploadId: key }, key },
+      ])
+      expect(await jobs.getJobState('contactUploadProcess', key)).toBe(
+        'created',
+      )
+
+      for (const state of ['active', 'completed', 'failed', 'cancelled']) {
+        await service.prisma.$executeRawUnsafe(
+          `UPDATE pgboss.job SET state = '${state}'::pgboss.job_state WHERE name = 'contactUploadProcess' AND data->>'uploadId' = $1`,
+          key,
+        )
+        expect(await jobs.getJobState('contactUploadProcess', key)).toBe(state)
+      }
+
+      await service.prisma.$executeRaw`
+        DELETE FROM pgboss.job WHERE name = 'contactUploadProcess'`
+      expect(await jobs.getJobState('contactUploadProcess', key)).toBeNull()
+    })
+
     it('skips items whose job is already queued, without an error', async () => {
       const jobs = service.app.get(JobsService)
       const first = { data: { uploadId: randomUUID() }, key: 'a' }

@@ -206,12 +206,26 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   >(null)
   const [priorityLoadFailed, setPriorityLoadFailed] = useState(false)
   const [communityIssuesFailed, setCommunityIssuesFailed] = useState(false)
+  // Whether the queued starter-issue search is still out, from the read's own
+  // `searchPending`: the queue is the only thing that knows the work is over,
+  // and a job stuck behind others looks the same to a timer as one that found
+  // nothing (the 2026-11-03 robocall post-mortem's lesson 3). A start sets it,
+  // and every read carries the queue's answer.
+  const [starterSearchPending, setStarterSearchPending] = useState(false)
+  const starterSearchPendingRef = useRef(false)
+  useEffect(() => {
+    starterSearchPendingRef.current = starterSearchPending
+  }, [starterSearchPending])
   const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
     new Set(),
   )
   const [otherPrioritySelected, setOtherPrioritySelected] = useState(false)
   // When the priorities step stops checking for late starter issues.
   const starterIssuesPollUntilRef = useRef(0)
+  // A start's queue insert can land after the step's first read, which would
+  // report no job yet. Until the start settles, an empty queue is "on its way",
+  // not "nothing was found".
+  const communityIssuesStartSettledRef = useRef(true)
   const [otherPriorityTitle, setOtherPriorityTitle] = useState('')
   const [otherPriorityDescription, setOtherPriorityDescription] = useState('')
   const otherPriorityComplete =
@@ -479,6 +493,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         ])
         const res = await clientRequest('GET /v1/priorities/onboarding', {})
         if (cancelled) return
+        // The queue's own answer, so the step stops saying "searching" when
+        // the work is over rather than when a clock says it should be. Until
+        // the start request settles, no job is expected yet.
+        if (res.data.searchPending) setStarterSearchPending(true)
+        else if (communityIssuesStartSettledRef.current) {
+          setStarterSearchPending(false)
+        }
         setPriorityOptions(res.data.options)
         setSelectedPriorityKeys(
           new Set(res.data.options.filter((o) => o.selected).map((o) => o.key)),
@@ -500,7 +521,20 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     if (loading || step !== 'priorities') return
     prioritiesEnteredAtRef.current ??= Date.now()
   }, [loading, step])
-  const prioritiesSettled = priorityOptions !== null || priorityLoadFailed
+  // The queued search answers before it runs, so the step's first read lands
+  // before any starter issues exist. While the queue still has the job, an
+  // empty list means "still looking": the step stays in its loading state and
+  // does not record the search as having found nothing, however long the job
+  // waits. The queue clears it, not a window counted from the step.
+  const waitingForStarterIssues =
+    starterSearchPending &&
+    step === 'priorities' &&
+    priorityOptions !== null &&
+    priorityOptions.length === 0 &&
+    !priorityLoadFailed &&
+    !communityIssuesFailed
+  const prioritiesSettled =
+    (priorityOptions !== null || priorityLoadFailed) && !waitingForStarterIssues
   useEffect(() => {
     if (step !== 'priorities' || !prioritiesSettled) return
     if (prioritiesViewedRef.current) return
@@ -523,7 +557,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             communityIssuesFailed &&
             !priorityOptions.some((option) => option.kind === 'community'))
         ? 'search_failed'
-        : priorityOptions !== null && priorityOptions.length === 0
+        : priorityOptions !== null &&
+            priorityOptions.length === 0 &&
+            !waitingForStarterIssues
           ? 'none_found'
           : null
   const prioritiesRetriesRef = useRef(0)
@@ -556,10 +592,20 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const check = async () => {
-      if (cancelled || Date.now() >= starterIssuesPollUntilRef.current) return
+      if (cancelled) return
+      if (
+        Date.now() >= starterIssuesPollUntilRef.current &&
+        !starterSearchPendingRef.current
+      ) {
+        return
+      }
       try {
         const res = await clientRequest('GET /v1/priorities/onboarding', {})
         if (cancelled) return
+        if (res.data.searchPending) setStarterSearchPending(true)
+        else if (communityIssuesStartSettledRef.current) {
+          setStarterSearchPending(false)
+        }
         const community = res.data.options.filter(
           (option) => option.kind === 'community',
         )
@@ -732,6 +778,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const communityIssuesFailedRef = useRef(false)
   const startCommunityIssues = (): Promise<void> => {
     if (communityIssuesStartRef.current) return communityIssuesStartRef.current
+    setStarterSearchPending(true)
+    communityIssuesStartSettledRef.current = false
     const post = () => clientRequest('POST /v1/community-issues/onboarding', {})
     const started = post()
       .catch(post)
@@ -740,6 +788,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         reportClientError(err, { context: 'serveOnboarding.communityIssues' })
         communityIssuesFailedRef.current = true
         setCommunityIssuesFailed(true)
+      })
+      .finally(() => {
+        communityIssuesStartSettledRef.current = true
       })
     communityIssuesStartRef.current = started
     return started
@@ -1437,6 +1488,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
                 options={priorityOptions}
                 loadFailed={priorityLoadFailed}
                 searchFailed={communityIssuesFailed}
+                searching={waitingForStarterIssues}
                 onRetry={retryPriorities}
                 selectedKeys={selectedPriorityKeys}
                 onToggle={togglePriority}
@@ -1853,6 +1905,7 @@ const PrioritiesStep = ({
   options,
   loadFailed,
   searchFailed,
+  searching,
   onRetry,
   selectedKeys,
   onToggle,
@@ -1866,6 +1919,7 @@ const PrioritiesStep = ({
   options: OnboardingPriorityOption[] | null
   loadFailed: boolean
   searchFailed: boolean
+  searching: boolean
   onRetry: () => void
   selectedKeys: Set<string>
   onToggle: (key: string) => void
@@ -1891,7 +1945,7 @@ const PrioritiesStep = ({
       ) : options === null ? (
         <div className="mt-8 flex flex-col items-center gap-3 text-sm text-muted-foreground">
           <LoaderCircle className="animate-spin" />
-          Finding issues in your community
+          {SERVE_PRIORITIES_LIST_COPY.searching}
         </div>
       ) : (
         <div className="mt-8 space-y-3">
@@ -1903,6 +1957,11 @@ const PrioritiesStep = ({
                 {SERVE_PRIORITIES_LIST_COPY.retry}
               </Button>
             </div>
+          ) : searching ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+              {SERVE_PRIORITIES_LIST_COPY.searching}
+            </p>
           ) : (
             options.length === 0 && (
               <p className="text-sm text-muted-foreground">

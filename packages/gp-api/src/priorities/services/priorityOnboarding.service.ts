@@ -10,6 +10,8 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { communityIssueOnboardingJobName } from '@/communityIssues/services/communityIssueDispatch.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import type { SegmentTrackEventProperties } from 'src/vendors/segment/segment.types'
 import {
@@ -35,6 +37,7 @@ export class PriorityOnboardingService extends createPrismaBase(
   constructor(
     private readonly priorities: PrioritiesService,
     private readonly analytics: AnalyticsService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
@@ -121,6 +124,22 @@ export class PriorityOnboardingService extends createPrismaBase(
       }))
 
     return [...ranOn, ...community, ...other]
+  }
+
+  /**
+   * Whether the onboarding step should still say "searching": the queued
+   * starter-issue search for this office is waiting or running. Same job name
+   * and org-slug key CommunityIssueDispatchService.queueOnboardingStart sends.
+   * Anything else counts as over, which is this step's reading and not the
+   * queue's: no row is a finished job pg-boss has since deleted, and a
+   * failed or cancelled row is a search that will not produce issues.
+   */
+  async searchPending(office: OfficeRef): Promise<boolean> {
+    const state = await this.jobs.getJobState(
+      communityIssueOnboardingJobName,
+      office.organizationSlug,
+    )
+    return state === 'created' || state === 'retry' || state === 'active'
   }
 
   // Campaign issues are never touched here: they carry over regardless of

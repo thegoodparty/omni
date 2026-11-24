@@ -11,7 +11,7 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { GeminiService } from '@/vendors/google/services/gemini.service'
 import { CommunityIssueDispatchService } from './services/communityIssueDispatch.service'
 
-const service = useTestService()
+const service = useTestService({ jobs: true })
 
 const PATH = '/v1/community-issues/onboarding'
 
@@ -82,15 +82,35 @@ beforeEach(async () => {
 })
 
 describe('community issues onboarding start', () => {
-  it('writes sourced starter issues, then dispatches the full runs', async () => {
-    const res = await service.client.post<{ starterIssueCount: number }>(
+  it('answers before the paid search, then writes starter issues and dispatches the full runs', async () => {
+    let releaseSearch: () => void = () => undefined
+    const searchHeld = new Promise<void>((resolve) => {
+      releaseSearch = resolve
+    })
+    vi.mocked(structuredSpy()).mockImplementation(async () => {
+      await searchHeld
+      return STARTER_ISSUES
+    })
+
+    const res = await service.client.post<{ queued: boolean }>(
       PATH,
       {},
       eoHeaders(),
     )
 
+    // The response is out while the search is still blocked: the route no
+    // longer holds the browser for the generation.
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.starterIssueCount).toBe(1)
+    expect(res.data.queued).toBe(true)
+    expect(
+      await service.prisma.communityIssue.count({
+        where: { organizationSlug: eoOrgSlug },
+      }),
+    ).toBe(0)
+
+    releaseSearch()
+    await service.jobs.settle()
+
     const rows = await service.prisma.communityIssue.findMany({
       where: { organizationSlug: eoOrgSlug },
     })
@@ -121,13 +141,9 @@ describe('community issues onboarding start', () => {
       },
     })
 
-    const res = await service.client.post<{ starterIssueCount: number }>(
-      PATH,
-      {},
-      eoHeaders(),
-    )
+    await service.client.post(PATH, {}, eoHeaders())
+    await service.jobs.settle()
 
-    expect(res.data.starterIssueCount).toBe(0)
     expect(structuredSpy()).not.toHaveBeenCalled()
     expect(
       await service.prisma.communityIssue.count({
@@ -139,25 +155,47 @@ describe('community issues onboarding start', () => {
   it('still dispatches the full runs when the quick search fails', async () => {
     vi.mocked(structuredSpy()).mockRejectedValue(new Error('Gemini down'))
 
-    const res = await service.client.post<{ starterIssueCount: number }>(
-      PATH,
-      {},
-      eoHeaders(),
-    )
+    await service.client.post(PATH, {}, eoHeaders())
+    await service.jobs.settle()
 
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.starterIssueCount).toBe(0)
+    expect(
+      await service.prisma.communityIssue.count({
+        where: { organizationSlug: eoOrgSlug },
+      }),
+    ).toBe(0)
     expect(dispatchSpy()).toHaveBeenCalledTimes(1)
+  })
+
+  it('searches again on a retry when the first attempt wrote no starter issues', async () => {
+    vi.mocked(structuredSpy()).mockRejectedValueOnce(new Error('Gemini down'))
+    vi.mocked(dispatchSpy()).mockRejectedValueOnce(new Error('dispatch failed'))
+
+    await service.client.post(PATH, {}, eoHeaders())
+    await service.jobs.settle()
+
+    expect(dispatchSpy()).toHaveBeenCalledTimes(2)
+    expect(structuredSpy()).toHaveBeenCalledTimes(2)
+    expect(
+      await service.prisma.communityIssue.count({
+        where: { organizationSlug: eoOrgSlug },
+      }),
+    ).toBe(1)
   })
 
   it('runs one generation for concurrent starts on the same org', async () => {
     const [first, second] = await Promise.all([
-      service.client.post<{ starterIssueCount: number }>(PATH, {}, eoHeaders()),
-      service.client.post<{ starterIssueCount: number }>(PATH, {}, eoHeaders()),
+      service.client.post(PATH, {}, eoHeaders()),
+      service.client.post(PATH, {}, eoHeaders()),
     ])
 
     expect(first.status).toBe(HttpStatus.OK)
     expect(second.status).toBe(HttpStatus.OK)
+    await service.jobs.settle()
+
+    // The dispatch runs once per job, so this is what the org-slug key buys:
+    // seed guards the generation itself (inFlight, then hasTopList), so those
+    // two counts hold even with two jobs.
+    expect(dispatchSpy()).toHaveBeenCalledTimes(1)
     expect(structuredSpy()).toHaveBeenCalledTimes(1)
     expect(
       await service.prisma.communityIssue.count({
