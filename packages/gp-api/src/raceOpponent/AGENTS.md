@@ -34,7 +34,7 @@ change "opponent research", be explicit about which one.
 | `raceOpponent.constants.ts` | Experiment-type strings, `MAX_*_ATTEMPTS` caps, `CONTRAST_ALLOWED_CATEGORIES`, `CONTRAST_INFLATION_TERMS`, `DATASET_SOURCE_SCHEMES` |
 | `services/raceOpponent.service.ts` | **Relaxed path** + the module's `assertAccess` (Pro). `collect` / `collectManual` / `get`; dispatches `race_opponent_collection`, reads the summary |
 | `services/opponentResearch.service.ts` | **Strict engine** dispatch: `identify` / `start` / `profile`; builds `candidate_platform` from `Website.content.about` (NOT CampaignStory — see ENG-10607) |
-| `services/selfResearch.service.ts` | Strict engine front door: `start` / `status` / `report` of the candidate's own pass |
+| `services/selfResearch.service.ts` | Strict engine front door: `start` / `status` / `report` of the candidate's own pass. Dispatches through `runsOnGpApi('self_research')` |
 | `services/selfResearchGate.service.ts` | The hard 403 gate (PRD Requirement B). `assertSelfResearchComplete` |
 | `services/contrastEngine.service.ts` | Pairs findings with the candidate's positions into contrasts; category allowlist enforced |
 | `services/contrastTone.service.ts` | Deterministic inflation-term strip; a draft that still reads near-the-line routes to fair-line review |
@@ -70,6 +70,33 @@ dedup on `ExperimentRun` keyed by type+status prevents double paid runs; the
 auto-dispatch trigger (Pro upgrade) and the daily cron reuse the same guard. Per-row
 lifetime caps (`MAX_SELF_RESEARCH_ATTEMPTS`, `MAX_OPPONENT_RESEARCH_ATTEMPTS`) surface
 `retry` instead of looping paid Fargate runs.
+
+`self_research` has a gp-api agent too (`selfResearchAgent/`, registered as
+`self_research` in `src/agents/agents.registry.ts`), so the experiment runs on
+either engine: `SelfResearchService` dispatches through
+`runsOnGpApi('self_research')`, and no environment names it yet, so the switch
+is off on dev and prod and on in a preview (the judge's candidate arm). The two
+pieces below hold on the gp-api side:
+
+- **`selfResearchAgent/selfResearch.schema.ts` is the manifest's schemas.** The
+  model never writes `generated_at`; `selfResearchArtifact` stamps it, so
+  `onArtifact` hands the persist the same artifact the PMF Engine publishes.
+- **A research row is settled from whichever engine ran it.** The persist marks
+  it `completed` on either engine's success path
+  (`RaceOpponentResearchPersistService.ingestAgentArtifact` for an `AgentRun`).
+  Nothing flips it on an `AgentRun` failure — there is no completion callback —
+  so `SelfResearchService`'s own read (`reconciledSelfRow`) settles it from the
+  run the row is bound to: a failed run reads as `failed` (the candidate can
+  retry, and the opponent gate stops 403ing), and a superseded one is followed to
+  its replacement rather than read as failed, because `supersede` starts that
+  replacement in the same transaction and reporting it as failed would show a
+  failure while it works and waste a paid retry. The read does not check
+  `runsOnGpApi`: that variable picks the engine for the *next* run, and rolling
+  it back must not strand a row bound to an `AgentRun` (an `ExperimentRun` id
+  finds no `AgentRun`, so the lookup decides).
+- **No subagent fan-out.** The manifest has six researcher subagents; a gp-api
+  run is one conversation, so the prompt works the six categories in sequence.
+
 
 The relaxed pipeline chains: a completed collection persists rows then dispatches
 `race_opponent_summary`; a completed summary persists `RaceOpponentSummary` rows

@@ -16,6 +16,7 @@
 export const PREVIEW_AGENTS_ON_GP_API = [
   'meeting_schedule',
   'opposition_research',
+  'self_research',
   'top_community_issues',
   'trending_issues',
 ]

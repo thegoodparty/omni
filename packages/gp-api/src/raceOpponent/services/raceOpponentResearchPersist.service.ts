@@ -159,6 +159,53 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     }
   }
 
+  // The self_research agent's onArtifact (src/agents). Its run is an AgentRun,
+  // not an ExperimentRun, but the artifact, the validation and the replace are
+  // the PMF Engine's. onArtifact can run twice for one run, so a row already
+  // completed is done.
+  //
+  // The row is found by run id, or by the org's own campaign: start() creates
+  // the row before it dispatches and binds the run id after, so a run whose
+  // agent finishes inside that window would otherwise persist nothing.
+  async ingestAgentArtifact(
+    run: { runId: string; organizationSlug: string },
+    artifact: unknown,
+  ): Promise<void> {
+    const research = await this.model.findFirst({
+      where: {
+        kind: RaceOpponentFindingKind.self,
+        OR: [
+          { runId: run.runId },
+          { campaign: { organizationSlug: run.organizationSlug } },
+        ],
+      },
+      select: {
+        id: true,
+        campaignId: true,
+        status: true,
+        campaign: { select: { userId: true } },
+      },
+    })
+    if (!research || research.status === RaceOpponentResearchStatus.completed)
+      return
+
+    const envelope = ArtifactEnvelopeSchema.parse(artifact)
+    const findings = this.parseFindings(
+      run.runId,
+      RaceOpponentFindingKind.self,
+      envelope.findings,
+    )
+    const reachable = await this.dropUnreachable(findings)
+    await this.replaceFindings(research.id, reachable)
+    void this.analytics
+      .track(
+        research.campaign.userId,
+        EVENTS.RaceOpponent.SelfResearchCompleted,
+        { campaignId: research.campaignId, findingCount: reachable.length },
+      )
+      .catch(() => undefined)
+  }
+
   // Opponent findings just persisted; generate contrasts now so they are ready
   // when the candidate opens the page — nothing else triggers the engine. The
   // engine is idempotent (unique [campaignId, findingId]), so a replayed
