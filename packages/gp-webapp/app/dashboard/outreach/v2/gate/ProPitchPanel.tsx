@@ -26,7 +26,7 @@ import {
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import {
   PITCH_PANEL_COPY,
   PRO_COPY,
@@ -101,7 +101,7 @@ export const ProPitchPanel = ({
   const sellsClosedSms = channel === 'sms' && smsClosed
   const tint = CHANNEL_TINT[channel]
   const ChannelIcon = sellsClosedSms ? UsersIcon : CHANNEL_ICON[channel]
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
   const baseCopy = sellsClosedSms ? PRO_COPY_SMS_CLOSED : PRO_COPY[channel]
   const pitch = planPitch.enabled
     ? withPlanPriceBullet(baseCopy, planPitch)

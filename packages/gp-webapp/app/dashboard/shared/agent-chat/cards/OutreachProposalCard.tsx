@@ -13,7 +13,7 @@ import {
 } from './cardShell'
 import { proposalOutreachQueryOptions } from './cardQueries'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 import {
   PROPOSAL_CTA,
@@ -66,7 +66,7 @@ const ProposalChip = ({
 }: OutreachProposalCardProps) => {
   const flows = useProposalFlows()
   const mode = flows?.mode ?? 'serve'
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
   const { plan } = usePlan()
   const {
     data: sent,
