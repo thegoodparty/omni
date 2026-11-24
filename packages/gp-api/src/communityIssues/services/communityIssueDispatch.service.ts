@@ -30,6 +30,11 @@ import {
 
 const EXPERIMENT_TYPES = ['top_community_issues', 'trending_issues'] as const
 
+// The onboarding start's job name. Its key is the org slug, so a retry and the
+// tasks a burst lands on share one job, and a reader of the queue asks about
+// the same name and key (the priorities step's onboarding read).
+export const communityIssueOnboardingJobName = 'communityIssueOnboarding'
+
 type CommunityIssueExperimentType = (typeof EXPERIMENT_TYPES)[number]
 
 const LIST_FOR_EXPERIMENT_TYPE: Record<
@@ -112,7 +117,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
    * leave one job rather than one generation each.
    */
   async queueOnboardingStart(electedOffice: ElectedOffice): Promise<void> {
-    await this.jobs.sendMany('communityIssueOnboarding', [
+    await this.jobs.sendMany(communityIssueOnboardingJobName, [
       {
         data: { organizationSlug: electedOffice.organizationSlug },
         key: electedOffice.organizationSlug,

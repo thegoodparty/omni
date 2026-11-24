@@ -6,6 +6,9 @@ date: 2026-11-20
 code: ['#3949']
 scope:
   - packages/gp-api/src/communityIssues/**
+  - packages/gp-api/src/priorities/**
+  - packages/contracts/src/priorities/**
+  - packages/gp-webapp/app/serve/onboarding/**
 supersedes: []
 superseded_by:
 ---
@@ -20,6 +23,12 @@ answers `{ queued: true }`. The worker loads the elected office, writes the
 starter issues, then calls `onElectedOfficeCreated` to dispatch the full runs,
 exactly as the request used to. `starterIssueCount` is gone from the response:
 the route cannot report a count it has not produced yet, and no caller read it.
+
+The priorities read that already polls for late starter issues,
+`GET /v1/priorities/onboarding`, now also answers `searchPending`, the job's
+own state from the queue. The step keeps saying "searching" while that is
+true, so a job queued behind others is never read as a search that found
+nothing.
 
 ## Context
 
@@ -40,8 +49,8 @@ a burst landing on different tasks leave one job rather than one generation
 each. That key is what prevents a duplicate paid generation; nothing here
 throttles the work on top of it. The queue does set `concurrency: 15` per
 task, because the default of one slot would let a burst queue behind a 25 to
-55 second search and outlast the 60-second window the priorities step keeps
-its searching state open for.
+55 second search, leaving each official waiting on a search that has not
+started yet.
 
 ## Alternatives rejected
 
@@ -52,6 +61,11 @@ its searching state open for.
 - **Queue the search but keep `starterIssueCount`.** Any count in the response
   means the handler awaited the search, which is the wait being removed. The
   field was dead weight for the client.
+- **Keep deciding from a local timer.** A window counted on the client tells a
+  slow search, a queued one and a dead one apart from none: it fires "nothing
+  found" while the job is still out, and shows issues a moment later (lesson 3
+  of the `2026-11-03` robocall post-mortem). The queue knows, so the queue
+  answers.
 - **Fire and forget without a job.** No retry, no dead letter, no dedupe, and a
   request that dies mid-search loses the run silently.
 - **Do the search in the browser.** Puts the model vendor key in the client and

@@ -119,11 +119,6 @@ const campaignParty = async (
 const STARTER_ISSUES_WAIT_MS = 10_000
 const STARTER_ISSUES_POLL_MS = 4_000
 const STARTER_ISSUES_POLL_LIMIT_MS = 120_000
-// The start route queues the paid search and answers at once, so an empty list
-// on the step is the search still running, not the search having found nothing.
-// A real starter search takes 25 to 55 seconds; past this the empty list is the
-// honest reading and the official is told nothing was found.
-const STARTER_ISSUES_PENDING_MS = 60_000
 
 // Screens whose "Viewed" event fires once on view (in a useEffect). The two
 // selection screens (`inOffice`, `party`) are deliberately absent: their
@@ -211,19 +206,22 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   >(null)
   const [priorityLoadFailed, setPriorityLoadFailed] = useState(false)
   const [communityIssuesFailed, setCommunityIssuesFailed] = useState(false)
-  // When the queued starter-issue search was last asked for, null once the
-  // pending window closes: the step tells a search still running from one that
-  // finished empty, and a Try again gets a window of its own.
-  const [starterIssuesPendingSince, setStarterIssuesPendingSince] = useState<
-    number | null
-  >(null)
-  const starterIssuesPending = starterIssuesPendingSince !== null
+  // Whether the queued starter-issue search is still out, from the read's own
+  // `searchPending`: the queue is the only thing that knows the work is over,
+  // and a job stuck behind others looks the same to a timer as one that found
+  // nothing (the 2026-11-03 robocall post-mortem's lesson 3). A start sets it,
+  // and every read carries the queue's answer.
+  const [starterSearchPending, setStarterSearchPending] = useState(false)
   const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
     new Set(),
   )
   const [otherPrioritySelected, setOtherPrioritySelected] = useState(false)
   // When the priorities step stops checking for late starter issues.
   const starterIssuesPollUntilRef = useRef(0)
+  // A start's queue insert can land after the step's first read, which would
+  // report no job yet. Until the start settles, an empty queue is "on its way",
+  // not "nothing was found".
+  const communityIssuesStartSettledRef = useRef(true)
   const [otherPriorityTitle, setOtherPriorityTitle] = useState('')
   const [otherPriorityDescription, setOtherPriorityDescription] = useState('')
   const otherPriorityComplete =
@@ -491,6 +489,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         ])
         const res = await clientRequest('GET /v1/priorities/onboarding', {})
         if (cancelled) return
+        // The queue's own answer, so the step stops saying "searching" when
+        // the work is over rather than when a clock says it should be. Until
+        // the start request settles, no job is expected yet.
+        if (res.data.searchPending) setStarterSearchPending(true)
+        else if (communityIssuesStartSettledRef.current) {
+          setStarterSearchPending(false)
+        }
         setPriorityOptions(res.data.options)
         setSelectedPriorityKeys(
           new Set(res.data.options.filter((o) => o.selected).map((o) => o.key)),
@@ -513,27 +518,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     prioritiesEnteredAtRef.current ??= Date.now()
   }, [loading, step])
   // The queued search answers before it runs, so the step's first read lands
-  // before any starter issues exist. While it is still out, an empty list means
-  // "still looking": the step stays in its loading state and does not record
-  // the search as having found nothing. The window counts from entering the
-  // step, not from the start request: the start fires as soon as the office is
-  // saved, and the story and term-date steps in between can take longer than
-  // the window itself. A search started after that, such as Try again, counts
-  // from when it started.
-  useEffect(() => {
-    if (starterIssuesPendingSince === null || step !== 'priorities') return
-    const startedAt = Math.max(
-      starterIssuesPendingSince,
-      prioritiesEnteredAtRef.current ?? 0,
-    )
-    const timer = setTimeout(
-      () => setStarterIssuesPendingSince(null),
-      Math.max(0, startedAt + STARTER_ISSUES_PENDING_MS - Date.now()),
-    )
-    return () => clearTimeout(timer)
-  }, [starterIssuesPendingSince, step])
+  // before any starter issues exist. While the queue still has the job, an
+  // empty list means "still looking": the step stays in its loading state and
+  // does not record the search as having found nothing, however long the job
+  // waits. The queue clears it, not a window counted from the step.
   const waitingForStarterIssues =
-    starterIssuesPending &&
+    starterSearchPending &&
     step === 'priorities' &&
     priorityOptions !== null &&
     priorityOptions.length === 0 &&
@@ -602,6 +592,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       try {
         const res = await clientRequest('GET /v1/priorities/onboarding', {})
         if (cancelled) return
+        if (res.data.searchPending) setStarterSearchPending(true)
+        else if (communityIssuesStartSettledRef.current) {
+          setStarterSearchPending(false)
+        }
         const community = res.data.options.filter(
           (option) => option.kind === 'community',
         )
@@ -774,7 +768,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const communityIssuesFailedRef = useRef(false)
   const startCommunityIssues = (): Promise<void> => {
     if (communityIssuesStartRef.current) return communityIssuesStartRef.current
-    setStarterIssuesPendingSince(Date.now())
+    setStarterSearchPending(true)
+    communityIssuesStartSettledRef.current = false
     const post = () => clientRequest('POST /v1/community-issues/onboarding', {})
     const started = post()
       .catch(post)
@@ -783,6 +778,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         reportClientError(err, { context: 'serveOnboarding.communityIssues' })
         communityIssuesFailedRef.current = true
         setCommunityIssuesFailed(true)
+      })
+      .finally(() => {
+        communityIssuesStartSettledRef.current = true
       })
     communityIssuesStartRef.current = started
     return started

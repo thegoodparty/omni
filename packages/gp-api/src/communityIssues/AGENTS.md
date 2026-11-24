@@ -85,12 +85,15 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   browser gave up on the fetch first, then retried into the same handler; the
   priorities step's own poll of `GET /v1/priorities/onboarding` (two minutes)
   is what shows starter issues that land after the list first loads, so it
-  needs no count from this route. The job is keyed by org slug, so a client
-  that retries and the tasks a burst lands on queue one job, not one paid
-  generation each; that key is what prevents a duplicate generation, not a
-  concurrency limit. The queue does run 15 of them per task, since one slot
-  would queue a burst behind a 25 to 55 second search and outlast the
-  priorities step's 60-second searching window. Onboarding creates the
+  needs no count from this route. That read also answers `searchPending`, the
+  job's own state (a `JobsService.isJobPending` on the org-slug key), so the
+  step says "searching" for as long as the queue still has the work and only
+  reports nothing found once the job is over, however long it waited. The job
+  is keyed by org slug, so a client that retries and the tasks a burst lands
+  on queue one job, not one paid generation each; that key is what prevents a
+  duplicate generation, not a concurrency limit. The queue does run 15 of them
+  per task, since one slot would queue every burst behind a 25 to 55 second
+  search while each official waits. Onboarding creates the
   office before it has a position, so the create-time dispatch finds no serve
   context and skips; with the flag on, this is the dispatch that actually
   fires for those users.

@@ -374,17 +374,17 @@ export const JOBS = {
     schema: z.object({ organizationSlug: z.string().min(1) }),
     worker: (job, { get }) =>
       get(CommunityIssueDispatchService).startOnboarding(job),
-    // The step stops saying "searching" 60 seconds after the official reaches
-    // it, and the search takes 25 to 55 of those, so a job can wait about 5 to
-    // 35 seconds to start before the user is told nothing was found. Queues
-    // are reported and wait pressure sampled once a minute, so this pages and
-    // scales out within a minute of a job waiting half a minute: it protects
-    // the next users in a burst, not the first one it catches.
+    // The step keeps saying "searching" until this job is done, so a job
+    // waiting is an official waiting, not one already told nothing was found.
+    // Queues are reported and wait pressure sampled once a minute, so a job
+    // that waits half a minute pages and starts scaling out within that
+    // minute: it protects the officials behind it in a burst, while the one
+    // already waiting is the reason it fires.
     alertAfterWaitingMinutes: 0.5,
-    // Each job holds its slot for a 25 to 55 second search, and the step only
-    // waits 60 seconds before saying nothing was found, so the default one
-    // slot per task would queue a burst past that window. The org-slug key is
-    // what prevents a duplicate paid generation, so no cap on top of this.
+    // Each job holds its slot for a 25 to 55 second search, so the default
+    // one slot per task would queue a burst behind those searches. The
+    // org-slug key is what prevents a duplicate paid generation, so no cap on
+    // top of this.
     concurrency: 15,
   }),
   ordinanceRefreshDispatch: defineJob({

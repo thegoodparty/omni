@@ -10,6 +10,8 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { communityIssueOnboardingJobName } from '@/communityIssues/services/communityIssueDispatch.service'
+import { JobsService } from '@/jobs/jobs.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import type { SegmentTrackEventProperties } from 'src/vendors/segment/segment.types'
 import {
@@ -35,6 +37,7 @@ export class PriorityOnboardingService extends createPrismaBase(
   constructor(
     private readonly priorities: PrioritiesService,
     private readonly analytics: AnalyticsService,
+    private readonly jobs: JobsService,
   ) {
     super()
   }
@@ -121,6 +124,19 @@ export class PriorityOnboardingService extends createPrismaBase(
       }))
 
     return [...ranOn, ...community, ...other]
+  }
+
+  /**
+   * Whether the queued starter-issue search for this office is still waiting
+   * or running, so the onboarding step can say "searching" until the queue
+   * says the work is over. Same job name and org-slug key
+   * CommunityIssueDispatchService.queueOnboardingStart sends.
+   */
+  async searchPending(office: OfficeRef): Promise<boolean> {
+    return this.jobs.isJobPending(
+      communityIssueOnboardingJobName,
+      office.organizationSlug,
+    )
   }
 
   // Campaign issues are never touched here: they carry over regardless of

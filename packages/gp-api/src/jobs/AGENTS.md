@@ -104,6 +104,10 @@ await this.jobs.sendMany(
   a retry fills in the rest.
 - `group` per item works as on `send()`. One `jobs sent` log line per call,
   with the count and chunk count, not each payload.
+- `isJobPending(name, key)` answers whether that key's job is still waiting or
+  running, for a route that has to tell work in flight from work that is over
+  (`GET /v1/priorities/onboarding`'s `searchPending`). A job that is gone is
+  over as well: completed, or out of attempts.
 
 ## Schedules
 

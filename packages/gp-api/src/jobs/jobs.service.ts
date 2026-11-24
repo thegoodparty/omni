@@ -130,6 +130,12 @@ const RETIRED_QUEUES = ['jobsLoadTest', 'campaignPlanComplete']
 // this namespace, so the same key always maps to the same id.
 const SEND_MANY_ID_NAMESPACE = '42bdefc4-b9f4-4820-817b-03f15259366a'
 const SEND_MANY_CHUNK_SIZE = 1000
+const sendManyJobId = (name: string, key: string): string =>
+  uuidv5(`${name}:${key}`, SEND_MANY_ID_NAMESPACE)
+
+// pg-boss states of a job that has not finished: waiting for a worker,
+// waiting for its retry, or running.
+const UNFINISHED_JOB_STATES = new Set(['created', 'retry', 'active'])
 
 export type JobSendOptions = {
   // Jobs in one group run one at a time, in send order. Without one the job
@@ -346,7 +352,7 @@ export class JobsService
   ): Promise<string[]> {
     const { schema, maxConcurrent } = this.definitionOf(name)
     const jobs = items.map((item) => {
-      const id = uuidv5(`${name}:${item.key}`, SEND_MANY_ID_NAMESPACE)
+      const id = sendManyJobId(name, item.key)
       return {
         id,
         data: schema.parse(item.data),
@@ -374,6 +380,19 @@ export class JobsService
       'jobs sent',
     )
     return jobs.map((job) => job.id)
+  }
+
+  /**
+   * Whether the job sendMany() queued under this key is still waiting or
+   * running. The key names the job, so a reader can ask about it without
+   * keeping the id. A finished job is deleted a minute after it settles, so a
+   * job that is gone is over as well: completed, or out of attempts.
+   */
+  async isJobPending(name: JobName, key: string): Promise<boolean> {
+    const [job] = await this.boss.findJobs(name, {
+      id: sendManyJobId(name, key),
+    })
+    return job !== undefined && UNFINISHED_JOB_STATES.has(job.state)
   }
 
   /**

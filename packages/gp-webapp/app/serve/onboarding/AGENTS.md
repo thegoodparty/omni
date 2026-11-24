@@ -127,17 +127,20 @@ answers before it runs, so that call returning tells the step nothing about
 whether issues exist. The step waits 10 seconds for it, then reads
 `GET /v1/priorities/onboarding` once and polls it every 4 seconds for up to 120
 (a real starter search takes 25 to 55 seconds). A failed start retries once on
-its own. Because the read lands before the queued search can have written
-anything, an empty list is treated as the search still running, not as nothing
-found, for 60 seconds after the start was asked for (`starterIssuesPending`):
-so the step has four list states. "Finding issues in your community" while the
-list loads or that window is open (Continue stays available, so nobody is
-held on the step), "We couldn't load issues for your area" with Try again when
-the search failed twice (Other and skip stay available), the "couldn't find
-issues" empty line once the search finished with nothing (the only state that
-fires Priorities Errored `none_found`, which also waits out the window), and
-the list itself. Priorities Viewed waits for the window to close too, so
-`loadMs` measures the real wait.
+its own. That read is also where the step learns whether the search is over:
+the queue is the only thing that knows, so every read's `searchPending` sets
+`starterSearchPending` (true on a start, cleared when the job is gone from the
+queue) and no local window decides. Because the first read lands before the
+queued search can have written anything, an empty list while `searchPending`
+is true is the search still running, not nothing found, however long the job
+waits. So the step has four list states. "Finding issues in your community"
+while the list loads or the search is still out (Continue stays available, so
+nobody is held on the step), "We couldn't load issues for your area" with Try
+again when the search failed twice (Other and skip stay available), the
+"couldn't find issues" empty line once the queue reports the search over with
+nothing (the only state that fires Priorities Errored `none_found`), and the
+list itself. Priorities Viewed waits for the search to settle too, so `loadMs`
+measures the real wait.
 
 ## The district story
 

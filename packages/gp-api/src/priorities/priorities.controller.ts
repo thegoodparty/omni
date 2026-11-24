@@ -104,7 +104,11 @@ export class PrioritiesController {
   @Get('onboarding')
   @ResponseSchema(OnboardingPriorityOptionsSchema)
   async onboardingOptions(@ReqElectedOffice() electedOffice: ElectedOffice) {
-    return { options: await this.onboarding.options(electedOffice) }
+    const [options, searchPending] = await Promise.all([
+      this.onboarding.options(electedOffice),
+      this.onboarding.searchPending(electedOffice),
+    ])
+    return { options, searchPending }
   }
 
   @Put('onboarding')
