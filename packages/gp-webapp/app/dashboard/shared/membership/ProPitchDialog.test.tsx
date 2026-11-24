@@ -230,7 +230,7 @@ describe('ProPitchDialog', () => {
   })
 
   describe('with win_per_campaign_pricing on', () => {
-    const renderPitch = (registeredVoters?: number, raceSizePitch = false) =>
+    const renderPitch = (registeredVoters?: number) =>
       render(
         <CampaignContext.Provider
           value={[
@@ -244,7 +244,6 @@ describe('ProPitchDialog', () => {
             channel="generic"
             open
             onOpenChange={vi.fn()}
-            raceSizePitch={raceSizePitch}
           />
         </CampaignContext.Provider>,
       )
@@ -309,53 +308,6 @@ describe('ProPitchDialog', () => {
 
       expect(router.push).toHaveBeenCalledWith(
         expect.stringMatching(/[?&]plan=pro(&|$)/),
-      )
-    })
-
-    it('pitches Team above the voter threshold with its badge and login row first', () => {
-      mockPlanFlag.enabled = true
-      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1, true)
-
-      expect(
-        screen.getByText('Join Team to unlock voter data and outreach'),
-      ).toBeInTheDocument()
-      expect(screen.getByText('$399')).toBeInTheDocument()
-      expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
-      expect(screen.queryByLabelText('PRO')).toBeNull()
-      expect(screen.getAllByRole('listitem')[0]).toHaveTextContent(
-        'Logins for your team',
-      )
-      expect(
-        screen.getByRole('button', { name: 'Join Team for $399' }),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('link', { name: 'See all plans' }),
-      ).toHaveAttribute('href', '/dashboard/plans?highlight=team')
-    })
-
-    it('carries the pitched Team plan into the wizard, so it sells what the dialog showed', async () => {
-      mockPlanFlag.enabled = true
-      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1, true)
-
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Join Team for $399' }),
-      )
-
-      expect(router.push).toHaveBeenCalledWith(
-        expect.stringMatching(/[?&]plan=team(&|$)/),
-      )
-    })
-
-    it('keeps the cta attribution as the plan name', async () => {
-      mockPlanFlag.enabled = true
-      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1, true)
-
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Join Team for $399' }),
-      )
-
-      expect(router.push).toHaveBeenCalledWith(
-        expect.stringMatching(/[?&]cta=Join\+Team(&|$)/),
       )
     })
 

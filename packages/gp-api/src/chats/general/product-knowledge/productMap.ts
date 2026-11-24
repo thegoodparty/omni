@@ -296,8 +296,9 @@ const WIN_AREAS: ProductArea[] = [
     ],
   },
   {
-    // No tab: reached from "See all plans" in the Pro and Team pitches. Only
-    // exists while the per-campaign pricing flag is on.
+    // No tab: reached from the sidebar banner, the phone top bar's Upgrade
+    // chip, the Account page, and "See all plans" in the Pro and Team pitches.
+    // Only exists while the per-campaign pricing flag is on.
     navId: null,
     name: 'Plans',
     path: '/dashboard/plans',
@@ -312,7 +313,7 @@ const WIN_AREAS: ProductArea[] = [
       'The current plan is marked, and its button is off',
       'Pro and Team each have a button that starts the upgrade. A Pro campaign pays only the difference to join Team',
     ],
-    gate: 'No tab. Reached from See all plans in a Pro or Team pitch, and only for campaigns on per-campaign pricing.',
+    gate: 'No tab. Reached from the Upgrade banner in the left rail, the Upgrade chip in the phone top bar, the Account page, and See all plans in a Pro or Team pitch. Only for campaigns on per-campaign pricing.',
   },
   {
     // No tab: candidates reach this from the membership status shown at the

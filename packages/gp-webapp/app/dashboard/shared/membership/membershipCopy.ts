@@ -25,10 +25,12 @@ export const MEMBERSHIP_COPY = {
     },
   },
   chip: {
-    // The free chip reads as three inline parts so the Pro badge sits between
-    // the words rather than leading them: "Join [PRO] for $10/mo".
+    // Flag off: the free chip reads as three inline parts so the Pro badge sits
+    // between the words rather than leading them: "Join [PRO] for $10/mo".
     joinLead: 'Join',
     joinTail: 'for $10/mo',
+    // Flag on: one generic label for Pro and Team races, with an arrow.
+    upgrade: 'Upgrade',
     needsVerification: 'Verification needed',
     inReview: 'Verification in review',
     awaitingPin: 'Enter your PIN',
@@ -90,19 +92,14 @@ export const membershipPlanCopy = (
   pitch: PlanPitch,
 ): {
   bannerFree: { body: string; cta: string }
-  chipJoinTail: string
   pitchTitle: string
   pitchPill: string
   pitchJoin: string
 } => ({
   bannerFree: {
-    body:
-      pitch.plan === 'team'
-        ? `Unlock voter data and outreach for your whole team for ${pitch.price}. Good for your whole campaign.`
-        : `Unlock voter data and outreach with ${pitch.name} for ${pitch.price}. Good for your whole campaign.`,
+    body: `Unlock voter data and outreach for ${pitch.price} a race.`,
     cta: MEMBERSHIP_COPY.banner.free.cta,
   },
-  chipJoinTail: `for ${pitch.price}`,
   pitchTitle: `Join ${pitch.name} to unlock voter data and outreach`,
   pitchPill: `${pitch.price}, one payment for your whole campaign`,
   pitchJoin: `Join ${pitch.name} for ${pitch.price}`,
