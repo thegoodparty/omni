@@ -111,7 +111,8 @@ describe('org switch clears the query cache', () => {
   // mounts on the new org must not find the previous org's conversation list
   // waiting in the cache, because it reads it synchronously and tries to
   // resume a conversation it does not own.
-  it('does not leave an unmounted consumer the previous org\u2019s data to read', async () => {    const fetcher = vi.fn(async () => [{ conversationId: `c-${orgCookie}` }])
+  it('does not leave an unmounted consumer the previous org\u2019s data to read', async () => {
+    const fetcher = vi.fn(async () => [{ conversationId: `c-${orgCookie}` }])
     const historyKey = ['campaign-manager', 'chat-history']
 
     const ChatDock = () => {
