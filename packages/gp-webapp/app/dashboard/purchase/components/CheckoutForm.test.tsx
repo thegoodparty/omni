@@ -279,6 +279,33 @@ describe('CheckoutForm', () => {
       expect(onSuccess).not.toHaveBeenCalled()
     })
 
+    it('ignores a wallet tap while a payment is already in flight', async () => {
+      let release: (v: unknown) => void = vi.fn()
+      confirmMock.mockReturnValueOnce(
+        new Promise((resolve) => {
+          release = resolve
+        }),
+      )
+      const onSuccess = vi.fn()
+      const event = { paymentFailed: vi.fn(), expressPaymentType: 'apple_pay' }
+      render(
+        <CheckoutForm
+          onSuccess={onSuccess}
+          sessionId="cs_one_time"
+          walletsAndAccordion
+        />,
+      )
+
+      clickSubmit()
+      await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+      act(() => expressProps.current?.onConfirm(event))
+
+      expect(event.paymentFailed).toHaveBeenCalledWith({ reason: 'fail' })
+      expect(confirmMock).toHaveBeenCalledTimes(1)
+      release({ type: 'success' })
+      await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+    })
+
     it('drops the promo box when the host draws the promo link', () => {
       render(
         <CheckoutForm

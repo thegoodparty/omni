@@ -264,6 +264,13 @@ function CheckoutFormContent({
   const handleExpressConfirm = (
     event: StripeExpressCheckoutElementConfirmEvent,
   ) => {
+    // A wallet tap mid-confirm would start a second confirm on the session,
+    // and after a confirmed payment it would re-run fulfillment. Close the
+    // sheet instead.
+    if (mutation.isPending || hasConfirmedPayment) {
+      event.paymentFailed({ reason: 'fail' })
+      return
+    }
     setSubmitError(null)
     mutation.mutate(event)
   }

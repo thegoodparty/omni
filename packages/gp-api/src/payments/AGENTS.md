@@ -4,22 +4,22 @@ Stripe-backed payments. Two controllers, both mounted under `/payments`:
 
 - `payments.controller.ts` — `POST /payments/events` (Stripe webhook receiver) and `PATCH /payments/fix-missing-customer-id` (admin maintenance).
 - `purchase.controller.ts` — checkout flows under `/payments/purchase/*`: create/complete Stripe Custom Checkout sessions, billing-portal redirects, and free-purchase fast paths. This is the entry point external callers (websites, outreach, polls) use.
-  One-time custom sessions pin `payment_method_types` to card / Amazon Pay (`PLAN` sessions are card and Afterpay, no Amazon Pay, per the Nov 23 checkout design; Afterpay confirmed Nov 18, and open an invoice and a Stripe Customer) and Pro subscription sessions to card — Stripe's automatic set would add BNPL options (Klarna, Affirm) that are off-brand for campaign charges (product call, Aug 2026), and US bank debit was dropped from both 2026-09-22 because it settles days after checkout (see "Draft-first outreach fulfillment").
+  One-time custom sessions pin `payment_method_types` to card / Amazon Pay (`PLAN` sessions are card and Afterpay instead, with no Amazon Pay per the Nov 23 checkout design; Afterpay was confirmed Nov 18. They also open an invoice and a Stripe Customer) and Pro subscription sessions to card — Stripe's automatic set would add BNPL options (Klarna, Affirm) that are off-brand for campaign charges (product call, Aug 2026), and US bank debit was dropped from both 2026-09-22 because it settles days after checkout (see "Draft-first outreach fulfillment").
 
 `PurchaseService` orchestrates a typed purchase → checkout session → fulfillment flow. `PaymentsService` is a thinner Stripe wrapper used internally; rarely the right place to start.
 
 ## Key files
 
-| Path                               | Purpose                                                                                                                                        |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `payments.module.ts`               | Wires controllers + services; `forwardRef(() => CampaignsModule)`, depends on `StripeModule`, `UsersModule`                                    |
-| `payments.controller.ts`           | Stripe webhook + admin `fix-missing-customer-id` endpoint                                                                                      |
+| Path                               | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `payments.module.ts`               | Wires controllers + services; `forwardRef(() => CampaignsModule)`, depends on `StripeModule`, `UsersModule`                                                                                                                                                                                                                                                                                                                               |
+| `payments.controller.ts`           | Stripe webhook + admin `fix-missing-customer-id` endpoint                                                                                                                                                                                                                                                                                                                                                                                 |
 | `purchase.controller.ts`           | `POST /payments/purchase/checkout-session`, `portal-session`, `create-checkout-session`, `complete-checkout-session`, `complete-free-purchase`; `GET /payments/purchase/pro-receipt` and `plan-receipt` (both `@OwnerOnly()`: 403 for a manager or volunteer, since they carry the owner's card; the Pro subscription's latest paid invoice, read live from Stripe, 404 until the completion webhook has stored `details.subscriptionId`) |
-| `services/payments.service.ts`     | `createPayment`/`retrievePayment` over Stripe PaymentIntents; customer-id backfill (`@Timeout(0)` on boot + admin endpoint)                    |
-| `services/purchase.service.ts`     | Per-`PurchaseType` validation, amount calc, post-purchase handlers                                                                             |
-| `services/paymentEventsService.ts` | Stripe webhook event dispatcher (subscriptions, invoices, charges)                                                                             |
-| `payments.types.ts`                | `PaymentType`, `PaymentIntentPayload<T>`                                                                                                       |
-| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `SERVE_TEXT`, `POLL`, `PLAN`) and per-type DTOs                                                    |
+| `services/payments.service.ts`     | `createPayment`/`retrievePayment` over Stripe PaymentIntents; customer-id backfill (`@Timeout(0)` on boot + admin endpoint)                                                                                                                                                                                                                                                                                                               |
+| `services/purchase.service.ts`     | Per-`PurchaseType` validation, amount calc, post-purchase handlers                                                                                                                                                                                                                                                                                                                                                                        |
+| `services/paymentEventsService.ts` | Stripe webhook event dispatcher (subscriptions, invoices, charges)                                                                                                                                                                                                                                                                                                                                                                        |
+| `payments.types.ts`                | `PaymentType`, `PaymentIntentPayload<T>`                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `SERVE_TEXT`, `POLL`, `PLAN`) and per-type DTOs                                                                                                                                                                                                                                                                                                                                       |
 
 Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suffix — historical, leave it.
 
@@ -165,13 +165,13 @@ same rows, raising one alert per attempt.
 Five conditions hide behind one lookup miss; only one is harmless, and only one
 is worth retrying:
 
-| Subscription status | Account resolution | Log | Why |
-| --- | --- | --- | --- |
-| any, **created < 10 min ago** | not attempted | `warn` + **503** | The only miss redelivery can fix. `checkout.session.completed` / `customer.subscription.created` write `details.subscriptionId`, and Stripe delivers a subscription's sibling events concurrently with that write, so a fresh subscription may be unlinked rather than orphaned. The window closes on its own — a genuine orphan falls through to the rows below on a later attempt. |
-| billable — `active`, `trialing`, `past_due`, `unpaid`, `incomplete`, `paused` | not attempted | `error` — "still billable" | Someone is being charged with no campaign carrying their sub id. `UsersService.deleteUser` cancels before deleting, so this can never be deletion residue. Repair as ENG-10771. |
-| `canceled` / `incomplete_expired` | `meta_data.customerId` hits a live user | `error` — "cancellation was never applied" | The de-Pro never ran, so the campaign may still be Pro — or its sub id was orphaned by a duplicate checkout (ENG-11084). Money stopped, fulfillment did not follow. |
-| `canceled` / `incomplete_expired` | stored id misses, but the **email on the billing Stripe customer** hits a live user | `error` — "by the email on its Stripe customer", with `matchedBy` and the disagreeing `storedCustomerId` | Same cost as the row above, reached by weaker evidence. A stored customer id that disagrees with the one billing is itself the ENG-11084 signature. |
-| `canceled` / `incomplete_expired` | neither resolves, or the user is `metaData.isDeleted` | `warn` — "consistent with account deletion" | Account deletion removes campaign and user together and cancels Stripe afterwards, so the event lands with nothing left to un-Pro. No redelivery and no human can act. |
+| Subscription status                                                           | Account resolution                                                                  | Log                                                                                                      | Why                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| any, **created < 10 min ago**                                                 | not attempted                                                                       | `warn` + **503**                                                                                         | The only miss redelivery can fix. `checkout.session.completed` / `customer.subscription.created` write `details.subscriptionId`, and Stripe delivers a subscription's sibling events concurrently with that write, so a fresh subscription may be unlinked rather than orphaned. The window closes on its own — a genuine orphan falls through to the rows below on a later attempt. |
+| billable — `active`, `trialing`, `past_due`, `unpaid`, `incomplete`, `paused` | not attempted                                                                       | `error` — "still billable"                                                                               | Someone is being charged with no campaign carrying their sub id. `UsersService.deleteUser` cancels before deleting, so this can never be deletion residue. Repair as ENG-10771.                                                                                                                                                                                                      |
+| `canceled` / `incomplete_expired`                                             | `meta_data.customerId` hits a live user                                             | `error` — "cancellation was never applied"                                                               | The de-Pro never ran, so the campaign may still be Pro — or its sub id was orphaned by a duplicate checkout (ENG-11084). Money stopped, fulfillment did not follow.                                                                                                                                                                                                                  |
+| `canceled` / `incomplete_expired`                                             | stored id misses, but the **email on the billing Stripe customer** hits a live user | `error` — "by the email on its Stripe customer", with `matchedBy` and the disagreeing `storedCustomerId` | Same cost as the row above, reached by weaker evidence. A stored customer id that disagrees with the one billing is itself the ENG-11084 signature.                                                                                                                                                                                                                                  |
+| `canceled` / `incomplete_expired`                                             | neither resolves, or the user is `metaData.isDeleted`                               | `warn` — "consistent with account deletion"                                                              | Account deletion removes campaign and user together and cancels Stripe afterwards, so the event lands with nothing left to un-Pro. No redelivery and no human can act.                                                                                                                                                                                                               |
 
 Status is the discriminator that carries the most weight: a subscription that
 can still bill is never the residue of an account deletion.
@@ -220,14 +220,14 @@ the divergence itself. It is strictly read-only (GETs and SELECTs; it refuses to
 put any other verb on the wire) and reports six drift classes that map onto the
 recipes here:
 
-| Class                | Shape                                                   | Recipe                                       |
-| -------------------- | ------------------------------------------------------- | -------------------------------------------- |
+| Class                | Shape                                                   | Recipe                                        |
+| -------------------- | ------------------------------------------------------- | --------------------------------------------- |
 | `DUPLICATE_BY_EMAIL` | >1 customer record under one email, >1 sub between them | "Charged twice", below, plus a customer merge |
-| `ORPHANED_ACTIVE`    | Billing at Stripe, no campaign holds the id             | Re-link by `metadata.userId`, else refund    |
-| `DUPLICATE`          | One customer, >1 non-canceled Pro sub                   | "Charged twice", below                       |
-| `MISMATCH`           | Stored `subscriptionId` belongs to another customer     | Fix `customerId`; subs can't be reparented   |
-| `STALE_PRO`          | `isPro` with no live subscription behind it             | "Cancelled Pro but Stripe kept billing"      |
-| `ORPHANED_CANCELED`  | Not collecting, no campaign — usually account deletion  | None; read `cancellation_details.reason`     |
+| `ORPHANED_ACTIVE`    | Billing at Stripe, no campaign holds the id             | Re-link by `metadata.userId`, else refund     |
+| `DUPLICATE`          | One customer, >1 non-canceled Pro sub                   | "Charged twice", below                        |
+| `MISMATCH`           | Stored `subscriptionId` belongs to another customer     | Fix `customerId`; subs can't be reparented    |
+| `STALE_PRO`          | `isPro` with no live subscription behind it             | "Cancelled Pro but Stripe kept billing"       |
+| `ORPHANED_CANCELED`  | Not collecting, no campaign — usually account deletion  | None; read `cancellation_details.reason`      |
 
 `npx tsx scripts/stripe-campaign-reconcile.ts` (add `--json` to pipe it). Full
 operator procedure, including which credentials to use and what remediation each
@@ -273,10 +273,10 @@ other in Stripe. Refunds can be blocked on insufficient Stripe available
 balance — retry later.
 
 **Before repairing one of these, look for the sibling subscription.** The
-orphan is usually *not* the one the campaign carries: the duplicate checkout
+orphan is usually _not_ the one the campaign carries: the duplicate checkout
 mints a second Stripe customer, the campaign ends up correctly linked to one of
 the pair, and the other bills invisibly. So cancelling the subscription a
-campaign *does* carry de-Pros a paying customer, which is the ENG-10771
+campaign _does_ carry de-Pros a paying customer, which is the ENG-10771
 incident itself. Establish which is which first —
 `SELECT id, is_pro, details->>'subscriptionId' FROM campaign WHERE
 details->>'subscriptionId' = '<sub_id>'`; an empty result is what makes it an
@@ -295,7 +295,7 @@ needs temporary admin from `/breakglass` in Slack, approved in
 `is_pro` is still true: the row contradicts itself, because
 `customerSubscriptionDeletedHandler` both stamps `subscriptionCanceledAt` (via
 its own `patchCampaignDetails` call) and sets `isPro = false` (via
-`persistCampaignProCancellation`, which does *not* write the stamp itself). It
+`persistCampaignProCancellation`, which does _not_ write the stamp itself). It
 cannot distinguish a comped campaign — nothing in the schema records a comp —
 so treat the output as triage input, never as an input to a write.
 
