@@ -1,4 +1,5 @@
 'use client'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { useNextTaskExperienceFlag } from '@shared/experiments/nextTaskExperienceFlag'
 import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -281,6 +282,7 @@ const MobileMenuTrigger = () => {
   // isReady so a Win user never flashes "Constituents" during load.
   const { isWin, isReady } = useWinVoterContext()
   const { enabled: nextTaskExperience } = useNextTaskExperienceFlag(false)
+  const { enabled: sentenceCase } = useWinPerCampaignPricingFlag(false)
   const pageTitle =
     pathname && isContactsPath(pathname)
       ? isReady
@@ -292,7 +294,9 @@ const MobileMenuTrigger = () => {
             ? NAV_LABELS.voterOutreach
             : NAV_LABELS.constituentOutreach
           : null
-        : getMobilePageTitle(pathname, nextTaskExperience)
+        : pathname === '/dashboard/account' && sentenceCase
+          ? 'Account settings'
+          : getMobilePageTitle(pathname, nextTaskExperience)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">

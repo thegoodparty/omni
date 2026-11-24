@@ -8,6 +8,7 @@ import ProUpgrade3Compliance from 'app/dashboard/profile/texting-compliance-agen
 import { Campaign, User } from 'helpers/types'
 import { PersonalInformationCard } from './PersonalInformationCard'
 import { AccountInformationCard } from './AccountInformationCard'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import DeleteAccountPage from './DeleteAccountPage'
 
 interface AccountProfilePageProps {
@@ -27,11 +28,12 @@ const AccountProfilePage = ({
 }: AccountProfilePageProps): React.JSX.Element => {
   const organization = useOrganization()
   const isElectedOffice = !!organization?.electedOfficeId
+  const { enabled: sentenceCase } = useWinPerCampaignPricingFlag(false)
 
   return (
     <DashboardLayout pathname="/dashboard/account" wrapperClassName="!p-0">
       <DashboardPageHeader
-        title="Account Settings"
+        title={sentenceCase ? 'Account settings' : 'Account Settings'}
         description="Manage your account settings and configuration."
       />
 
@@ -41,8 +43,12 @@ const AccountProfilePage = ({
             user={user}
             title={
               !isElectedOffice && campaign
-                ? 'Candidate Information'
-                : 'Personal Information'
+                ? sentenceCase
+                  ? 'Candidate information'
+                  : 'Candidate Information'
+                : sentenceCase
+                  ? 'Personal information'
+                  : 'Personal Information'
             }
           />
 
