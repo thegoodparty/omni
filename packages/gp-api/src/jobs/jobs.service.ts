@@ -21,6 +21,7 @@ import {
   fromPrisma,
   PgBoss,
   type JobSpyInterface,
+  type JobWithMetadata,
   type PrismaTransactionLike,
   type WorkOptions,
 } from 'pg-boss'
@@ -133,9 +134,7 @@ const SEND_MANY_CHUNK_SIZE = 1000
 const sendManyJobId = (name: string, key: string): string =>
   uuidv5(`${name}:${key}`, SEND_MANY_ID_NAMESPACE)
 
-// pg-boss states of a job that has not finished: waiting for a worker,
-// waiting for its retry, or running.
-const UNFINISHED_JOB_STATES = new Set(['created', 'retry', 'active'])
+export type JobState = JobWithMetadata['state']
 
 export type JobSendOptions = {
   // Jobs in one group run one at a time, in send order. Without one the job
@@ -383,16 +382,17 @@ export class JobsService
   }
 
   /**
-   * Whether the job sendMany() queued under this key is still waiting or
-   * running. The key names the job, so a reader can ask about it without
-   * keeping the id. A finished job is deleted a minute after it settles, so a
-   * job that is gone is over as well: completed, or out of attempts.
+   * The pg-boss state of the job sendMany() queued under this key, or null
+   * when there is no such row. The key names the job, so a reader can ask
+   * about it without keeping the id. This reports the row as it is: a null
+   * can mean the job never existed, or that pg-boss deleted it after it
+   * settled, and the state alone does not say how a settled job ended.
    */
-  async isJobPending(name: JobName, key: string): Promise<boolean> {
+  async getJobState(name: JobName, key: string): Promise<JobState | null> {
     const [job] = await this.boss.findJobs(name, {
       id: sendManyJobId(name, key),
     })
-    return job !== undefined && UNFINISHED_JOB_STATES.has(job.state)
+    return job?.state ?? null
   }
 
   /**

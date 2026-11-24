@@ -114,6 +114,32 @@ describe('serve onboarding priorities', () => {
     expect(over.data.searchPending).toBe(false)
   })
 
+  it.each([
+    ['created', true],
+    ['retry', true],
+    ['active', true],
+    ['completed', false],
+    ['failed', false],
+    ['cancelled', false],
+  ])('reads a %s search as pending=%s', async (state, pending) => {
+    const electedOffice = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { id: eoId },
+    })
+    await service.app
+      .get(CommunityIssueDispatchService)
+      .queueOnboardingStart(electedOffice)
+    await service.prisma.$executeRawUnsafe(
+      `UPDATE pgboss.job SET state = '${state}'::pgboss.job_state WHERE name = 'communityIssueOnboarding'`,
+    )
+
+    const res = await service.client.get<OnboardingPriorityOptions>(
+      PATH,
+      eoHeaders(),
+    )
+
+    expect(res.data.searchPending).toBe(pending)
+  })
+
   it('saves the picked issues and keeps every campaign issue', async () => {
     await service.prisma.priority.create({
       data: {

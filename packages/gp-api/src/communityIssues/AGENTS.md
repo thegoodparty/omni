@@ -86,7 +86,7 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   priorities step's own poll of `GET /v1/priorities/onboarding` (two minutes)
   is what shows starter issues that land after the list first loads, so it
   needs no count from this route. That read also answers `searchPending`, the
-  job's own state (a `JobsService.isJobPending` on the org-slug key), so the
+  job's own state (`JobsService.getJobState` on the org-slug key, read by the priorities service as waiting, retrying or running), so the
   step says "searching" for as long as the queue still has the work and only
   reports nothing found once the job is over, however long it waited. The job
   is keyed by org slug, so a client that retries and the tasks a burst lands

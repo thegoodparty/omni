@@ -127,16 +127,19 @@ export class PriorityOnboardingService extends createPrismaBase(
   }
 
   /**
-   * Whether the queued starter-issue search for this office is still waiting
-   * or running, so the onboarding step can say "searching" until the queue
-   * says the work is over. Same job name and org-slug key
-   * CommunityIssueDispatchService.queueOnboardingStart sends.
+   * Whether the onboarding step should still say "searching": the queued
+   * starter-issue search for this office is waiting or running. Same job name
+   * and org-slug key CommunityIssueDispatchService.queueOnboardingStart sends.
+   * Anything else counts as over, which is this step's reading and not the
+   * queue's: no row is a finished job pg-boss has since deleted, and a
+   * failed or cancelled row is a search that will not produce issues.
    */
   async searchPending(office: OfficeRef): Promise<boolean> {
-    return this.jobs.isJobPending(
+    const state = await this.jobs.getJobState(
       communityIssueOnboardingJobName,
       office.organizationSlug,
     )
+    return state === 'created' || state === 'retry' || state === 'active'
   }
 
   // Campaign issues are never touched here: they carry over regardless of
