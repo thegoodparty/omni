@@ -21,6 +21,7 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => mockUseOrganization(),
   useOrganizations: () => mockUseOrganizations(),
   useSetOrganizationSlug: () => mockSetOrganizationSlug,
+  OrganizationScope: ({ children }: { children: React.ReactNode }) => children,
 }))
 vi.mock('@shared/user/handleLogOut', () => ({
   useHandleLogOut: () => mockHandleLogOut,
