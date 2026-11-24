@@ -211,9 +211,11 @@ test('filed candidate buys Pro once and lands on the success step with a Good th
 
   // 5. Payment — embedded Stripe Payment Element (same seams as the legacy
   // happy path, including the geolocation and Stripe Link guards).
+  // The wallet buttons (Express Checkout Element) mount their own frame with
+  // this title ahead of the Payment Element, so take the last one.
   const stripeFrame = page
     .frameLocator('iframe[title="Secure payment input frame"]')
-    .first()
+    .last()
   const cardInput = stripeFrame.locator('#payment-numberInput')
   await expect(cardInput).toBeVisible({ timeout: 30_000 })
   await expect(cardInput).toBeEditable({ timeout: 30_000 })

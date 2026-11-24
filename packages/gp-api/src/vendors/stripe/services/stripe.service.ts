@@ -1024,13 +1024,15 @@ export class StripeService {
       // Explicit list: Stripe's automatic set adds BNPL options (Klarna,
       // Affirm) that are off-brand for campaign charges (product call,
       // Aug 19). Afterpay is on for plans only: the PRD wants buy now, pay
-      // later on the plan price (confirmed Nov 18). Bank debit is excluded
+      // later on the plan price (confirmed Nov 18). Plans do not offer Amazon
+      // Pay: the Nov 23 checkout design is wallets (Apple Pay, Google Pay, which
+      // ride on `card`), Card and Afterpay. Bank debit is excluded
       // on purpose: it completes checkout
       // 'unpaid' and settles days later, which does not fit a text with a
       // send date two days out and left a candidate's paid sends stranded
       // (2026-09-21). Only methods that confirm at checkout stay.
       payment_method_types: isPlan
-        ? ['card', 'amazon_pay', 'afterpay_clearpay']
+        ? ['card', 'afterpay_clearpay']
         : ['card', 'amazon_pay'],
       ...(customerId
         ? { customer: customerId }

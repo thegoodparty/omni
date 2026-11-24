@@ -421,6 +421,7 @@ export const SmsReviewStep = ({
           onPaymentSuccess={handlePaidComplete}
           onPaymentError={setCardError}
           onTotalChange={setLiveTotalDollars}
+          walletsAndAccordion={planPricingEnabled}
           {...(footerMode && {
             formId: PAY_FORM_ID,
             hideSubmit: true,
