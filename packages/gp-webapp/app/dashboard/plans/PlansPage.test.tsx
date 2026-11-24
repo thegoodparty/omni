@@ -125,6 +125,15 @@ describe('PlansPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('names Team with the TEAM badge on its card', () => {
+    render(<PlansPage highlightTeam={false} />)
+    expect(
+      within(screen.getByTestId('plan-card-team')).getByRole('img', {
+        name: 'TEAM',
+      }),
+    ).toBeInTheDocument()
+  })
+
   it('lists Logins for your team on Team only', () => {
     render(<PlansPage highlightTeam={false} />)
 

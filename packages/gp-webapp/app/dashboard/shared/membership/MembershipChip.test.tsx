@@ -243,7 +243,7 @@ describe('MembershipChip plan copy', () => {
       registeredVoters: PLAN_PRICING.teamRecommendVoterThreshold + 1,
     })
 
-    expect(screen.getByText('TEAM')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
     expect(screen.queryByAltText(/pro/i)).toBeNull()
     expect(
       screen.getByText(

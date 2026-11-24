@@ -433,19 +433,19 @@ describe('OrganizationPicker', () => {
   it('badges the switcher by plan: TEAM on Team, PRO on Pro, none on Free', () => {
     mockBadgePlan.current = 'team'
     const { unmount } = renderPicker()
-    expect(screen.getByText('TEAM')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
     unmount()
 
     mockBadgePlan.current = 'pro'
     const pro = renderPicker()
     expect(screen.getByRole('img', { name: 'PRO' })).toBeInTheDocument()
-    expect(screen.queryByText('TEAM')).toBeNull()
+    expect(screen.queryByRole('img', { name: 'TEAM' })).toBeNull()
     pro.unmount()
 
     mockBadgePlan.current = 'free'
     renderPicker()
     expect(screen.queryByRole('img', { name: 'PRO' })).toBeNull()
-    expect(screen.queryByText('TEAM')).toBeNull()
+    expect(screen.queryByRole('img', { name: 'TEAM' })).toBeNull()
   })
 
   it('renders past organizations grayed with a "Past" label', async () => {

@@ -261,7 +261,7 @@ describe('ProPitchDialog', () => {
         screen.getByText(/, one payment for your whole campaign/),
       ).toBeInTheDocument()
       expect(screen.getByLabelText('PRO')).toBeInTheDocument()
-      expect(screen.queryByText('TEAM')).toBeNull()
+      expect(screen.queryByRole('img', { name: 'TEAM' })).toBeNull()
       expect(screen.queryByText('Logins for your team')).toBeNull()
       expect(document.body.textContent).not.toMatch(/\$10\b|\/mo/)
       expect(
@@ -320,7 +320,7 @@ describe('ProPitchDialog', () => {
         screen.getByText('Join Team to unlock voter data and outreach'),
       ).toBeInTheDocument()
       expect(screen.getByText('$399')).toBeInTheDocument()
-      expect(screen.getByText('TEAM')).toBeInTheDocument()
+      expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
       expect(screen.queryByLabelText('PRO')).toBeNull()
       expect(screen.getAllByRole('listitem')[0]).toHaveTextContent(
         'Logins for your team',
