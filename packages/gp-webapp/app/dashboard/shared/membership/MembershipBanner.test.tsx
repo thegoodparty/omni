@@ -385,7 +385,7 @@ describe('MembershipBanner plan copy', () => {
       </CampaignContext.Provider>,
     )
 
-    expect(screen.getByText('TEAM')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
     expect(
       screen.getByText(
         'Unlock voter data and outreach for your whole team for $399. Good for your whole campaign.',

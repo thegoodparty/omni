@@ -1,4 +1,4 @@
-import { Badge, ProBadge } from '@styleguide'
+import { Badge, ProBadge, TeamBadge } from '@styleguide'
 import type { PlanKey } from './plansCopy'
 
 interface PlanNameProps {
@@ -6,13 +6,14 @@ interface PlanNameProps {
   name: string
 }
 
-// Pro is the Pro badge artwork. Free and Team have no artwork of their own,
-// so they take a Badge dressed to match it.
-export const PlanName = ({ plan, name }: PlanNameProps): React.JSX.Element =>
-  plan === 'pro' ? (
-    <ProBadge size="large" />
-  ) : (
-    <Badge variant={plan === 'free' ? 'soft' : 'default'} shape="pill">
+// Pro and Team are their badge artwork. Free has none, so it takes a Badge
+// dressed to match.
+export const PlanName = ({ plan, name }: PlanNameProps): React.JSX.Element => {
+  if (plan === 'pro') return <ProBadge size="large" />
+  if (plan === 'team') return <TeamBadge size="large" />
+  return (
+    <Badge variant="soft" shape="pill">
       {name.toUpperCase()}
     </Badge>
   )
+}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
 import { PLAN_PRICING } from '@goodparty_org/contracts'
-import { Badge, Button, ProBadge, Spinner } from '@styleguide'
+import { Button, ProBadge, Spinner, TeamBadge } from '@styleguide'
 import { CalendarClockIcon } from '@styleguide/components/ui/icons'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
@@ -114,11 +114,7 @@ const PlanOrderSummary = ({
     <div className="flex flex-col gap-2.5 rounded-xl border border-base-border bg-card p-4">
       <div className="flex items-center justify-between gap-3">
         <span className="text-[15px] font-semibold">{order.name}</span>
-        {order.plan === 'team' ? (
-          <Badge className="font-bold italic">TEAM</Badge>
-        ) : (
-          <ProBadge />
-        )}
+        {order.plan === 'team' ? <TeamBadge /> : <ProBadge />}
       </div>
       <div className="h-px bg-base-border" />
       {order.isUpgrade ? (

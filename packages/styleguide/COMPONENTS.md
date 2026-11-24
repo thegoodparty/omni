@@ -13,7 +13,7 @@ change the tag, then run `npm run docs:components -w packages/styleguide`.
 - **AlertDialog** (`alert-dialog.tsx`): Use to confirm an action that can't be undone, like a delete. For anything with input, use Dialog.
 - **AspectRatio** (`aspect-ratio.tsx`): Use to keep an image, video or map at a fixed shape, like 16:9, as its width changes.
 - **Avatar** (`avatar.tsx`): Use for a person's photo in a small circle or square, falling back to their initials or an icon.
-- **Badge** (`badge.tsx`): Use for a short tag or count on an item. For an item's status use StatusText, for the Pro plan ProBadge, and for merge tags TokenPill.
+- **Badge** (`badge.tsx`): Use for a short tag or count on an item. For an item's status use StatusText, for the Pro or Team plan ProBadge or TeamBadge, and for merge tags TokenPill.
 - **BarChart** (`bar-chart.tsx`): Use for comparing a few categories as colored bars with a legend. For a compact list with a label and value beside each bar, use BarList.
 - **BarList** (`bar-list.tsx`): Use for a list of labeled values, each with a thin bar, like poll answers. For parts of one whole, use DonutChart.
 - **Breadcrumb** (`breadcrumb.tsx`): Use only to hand-build a breadcrumb trail from its parts. For a normal trail of parent pages, use BreadcrumbNav.
@@ -69,6 +69,7 @@ change the tag, then run `npm run docs:components -w packages/styleguide`.
 - **Switch** (`switch.tsx`): Use for an on or off setting that takes effect right away. For a choice saved with a form submit, use Checkbox.
 - **Table** (`table.tsx`): Use for a table where you control the rows, sorting and paging, such as server-paged data. For built-in sort, filter and paging, use DataTable.
 - **Tabs** (`tabs.tsx`): Use to switch between a few peer views in one place, one at a time. For filter pills or toggled choices, use ToggleGroup; for ordered steps, use Stepper.
+- **TeamBadge** (`team-badge.tsx`): Use to mark a feature, plan or account as the paid Team plan. For the Pro plan use ProBadge; for any other tag or count, use Badge.
 - **Textarea** (`textarea.tsx`): Use for free text that can run several lines, like a note or a reply. For a message with merge tags or locked lines, use TokenField.
 - **Toaster** (`sonner.tsx`): Use for a brief, low-stakes confirmation that fades away. Never for form errors or the end of a flow; show errors by the field and a success view.
 - **Toggle** (`toggle.tsx`): Use for one button that stays pressed or not, like a toolbar format button. For a set of choices, use ToggleGroup; for a setting, use Switch.

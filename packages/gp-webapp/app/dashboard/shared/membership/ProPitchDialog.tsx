@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  Badge,
   Button,
   Dialog,
   DialogContent,
@@ -12,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
   ProBadge,
+  TeamBadge,
 } from '@styleguide'
 import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import {
@@ -184,7 +184,7 @@ export const ProPitchDialog = ({
               the wrapped lines needs the sm: breakpoint spelled out too. */}
           <DialogHeader className="items-center gap-3 text-center sm:text-center">
             {planPitch.enabled && planPitch.plan === 'team' ? (
-              <Badge>TEAM</Badge>
+              <TeamBadge size="large" className="h-[30px] w-[85px]" />
             ) : (
               <ProBadge size="large" className="h-[30px] w-[66px]" />
             )}
