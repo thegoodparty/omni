@@ -980,7 +980,13 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       expect(eventProps(PRIORITIES_ERRORED)).toHaveLength(0)
       expect(eventProps(PRIORITIES_VIEWED)).toHaveLength(0)
       // The official is not held on the step while the search runs.
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      expect(loads).toBe(1)
+      expect(
+        screen.getByText('Finding issues in your community'),
+      ).toBeInTheDocument()
 
       await act(() => vi.advanceTimersByTimeAsync(4_000))
       await act(() => vi.advanceTimersByTimeAsync(4_000))
