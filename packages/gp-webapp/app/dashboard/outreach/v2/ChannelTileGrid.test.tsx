@@ -49,11 +49,6 @@ vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
   useRobocallFreeOffer: () => mockFreeOffer,
 }))
 
-let mockPricingOn = false
-vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
-  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: mockPricingOn }),
-}))
-
 const renderGrid = (
   overrides: Partial<{
     onCreateSocial: () => void
@@ -123,7 +118,7 @@ describe('ChannelTileGrid — robocall tile', () => {
     renderGrid()
     expect(screen.getByText('Free offer')).toBeInTheDocument()
     expect(
-      screen.getAllByRole('button', { name: 'Robocall' }).at(-1),
+      screen.getAllByRole('button', { name: /^Robocall/ }).at(-1),
     ).toHaveAccessibleDescription('Free offer')
     mockFreeOffer = { offer: null }
   })
@@ -134,7 +129,7 @@ describe('ChannelTileGrid — robocall tile', () => {
     renderGrid()
 
     expect(
-      screen.getByRole('button', { name: 'Robocall' }),
+      screen.getByRole('button', { name: /^Robocall/ }),
     ).toHaveAccessibleDescription('Free offer')
     mockFreeOffer = { offer: null }
   })
@@ -178,7 +173,7 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
     renderGrid()
 
     expect(
-      screen.getByRole('button', { name: 'SMS' }),
+      screen.getByRole('button', { name: /^SMS/ }),
     ).toHaveAccessibleDescription('Verify by Oct. 15')
   })
 
@@ -193,7 +188,7 @@ describe('ChannelTileGrid — SMS tile once gp-api closes texting', () => {
     renderGrid()
 
     expect(
-      screen.getByRole('button', { name: 'SMS' }),
+      screen.getByRole('button', { name: /^SMS/ }),
     ).toHaveAccessibleDescription('Verify by Oct. 15')
   })
 
@@ -557,26 +552,17 @@ describe('ChannelTileGrid — the tiles open the gated flows', () => {
 })
 
 describe('ChannelTileGrid — unit prices', () => {
-  afterEach(() => {
-    mockPricingOn = false
-  })
-
-  it('prices the paid tiles with the pricing flag on', () => {
-    mockPricingOn = true
+  it('prices every tile, the free channels as Free', () => {
     renderGrid({ onCreateEmail: vi.fn() })
 
-    expect(screen.getByText('3.5\u00a2 a text')).toBeInTheDocument()
-    expect(screen.getByText('4.5\u00a2 a call')).toBeInTheDocument()
-    expect(
-      screen.getByText('1\u00a2 each, 50-email minimum'),
-    ).toBeInTheDocument()
-  })
+    const subCopy = (label: string) =>
+      screen.getByText(label).closest('button')?.textContent
 
-  it('shows no prices with the flag off', () => {
-    renderGrid({ onCreateEmail: vi.fn() })
-
-    expect(screen.queryByText(/a text/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/a call/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/50-email/)).not.toBeInTheDocument()
+    expect(subCopy('Social media')).toContain('Free')
+    expect(subCopy('SMS')).toContain('$0.035/text')
+    expect(subCopy('Robocall')).toContain('$0.045/call')
+    expect(subCopy('Phone banking')).toContain('Free')
+    expect(subCopy('Door knocking')).toContain('Free')
+    expect(subCopy('Email')).toContain('$0.01/email')
   })
 })

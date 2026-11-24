@@ -2821,6 +2821,12 @@ export const SmsFlow = ({
                     initialCrop={cropBox}
                     onCropChange={setCropBox}
                     onCropReady={setCroppedImage}
+                    onRemove={() => {
+                      setImage(null)
+                      setUploadedImage(null)
+                      setCroppedImage(null)
+                      setCropBox(null)
+                    }}
                   />
                 ),
               })}

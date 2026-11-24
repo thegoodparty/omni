@@ -28,7 +28,6 @@ import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOff
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { CHANNEL_META } from './channelMeta'
 import { TILE_PRICES } from './channelPrices'
-import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import type { AudiencePreselect } from './audiencePreselect'
 
 interface ChannelTileGridProps {
@@ -63,12 +62,12 @@ const preselectKey = (
   recommendedVariant: RecommendedListVariant | undefined,
 ): string => `${listId ?? ''}|${recommendedVariant ?? ''}`
 
-const tilePrice = (type: OutreachType): string | undefined =>
+const tilePrice = (type: OutreachType): string =>
   type === OUTREACH_TYPES.text
     ? TILE_PRICES.text
     : type === OUTREACH_TYPES.robocall
       ? TILE_PRICES.robocall
-      : undefined
+      : TILE_PRICES.free
 
 const SMS_TILE_CLOSED_COPY = 'Not available for this race'
 
@@ -100,7 +99,6 @@ export const ChannelTileGrid = ({
   const smsClosed = smsCompliance === 'closed'
   const [showSmsCutoffNotice, setShowSmsCutoffNotice] = useState(false)
   const { offer: freeOffer } = useRobocallFreeOffer()
-  const { enabled: showPrices } = useWinPerCampaignPricingFlag(false)
   // The Pro/compliance gate lives inside the text, robocall and phone-banking
   // flows, so the tiles never refuse a click.
 
@@ -253,13 +251,7 @@ export const ChannelTileGrid = ({
               label={meta.label}
               tag={tag}
               tagTone={hasFreeOffer && !smsCountdown ? 'info' : 'muted'}
-              subCopy={
-                textClosed
-                  ? SMS_TILE_CLOSED_COPY
-                  : showPrices
-                    ? tilePrice(type)
-                    : undefined
-              }
+              subCopy={textClosed ? SMS_TILE_CLOSED_COPY : tilePrice(type)}
               className={cn(
                 textClosed && 'bg-muted opacity-70 hover:border-border',
               )}
@@ -284,7 +276,7 @@ export const ChannelTileGrid = ({
             icon={CHANNEL_META.email.icon}
             iconClassName={CHANNEL_META.email.iconTint}
             label={CHANNEL_META.email.label}
-            subCopy={showPrices ? TILE_PRICES.email : undefined}
+            subCopy={TILE_PRICES.email}
             onClick={() => {
               trackEvent(EVENTS.Outreach.ClickCreate, { type: 'email' })
               onCreateEmail()
