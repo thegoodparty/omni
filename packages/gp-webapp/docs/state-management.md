@@ -88,7 +88,7 @@ Server components: `helpers/userServerHelper.ts` (reads cookie via `next/headers
 - Query keys follow `[entity, scope, params]` shape (e.g. `['campaign', campaignId, 'status']`). Keep them stable.
 - 5-minute stale time is the default; override per query only with a reason.
 - After mutations, invalidate the smallest affected key. Don't `invalidateQueries()` with no key — it nukes the whole cache, and a mutation only ever invalidated one entity's worth of it.
-- The exception is a change of **scope** rather than of data: switching organization (`organization-picker.tsx`) clears the cache with `removeQueries()`, because several keys carry no org in them and their previous-org data would otherwise be read before the refetch lands. It then refetches what the still-mounted observers rebuilt. The per-row families it keeps (`outreach-detail`, `contact-notes`) are keys carrying a bare row id; a new per-org query should key on the org slug instead, and then needs no exemption.
+- The exception is a change of **scope** rather than of data: switching organization (`organization-picker.tsx`) clears the cache with `removeQueries()`, because several keys carry no org in them and their previous-org data would otherwise be read before the refetch lands. Three things survive: `organizations` (a caller that creates an org refreshes this list then selects the new slug, so it is the only copy that makes that slug resolvable), `eligibility` (per-user, and it gates FollowOnFlow's wizard), and the per-row `outreach-detail` / `contact-notes` families, whose observers would otherwise rebuild and refetch a departed row under the new header. A query you add should key on the org slug (not a bare row id) and then needs no exemption.
 
 ## When to add a new provider
 

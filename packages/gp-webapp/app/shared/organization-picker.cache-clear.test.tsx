@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
@@ -10,9 +10,11 @@ import { SidebarProvider } from '@styleguide'
 import { CampaignProvider } from './hooks/CampaignProvider'
 import { useCampaign } from './hooks/useCampaign'
 import {
+  ORGANIZATIONS_QUERY_KEY,
   OrganizationProvider,
   OrganizationPicker,
   useOrganization,
+  useSetOrganizationSlug,
 } from './organization-picker'
 
 vi.mock('@styleguide/hooks/use-mobile', () => ({ useIsMobile: () => false }))
@@ -312,7 +314,7 @@ describe('org switch clears the query cache', () => {
     expect(notesFetcher).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the org list and eligibility, re-reading them as the new org', async () => {
+  it('leaves only the org-scoped keys and the per-row guard in the cache', async () => {
     const guardedFetcher = vi.fn().mockResolvedValue({ id: 999 })
     const GuardedProbe = () => {
       useQuery({
@@ -341,6 +343,72 @@ describe('org switch clears the query cache', () => {
         .sort(),
     ).toEqual(['eligibility', 'organizations', 'outreach-detail'])
     expect(screen.getByText('Organization Two')).toBeInTheDocument()
+  })
+
+  // FollowOnFlow, ElectionResultPage and Test mode all create an org and then
+  // refresh the org list BEFORE selecting it, because the list is what makes
+  // the new slug resolvable. Clearing that list would drop the refreshed data
+  // and fall back to initialOrganizations[0].
+  it('keeps a slug the caller just refreshed into the list resolvable', async () => {
+    const newOrg: Organization = {
+      slug: 'campaign-99',
+      name: 'New Campaign',
+      positionName: null,
+      position: null,
+      district: null,
+      electedOfficeId: null,
+      campaignId: 99,
+      status: 'active',
+    }
+    const campaignReads: (string | undefined)[] = []
+    api.mock('GET /v1/campaigns/mine', () => {
+      campaignReads.push(String(orgCookie))
+      return { status: 200 as const, data: { slug: 'c' } as never }
+    })
+
+    const SelectedOrg = () => {
+      const organization = useOrganization()
+      return <div data-testid="selected">{organization?.slug ?? 'none'}</div>
+    }
+    const CreateAndSelect = () => {
+      const queryClient = useQueryClient()
+      const setSlug = useSetOrganizationSlug()
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            queryClient.setQueryData(ORGANIZATIONS_QUERY_KEY, [...orgs, newOrg])
+            setSlug(newOrg.slug)
+          }}
+        >
+          create
+        </button>
+      )
+    }
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+          <CampaignProvider campaign={{ slug: 'c' } as never}>
+            <SelectedOrg />
+            <CreateAndSelect />
+          </CampaignProvider>
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    await settle()
+    expect(screen.getByTestId('selected')).toHaveTextContent('org-one')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'create' }))
+    await settle()
+
+    // The newly created org is the selected one, not a fallback to the first
+    // org of the stale server seed (which would also repair the cookie onto
+    // that fallback and refetch everything under the wrong header).
+    expect(screen.getByTestId('selected')).toHaveTextContent(newOrg.slug)
+    expect(orgCookie).toBe(newOrg.slug)
   })
 
   // The old predicate kept the org list because invalidating it flashed the

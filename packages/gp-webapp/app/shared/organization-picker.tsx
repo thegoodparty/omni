@@ -183,14 +183,38 @@ export const OrganizationProvider = ({
       setRawSelectedSlug(slug)
       setCookie(ORG_SLUG_COOKIE, slug)
       void refreshFlags()
-      // Nothing cached may outlive the org it was fetched for. Keys carrying no
-      // org slug — Campaign Manager's ['campaign-manager', 'chat-history'] among
-      // them — are how the chat dock resumed a conversation the new org does not
-      // own (ENG-11670): invalidation left their previous-org data readable, and
-      // a switch taken from a shared path never reloads the page to clear it.
+      // The org list is the one exception to the clear below, and not because
+      // it is org-scoped: callers that create an org (FollowOnFlow,
+      // ElectionResultPage, Test mode) refresh this list and then select the
+      // new slug, so clearing it would drop the only copy that makes the new
+      // slug resolvable — `selectedOrganization` would fall back to
+      // `organizations[0]`, the stale-cookie repair would write that fallback
+      // over the cookie we just set, and every refetch would go out under the
+      // wrong org. Carried across by hand rather than kept by a predicate, so
+      // it still gets the background re-read the invalidate below triggers.
+      const organizationsBeforeClear = queryClient.getQueryData<Organization[]>(
+        ORGANIZATIONS_QUERY_KEY,
+      )
+      // Nothing else cached may outlive the org it was fetched for, except
+      // eligibility: it is per-user, and FollowOnFlow gates its whole wizard on
+      // it being resolved, so dropping it mid-flow flashes a loading state.
+      // Keys carrying no org slug — Campaign Manager's
+      // ['campaign-manager', 'chat-history'] among them — are how the chat dock
+      // resumed a conversation the new org does not own (ENG-11670):
+      // invalidation left their previous-org data readable, and a switch taken
+      // from a shared path never reloads the page to clear it.
       queryClient.removeQueries({
-        predicate: (query) => !isPerRowQuery(query.queryKey),
+        predicate: (query) =>
+          query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
+          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0] &&
+          !isPerRowQuery(query.queryKey),
       })
+      if (organizationsBeforeClear) {
+        queryClient.setQueryData(
+          ORGANIZATIONS_QUERY_KEY,
+          organizationsBeforeClear,
+        )
+      }
     },
     [queryClient, refreshFlags],
   )

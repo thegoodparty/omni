@@ -42,6 +42,17 @@ test.describe('Organization switch clears the client cache', () => {
     const campaignOrgName = allOrgs.find((name) => name !== eoOrgName)
     expect(campaignOrgName).toBeTruthy()
 
+    const readCookie = () =>
+      page.evaluate(
+        () =>
+          document.cookie
+            .split('; ')
+            .find((cookie) => cookie.startsWith('organization-slug='))
+            ?.split('=')[1],
+      )
+    const slugBefore = await readCookie()
+    expect(slugBefore).toBeTruthy()
+
     // `GET /v1/campaigns/mine` answers for the org the header names, and the
     // campaign context is seeded from the server. It is the read that must
     // follow the switch.
@@ -70,15 +81,11 @@ test.describe('Organization switch clears the client cache', () => {
       )
       .toBe(true)
 
-    const slugCookie = await page.evaluate(
-      () =>
-        document.cookie
-          .split('; ')
-          .find((cookie) => cookie.startsWith('organization-slug='))
-          ?.split('=')[1],
-    )
+    const slugCookie = await readCookie()
     expect(slugCookie).toBeTruthy()
-    expect(slugCookie).not.toBe(eoOrgName)
+    // A real switch: the cookie names a different org than before, and the
+    // re-read went out under exactly that one.
+    expect(slugCookie).not.toBe(slugBefore)
 
     await expect
       .poll(() => campaignReads, { timeout: 15_000 })
