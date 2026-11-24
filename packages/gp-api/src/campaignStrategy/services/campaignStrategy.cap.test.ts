@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { subHours } from 'date-fns'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import {
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common'
-import { AgentRunStatus, ExperimentRunStatus } from '../../generated/prisma'
+import { ExperimentRunStatus } from '../../generated/prisma'
 import { fingerprintStory } from '@/campaignStory/services/campaignStoryState.service'
 import { CampaignStrategyService } from './campaignStrategy.service'
 import { RaceContextNotFoundError } from './raceContext.service'
@@ -74,7 +74,6 @@ describe('CampaignStrategyService', () => {
   }
   let storyState: { read: ReturnType<typeof vi.fn> }
   let raceContext: { getStrategyContext: ReturnType<typeof vi.fn> }
-  let agents: { run: ReturnType<typeof vi.fn> }
   let prisma: {
     campaignStrategy: {
       upsert: ReturnType<typeof vi.fn>
@@ -93,8 +92,6 @@ describe('CampaignStrategyService', () => {
     }
     campaign: { findUnique: ReturnType<typeof vi.fn> }
     experimentRun: { findUnique: ReturnType<typeof vi.fn> }
-    agentRun: { findUnique: ReturnType<typeof vi.fn> }
-    organization: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
 
@@ -133,7 +130,6 @@ describe('CampaignStrategyService', () => {
     // cases exercise the unchanged paths.
     storyState = { read: vi.fn().mockResolvedValue({ complete: false }) }
     raceContext = { getStrategyContext: vi.fn() }
-    agents = { run: vi.fn().mockResolvedValue({ runId: 'agent-run' }) }
     prisma = {
       campaignStrategy: {
         upsert: vi.fn().mockResolvedValue(planRow()),
@@ -160,13 +156,6 @@ describe('CampaignStrategyService', () => {
       experimentRun: {
         findUnique: vi.fn().mockResolvedValue(null),
       },
-      agentRun: { findUnique: vi.fn().mockResolvedValue(null) },
-      organization: {
-        findUnique: vi.fn().mockResolvedValue({
-          owner: { email: 'real@x.com' },
-          testModeCreatedAt: null,
-        }),
-      },
       // Supports both the array form and the interactive (callback) form,
       // handing the same mock delegates in as the tx client.
       $transaction: vi.fn(
@@ -184,17 +173,15 @@ describe('CampaignStrategyService', () => {
       trackerTasks as never,
       storyState as never,
       raceContext as never,
-      agents as never,
+      // No case here reaches gp-api's engine: the switch is per agent and unset,
+      // so every dispatch in this file takes the PMF Engine path.
+      { run: vi.fn() } as never,
     )
     Object.defineProperty(service, '_prisma', { value: prisma })
     Object.assign(service, {
       findFirst: prisma.campaignStrategy.findFirst,
       logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
     })
-  })
-
-  afterEach(() => {
-    vi.unstubAllEnvs()
   })
 
   describe('existsForCampaign', () => {
@@ -227,56 +214,6 @@ describe('CampaignStrategyService', () => {
     ).rejects.toBeInstanceOf(BadRequestException)
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     expect(trackerTasks.materializeStaticTasks).not.toHaveBeenCalled()
-  })
-
-  // The engine switch is per agent: with opposition_research switched on, its
-  // section dispatches to gp-api's own agents and opportunities stays on the PMF
-  // Engine. The agent's input is the manifest's params in camelCase.
-  it('dispatches a switched-on section to the gp-api engine, and caches the input keys', async () => {
-    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
-    agents.run.mockResolvedValue({ runId: 'opp-agent-run' })
-    experimentRuns.dispatchRun.mockResolvedValue({ runId: 'oc-run' })
-    params.build.mockResolvedValue({
-      race_id: 'br-general',
-      user_email: 'jane@example.com',
-      user_full_name: 'Jane Doe',
-      campaign_strategy_context: { candidate_count: 2, candidates: [] },
-    })
-
-    await service.getOrGenerateStrategicLandscape(
-      campaign({
-        details: { raceId: 'br-general', electionDate: '2099-11-03' },
-      }),
-    )
-
-    expect(agents.run).toHaveBeenCalledWith('opposition_research', {
-      raceId: 'br-general',
-      userEmail: 'jane@example.com',
-      userFullName: 'Jane Doe',
-      campaignStrategyContext: { candidateCount: 2, candidates: [] },
-      organizationSlug: 'org-99',
-    })
-    expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
-    expect(experimentRuns.dispatchRun).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'opportunities_and_challenges' }),
-    )
-  })
-
-  it('refuses to spend an agent run for a test-user org', async () => {
-    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
-    prisma.organization.findUnique.mockResolvedValue({
-      owner: { email: 'someone@test.goodparty.org' },
-      testModeCreatedAt: null,
-    })
-    experimentRuns.dispatchRun.mockResolvedValue({ runId: 'oc-run' })
-
-    await service.getOrGenerateStrategicLandscape(
-      campaign({
-        details: { raceId: 'br-general', electionDate: '2099-11-03' },
-      }),
-    )
-
-    expect(agents.run).not.toHaveBeenCalled()
   })
 
   it('generates for a campaign whose election date is upcoming', async () => {
@@ -518,58 +455,6 @@ describe('CampaignStrategyService', () => {
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
   })
 
-  // The bootstrap is the one step after the last persist that can fail without
-  // failing the run. The poll is then the only path that can retry it, because
-  // trackerBootstrapped is the bootstrap's own idempotency claim.
-  it('re-attempts the tracker bootstrap on every ready poll', async () => {
-    const persisted = planRow({
-      oppositionRunId: 'opp-run',
-      opportunitiesRunId: 'oc-run',
-      oppositionPersistedAt: new Date(),
-      opportunitiesPersistedAt: new Date(),
-    })
-    prisma.campaignStrategy.upsert.mockResolvedValue(persisted)
-    // The bootstrap re-reads the plan by id and then the campaign with its user.
-    prisma.campaignStrategy.findFirst.mockResolvedValue(persisted)
-    prisma.campaign.findUnique.mockResolvedValue({ id: 99, user: { id: 7 } })
-    prisma.campaignStrategy.findUnique.mockResolvedValue({
-      opportunities: [],
-      challenges: [],
-      opponents: [],
-    })
-
-    await service.getOrGenerateStrategicLandscape(campaign())
-    await service.getOrGenerateStrategicLandscape(campaign())
-
-    // Twice, not once: the endpoint does not cache that it already bootstrapped.
-    expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(2)
-  })
-
-  // `tracker_bootstrapped` shipped DEFAULT false with no backfill, so every plan
-  // that went ready before that column existed still reads false. An unscoped
-  // retry would start a paid initial tracker generation for each of them on its
-  // next page load; only a section persisted inside the grace window can be one
-  // whose bootstrap just failed.
-  it('does not bootstrap a plan whose sections persisted long ago', async () => {
-    const old = subHours(new Date(), 30)
-    const persisted = planRow({
-      oppositionRunId: 'opp-run',
-      opportunitiesRunId: 'oc-run',
-      oppositionPersistedAt: old,
-      opportunitiesPersistedAt: old,
-    })
-    prisma.campaignStrategy.upsert.mockResolvedValue(persisted)
-    prisma.campaignStrategy.findUnique.mockResolvedValue({
-      opportunities: [],
-      challenges: [],
-      opponents: [],
-    })
-
-    await service.getOrGenerateStrategicLandscape(campaign())
-
-    expect(trackerTasks.bootstrapForCampaign).not.toHaveBeenCalled()
-  })
-
   it('stays generating when a run is COMPLETED but its section is not persisted', async () => {
     // The race window: both runs done, but only one section's rows have landed.
     prisma.campaignStrategy.upsert.mockResolvedValue(
@@ -771,54 +656,6 @@ describe('CampaignStrategyService', () => {
     expect(res).toEqual({ status: 'generating' })
     expect(params.build).not.toHaveBeenCalled()
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
-  })
-
-  // gp-api's supersede starts a successor under a NEW run id that nothing points
-  // the plan at, so the run the plan still names can never land. Reading that as
-  // in flight (which is right for the PMF Engine's shared-link successor) hangs
-  // the plan generating forever; it has to re-dispatch instead.
-  it('re-dispatches when the plan names a superseded gp-api run', async () => {
-    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
-    prisma.campaignStrategy.upsert.mockResolvedValue(
-      planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
-    )
-    prisma.agentRun.findUnique.mockResolvedValue({
-      id: 'opp-run',
-      status: AgentRunStatus.superseded,
-      input: { campaignStrategyContext: { candidateCount: 2 } },
-      artifact: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    agents.run.mockResolvedValue({ runId: 'opp-retry' })
-
-    const res = await service.getOrGenerateStrategicLandscape(campaign())
-
-    expect(agents.run).toHaveBeenCalledWith(
-      'opposition_research',
-      expect.anything(),
-    )
-    expect(res).toEqual({ status: 'generating' })
-  })
-
-  // gp-api's dispatch runs the agent's own Zod parse and an org lookup that the
-  // PMF Engine's path never had, so a schema mismatch fails the same way on
-  // every attempt. It has to be logged, or a permanent failure reads as a
-  // transient queue fault while it silently spends the attempt cap.
-  it('logs a gp-api dispatch failure instead of swallowing it', async () => {
-    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
-    prisma.campaignStrategy.upsert.mockResolvedValue(
-      planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
-    )
-    prisma.agentRun.findUnique.mockResolvedValue(null)
-    agents.run.mockRejectedValue(new Error('userFullName is required'))
-
-    await service.getOrGenerateStrategicLandscape(campaign())
-
-    expect(service['logger'].error).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'opposition_research' }),
-      'failed to dispatch a campaign strategy section run',
-    )
   })
 
   it('re-dispatches a section whose previous run FAILED', async () => {
@@ -1051,48 +888,6 @@ describe('CampaignStrategyService', () => {
       )
 
       expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(1)
-    })
-
-    // The persister commits oppositionPersistedAt before the side effects run.
-    // onArtifact is the only path that bootstraps, so returning early on the
-    // marker skipped it forever when a crash landed between the two.
-    it('still bootstraps the tracker on a retry whose rows are already persisted', async () => {
-      // Opposition landing last is the case that loses the bootstrap: both
-      // markers are set, so the plan is complete but nothing bootstrapped it.
-      prisma.campaignStrategy.findFirst.mockResolvedValue(
-        planRow({
-          oppositionRunId: 'opp-run',
-          oppositionPersistedAt: new Date(),
-          opportunitiesPersistedAt: new Date(),
-        }),
-      )
-
-      await service.onOppositionResearchArtifact({
-        runId: 'opp-run',
-        raceId: 'br-general',
-        artifact: { opponents: [] },
-      })
-
-      expect(persister.persistOpponents).not.toHaveBeenCalled()
-      expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(1)
-    })
-
-    // A transient fault on the event's user lookup or the bootstrap's reads used
-    // to escape persistSection into the caller's catch, marking a run whose rows
-    // had already committed as FAILED and rethrowing into a retry that skipped
-    // the bootstrap.
-    it('does not fail a run whose section rows already committed', async () => {
-      prisma.campaign.findUnique.mockRejectedValue(new Error('db down'))
-      s3.getFile.mockResolvedValue(JSON.stringify({ opponents: [] }))
-
-      await expect(
-        service.onExperimentRunCompleted(
-          run({ runId: 'opp-run', experimentType: 'opposition_research' }),
-        ),
-      ).resolves.toBeUndefined()
-
-      expect(experimentRuns.markFailed).not.toHaveBeenCalled()
-      expect(service['logger'].error).toHaveBeenCalled()
     })
   })
 
