@@ -57,7 +57,14 @@ describe('SmsCropStep', () => {
     extra: Partial<Parameters<typeof SmsCropStep>[0]> = {},
   ) => {
     const file = new File(['x'], 'photo.png', { type: 'image/png' })
-    render(<SmsCropStep file={file} onCropReady={onCropReady} {...extra} />)
+    render(
+      <SmsCropStep
+        file={file}
+        onCropReady={onCropReady}
+        onRemove={vi.fn()}
+        {...extra}
+      />,
+    )
     await screen.findByTestId('cropper')
     return { file, onCropReady, props: cropper.props as CropperProps }
   }
@@ -84,6 +91,14 @@ describe('SmsCropStep', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(cropper.props?.stencilProps?.resizable).toBe(false)
     expect(cropper.props?.stencilProps?.handlers?.eastSouth).toBe(false)
+  })
+
+  it('removes the image from the same bar as Crop', async () => {
+    const onRemove = vi.fn()
+    await renderStep(vi.fn(), { onRemove })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove image' }))
+    expect(onRemove).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the image at its fitted size, with no zoom or pan', async () => {

@@ -21,6 +21,7 @@ interface SmsCropStepProps {
   initialCrop?: CropBox | null
   onCropChange?: (crop: CropBox) => void
   onCropReady: (file: File | null) => void
+  onRemove: () => void
 }
 
 const PHONE_RATIO_RANGE = { minimum: MAX_TALL_RATIO, maximum: MAX_WIDE_RATIO }
@@ -53,6 +54,7 @@ export const SmsCropStep = ({
   initialCrop,
   onCropChange,
   onCropReady,
+  onRemove,
 }: SmsCropStepProps) => {
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
@@ -110,44 +112,46 @@ export const SmsCropStep = ({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="relative">
-        <Cropper
-          src={url}
-          className="h-80 max-h-[60vh] rounded-xl"
-          stencilProps={{
-            aspectRatio: PHONE_RATIO_RANGE,
-            grid: editing,
-            movable: editing,
-            resizable: editing,
-            handlers: editing ? ALL_HANDLERS : NO_HANDLERS,
-            lines: editing ? ALL_LINES : NO_LINES,
-            // White corners need an edge to read on a white image.
-            handlerClassNames: { default: 'drop-shadow-md' },
-          }}
-          backgroundWrapperProps={{ scaleImage: false, moveImage: false }}
-          defaultCoordinates={({ imageSize }: CropperState) => {
-            const box =
-              initialCrop ?? defaultCrop(imageSize.width, imageSize.height)
-            return {
-              left: box.x,
-              top: box.y,
-              width: box.width,
-              height: box.height,
-            }
-          }}
-          onReady={(cropper) => void apply(cropper)}
-          onInteractionEnd={(cropper) => void apply(cropper)}
-        />
-        {/* Carries its own fill, so it reads on an image of any color. */}
+      <Cropper
+        src={url}
+        className="h-80 max-h-[60vh] rounded-xl"
+        stencilProps={{
+          aspectRatio: PHONE_RATIO_RANGE,
+          grid: editing,
+          movable: editing,
+          resizable: editing,
+          handlers: editing ? ALL_HANDLERS : NO_HANDLERS,
+          lines: editing ? ALL_LINES : NO_LINES,
+          // White corners need an edge to read on a white image.
+          handlerClassNames: { default: 'drop-shadow-md' },
+        }}
+        backgroundWrapperProps={{ scaleImage: false, moveImage: false }}
+        defaultCoordinates={({ imageSize }: CropperState) => {
+          const box =
+            initialCrop ?? defaultCrop(imageSize.width, imageSize.height)
+          return {
+            left: box.x,
+            top: box.y,
+            width: box.width,
+            height: box.height,
+          }
+        }}
+        onReady={(cropper) => void apply(cropper)}
+        onInteractionEnd={(cropper) => void apply(cropper)}
+      />
+      {/* One bar for everything that changes the image. */}
+      <div className="flex items-center gap-2">
         <Button
           type="button"
           size="small"
-          variant={editing ? 'default' : 'neutral'}
+          variant="ghost"
           icon={editing ? <CheckIcon /> : <CropIcon />}
-          className="absolute bottom-3 right-3 z-10"
           onClick={() => setEditing((on) => !on)}
         >
           {editing ? 'Done' : 'Crop'}
+        </Button>
+        <Button type="button" size="small" variant="ghost" onClick={onRemove}>
+          Remove image
         </Button>
       </div>
       {editing ? (

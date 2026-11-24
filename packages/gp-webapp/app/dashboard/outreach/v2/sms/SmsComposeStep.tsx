@@ -397,17 +397,8 @@ export const SmsComposeStep = ({
                   className="max-h-56 w-full rounded-xl border border-border object-cover"
                 />
               )}
-              {isEdit ? null : imageEditor ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="small"
-                  className="mt-2"
-                  onClick={() => onImageChange(null)}
-                >
-                  Remove image
-                </Button>
-              ) : (
+              {/* The editor carries its own Remove image beside Crop. */}
+              {isEdit || imageEditor ? null : (
                 <button
                   type="button"
                   aria-label="Remove image"
