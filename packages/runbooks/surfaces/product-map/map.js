@@ -333,7 +333,7 @@ var ProductMap = (function () {
     name: 'Serve onboarding',
     route: '/serve/onboarding',
     src: 'packages/gp-webapp/app/serve/onboarding/ServeOnboardingFlow.tsx + serveOnboardingConfig.ts',
-    note: 'two branches on whether the office record is already prefilled; they share the first three steps and the last two',
+    note: 'two branches on whether the office record is already prefilled; they share the first three steps and everything after the term',
     head: [
       {
         id: 'welcome',
@@ -364,7 +364,7 @@ var ProductMap = (function () {
     ],
     branch: {
       key: 'ServeBranch',
-      rejoin: 'constituents',
+      rejoin: 'story-represent, or pledge without the flag',
       left: {
         cond: "branch === 'prefill'",
         step: {
@@ -384,11 +384,73 @@ var ProductMap = (function () {
             'Serve Onboarding - Office Viewed',
             'Serve Onboarding - Office Completed',
             'Serve Onboarding - Term Dates Viewed',
+            'Serve Onboarding - Term Dates Completed',
           ],
         },
       },
     },
     tail: [
+      {
+        id: 'story-represent',
+        t: 'You were elected to represent the people living in your district',
+        state: 'ok',
+        flag: 'serve-citizen-panels',
+        evs: [
+          'Serve Onboarding - You Represent Viewed',
+          'Serve Onboarding - You Represent Completed',
+        ],
+      },
+      {
+        id: 'story-loudest',
+        t: 'Most of what officials hear comes from the loudest voices',
+        state: 'ok',
+        flag: 'serve-citizen-panels',
+        evs: [
+          'Serve Onboarding - Hear From The Loudest Voices Viewed',
+          'Serve Onboarding - Hear From The Loudest Voices Completed',
+        ],
+      },
+      {
+        id: 'story-sample',
+        t: 'Hear from every part of your community',
+        state: 'ok',
+        flag: 'serve-citizen-panels',
+        evs: [
+          'Serve Onboarding - Where Your Community Stands Viewed',
+          'Serve Onboarding - Where Your Community Stands Completed',
+        ],
+        note: [
+          'drift',
+          'Name gap',
+          'The step is <b>story-sample</b> and its headline is "Hear from every part of your community"; the event is <b>Where Your Community Stands</b>.',
+        ],
+      },
+      {
+        id: 'story-grow',
+        t: "We'll help you hear from more of your community over time",
+        state: 'ok',
+        flag: 'serve-citizen-panels',
+        evs: [
+          'Serve Onboarding - Build And Grow Your List Viewed',
+          'Serve Onboarding - Build And Grow Your List Completed',
+        ],
+      },
+      {
+        id: 'priorities',
+        t: 'Turn what you ran on into what you work on',
+        state: 'ok',
+        flag: 'serve-citizen-panels',
+        evs: [
+          'Serve Onboarding - Priorities Viewed',
+          'Serve Onboarding - Priorities Completed',
+          'Serve Onboarding - Priorities Errored',
+        ],
+        note: [
+          'warn',
+          'Viewed waits for the list',
+          'Priorities Viewed fires once the issue search has settled, not when the step opens, so time spent waiting on the search sits between the story and this event.',
+        ],
+      },
       {
         id: 'pledge',
         t: 'Take the pledge',
@@ -560,11 +622,11 @@ var ProductMap = (function () {
     name: 'Create a website',
     route: '/dashboard/website/create',
     src: 'packages/gp-webapp/app/dashboard/website/create/components/WebsiteCreateFlow.tsx',
-    note: 'six build steps and a finish screen; resumes at the saved step',
+    note: 'being discontinued; six build steps and a finish screen, resuming at the saved step',
     intro: [
       'warn',
       'Six steps, no events, no link in',
-      'The flow opens from the website hub and ends in a publish, and nothing fires in between. <b>Candidate Website - Published</b> is a backend event on first publish only, so drop-off between the link and the publish button cannot be seen. Since the website nav item was removed in June, no link in the app reaches the website hub, yet <b>Candidate Website - Continued</b> still fires there, so people arrive another way (a saved link, an email, or typing the URL).',
+      'The flow opens from the website hub and ends in a publish, and nothing fires in between. <b>Candidate Website - Published</b> is a backend event on first publish only, so drop-off between the link and the publish button cannot be seen. The build-your-own website is being discontinued. Since June, candidates who bought a domain through us see a notice on the dashboard and a Transfer button on Profile, and the website nav item was removed as part of that, so no link in the app reaches the website hub. <b>Candidate Website - Continued</b> still fires there, from saved links and typed URLs.',
     ],
     steps: [
       {
@@ -630,11 +692,11 @@ var ProductMap = (function () {
     name: 'Website editor',
     route: '/dashboard/website/editor',
     src: 'packages/gp-webapp/app/dashboard/website/editor/components/WebsiteEditFlow.tsx',
-    note: 'six sections behind one Save, and one event for all of them',
+    note: 'being discontinued; six sections behind one Save, and one event for all of them',
     intro: [
       'warn',
       'One event for every section',
-      'Each section saves through the same handler, which fires <b>Candidate Website - Edited</b> with no property naming the section, and only when the site is already published. Which section people change cannot be told apart. Since the website nav item was removed in June, no link in the app reaches the website hub, yet <b>Candidate Website - Continued</b> still fires there, so people arrive another way (a saved link, an email, or typing the URL).',
+      'Each section saves through the same handler, which fires <b>Candidate Website - Edited</b> with no property naming the section, and only when the site is already published. Which section people change cannot be told apart. The build-your-own website is being discontinued. Since June, candidates who bought a domain through us see a notice on the dashboard and a Transfer button on Profile, and the website nav item was removed as part of that, so no link in the app reaches the website hub. <b>Candidate Website - Continued</b> still fires there, from saved links and typed URLs.',
     ],
     zones: [
       {
@@ -1245,8 +1307,8 @@ var ProductMap = (function () {
     kind: 'flow',
     name: 'Pro upgrade flow',
     route: '/dashboard/pro-upgrade',
-    src: 'packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeWizard.tsx + ProUpgradeFlow.tsx + proUpgradeStep.ts',
-        intro: [
+    src: 'packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeWizard.tsx + ProUpgradeFlow.tsx + ../proUpgradeStep.ts',
+    intro: [
       'warn',
       'Two shells, one set of events',
       'The route wizard at <b>/dashboard/pro-upgrade</b> and this flow inside the outreach gate fire the same step events, so every count here is both. Only <b>Pro Upgrade - Flow Started</b> and its <code>source</code> tell them apart.',
@@ -1602,7 +1664,11 @@ var ProductMap = (function () {
   ;(DATA.product_areas || []).forEach((pa) => {
     if (!pa.path.startsWith('/')) return
     const product =
-      pa.modes.length > 1 ? 'Win and Serve' : pa.modes[0] === 'serve' ? 'Serve' : 'Win'
+      pa.modes.length > 1
+        ? 'Win and Serve'
+        : pa.modes[0] === 'serve'
+          ? 'Serve'
+          : 'Win'
     // Win and Serve reuse routes and names for different areas (/dashboard/contacts
     // is Voter Data in one and Constituents in the other), so an area counts as drawn
     // only within its own product. A both-products area counts as drawn anywhere.
@@ -1863,7 +1929,7 @@ var ProductMap = (function () {
     <div class="sharednote">counted per event, not per step — splitting it needs a property breakdown in Amplitude</div>`
       : ''
     return `<article class="node" data-state="${s.state}" data-clean="${clean ? 1 : 0}" data-anyclean="${anyclean ? 1 : 0}"${miss ? ' data-miss="1"' : ''}>
-    <div class="nhead"><span class="nidx">${idx ?? '↳'}</span><h3 class="ntitle">${esc(s.t)}</h3><span class="nid">${esc(s.id)}</span></div>
+    <div class="nhead"><span class="nidx">${idx ?? '↳'}</span><h3 class="ntitle">${esc(s.t)}</h3><span class="nid">${esc(s.id)}</span>${s.flag ? `<span class="tag drift">flag: ${esc(s.flag)}</span>` : ''}</div>
     ${rline}${volRow}
     ${own.length ? `<div class="evs">${own.map((n) => evRow(n, s, ctx)).join('')}</div>` : ''}
     ${sharedRows}
@@ -1873,6 +1939,56 @@ var ProductMap = (function () {
   }
 
   const conn = '<div class="conn"><i></i></div>'
+
+  // The drift guard's result for a drawn surface (drift.py, run by build.py): how its
+  // steps are checked against the code, and what no longer matches.
+  const driftOf = (f) => (DATA.map_drift || {})[f.name]
+  const codeList = (ids) => ids.map((x) => `<code>${esc(x)}</code>`).join(', ')
+  function srcHTML(f, d) {
+    if (!d)
+      return `${f.kind === 'page' ? 'zones inferred from each event’s fires_on · ' : 'steps declared in '}${esc(f.src)}`
+    const files = d.files.map(esc).join(' · ')
+    if (d.level === 'list')
+      return `steps checked against the list declared in ${files}`
+    if (d.level === 'ids')
+      return `step names checked against ${files} · a step added in the code will not show here`
+    return `not checked: ${esc(d.why_unchecked)}${files ? ` · ${files}` : ''}`
+  }
+  function driftHTML(f, d) {
+    const unit = f.kind === 'page' ? 'zone' : 'step'
+    const lines = []
+    if (d.added.length)
+      lines.push(`In the code, not drawn: ${codeList(d.added)}.`)
+    if (d.removed.length)
+      lines.push(`Drawn, no longer in the code: ${codeList(d.removed)}.`)
+    if (d.missing_files.length)
+      lines.push(`Source file gone: ${codeList(d.missing_files)}.`)
+    if (d.unreadable.length)
+      lines.push(
+        `The ${unit} list could not be read: ${d.unreadable.map(esc).join('; ')}.`,
+      )
+    const p = [
+      `The product map's drawing of the "${f.name}" flow at ${f.route} no longer matches its code.`,
+      d.added.length ? `In the code but not drawn: ${d.added.join(', ')}.` : '',
+      d.removed.length
+        ? `Drawn but no longer in the code: ${d.removed.join(', ')}.`
+        : '',
+      d.missing_files.length
+        ? `Source files gone: ${d.missing_files.join(', ')}.`
+        : '',
+      d.unreadable.length
+        ? `Step list unreadable: ${d.unreadable.join('; ')}.`
+        : '',
+      ``,
+      `Read ${d.files.join(', ')}, then redraw the surface in packages/runbooks/surfaces/product-map/map.js`,
+      `(and its entry in sources.json if a file moved), following that folder's README. Attach each step's`,
+      `events from the EVENTS registry, label flag-gated steps with their flag, and rebuild with build.py.`,
+    ]
+      .filter((l, i) => l !== '' || i === 5)
+      .join('\n')
+    return `<div class="mnote alert" style="margin:0 0 14px"><span class="mk">Changed since drawn</span><span>The code for this flow has changed since it was drawn, so the drawing below may be out of date. ${lines.join(' ')}
+    <span class="acts"><button class="act" data-copy="${esc(p)}">Copy a prompt for Claude ${ICON_COPY}</button></span></span></div>`
+  }
 
   function relabelHTML(r) {
     const p =
@@ -1957,6 +2073,8 @@ var ProductMap = (function () {
     const overlap = nodes.filter((s) => s.state === 'overlap').length
     const bare = nodes.filter((s) => s.state === 'none').length
     const unit = f.kind === 'page' ? 'zone' : 'step'
+    const d = driftOf(f)
+    const changed = !!(d && d.changed)
     const stats = [`<span class="stat ok">${all.length} events</span>`]
     if (bare)
       stats.push(
@@ -1973,7 +2091,8 @@ var ProductMap = (function () {
         `<span class="stat drift">${f.relabel.pairs.length} relabel</span>`,
       )
 
-    let body = f.intro
+    let body = changed ? driftHTML(f, d) : ''
+    body += f.intro
       ? `<div class="mnote ${f.intro[0]}" style="margin:0 0 14px"><span class="mk">${esc(f.intro[1])}</span><span>${f.intro[2]}</span></div>`
       : ''
     if (f.kind === 'page') {
@@ -2010,17 +2129,17 @@ var ProductMap = (function () {
     body +=
       '<div class="allclear">Everything else on this surface is active.</div>'
 
-    const clean = !overlap && !bare && !f.relabel && !f.unplaced
+    const clean = !overlap && !bare && !f.relabel && !f.unplaced && !changed
     return {
       clean,
       html: `<details class="flow" data-clean="${clean ? 1 : 0}" data-key="${esc('flow:' + f.name)}"${openAttr}><summary class="fsum">${ICON_CARET}
     <div class="fmain">
       <div class="ftitle"><h2>${esc(f.name)}</h2><span class="route">${esc(f.route)}</span>
-        <span class="fkind">${f.kind === 'page' ? 'page' : 'flow'}</span></div>
+        <span class="fkind">${f.kind === 'page' ? 'page' : 'flow'}</span>${changed ? '<span class="fkind changed">Changed since drawn</span>' : ''}</div>
       <div class="fmeta"><span>${nodes.length} ${unit}s</span><span>${f.note}</span></div>
     </div>
     <div class="fstats">${stats.join('')}</div>
-  </summary><div class="fbody"><div class="srcline">${f.kind === 'page' ? 'zones inferred from each event’s fires_on · ' : 'steps declared in '}${esc(f.src)}</div>${body}</div></details>`,
+  </summary><div class="fbody"><div class="srcline">${srcHTML(f, d)}</div>${body}</div></details>`,
     }
   }
 
@@ -2106,12 +2225,14 @@ var ProductMap = (function () {
         <dt>Overlapping</dt><dd>Steps where an old and a new version of the same events both record, which can double count.</dd>
         <dt>Misplaced</dt><dd>Events whose recorded page is somewhere other than where they really happen.</dd>
         <dt>Relabel</dt><dd>Suggested name changes for how an event is displayed. The underlying name stays, so reports keep working.</dd>
+        <dt>Changed since drawn</dt><dd>The code for this flow has changed since its steps were drawn here, so the drawing may be out of date. The note at the top of the flow says which steps.</dd>
       </dl>
     </section>
     <section>
       <h4>Other labels</h4>
       <dl>
         <dt>Route disagrees</dt><dd>The page we have recorded for it and its own description name different places.</dd>
+        <dt>flag: name</dt><dd>This step only shows when that feature flag is on for the person.</dd>
         <dt>step = audience</dt><dd>One event covers several steps, and a detail sent with it says which step. Its count is for all steps together.</dd>
         <dt>Declared in productMap</dt><dd>This area is on the list our in-product assistants use to tell people where things are, and a check keeps that list up to date.</dd>
         <dt>Not in productMap</dt><dd>The assistants cannot point people here, and nothing checks this area when it changes. Onboarding is the main example.</dd>
@@ -2155,6 +2276,10 @@ var ProductMap = (function () {
   const BUILDING_COUNT = TREE.flatMap((p) => p.areas)
     .flatMap((a) => a.surfaces)
     .filter((f) => f.building).length
+  const DRIFT = Object.entries(DATA.map_drift || {})
+  const CHANGED = DRIFT.filter(([, d]) => d.changed).map(([n]) => n)
+  const WEAK = DRIFT.filter(([, d]) => d.level === 'ids').map(([n]) => n)
+  const UNCHECKED = DRIFT.filter(([, d]) => d.level === 'none').map(([n]) => n)
   const BUILDING_NOTE = `<div class="building">
   <h3>Still being built</h3>
   <p>This is a first version, shared to find out what you can do with it. What is not finished:</p>
@@ -2167,7 +2292,7 @@ var ProductMap = (function () {
     <li><b>Areas marked "events only" have no screens drawn.</b> Every area the product declares is on the map; the ones nobody has drawn list their events instead of steps.</li>
     <li><b>Page zones are inferred.</b> A flow's steps are declared in code; a page's zones are not, so on Campaign Manager and Campaign Tracker the grouping is a reading of each event's own description, not a fact.</li>
     <li><b>Per-step volume on the outreach wizards</b> needs a property breakdown in Amplitude that the snapshot does not hold, so those steps show the event's total, not the step's.</li>
-    <li><b>Steps are drawn by hand.</b> Event numbers refresh with the explorer twice a week; the steps themselves are read from each flow's code once and do not yet notice when a flow changes.</li>
+    <li><b>Steps are drawn by hand, and checked against the code on every rebuild.</b> A flow whose code has changed since it was drawn is marked "Changed since drawn"${CHANGED.length ? ` (${CHANGED.length} now: ${CHANGED.map(esc).join(', ')})` : ''}.${WEAK.length ? ` ${WEAK.length === 1 ? 'One flow has' : `${WEAK.length} flows have`} only its step names checked, so a step added in the code would not show: ${WEAK.map(esc).join(', ')}.` : ''}${UNCHECKED.length ? ` Not checked at all, mostly pages whose zones nothing in the code names: ${UNCHECKED.map(esc).join(', ')}.` : ''}</li>
   </ul>
 </div>
 <p class="mapfoot">Coverage here is a best guess. An event missing from a step can mean the step is

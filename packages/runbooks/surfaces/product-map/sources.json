@@ -1,0 +1,238 @@
+{
+  "Win onboarding": {
+    "files": [
+      "packages/gp-webapp/app/onboarding/components/OnboardingFlow.tsx",
+      "packages/gp-webapp/app/onboarding/components/onboardingConfig.ts"
+    ],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/onboarding/components/onboardingConfig.ts",
+        "from": "export const ONBOARDING_STEPS",
+        "to": "\n]\n",
+        "take": "\\bid: '([^']+)'"
+      }
+    ]
+  },
+  "SMS outreach wizard": {
+    "files": [
+      "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx",
+      "packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx"
+    ],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx",
+        "from": "type StepId =",
+        "to": "\n\n"
+      }
+    ]
+  },
+  "Campaign Manager": {
+    "files": ["packages/gp-webapp/app/dashboard/page.tsx"],
+    "unchecked": "a page's zones are read from each event's description; nothing in the code declares them"
+  },
+  "Serve onboarding": {
+    "files": [
+      "packages/gp-webapp/app/serve/onboarding/ServeOnboardingFlow.tsx",
+      "packages/gp-webapp/app/serve/onboarding/serveOnboardingConfig.ts"
+    ],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/serve/onboarding/serveOnboardingConfig.ts",
+        "from": "export type ServeStepId =",
+        "to": "\n\n"
+      },
+      {
+        "file": "packages/gp-webapp/app/serve/onboarding/serveOnboardingConfig.ts",
+        "from": "export const SERVE_STORY_STEPS = [",
+        "to": "]"
+      }
+    ],
+    "aliases": { "office + term-dates": ["office", "term-dates"] }
+  },
+  "Poll onboarding": {
+    "files": ["packages/gp-webapp/app/polls/onboarding/components/OnboardingPage.tsx"],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/polls/onboarding/components/OnboardingPage.tsx",
+        "from": "const steps: Step[] = [",
+        "to": "\n]\n",
+        "take": "\\bname: '([^']+)'"
+      }
+    ]
+  },
+  "Campaign Tracker": {
+    "files": ["packages/gp-webapp/app/dashboard/campaign-plan/page.tsx"],
+    "unchecked": "a page's zones are read from each event's description; nothing in the code declares them"
+  },
+  "Create a website": {
+    "files": ["packages/gp-webapp/app/dashboard/website/create/components/WebsiteCreateFlow.tsx"],
+    "unchecked": "the code numbers its steps 1 to 6 rather than naming them"
+  },
+  "Website editor": {
+    "files": ["packages/gp-webapp/app/dashboard/website/editor/components/WebsiteEditFlow.tsx"],
+    "unchecked": "a page's zones are read from each event's description; nothing in the code declares them"
+  },
+  "Campaign verification": {
+    "files": [
+      "packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationSteps.tsx"
+    ],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationSteps.tsx",
+        "from": "export type VerificationStep =",
+        "to": "\n"
+      }
+    ]
+  },
+  "Draft an ordinance": {
+    "files": [
+      "packages/gp-webapp/app/dashboard/ordinances/data/steps.ts",
+      "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx",
+      "packages/contracts/src/ordinances/Ordinance.schema.ts"
+    ],
+    "lists": [
+      {
+        "file": "packages/contracts/src/ordinances/Ordinance.schema.ts",
+        "from": "export const ORDINANCE_FLOW_STEP_VALUES = [",
+        "to": "]"
+      }
+    ],
+    "not_drawn": {
+      "intro": "an entry point, not a numbered step; the flow is drawn from clarify"
+    }
+  },
+  "Create a list": {
+    "files": ["packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx"],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx",
+        "from": "type WizardStepName =",
+        "to": "\n"
+      }
+    ]
+  },
+  "Create a poll": {
+    "files": ["packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx"],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx",
+        "from": "enum Step {",
+        "to": "}",
+        "take": "(\\w+),"
+      }
+    ]
+  },
+  "Expand a poll": {
+    "files": [
+      "packages/gp-webapp/app/dashboard/polls/[id]/expand/components/ExpandPollPage.tsx",
+      "packages/gp-webapp/app/dashboard/polls/[id]/expand-review/components/ExpandReviewPage.tsx",
+      "packages/gp-webapp/app/dashboard/polls/[id]/expand-payment/components/ExpandPaymentPage.tsx",
+      "packages/gp-webapp/app/dashboard/polls/[id]/expand-payment-success/page.tsx"
+    ],
+    "aliases": {
+      "review": ["expand-review"],
+      "payment": ["expand-payment"],
+      "success": ["expand-payment-success"]
+    }
+  },
+  "Create a door-knocking route": {
+    "files": [
+      "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx",
+      "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts"
+    ],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts",
+        "from": "export const PRE_DRAW_STAGES = [",
+        "to": "]"
+      },
+      {
+        "file": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts",
+        "from": "export type CreateFlowStage =",
+        "to": "\n\n"
+      }
+    ]
+  },
+  "Social wizard": {
+    "files": ["packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx"],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx",
+        "from": "type StepId =",
+        "to": "\n"
+      }
+    ]
+  },
+  "Robocall wizard": {
+    "files": ["packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx"],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx",
+        "from": "type StepId =",
+        "to": "\n"
+      }
+    ]
+  },
+  "Follow-on onboarding": {
+    "files": [
+      "packages/gp-webapp/app/onboarding/components/followOnConfig.ts",
+      "packages/gp-webapp/app/onboarding/components/FollowOnFlow.tsx",
+      "packages/gp-webapp/app/onboarding/components/onboardingConfig.ts"
+    ],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/onboarding/components/onboardingConfig.ts",
+        "from": "export const ONBOARDING_STEPS",
+        "to": "\n]\n",
+        "take": "\\bid: '([^']+)'"
+      }
+    ],
+    "not_drawn": {
+      "campaign-story-why": "followOnConfig.ts filters the story steps out",
+      "campaign-story-background": "followOnConfig.ts filters the story steps out",
+      "campaign-story-issues": "followOnConfig.ts filters the story steps out",
+      "signup-goal": "followOnConfig.ts filters it out: a returning candidate already answered it"
+    }
+  },
+  "Pro upgrade flow": {
+    "files": [
+      "packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeWizard.tsx",
+      "packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx",
+      "packages/gp-webapp/app/dashboard/pro-upgrade/proUpgradeStep.ts"
+    ],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/pro-upgrade/proUpgradeStep.ts",
+        "from": "export const PRO_UPGRADE_STEP = {",
+        "to": "} as const",
+        "take": ": '([^']+)'"
+      }
+    ]
+  },
+  "Phone banking wizard": {
+    "files": ["packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx"],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx",
+        "from": "type StepId =",
+        "to": "\n\n"
+      }
+    ]
+  },
+  "Outreach gate": {
+    "files": [
+      "packages/gp-webapp/app/dashboard/outreach/v2/gate/OutreachGate.tsx",
+      "packages/gp-webapp/app/dashboard/outreach/v2/gate/useOutreachGate.ts"
+    ],
+    "lists": [
+      {
+        "file": "packages/gp-webapp/app/dashboard/outreach/v2/gate/useOutreachGate.ts",
+        "from": "export type GateRequirement =",
+        "to": "| null"
+      }
+    ],
+    "not_declared": {
+      "entry": "the banner and explainer that open the gate, before any requirement screen"
+    }
+  }
+}

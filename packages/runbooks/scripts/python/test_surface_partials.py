@@ -175,3 +175,86 @@ def test_a_productMap_the_map_cannot_read_fails_the_build():
 def test_the_map_page_carries_the_app_areas(built):
     assert '"product_areas"' in built["map"]
     assert "Briefing Assistant" in built["map"]
+
+
+# DATA-2586: the drift guard. A drawn flow whose code gains or loses a step is marked
+# "changed since drawn" on the page. Drift never fails these tests (the person changing
+# a flow is not the one keeping its drawing); a drawing with no sources entry does.
+def _drift():
+    sys.path.insert(0, str(SURFACES / "product-map"))
+    import drift
+
+    return drift
+
+
+def _fake_repo(tmp_path: Path, code: str) -> Path:
+    (tmp_path / "packages/gp-webapp").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/Flow.tsx").write_text(code)
+    return tmp_path
+
+
+def test_the_guard_catches_a_step_added_in_code_and_one_removed(tmp_path):
+    drift = _drift()
+    root = _fake_repo(tmp_path, "type StepId = 'purpose' | 'who' | 'review'\n")
+    spec = {
+        "files": ["packages/gp-webapp/Flow.tsx"],
+        "lists": [{"file": "packages/gp-webapp/Flow.tsx", "from": "type StepId =", "to": "\n"}],
+    }
+    r = drift.check(root, "Flow", spec, ["purpose", "who", "schedule"])
+    assert r["changed"] and r["added"] == ["review"] and r["removed"] == ["schedule"]
+    assert not drift.check(root, "Flow", spec, ["purpose", "who", "review"])["changed"]
+    # An exclusion with a reason is not drift, and an alias draws two code steps as one.
+    assert not drift.check(
+        root, "Flow", {**spec, "not_drawn": {"review": "why"}}, ["purpose", "who"]
+    )["changed"]
+    assert not drift.check(
+        root, "Flow", {**spec, "aliases": {"who + review": ["who", "review"]}},
+        ["purpose", "who + review"],
+    )["changed"]
+
+
+def test_the_weaker_check_matches_whole_tokens_only(tmp_path):
+    drift = _drift()
+    root = _fake_repo(tmp_path, "router.push(`/${id}/expand-payment-success`)\n")
+    spec = {"files": ["packages/gp-webapp/Flow.tsx"]}
+    r = drift.check(root, "Flow", spec, ["expand-payment", "expand-payment-success"])
+    assert r["level"] == "ids" and r["removed"] == ["expand-payment"]
+
+
+def test_a_gone_file_or_marker_marks_the_flow_and_never_raises(tmp_path):
+    drift = _drift()
+    root = _fake_repo(tmp_path, "nothing here\n")
+    spec = {
+        "files": ["packages/gp-webapp/Flow.tsx", "packages/gp-webapp/Gone.tsx"],
+        "lists": [{"file": "packages/gp-webapp/Flow.tsx", "from": "type StepId =", "to": "\n"}],
+    }
+    r = drift.check(root, "Flow", spec, ["purpose"])
+    assert r["changed"] and r["missing_files"] == ["packages/gp-webapp/Gone.tsx"]
+    assert r["unreadable"] and not r["added"] and not r["removed"]
+
+
+def test_every_drawn_surface_has_a_sources_entry():
+    import json
+
+    drift = _drift()
+    js = (SURFACES / "product-map/map.js").read_text()
+    sources = json.loads((SURFACES / "product-map/sources.json").read_text())
+    drawn = drift.drawn_steps(js)
+    # Counted a second way: the surface constants the TREE places under its areas.
+    placed = set()
+    for block in re.findall(r"surfaces: \[([^\]]*)\]", js):
+        placed.update(re.findall(r"\b[A-Z][A-Z_]+\b", block))
+    assert len(drawn) == len(placed)
+    results = drift.check_all(PACKAGES.parent, sources, js)
+    assert set(results) == set(drawn) == set(sources)
+    assert results["Serve onboarding"]["level"] == "list"
+    # Without its entry a drawing still builds, as unchecked, so the republish routine
+    # keeps publishing; the set comparison above is what fails.
+    partial = drift.check_all(
+        PACKAGES.parent, {k: v for k, v in sources.items() if k != "Social wizard"}, js
+    )
+    assert partial["Social wizard"]["level"] == "none" and not partial["Social wizard"]["changed"]
+
+
+def test_the_map_page_carries_the_drift_result(built):
+    assert '"map_drift"' in built["map"] and "Changed since drawn" in built["map"]

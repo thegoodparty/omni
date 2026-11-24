@@ -63,7 +63,10 @@ site. It is the explorer's own template rendered with the map's tree (`map.js`) 
 of the events table, so both pages share search, filters and cards. Its areas come from
 the app's own `productMap.ts` at build time (DATA-2835), so a released area appears on its
 own; the steps inside a flow are hand-drawn in `map.js`, and an area nobody has drawn
-lists its events instead.
+lists its events instead. Each build checks every drawing against its flow's code
+(`drift.py` over `sources.json`, DATA-2586) and marks one whose steps changed "changed
+since drawn" on the page; drift fails nothing, a drawing with no `sources.json` entry
+fails the runbooks tests.
 
 `surfaces/` is where pages built from committed governance data live. The three published
 pages (explorer, map, console) are one epic, DATA-2580, and share `surfaces/shared/`: the
