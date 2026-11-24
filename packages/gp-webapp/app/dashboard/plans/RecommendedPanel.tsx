@@ -1,5 +1,3 @@
-'use client'
-
 import { useLayoutEffect, useRef } from 'react'
 
 // One rounded, non-interactive tint behind the recommended column, drawn from
