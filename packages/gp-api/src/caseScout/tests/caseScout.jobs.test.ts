@@ -340,6 +340,8 @@ beforeEach(() => {
   vi.stubEnv('CASE_SCOUT_SEND_TO_DELEGATE', '')
   vi.stubEnv('CASE_SCOUT_SPEND_CAP_USD', '')
   vi.stubEnv('CASE_SCOUT_SESSION_CAP', '')
+  vi.stubEnv('CASE_SCOUT_NIGHTLY_CAP', '')
+  vi.stubEnv('CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS', '')
   vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
 
   objects = fakeS3(service.app.get(CaseScoutBucketService))
@@ -506,6 +508,8 @@ describe('caseScoutNightly', () => {
   })
 
   it('reads from an hour before the marker and skips processed sessions', async () => {
+    // The first-night window applies only with no marker.
+    vi.stubEnv('CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS', '168')
     await seedConversation({ id: 'conv-ov', scope: ChatScope.chief_of_staff })
     // Read last night; inside tonight's overlap window and already processed.
     await seedMessage(
@@ -588,6 +592,37 @@ describe('caseScoutNightly', () => {
       'conv-fn2:msg-fn-new',
     ])
     expect(transcripts.map(sessionIdIn)).toEqual(['conv-fn2:msg-fn-new'])
+  })
+
+  it('reads CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS back with no marker', async () => {
+    vi.stubEnv('CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS', '168')
+    await seedConversation({ id: 'conv-wk', scope: ChatScope.chief_of_staff })
+    // A minute before the window: 168 hours and the 60-minute overlap.
+    await seedMessage(
+      'conv-wk',
+      'msg-wk-old',
+      ChatMessageRole.user,
+      '2026-11-09T08:16:00.000Z',
+      'An older question.',
+    )
+    await seedConversation({ id: 'conv-wk2', scope: ChatScope.chief_of_staff })
+    await seedMessage(
+      'conv-wk2',
+      'msg-wk-new',
+      ChatMessageRole.user,
+      '2026-11-09T08:17:00.000Z',
+      'A question from last week.',
+    )
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    const manifest = ManifestSchema.parse(
+      JSON.parse(bucketJson(`runs/${RUN_ID}/manifest.json`) ?? '{}'),
+    )
+    expect(manifest.windowStart).toBe('2026-11-09T08:17:00.000Z')
+    expect(manifest.sessions.map((s) => s.sessionId)).toEqual([
+      'conv-wk2:msg-wk-new',
+    ])
   })
 
   it('caps the sessions a night reads, oldest first', async () => {
@@ -685,6 +720,37 @@ describe('caseScoutDraft', () => {
       expect(record().counts).toMatchObject(counts)
     },
   )
+
+  it.each([
+    ['replaces the ladder when set', '4', { proposed: 4, capped: 0 }],
+    ['keeps the ladder when out of range', '30', { proposed: 1, capped: 3 }],
+  ])('CASE_SCOUT_NIGHTLY_CAP %s', async (_label, nightlyCap, counts) => {
+    vi.stubEnv('CASE_SCOUT_NIGHTLY_CAP', nightlyCap)
+    await seedSessions([3, 3, 3, 3])
+    // Three rejections put the ladder at 1.
+    const earlier = parseISO('2026-11-10T09:30:00.000Z').toISOString()
+    const lines = ['a', 'b', 'c'].flatMap((id) =>
+      ['proposed', 'rejected'].map((outcome) => ({
+        runId: '2026-11-10',
+        conversationId: `conv-old-${id}`,
+        agentId: 'chief_of_staff',
+        outcome,
+        caseId: `old-${id}`,
+        failureSummary: `old failure ${id}`,
+        createdAt: earlier,
+      })),
+    )
+    objects.set(
+      `${BUCKET}/ledger/2026-11.jsonl`,
+      lines.map((line) => JSON.stringify(line)).join('\n') + '\n',
+    )
+    draftFor = (sessionId) =>
+      newCase(`case-${sessionId.slice(-1)}`, `failure ${sessionId}`)
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    expect(record().counts).toMatchObject(counts)
+  })
 
   it('suppresses duplicates, rejections and caseId collisions', async () => {
     await seedSessions([3, 3, 3])

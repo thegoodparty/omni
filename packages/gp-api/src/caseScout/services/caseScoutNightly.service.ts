@@ -7,7 +7,7 @@ import {
   caseScoutEnabled,
   COVERED_SCOPES,
   filtersInternalAccounts,
-  FIRST_NIGHT_WINDOW_HOURS,
+  firstNightWindowHours,
   sessionCap,
 } from '../caseScout.config'
 import type { Manifest } from '../schemas/caseScoutBucket.schema'
@@ -81,7 +81,7 @@ export class CaseScoutNightlyService {
     const windowStart = lastSessionStart
       ? addMinutes(parseISO(lastSessionStart), -QUERY_OVERLAP_MINUTES)
       : addMinutes(
-          subHours(now, FIRST_NIGHT_WINDOW_HOURS),
+          subHours(now, firstNightWindowHours()),
           -QUERY_OVERLAP_MINUTES,
         )
     const isInternalFilter = filtersInternalAccounts()
