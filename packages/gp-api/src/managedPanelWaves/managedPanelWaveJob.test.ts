@@ -880,6 +880,14 @@ describe('the managed panel wave job', () => {
   })
 
   describe('agent-handled waves', () => {
+    beforeEach(() => {
+      vi.stubEnv('S2W_PANEL_WAVE_API_ENABLED', 'true')
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
     // Saturday 2026-10-24, 8am Pacific: 11am Pacific is three hours away.
     const SATURDAY = new Date('2026-10-24T15:00:00Z')
     // Saturday 11:30am Pacific: today's slot is gone, so Sunday's is next.
@@ -958,6 +966,22 @@ describe('the managed panel wave job', () => {
           outreachId: wave.outreach?.id,
           agentHandoff: { handler, mode },
         })
+      },
+    )
+
+    it.each(['api_shadow', 'api_auto'])(
+      'sends %s the manual way while the api path is not enabled',
+      async (variant) => {
+        vi.stubEnv('S2W_PANEL_WAVE_API_ENABLED', '')
+        agentVariant = variant
+        const { id } = await enroll({}, (await outsideOwner()).id)
+
+        await job().advance(id, WEDNESDAY)
+
+        const wave = await waveAt(id, 1)
+        expect(wave.replyWindowEndsAt).toEqual(WEDNESDAY_REPLIES_CLOSE)
+        expect(textSends()[0]?.[1][0]?.data).not.toHaveProperty('agentHandoff')
+        expect(await service.prisma.outreachTextHandoff.count()).toBe(0)
       },
     )
 

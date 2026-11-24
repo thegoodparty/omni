@@ -556,6 +556,14 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     })
     const route = AGENT_VARIANT_ROUTES[variant ?? '']
     if (!route) return null
+    // Nothing advances an api row until the Scale to Win sweep ships, so an
+    // api variant assigned before then would strand the wave unclosed.
+    if (
+      route.handler === 'api' &&
+      process.env.S2W_PANEL_WAVE_API_ENABLED !== 'true'
+    ) {
+      return null
+    }
     if (
       route.handler === 'api' &&
       (await this.isInternalOwner(enrollment.organizationSlug))

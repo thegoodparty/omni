@@ -28,9 +28,17 @@ manual wave's upload, the stall alert and the five-day backstop):
   per row. The unique `(enrollmentId, milestone)` is what keeps it to once.
 - **Agent waves leave `replyWindowEndsAt` null** until `OutreachPanelRepliesService`
   sets it (`openAgentReplyWindow`) from the swarm's reply export or a staff results upload (outreach `docs/text-delivery.md`). Under the
-  `serve-panel-wave-agent` flag (`shadow`/`auto`; anything else is off) the
+  `serve-panel-wave-agent` flag (`shadow`/`auto` for the swarm agent,
+  `api_shadow`/`api_auto` for the Scale to Win API handler; anything else is
+  off) the
   job sets only `sentAt` and passes `agentHandoff` through `claimFree` and the
   `outreachTextSend` job, and fires Wave Sent only for manual waves. The step
   treats a null window as waiting until the hand-off row is
   `replies_submitted` (or, with no row, while the send is still
   `pending`/`in_progress`), then closes the wave. Detail: `src/contacts/docs/flows-managed-civic-panel.md`.
+- **The api variants are gated.** They stay manual unless
+  `S2W_PANEL_WAVE_API_ENABLED=true`, because nothing advances an `api` row
+  until the Scale to Win sweep ships; the sweep's PR removes the gate. The
+  handler and mode are frozen on the hand-off row, `api_auto` acts as shadow
+  outside prod, and an org owned by a `@goodparty.org` address stays manual:
+  `docs/adr/2026-11-23-api-panel-waves-progress-on-the-text-handoff.md`.
