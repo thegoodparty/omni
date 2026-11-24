@@ -1,5 +1,3 @@
-'use client'
-
 import Link from 'next/link'
 import { Button } from '@styleguide'
 import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'

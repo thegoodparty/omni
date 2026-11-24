@@ -1,5 +1,3 @@
-'use client'
-
 import { useEffect } from 'react'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -53,6 +53,14 @@ describe('GateExplainerModal', () => {
   beforeEach(() => {
     planFlag.enabled = false
     trackEventMock.mockClear()
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      value: 1024,
+      configurable: true,
+      writable: true,
+    })
   })
 
   it('renders nothing when requirement is null', () => {
@@ -552,11 +560,6 @@ describe('GateExplainerModal', () => {
       expect(
         screen.getByRole('button', { name: 'Join Pro for $299' }),
       ).toBeInTheDocument()
-      Object.defineProperty(window, 'innerWidth', {
-        value: 1024,
-        configurable: true,
-        writable: true,
-      })
     })
   })
 })

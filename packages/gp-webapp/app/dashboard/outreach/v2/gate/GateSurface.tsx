@@ -1,6 +1,4 @@
-'use client'
-
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -18,7 +16,25 @@ import {
   DrawerTitle,
   ProBadge,
 } from '@styleguide'
-import { useTailwindBreakpoints } from '@shared/hooks/useTailwindBreakpoints'
+
+// The same phone cut ModalOrDrawer makes (under Tailwind's `md`). Read from the
+// window on the first render rather than after an effect: the pitch mounts
+// already open, so a default of "phone" would open a drawer on desktop and
+// swap it for the dialog a frame later.
+const PHONE_MAX_WIDTH = 768
+
+const useIsPhone = (): boolean => {
+  const [isPhone, setIsPhone] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < PHONE_MAX_WIDTH,
+  )
+  useEffect(() => {
+    const check = (): void => setIsPhone(window.innerWidth < PHONE_MAX_WIDTH)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+  return isPhone
+}
 
 interface GateSurfaceProps {
   open: boolean
@@ -44,9 +60,7 @@ export const GateSurface = ({
   children,
   footer,
 }: GateSurfaceProps): React.JSX.Element => {
-  const breakpoint = useTailwindBreakpoints()
-  // The same phone cut ModalOrDrawer makes.
-  const isPhone = breakpoint === 'xs' || breakpoint === 'sm'
+  const isPhone = useIsPhone()
 
   if (isPhone) {
     return (
