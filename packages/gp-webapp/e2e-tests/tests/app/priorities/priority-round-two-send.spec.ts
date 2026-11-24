@@ -62,7 +62,7 @@ const relayS3ImageUploads = async (page: Page): Promise<void> => {
 const fillStripeCard = async (page: Page): Promise<void> => {
   const frame = page
     .frameLocator('iframe[title="Secure payment input frame"]')
-    .first()
+    .last()
   const cardInput = frame.locator('#payment-numberInput')
   await expect(cardInput).toBeVisible({ timeout: 30_000 })
   await expect(cardInput).toBeEditable({ timeout: 30_000 })
@@ -260,7 +260,7 @@ test.describe('priority round 2 text', () => {
     })
     const stripeFrame = page
       .frameLocator('iframe[title="Secure payment input frame"]')
-      .first()
+      .last()
     // Stripe mounts only once the create returns, which may take its 90s.
     await expect(stripeFrame.locator('#payment-numberInput')).toBeVisible({
       timeout: 90_000,

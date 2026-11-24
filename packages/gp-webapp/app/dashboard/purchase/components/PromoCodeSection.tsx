@@ -155,7 +155,7 @@ export function PromoCodeLink({
           variant="link"
           size="small"
           onClick={() => setIsOpen(true)}
-          className="px-0"
+          style={{ paddingLeft: 0, paddingRight: 0 }}
         >
           Add a promo code
         </Button>
