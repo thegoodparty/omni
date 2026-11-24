@@ -60,7 +60,7 @@ small,footer{color:#52525b}a{color:#4338ca}
     <h2>Five Whys</h2>
     <span class="conf high">Root cause <b>High</b></span>
   </div>
-  <!-- Only below High: one sentence naming the missing evidence and the check that would settle it. Delete this line entirely when High. -->
+  <!-- Only below High: one sentence naming the missing evidence and the check that would settle it. Delete this line entirely when High. A Resolution pill below High does not make the page incomplete. -->
   <p class="gap">{{What is unverified here, and the check that would settle it.}}</p>
   <ol>
     <li><strong>{{Why question?}}</strong> {{One or two plain-language sentences a non-engineer can follow, with no code or field names (put identifiers in Evidence), plus a link to evidence. Label Confirmed or Unknown.}}</li>
@@ -83,7 +83,7 @@ small,footer{color:#52525b}a{color:#4338ca}
   <p>{{Behavior to change, where, how to verify normal and failure paths. If incomplete: the exact commands below, each with who runs it and what each result means.}}</p>
   <pre>{{literal read-only SQL / stripe command / Loki query}}</pre>
   <p><strong>Cleanup (owned by the bug responder):</strong> {{identify, repair, verify; or why none is needed}}</p>
-  <p>{{Confirmed RCA only: ask reviewers for a thumbs up or a pinned comment. Incomplete: no approval request.}}</p>
+  <p>{{Confirmed RCA only: ask reviewers for a thumbs up or a pinned comment. Incomplete: no approval request. A Resolution pill below High on its own still allows this line.}}</p>
 </section>
 <details id="evidence">
   <summary>Evidence</summary>

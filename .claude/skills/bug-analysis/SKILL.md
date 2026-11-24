@@ -21,7 +21,14 @@ Each of the Five Whys and Resolution cards carries a small confidence pill in it
 - **Medium:** The evidence points at it, but a named check could still change it.
 - **Low:** It is a best guess; the evidence needed is unavailable or not yet gathered.
 
-Set the two independently. A confirmed cause with a resolution that is plausible but unproven is High on Five Whys and Low on Resolution. When either pill is below High, that card leads with one sentence, styled as the template's `.gap` note, naming exactly what is unverified there and the check that would settle it. Delete the note entirely when the pill is High. The pill never replaces the incomplete label or the evidence requirement; it tells a reader how much to inspect before approving.
+Set the two independently. A confirmed cause with a resolution that is plausible but unproven is High on Five Whys and Low on Resolution. When either pill is below High, that card leads with one sentence, styled as the template's `.gap` note, naming exactly what is unverified there and the check that would settle it. Delete the note entirely when the pill is High.
+
+The two pills drive different rules, and only the cause one decides the status:
+
+- **Root cause below High makes the analysis incomplete.** Label it `INCOMPLETE INVESTIGATION`, do not request approval, and let the Resolution section lead with the commands that would settle the cause, exactly as an incomplete investigation already requires.
+- **Resolution below High on its own does not.** The page still says `ROOT CAUSE CONFIRMED` and may still ask reviewers for a thumbs up, because approving the plan is a different question from trusting the fix. The `.gap` note is what tells them what to check.
+
+A cause pill below High always wins, whatever the Resolution pill says. The pills never replace the evidence requirement; they tell a reader how much to inspect before approving.
 
 ## Impact
 
