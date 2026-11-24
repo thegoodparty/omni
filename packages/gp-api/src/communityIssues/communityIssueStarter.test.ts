@@ -166,15 +166,20 @@ describe('community issues onboarding start', () => {
     expect(dispatchSpy()).toHaveBeenCalledTimes(1)
   })
 
-  it('does not pay for the search again when a retry only has the dispatch left', async () => {
-    vi.mocked(structuredSpy()).mockRejectedValue(new Error('Gemini down'))
+  it('searches again on a retry when the first attempt wrote no starter issues', async () => {
+    vi.mocked(structuredSpy()).mockRejectedValueOnce(new Error('Gemini down'))
     vi.mocked(dispatchSpy()).mockRejectedValueOnce(new Error('dispatch failed'))
 
     await service.client.post(PATH, {}, eoHeaders())
     await service.jobs.settle()
 
     expect(dispatchSpy()).toHaveBeenCalledTimes(2)
-    expect(structuredSpy()).toHaveBeenCalledTimes(1)
+    expect(structuredSpy()).toHaveBeenCalledTimes(2)
+    expect(
+      await service.prisma.communityIssue.count({
+        where: { organizationSlug: eoOrgSlug },
+      }),
+    ).toBe(1)
   })
 
   it('runs one generation for concurrent starts on the same org', async () => {

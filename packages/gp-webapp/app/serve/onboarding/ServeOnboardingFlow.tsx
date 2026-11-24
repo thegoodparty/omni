@@ -212,6 +212,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // nothing (the 2026-11-03 robocall post-mortem's lesson 3). A start sets it,
   // and every read carries the queue's answer.
   const [starterSearchPending, setStarterSearchPending] = useState(false)
+  const starterSearchPendingRef = useRef(false)
+  useEffect(() => {
+    starterSearchPendingRef.current = starterSearchPending
+  }, [starterSearchPending])
   const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
     new Set(),
   )
@@ -588,7 +592,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const check = async () => {
-      if (cancelled || Date.now() >= starterIssuesPollUntilRef.current) return
+      if (cancelled) return
+      if (
+        Date.now() >= starterIssuesPollUntilRef.current &&
+        !starterSearchPendingRef.current
+      ) {
+        return
+      }
       try {
         const res = await clientRequest('GET /v1/priorities/onboarding', {})
         if (cancelled) return

@@ -1069,6 +1069,34 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     }
   })
 
+  it('keeps checking past the usual poll window while the queue still has the job', async () => {
+    resumedAt('priorities')
+    let searchPending = true
+    api.mock('GET /v1/priorities/onboarding', () => ({
+      status: 200,
+      data: { options: [], searchPending },
+    }))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      renderFlow()
+
+      expect(
+        await screen.findByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+
+      await act(() => vi.advanceTimersByTimeAsync(180_000))
+      expect(
+        screen.getByText('Finding issues in your community'),
+      ).toBeInTheDocument()
+
+      searchPending = false
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+      await screen.findByText(/We couldn’t find issues for your area yet/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps searching after a Try again while the queue still has the job', async () => {
     resumedAt('priorities')
     let starts = 0
