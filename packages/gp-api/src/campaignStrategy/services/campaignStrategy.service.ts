@@ -10,7 +10,7 @@ import {
   ExperimentRun,
   ExperimentRunStatus,
 } from '../../generated/prisma'
-import { isBefore, subMinutes } from 'date-fns'
+import { format, isBefore, subMinutes } from 'date-fns'
 import { z } from 'zod'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { runsOnGpApi } from '@/agents/agents.registry'
@@ -503,6 +503,40 @@ export class CampaignStrategyService extends createPrismaBase(
     })
   }
 
+  // gp-api's agent's onArtifact for the opportunities section: the same write
+  // the PMF Engine's result consumer makes, from the artifact the run submitted
+  // rather than one in S3. A run no plan links to is a judge run, or one a race
+  // change already orphaned; the run route hands the artifact back instead, so
+  // there is nothing to persist.
+  async onOpportunitiesArtifact(run: {
+    runId: string
+    raceId: string
+    artifact: unknown
+  }): Promise<void> {
+    const plan = await this.planForSection('opportunities', run.runId)
+    if (!plan) return
+    // As onOppositionResearchArtifact: a set marker means the rows are already
+    // written, but the bootstrap still has to run and is idempotent.
+    if (plan.opportunitiesPersistedAt) {
+      await this.afterSectionPersisted(plan, {
+        section: 'opportunities',
+        runId: run.runId,
+        durationSeconds: null,
+        costUsd: null,
+      })
+      return
+    }
+
+    await this.persistSection(plan, {
+      section: 'opportunities',
+      runId: run.runId,
+      raceId: run.raceId,
+      artifact: run.artifact,
+      durationSeconds: null,
+      costUsd: null,
+    })
+  }
+
   private planForSection(
     section: 'opposition' | 'opportunities',
     runId: string,
@@ -579,7 +613,13 @@ export class CampaignStrategyService extends createPrismaBase(
             {
               campaignId: plan.campaignId,
               planId: plan.id,
-              generationEngine: 'cap',
+              // The engine that actually ran it, so a funnel joining Started to
+              // Completed does not split one run in two while the switch exists.
+              generationEngine: runsOnGpApi(
+                section.section === 'opposition' ? OPPOSITION : OPPORTUNITIES,
+              )
+                ? 'gp-api'
+                : 'cap',
               runId: section.runId,
               durationSeconds: section.durationSeconds,
               costUsd: section.costUsd,
@@ -782,7 +822,7 @@ export class CampaignStrategyService extends createPrismaBase(
           {
             campaignId: plan.campaignId,
             planId: plan.id,
-            generationEngine: 'cap',
+            generationEngine: runsOnGpApi(OPPOSITION) ? 'gp-api' : 'cap',
             runId,
             attempt: plan.oppositionAttempts + 1,
           },
@@ -836,7 +876,7 @@ export class CampaignStrategyService extends createPrismaBase(
           {
             campaignId: plan.campaignId,
             planId: plan.id,
-            generationEngine: 'cap',
+            generationEngine: runsOnGpApi(OPPORTUNITIES) ? 'gp-api' : 'cap',
             runId,
             attempt: plan.opportunitiesAttempts + 1,
           },
@@ -917,6 +957,12 @@ export class CampaignStrategyService extends createPrismaBase(
         const run = await this.agents.run(type, {
           ...input,
           organizationSlug: base.organizationSlug,
+          // The PMF Engine's runner stated the date in its system prompt; here
+          // it is an input field, because the runway to the election is read
+          // off it. Only this agent takes one.
+          ...(type === OPPORTUNITIES
+            ? { today: format(new Date(), 'yyyy-MM-dd') }
+            : {}),
         })
         return run.runId
       }

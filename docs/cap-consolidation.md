@@ -7,9 +7,10 @@ main; `trending_issues` runs on gp-api's own agents in dev and prod, and a
 preview runs every agent gp-api has, because a preview is the Universal
 Judge's candidate arm. `top_community_issues` runs on gp-api's own agents in
 dev only, and prod still sends it to the PMF Engine until its dev runs are
-confirmed healthy. `opposition_research` is built on gp-api's agents with its
-switch off everywhere but preview, where the Universal Judge compares it
-against the PMF Engine. Every other agent still runs on the PMF Engine in
+confirmed healthy. `opposition_research` and `opportunities_and_challenges`
+are built on gp-api's agents with their switch off everywhere but preview,
+where the Universal Judge compares them against the PMF Engine. Every other
+agent still runs on the PMF Engine in
 every environment. Until an agent moves, it runs as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
