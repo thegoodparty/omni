@@ -10,6 +10,7 @@ Thin wrappers around third-party SDKs. Each subdirectory is a Nest module that o
 - `forwardEmail/` — domain email forwarding
 - `google/` — Maps, OAuth, Sheets
 - `peerly/` — SMS sending
+- `scaleToWin/`: Scale to Win peer texting (copy a template campaign, load contacts from a CSV, preview, start, send)
 - `segment/` — analytics
 - `slack/` — bot + alerts
 - `stripe/` — billing

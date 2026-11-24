@@ -310,6 +310,12 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   CALLHUB_HTTP_TIMEOUT: { tier: 'optional', default: '30000' },
   CALLHUB_VB_CALLS_PER_MINUTE: { tier: 'optional', default: '120' },
 
+  // Scale to Win Text API. Prod only: dev and preview always use the vendor
+  // mock, so the client asserts these at first use, never at boot.
+  S2W_API_KEY_ID: { tier: 'optional' },
+  S2W_API_KEY_SECRET: { tier: 'optional' },
+  S2W_SUBACCOUNT_ID: { tier: 'optional' },
+
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 
   CAMPAIGN_PLAN_SHARES_BUCKET: { tier: 'optional' },
@@ -420,6 +426,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // get_usecases call (vendors/vendorDriftProbe.service.ts). An id, not a
   // credential. Unset skips that one probe with a note.
   DRIFT_PROBE_PEERLY_IDENTITY_ID: { tier: 'optional' },
+  // A Scale to Win campaign id (a template) the drift probe reads with GET.
+  // An id, not a credential. Unset skips that probe with a note.
+  DRIFT_PROBE_S2W_CAMPAIGN_ID: { tier: 'optional' },
 
   // Set per-deploy by deploy/index.ts to 'preview' | 'dev' | 'prod'. Also
   // drives IS_PROD_DEPLOY / IS_NON_PROD_DEPLOY in appEnvironment.util.ts —

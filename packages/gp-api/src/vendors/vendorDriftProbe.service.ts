@@ -16,6 +16,7 @@ import { peerlyGetIdentitiesResponseBodySchema } from './peerly/schemas/peerlyId
 import { AccountBalanceResponseDto } from './peerly/schemas/peerlyAccount.schema'
 import { PeerlyAccountService } from './peerly/services/peerlyAccount.service'
 import { PeerlyIdentityService } from './peerly/services/peerlyIdentity.service'
+import { ScaleToWinCampaignService } from './scaleToWin/services/scaleToWinCampaign.service'
 import { parseVendorResponse } from './shared/parseVendorResponse'
 import { SlackService } from './slack/services/slack.service'
 import { SlackChannel, SlackMessageType } from './slack/slackService.types'
@@ -100,6 +101,7 @@ export class VendorDriftProbeService {
     private readonly geoapify: GeoapifyRoutePlannerService,
     private readonly vercel: VercelService,
     private readonly route53: AwsRoute53Service,
+    private readonly scaleToWinCampaigns: ScaleToWinCampaignService,
   ) {
     this.logger.setContext(VendorDriftProbeService.name)
   }
@@ -288,6 +290,18 @@ export class VendorDriftProbeService {
             'route53',
             'ListPrices',
           )
+          return undefined
+        },
+      },
+      {
+        // Scale to Win has no sandbox, so this reads one template campaign
+        // in prod. campaigns.get parses in enforce mode itself.
+        vendor: 'scaleToWin',
+        endpoint: '/subaccounts/:subaccountId/campaigns/:id',
+        run: async () => {
+          const campaignId = process.env.DRIFT_PROBE_S2W_CAMPAIGN_ID
+          if (!campaignId) return 'DRIFT_PROBE_S2W_CAMPAIGN_ID is not set'
+          await this.scaleToWinCampaigns.get(campaignId)
           return undefined
         },
       },

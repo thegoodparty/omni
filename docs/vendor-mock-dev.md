@@ -1,7 +1,7 @@
 # Dev environment: simulated vendors
 
 Dev uses mock vendors. No traffic reaches Peerly, CallHub, Geoapify, Vercel,
-Route53, or SES.
+Route53, SES, or Scale to Win.
 
 ## Auto-progress timings
 
@@ -13,6 +13,11 @@ Route53, or SES.
 | SMS PIN | Always `123456` |
 
 A domain name starting with `taken-` reports as unavailable.
+
+A Scale to Win contact load finishes as soon as it starts, with every uploaded
+row counted as loaded. Tests set other counts or a campaign status through
+`VendorMockRecordService.setScaleToWinLoadResult` and
+`setScaleToWinCampaignStatus`.
 
 ## Starting a test campaign
 
