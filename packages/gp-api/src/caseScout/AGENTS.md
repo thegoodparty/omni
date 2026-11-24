@@ -53,8 +53,12 @@ session cap and the marker but are never sent to a model.
   or an invented name; a child is only "a child"; a claim about a person
   moves to another role and goes generic; exact figures that could point to
   one race, place or person (totals, margins, counts, addresses, ages, event
-  dates) are invented or rounded; unique descriptions become ordinary ones;
-  every sentence is written fresh. The failure itself must survive.
+  dates) are invented or rounded; a changed date keeps its place in time
+  relative to when the user asked (past stays past, upcoming stays
+  upcoming), as relative time where it can, and as an absolute date only
+  when the failure needs one, such as date arithmetic; unique descriptions
+  become ordinary ones; every sentence is written fresh. The failure itself
+  must survive.
 - **Contact patterns** catch emails, URLs, ten-digit phones and seven-digit
   local numbers (`555-0123`, `555 0123`). Only a hyphenated one can pass, as
   an ordinance number or a range: one whose last four digits read as a year
