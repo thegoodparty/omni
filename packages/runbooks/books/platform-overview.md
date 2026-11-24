@@ -412,6 +412,12 @@ The P2P (peer-to-peer) texting system allows candidates to send SMS outreach to 
 | `PeerlyP2pJobService`         | Orchestrates job creation (media → job → assign list). Jobs are created in Paused state for CaS team review. | `POST /1to1/jobs`, `POST /1to1/jobs/{id}/assignlist`, `GET /1to1/jobs`                                                                                                          |
 | `PeerlyMediaService`          | Upload MMS images (JPEG/PNG/GIF, max 745KB)                                                                  | `POST /v2/media`                                                                                                                                                                |
 
+**Message limits** (contracts, shared by the composer and gp-api):
+
+- `SMS_IMAGE_MAX_BYTES` (745,000 bytes): the MMS image cap, Peerly's limit
+- `SMS_COMPOSED_MAX_LENGTH` and `P2P_SCRIPT_MAX_LENGTH` (2,000 characters): the hard cap on a whole text, matching Peerly's MMS limit. The composer blocks Continue past it and gp-api refuses the create
+- `SMS_LONG_MESSAGE_LENGTH` (1,000 characters): a soft limit. Past it the composer's live count turns yellow and asks for a shorter text, but the text can still be sent
+
 ### Phase 1: TCR 10DLC Compliance Registration
 
 Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code) registration through Peerly's TCR (The Campaign Registry) flow.
