@@ -261,6 +261,42 @@ describe('s2wPanelWaveSweep', () => {
     expect(slackMessage).not.toHaveBeenCalled()
   })
 
+  it('moves the rows behind a server error, then fails the run', async () => {
+    const failing = await handoff()
+    const next = await handoff({
+      sendAt: new Date('2026-12-02T19:00:00Z'),
+    })
+    const build = vi
+      .spyOn(sweeper(), 'buildCampaign')
+      .mockImplementation(async (row) => {
+        if (row.id === failing.id) {
+          throw new ScaleToWinApiError(
+            'Scale to Win copy failed (503)',
+            HttpStatus.SERVICE_UNAVAILABLE,
+            undefined,
+          )
+        }
+      })
+    const steps = vi.spyOn(handoffMetrics, 'recordManagedPanelHandoffApiSteps')
+
+    const { deadLetters } = await service.jobs.runSchedule(
+      's2wPanelWaveSweep',
+      { allowDeadLetters: true },
+    )
+
+    expect(build.mock.calls.map(([row]) => row.id)).toContain(next.id)
+    expect(steps).toHaveBeenCalled()
+    expect(deadLetters).toEqual([
+      expect.objectContaining({
+        name: 's2wPanelWaveSweep',
+        error: expect.stringContaining(failing.id),
+      }),
+    ])
+    expect(deadLetters[0]?.error).not.toContain(next.id)
+    expect((await reload(failing.id)).needsHumanAt).toBeNull()
+    expect(slackMessage).not.toHaveBeenCalled()
+  })
+
   it('only watches a needs-human row and writes nothing to Scale to Win', async () => {
     const copied = await service.client.post(
       `${MOCK_CAMPAIGNS}/7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f/copy`,

@@ -85,11 +85,38 @@ export class S2wPanelWaveSweepService extends createPrismaBase(
       },
       orderBy: [{ sendAt: Prisma.SortOrder.asc }, { id: Prisma.SortOrder.asc }],
     })
+    const retry: string[] = []
     for (const row of rows) {
-      await (row.needsHumanAt ? this.watchNeedsHuman(row) : this.advance(row))
+      if (row.needsHumanAt) {
+        await this.watchNeedsHuman(row)
+        continue
+      }
+      try {
+        await this.advance(row)
+      } catch (err) {
+        // The 60 a minute limit is shared by the whole account, so a throttle
+        // ends the run. A 5xx or timeout may belong to this row alone, so the
+        // rows behind it still move.
+        if (
+          err instanceof ScaleToWinApiError &&
+          err.vendorStatus === HTTP_TOO_MANY_REQUESTS
+        ) {
+          throw err
+        }
+        this.logger.warn(
+          { err, handoffId: row.id, outreachId: row.outreachId },
+          'Scale to Win panel wave step left to the retry',
+        )
+        retry.push(row.id)
+      }
     }
 
     await this.recordStepCounts()
+    if (retry.length > 0) {
+      throw new Error(
+        `Scale to Win sweep left hand-offs to the retry: ${retry.join(', ')}`,
+      )
+    }
   }
 
   async advance(row: ApiHandoffRow): Promise<void> {
