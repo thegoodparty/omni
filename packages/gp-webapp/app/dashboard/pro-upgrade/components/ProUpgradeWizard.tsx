@@ -117,14 +117,21 @@ const ProUpgradeWizard = ({
     // step move is a push, so history cannot say where the candidate came
     // from: it goes to the page that carried them in (`back`), else the
     // dashboard.
+    // A Pro holder buying Team is derived to payment alone, so payment is
+    // their first step and Back leaves the way guidance does.
+    const firstStep =
+      orderIndex === 0 ||
+      (currentStep === PRO_UPGRADE_STEP.PAYMENT &&
+        carryRef.current.plan === 'team' &&
+        heldPlan === 'pro')
     if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
       router.push(stepHref(PRO_UPGRADE_STEP.STATUS))
-    } else if (orderIndex > 0) {
+    } else if (!firstStep) {
       router.push(stepHref(stepOrder[orderIndex - 1]!))
     } else {
       router.push(carryRef.current.backTo ?? '/dashboard')
     }
-  }, [currentStep, orderIndex, stepOrder, router, stepHref])
+  }, [currentStep, orderIndex, stepOrder, router, stepHref, heldPlan])
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
   const handleChromeExit = useCallback(() => {

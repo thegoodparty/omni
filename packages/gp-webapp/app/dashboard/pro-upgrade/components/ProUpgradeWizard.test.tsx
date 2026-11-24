@@ -10,6 +10,7 @@ import {
 } from 'next/navigation'
 import { noop } from '@shared/utils/noop'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 
 // The global setup mocks next/navigation with useRouter only; this component
 // also needs usePathname, so override the module for this file.
@@ -22,6 +23,19 @@ vi.mock('next/navigation', () => ({
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: vi.fn(),
 }))
+
+vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
+  usePlan: vi.fn(),
+}))
+
+const PLAN = {
+  plan: 'free',
+  isPaid: false,
+  onSubscription: false,
+  planEndsAt: null,
+  creditCents: 0,
+  recommendTeam: false,
+} as const
 
 const mockUsePathname = vi.mocked(usePathname)
 const mockUseSearchParams = vi.mocked(useSearchParams)
@@ -67,6 +81,7 @@ describe('ProUpgradeWizard', () => {
     vi.clearAllMocks()
     vi.spyOn(window, 'scrollTo').mockImplementation(noop)
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
+    vi.mocked(usePlan).mockReturnValue(PLAN)
     mockUseSearchParams.mockReturnValue(
       new URLSearchParams() as ReadonlyURLSearchParams,
     )
@@ -179,6 +194,25 @@ describe('ProUpgradeWizard', () => {
 
     expect(router.back).not.toHaveBeenCalled()
     expect(router.push).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('returns Back from the Pro to Team payment to the page that carried the candidate in', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(
+        'plan=team&back=%2Fdashboard%2Faccount',
+      ) as ReadonlyURLSearchParams,
+    )
+    vi.mocked(usePlan).mockReturnValue({ ...PLAN, plan: 'pro' })
+
+    render(
+      <ProUpgradeWizard>
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/account')
   })
 
   it('places filing details between the EIN and payment', () => {
