@@ -15,13 +15,15 @@ The visible page stays short. Put all supporting evidence in a collapsed `<detai
 
 The page has two levels of cards: three section cards (Impact, Five Whys, Resolution), and inside Impact the three High / Medium / Low severity cards. Both are fixed by the template and always present.
 
-Each of the Five Whys and Resolution cards carries a small confidence pill in its top right corner, inside the card head next to the title. The pill is one short label and one level, uppercase, in the template's colors, and it is always present on both cards. It reads `Root cause High` on Five Whys and `Resolution Medium` on Resolution. Never a number, never a percentage, never a `±`. The level is one of:
+Each of the Five Whys and Resolution cards carries a small confidence pill in its top right corner, inside the card head next to the title, reading `Confidence: High`. The card title already says which claim it scores, so the pill never repeats it and never differs between the two cards. Never a number, never a percentage, never a `±`. The level is one of:
 
 - **High:** The evidence in this page confirms it for this bug. Nothing material is missing.
 - **Medium:** The evidence points at it, but a named check could still change it.
 - **Low:** It is a best guess; the evidence needed is unavailable or not yet gathered.
 
-Set the two independently. A confirmed cause with a resolution that is plausible but unproven is High on Five Whys and Low on Resolution. When either pill is below High, that card leads with one sentence, styled as the template's `.gap` note, naming exactly what is unverified there and the check that would settle it. Delete the note entirely when the pill is High.
+Set the two independently: a confirmed cause with a resolution that is plausible but unproven is High on Five Whys and Low on Resolution. When either pill is below High, that card leads with one sentence, styled as the template's `.gap` note, naming exactly what is unverified there and the check that would settle it. Delete the note entirely when the pill is High.
+
+Text always carries the level; colour never does on its own. The pill is uppercase, small, right-aligned against the card title, and identical in shape on both cards.
 
 The two pills drive different rules, and only the cause one decides the status:
 
