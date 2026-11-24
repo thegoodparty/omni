@@ -130,6 +130,10 @@ judgments: 12
 - accept: Campaign Story - Rewrite Accepted
   reason: <why>
   area: Your Story
+
+## labels
+- label: <event_type>
+  reason: <why>
 ```
 
 Take `run_date` from the `run:` line and skip the Slack read. Everything downstream is
@@ -164,7 +168,7 @@ Reading the blocks:
 Never post to Slack during this self-load — it's read-only (`slack_read_channel` /
 `slack_read_thread` / `slack_search_public`), never `slack_send_message`.
 
-With `run_date` in hand, load all five queues scoped to that run.
+With `run_date` in hand, load all six queues scoped to that run.
 
 **Read the gotchas book before ruling on anything.** `books/analytics-governance-gotchas.md`
 is a symptom table of the traps that have produced confident, wrong verdicts in this
@@ -880,8 +884,13 @@ dispositions do. Never hand-edit the JSON.
 ## Queue E: product labels
 
 **Get the batch:** `label_findings` in the monitor result (the digest thread's "Product
-labels" section). Each row is an event with kind `no_product_label` or
-`product_label_conflict`.
+labels" section), or the console's labels queue. Each row is an event with kind
+`no_product_label` or `product_label_conflict`.
+
+A console handoff's `## labels` section names each event by its exact `event_type` and
+uses the verbs below as written. The console offers `label` only on a missing tag and
+`fix` only on a conflict. If a verb does not match the row's kind, re-check the kind in
+this run's `label_findings` before writing anything.
 
 | Verb      | What you do |
 | --------- | ----------- |
@@ -984,7 +993,7 @@ ticket, or the reviewer's own follow-up message.
 
 ## Write back — one PR
 
-Once all five queues are dispositioned:
+Once all six queues are dispositioned:
 
 1. **Propose gotchas-book updates for sign-off.** Same shape as Queue B's watchlist
    proposals: you propose, the reviewer picks, you apply. Never edit the book

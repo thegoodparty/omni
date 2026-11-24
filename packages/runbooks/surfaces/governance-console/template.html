@@ -1062,7 +1062,7 @@
 
   // Ranks come from analytics_event_health.rank_record. 0-2 is "something is wrong now",
   // 3-6 is "worth a look", 7+ is the long tail. The queues with no health rank
-  // (proposals, alignment) sort below all of them and read as low.
+  // (proposals, alignment, surface, labels) sort below all of them and read as low.
   const severity = (rank) => (rank <= 2 ? 'crit' : rank <= 6 ? 'warn' : 'low')
 
   const QUEUE_META = {
@@ -1090,6 +1090,11 @@
       title: 'Labels that no longer match',
       note: 'events firing somewhere other than where their label says',
       empty: 'No relabels waiting. Every event fires where its label says.',
+    },
+    labels: {
+      title: 'Product labels',
+      note: 'events with no Win or Serve tag, or with tags that disagree',
+      empty: 'No label findings. Every new event says which product it belongs to.',
     },
   }
 
@@ -1404,6 +1409,7 @@
     last_seen: 'Last seen',
     family: 'Family',
     first_seen_date: 'First seen',
+    finding: 'Finding',
   }
 
   const cell = (key, value) => {
@@ -2282,7 +2288,7 @@
     )
     add(section, head)
 
-    // Four of the five queues derive every row from the same detector, so the caveat
+    // Every queue but flags derives every row from the same detector, so the caveat
     // is a property of the queue, not of the item. Printed once above the list rather
     // than seven times inside it -- a warning repeated on every row stops being read.
     // Flags keep theirs on the row, where each cause has a different signal.
@@ -2363,7 +2369,7 @@
       'judgments: ' + rows.length,
       '',
     ]
-    const queues = ['flags', 'gaps', 'proposals', 'alignment', 'surface']
+    const queues = ['flags', 'gaps', 'proposals', 'alignment', 'surface', 'labels']
     queues.forEach((queue) => {
       const inQueue = rows.filter((row) => row.queue === queue)
       if (!inQueue.length) return
