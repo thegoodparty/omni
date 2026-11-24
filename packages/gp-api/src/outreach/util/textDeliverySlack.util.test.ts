@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SLACK_CHANNEL_IDS } from '@/vendors/slack/slackService.config'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
 import {
+  AGENT_HANDLING_NOTE,
+  API_HANDLING_NOTE,
   outreachResultsUploadUrl,
   sendTextDeliverySlackMessage,
   type TextDeliverySlackMessageArgs,
@@ -110,6 +112,7 @@ describe('textDeliverySlack.util', () => {
           'sendAt: 2026-11-05T16:00:00.000Z',
           'timeZone: America/Chicago',
           'mode: shadow',
+          'handler: agent',
           'env: dev',
           'repliesKey: agent-replies/outreach-abc-123.csv',
           '```',
@@ -120,6 +123,59 @@ describe('textDeliverySlack.util', () => {
       await sendTextDeliverySlackMessage(fakeClient, baseArgs())
       expect(blocksText()).not.toContain('Delegate is handling')
       expect(blocksText()).not.toContain('repliesKey')
+    })
+
+    it('marks an api hand-off with its own note and drops the replies key', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+      await sendTextDeliverySlackMessage(
+        fakeClient,
+        baseArgs({
+          agentHandoff: {
+            handler: 'api',
+            mode: 'shadow',
+            sendAt: new Date('2026-11-05T16:00:00.000Z'),
+            timeZone: 'America/Chicago',
+          },
+        }),
+      )
+      expect(blocks()[1].text.text).toBe(API_HANDLING_NOTE)
+      expect(blocks()[1].text.text).toBe(
+        "gp-api is building this wave through the Scale to Win API. Don't build it by hand.",
+      )
+      expect(blocks()[2].text.text).toBe(
+        [
+          '```',
+          'outreachId: outreach-abc-123',
+          'sendAt: 2026-11-05T16:00:00.000Z',
+          'timeZone: America/Chicago',
+          'mode: shadow',
+          'handler: api',
+          'env: dev',
+          '```',
+        ].join('\n'),
+      )
+      expect(blocksText()).not.toContain('repliesKey')
+      expect(blocksText()).not.toContain('Delegate is handling')
+    })
+
+    it('keeps the replies key and agent note for an explicit agent hand-off', async () => {
+      await sendTextDeliverySlackMessage(
+        fakeClient,
+        baseArgs({
+          agentHandoff: {
+            handler: 'agent',
+            mode: 'auto',
+            sendAt: new Date('2026-11-05T16:00:00.000Z'),
+            timeZone: 'America/Chicago',
+          },
+        }),
+      )
+      expect(blocks()[1].text.text).toBe(AGENT_HANDLING_NOTE)
+      expect(blocks()[2].text.text).toContain('handler: agent')
+      expect(blocks()[2].text.text).toContain(
+        'repliesKey: agent-replies/outreach-abc-123.csv',
+      )
+      expect(blocksText()).not.toContain('Scale to Win API')
     })
 
     it('ends with a button linking at the per-send admin upload page', async () => {

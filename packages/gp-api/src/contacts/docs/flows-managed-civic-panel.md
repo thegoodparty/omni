@@ -300,6 +300,16 @@ always has a window, so a null one with neither closes as before. A wave
 already handed off keeps its choice: it is an agent wave if the row exists,
 whatever the flag says now.
 
+**Api-handled waves.** The `api_shadow` and `api_auto` variants take the same
+send step, with `handler: api` on `agentHandoff` and so on the hand-off row.
+They are gated by `S2W_PANEL_WAVE_API_ENABLED` until the Scale to Win sweep
+ships (`src/managedPanelWaves/AGENTS.md`); off the gate they stay manual. The
+Slack post still goes out as the audit trail, with `handler: api`, no
+`repliesKey`, and a note that gp-api is building the wave. The browser runner
+never builds an api wave; it only exports replies at `sendAt` + 48 hours, once
+Scale to Win shows the campaign as sent. Decision:
+`docs/adr/2026-11-23-panel-waves-send-through-the-scale-to-win-api.md`.
+
 **Agent replies.** The swarm uploads its Scale to Win export to
 `agent-replies/<outreachId>.csv` in the tevyn bucket. S3 emits an EventBridge
 event, a rule on dev and prod turns it into a `panelRepliesUploaded` message on

@@ -145,9 +145,13 @@ env var is `undefined` until it is configured in three environments, and the
 preview smoke test then fails for a reason that looks nothing like its cause.
 
 **An agent wave's post carries a fenced block** (`outreachId`, `sendAt`,
-`timeZone`, `mode`, `env`, `repliesKey`) the swarm reads to schedule the send
-and name its reply export. `agentHandoff` on the handoff is what sets it; a
-manual wave's post is unchanged. The swarm's upload at `repliesKey` is ingested
+`timeZone`, `mode`, `handler`, `env`, `repliesKey`) the swarm reads to schedule
+the send and name its reply export. `agentHandoff` on the handoff is what sets
+it; a manual wave's post is unchanged. For `handler: api` the block has no
+`repliesKey` and the note says gp-api is building the wave through the Scale to
+Win API, so the runner never builds it
+(`docs/adr/2026-11-23-panel-waves-send-through-the-scale-to-win-api.md`).
+The swarm's upload at `repliesKey` is ingested
 by `OutreachPanelRepliesService` (contacts `docs/flows-managed-civic-panel.md`,
 "Agent replies"). The tevyn bucket's policy lets only the swarm host role put
 under `agent-replies/`, and object ownership is bucket-owner enforced so gp-api
