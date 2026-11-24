@@ -15,6 +15,7 @@ captured 2026-10-07 from the candidate Home and Game Plan work. Rules 31 to 41 w
 added 2026-10-28 from the head of product's distilled design review notes.
 Rules 42 to 46 came from the same day's review of the import contacts prototype.
 Rule 47 came from the outreach channel tile labels review on 2026-10-30.
+Rule 48 came from the Nov 23 plan page boards (design-system break #2).
 Rule 46 was widened on 2026-11-06 from the civic panel heads-up post review, which
 found 4 invented elements (a made-up flow label, a one-step editor in place of the
 social flow, a chat card showing the whole post, a hidden turn drawn as a message).
@@ -66,6 +67,11 @@ social flow, a chat card showing the whole post, a hidden turn drawn as a messag
     paywall screens say what the user gets in dollars or outcomes ("Here's what
     you get for $10 a month"). Any outcome claim follows rules 10 and 29: true,
     and cited. (earned)
+48. "Campaign Manager" is the product name for the Win AI assistant, so the Win
+    plan page keeps it ("Campaign plan and manager", "Add a campaign manager
+    and volunteers"). It is an exception to rule 5 and to the Serve ban on
+    "Campaign Manager" as a role label: the plan page is Win-only.
+    See `docs/product-vocabulary.md`. (earned)
 
 ## Content
 

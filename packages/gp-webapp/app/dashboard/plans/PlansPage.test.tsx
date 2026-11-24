@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
-import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { PLAN_PRICING, PRICE_PER_TEXT } from '@goodparty_org/contracts'
 import PlansPage from './PlansPage'
 
 const mockPlan = vi.hoisted(() => ({
@@ -81,11 +81,67 @@ describe('PlansPage', () => {
       screen.getByRole('heading', { name: 'Unlock voter data and outreach' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/Pay once, good for your whole campaign\./),
+      screen.getByText('Pay once for your plan, good for your whole race.'),
     ).toBeInTheDocument()
+    expect(screen.queryByText(/Upgrade to Team anytime/)).toBeNull()
+  })
+
+  it('recommends Pro under Compare plans and captions its column', () => {
+    render(<PlansPage highlightTeam={false} />)
+    const header = screen.getByRole('columnheader', { name: /Compare plans/ })
+    expect(header).toHaveTextContent('We recommend Pro for a race your size.')
+    const table = within(screen.getByRole('table'))
+    const best = table.getByText('Best for your race')
+    expect(best.closest('th')).toHaveTextContent('Join Pro')
+    expect(table.getByText('For you and your team')).toBeInTheDocument()
+    expect(table.queryByText('For you on your own')).toBeNull()
+    expect(screen.getAllByTestId('recommended-panel')).toHaveLength(1)
+  })
+
+  it('recommends Team when the race is large', () => {
+    mockPlan.recommendTeam = true
+    render(<PlansPage highlightTeam={false} />)
     expect(
-      screen.getAllByText(/Upgrade to Team anytime/).length,
-    ).toBeGreaterThan(0)
+      screen.getByRole('columnheader', { name: /Compare plans/ }),
+    ).toHaveTextContent('We recommend Team for a race your size.')
+    const table = within(screen.getByRole('table'))
+    expect(
+      table.getByText('Best for your race').closest('th'),
+    ).toHaveTextContent('Join Team')
+    expect(table.getByText('For you on your own')).toBeInTheDocument()
+  })
+
+  it('says nothing about a recommendation for a campaign already on a paid plan', () => {
+    mockPlan.current = 'pro'
+    render(<PlansPage highlightTeam={false} />)
+    expect(screen.queryByText(/We recommend/)).toBeNull()
+    expect(screen.queryByText('Best for your race')).toBeNull()
+  })
+
+  it('lists the rows in the Nov 23 order with the new copy', () => {
+    render(<PlansPage highlightTeam={false} />)
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1)
+    expect(rows.map((r) => r.querySelector('td')?.textContent)).toEqual([
+      'Campaign plan and managerGet a step-by-step plan for your race',
+      'Your story and public profileTell voters who you are',
+      'Voter data and listsFind voters and build target lists',
+      'Voter outreach toolsTexts, robocalls, and more',
+      'Campaign verificationGet registered to text voters, a $120 value',
+      'Door knocking and phone bankingRoutes and call lists for volunteers',
+      'Logins for your teamAdd a campaign manager and volunteers',
+    ])
+  })
+
+  it('derives the texts the credit buys from the pricing constants', () => {
+    render(<PlansPage highlightTeam={false} />)
+    const texts = Math.round(
+      PLAN_PRICING.includedCreditCents / 100 / PRICE_PER_TEXT,
+    )
+    expect(texts).toBe(5000)
+    const table = within(screen.getByRole('table'))
+    expect(table.getAllByText('$175 credit included')).toHaveLength(2)
+    expect(table.getAllByText('(worth 5,000 texts)')).toHaveLength(2)
+    expect(table.queryByText('Bonus')).toBeNull()
   })
 
   it('puts each paid price in its button label inside the desktop table', () => {
@@ -103,9 +159,11 @@ describe('PlansPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('tags the credit as a Bonus', () => {
+  it('tags the credit as a Bonus on the phone cards', () => {
     render(<PlansPage highlightTeam={false} />)
-    expect(screen.getAllByText('Bonus').length).toBeGreaterThan(0)
+    expect(
+      within(screen.getByTestId('plan-card-pro')).getByText('Bonus'),
+    ).toBeInTheDocument()
   })
 
   it('shows the three plans with prices and credit from PLAN_PRICING', () => {
@@ -134,19 +192,39 @@ describe('PlansPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('lists Logins for your team on Team only', () => {
+  it('lists only the difference on the Team card when Pro leads', () => {
     render(<PlansPage highlightTeam={false} />)
+    const team = within(screen.getByTestId('plan-card-team'))
+    expect(team.getByText('Everything in Pro, plus')).toBeInTheDocument()
+    expect(team.getByText('Logins for your team')).toBeInTheDocument()
+    expect(team.queryByText('Voter data and lists')).toBeNull()
+    expect(team.getAllByRole('listitem')).toHaveLength(1)
+    const pro = within(screen.getByTestId('plan-card-pro'))
+    expect(pro.getByText('Campaign plan and manager')).toBeInTheDocument()
+    expect(pro.getByText('Voter outreach tools')).toBeInTheDocument()
+    expect(pro.queryByText('Logins for your team')).toBeNull()
+  })
 
+  it('lists only the difference on the Pro card when Team leads', () => {
+    mockPlan.recommendTeam = true
+    render(<PlansPage highlightTeam={false} />)
+    const pro = within(screen.getByTestId('plan-card-pro'))
+    expect(pro.getByText('Everything in Team, except')).toBeInTheDocument()
+    expect(pro.getByText('Logins for your team')).toBeInTheDocument()
+    expect(pro.getAllByRole('listitem')).toHaveLength(1)
     expect(
-      within(screen.getByTestId('plan-card-team')).getByText(
-        'Logins for your team',
-      ),
-    ).toBeInTheDocument()
-    expect(
-      within(screen.getByTestId('plan-card-pro')).queryByText(
-        'Logins for your team',
-      ),
-    ).toBeNull()
+      within(screen.getByTestId('plan-card-team')).getAllByRole('listitem'),
+    ).toHaveLength(7)
+  })
+
+  it('fills the recommended card and keeps its ring', () => {
+    render(<PlansPage highlightTeam={false} />)
+    const pro = screen.getByTestId('plan-card-pro')
+    expect(pro.className).toContain('bg-primary/5')
+    expect(pro.parentElement?.className).toContain('ring-primary/30')
+    expect(screen.getByTestId('plan-card-team').className).not.toContain(
+      'bg-primary/5',
+    )
   })
 
   it('points the Pro CTA at the Pro upgrade entry with the plan', () => {
@@ -186,16 +264,18 @@ describe('PlansPage', () => {
     )
   })
 
-  it('marks the current plan and disables its CTA', () => {
+  it('marks the current plan as plain text with no button under it', () => {
     mockPlan.current = 'pro'
     render(<PlansPage highlightTeam={false} />)
 
-    expect(screen.getAllByText('Current plan').length).toBeGreaterThan(0)
-    for (const button of screen.getAllByRole('button', {
-      name: `Join Pro for $${PLAN_PRICING.proCents / 100}`,
-    })) {
-      expect(button).toBeDisabled()
+    const current = screen.getAllByText('Current plan')
+    expect(current.length).toBeGreaterThan(0)
+    for (const el of current) {
+      expect(el).not.toHaveAttribute('data-slot', 'badge')
     }
+    expect(screen.queryAllByRole('button', { name: /Join Pro/ })).toHaveLength(
+      0,
+    )
     expect(screen.queryAllByRole('link', { name: /Join Pro/ })).toHaveLength(0)
   })
 
