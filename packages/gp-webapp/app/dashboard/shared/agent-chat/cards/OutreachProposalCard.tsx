@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { format, parseISO } from 'date-fns'
+import { format, isValid, parseISO } from 'date-fns'
 import { outreachHasGoneOut, type ChatCard } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { CalendarIcon, PencilIcon } from '@styleguide/components/ui/icons'
@@ -54,7 +54,9 @@ const winMetaLine = (proposal: OutreachProposal): string =>
   [
     `To ${peopleCount(proposal.count, 'win')}`,
     proposal.audience,
-    proposal.sendDate && format(parseISO(proposal.sendDate), 'EEE, MMM d'),
+    proposal.sendDate &&
+      isValid(parseISO(proposal.sendDate)) &&
+      format(parseISO(proposal.sendDate), 'EEE, MMM d'),
   ]
     .filter(Boolean)
     .join(' · ')

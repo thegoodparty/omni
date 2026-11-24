@@ -235,6 +235,15 @@ describe('a Campaign Manager text card', () => {
     expect(screen.getByTestId('proposal-meta')).not.toHaveTextContent('Oct')
   })
 
+  it('skips a send date the calendar does not have instead of crashing', async () => {
+    renderFreeCard({ ...card, sendDate: '2026-02-31' })
+
+    await screen.findByText('I drafted your first text')
+    expect(screen.getByTestId('proposal-meta')).toHaveTextContent(
+      'To 58,520 voters · Likely voters in Ward 3',
+    )
+  })
+
   it('opens the flow with the Pro gate over it from Join Pro to send, not the race-size pitch', async () => {
     renderFreeCard()
 
