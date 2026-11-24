@@ -55,10 +55,12 @@ the switch, and the exemption list was a rule about keys standing in for a rule
 about mounts: a new per-row family would have silently inherited the 404 unless
 whoever added it knew the list existed.
 
-The flows that create an org and then select it (`FollowOnFlow`,
-`ElectionResultPage`, Test mode) live in route groups with no
-`OrganizationScope`, which is what keeps a wizard's state from being destroyed
-mid-flow by the very switch it just made.
+`FollowOnFlow`, which creates an org and then selects it, lives in a route
+group with no `OrganizationScope`, which keeps its wizard state from being
+destroyed mid-flow by the switch it just made. `ElectionResultPage` and Test
+mode do the same thing from under `app/dashboard`, so they sit inside the scope
+and remount on their own switch. That remount is cosmetic: the new org has no
+campaign yet, so the page shows its loading state while the data is read again.
 
 The cost, accepted: switching organizations on a shared page resets that page's
 local state. Row lists held in `useState` come back empty and refetch instead of

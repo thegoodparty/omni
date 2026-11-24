@@ -1,5 +1,5 @@
 'use client'
-import { createContext, useMemo } from 'react'
+import { createContext, useMemo, useState } from 'react'
 import { Campaign } from 'helpers/types'
 import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
@@ -45,10 +45,15 @@ export const CampaignProvider = ({
   const hasNoCampaign =
     isActiveOrgVolunteer || Boolean(activeOrg?.electedOfficeId)
 
+  // The server's campaign is the one for the org the page was rendered for. A
+  // switch clears this query, and a seed that outlives the org it was made for
+  // would rebuild it counting as fresh, so it applies to that org only.
+  const [seededFor] = useState(activeOrg?.slug)
   const query = useQuery({
     queryKey: CAMPAIGN_QUERY_KEY,
     queryFn: fetchCampaign,
-    initialData: initCampaign ?? undefined,
+    initialData:
+      activeOrg?.slug === seededFor ? (initCampaign ?? undefined) : undefined,
     enabled: !hasNoCampaign,
   })
 

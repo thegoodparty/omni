@@ -103,10 +103,11 @@ export const useSetOrganizationSlug = () => {
 // the list under the selection (the org the cookie named left the list and the
 // effective org falls back) clears just like an explicit switch.
 //
-// The providers above it — the campaign context among them — survive, and a
-// query seeded from the server's `initialData` would come back counting as
-// fresh, so the invalidate in the effect below refetches what is still mounted
-// once the new org is committed.
+// The providers above it — the campaign context among them — survive. A query
+// they seed from the server's `initialData` would come back counting as fresh,
+// so the seed is applied only for the org it was made for (CampaignProvider),
+// and the invalidate in the effect below refetches whatever else is still
+// mounted once the new org is committed.
 export const OrganizationScope = ({ children }: { children: ReactNode }) => {
   const queryClient = useQueryClient()
   const organization = useOrganization()

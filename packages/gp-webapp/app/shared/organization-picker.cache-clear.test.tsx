@@ -253,6 +253,49 @@ describe('org switch clears the query cache', () => {
     expect(requestedFor).toEqual(['org-two'])
   })
 
+  // Production nests CampaignProvider ABOVE OrganizationScope, and the scope's
+  // effects run before its parent's. The invalidate has to reach the campaign
+  // query after CampaignProvider has rebuilt it from the stale seed, whichever
+  // way round those effects run.
+  it('refetches the campaign context when CampaignProvider wraps the scope', async () => {
+    const requestedFor: string[] = []
+    api.mock('GET /v1/campaigns/mine', () => {
+      requestedFor.push(String(orgCookie))
+      return {
+        status: 200 as const,
+        data: { slug: `c-${orgCookie}` } as never,
+      }
+    })
+
+    const CampaignProbe = () => {
+      const [campaign] = useCampaign()
+      return <div data-testid="campaign">{campaign?.slug ?? 'null'}</div>
+    }
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+          <CampaignProvider campaign={{ slug: 'c-org-one' } as never}>
+            <OrganizationScope>
+              <CampaignProbe />
+            </OrganizationScope>
+          </CampaignProvider>
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    await settle()
+    expect(screen.getByTestId('campaign')).toHaveTextContent('c-org-one')
+
+    await switchToOrgTwo()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('campaign')).toHaveTextContent('c-org-two'),
+    )
+    expect(requestedFor).toEqual(['org-two'])
+  })
+
   // ENG-10991: a row owned by the org being left can be on screen at the moment
   // of the switch, and its key carries no org slug. What saves it is the
   // remount: the page that held the departed rows is discarded, so no observer
