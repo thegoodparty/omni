@@ -1,4 +1,5 @@
 import {
+  EMAIL_MIN_CHARGE_CENTS,
   PRICE_PER_EMAIL_TENTH_CENTS,
   PRICE_PER_TEXT,
 } from '@goodparty_org/contracts'
@@ -19,4 +20,10 @@ export const TILE_PRICES = {
   text: unitPriceLabel(PRICE_PER_TEXT, 'text'),
   robocall: unitPriceLabel(robocallCost, 'call'),
   email: unitPriceLabel(PRICE_PER_EMAIL_TENTH_CENTS / 1000, 'email'),
+}
+
+// Tile copy that differs with the per-campaign pricing flag on. Only the email
+// tile does: its minimum is the Stripe floor, which the credit never lowers.
+export const WIN_PRICING_TILE_PRICES = {
+  email: `${centsLabel(PRICE_PER_EMAIL_TENTH_CENTS / 10)} each, ${EMAIL_MIN_CHARGE_CENTS}¢ minimum`,
 }

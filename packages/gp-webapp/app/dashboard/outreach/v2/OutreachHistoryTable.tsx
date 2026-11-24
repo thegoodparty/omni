@@ -48,6 +48,7 @@ import {
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
 import { getOutreachHistoryCopy } from './outreachHistoryCopy'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { useEmailSend } from './email/emailApi'
 
 const PAGE_SIZE = 10
@@ -98,6 +99,13 @@ const SocialPlatformsMetric = ({
       {count} platform{count === 1 ? '' : 's'}
     </>
   )
+}
+
+// An empty value reads as an em dash with per-campaign pricing on, the table
+// exception to the no-em-dash rule, and as "n/a" otherwise.
+const useEmptyValue = (): string => {
+  const { enabled } = useWinPerCampaignPricingFlag(false)
+  return enabled ? '—' : 'n/a'
 }
 
 // Prototype unit: "people called" for the phone channels, "people" elsewhere.
@@ -216,7 +224,7 @@ const DoorKnockingLoggedMetric = ({
 
 // A robocall's count lives on its satellite, not the spine's text counts,
 // so like phone banking it comes off the detail fetch. A draft has not been
-// priced yet and reads n/a until it is.
+// priced yet and reads as empty until it is.
 const RobocallPeopleMetric = ({
   row,
   compact,
@@ -227,12 +235,13 @@ const RobocallPeopleMetric = ({
   detailFetcher: OutreachDetailFetcher
 }) => {
   const { data } = useOutreachDetail(row.id, true, detailFetcher)
+  const emptyValue = useEmptyValue()
   const count = data?.robocall?.billableCount
   if (count === undefined) {
     return <span className="text-muted-foreground">—</span>
   }
   if (count === null) {
-    return <span className="text-muted-foreground">n/a</span>
+    return <span className="text-muted-foreground">{emptyValue}</span>
   }
   const unit = peopleUnit(row.outreachType, row.status)
   if (compact) {
@@ -281,6 +290,7 @@ const RowMetric = ({
   compact?: boolean
   detailFetcher: OutreachDetailFetcher
 }) => {
+  const emptyValue = useEmptyValue()
   if (row.outreachType === OUTREACH_TYPES.socialMedia) {
     return <SocialPlatformsMetric id={row.id} detailFetcher={detailFetcher} />
   }
@@ -333,7 +343,7 @@ const RowMetric = ({
       </>
     )
   }
-  return <span className="text-muted-foreground">n/a</span>
+  return <span className="text-muted-foreground">{emptyValue}</span>
 }
 
 // Result metrics (responses, answers, supporters) arrive with the per-channel
@@ -490,6 +500,8 @@ export const OutreachHistoryTable = ({
   isServe = false,
 }: OutreachHistoryTableProps) => {
   const { smsCutoffDate } = useSmsCompliance()
+  const { enabled: planPricing } = useWinPerCampaignPricingFlag(false)
+  const emptyValue = useEmptyValue()
   const textingClosedReason = SMS_CUTOFF_COPY.closedReason(
     smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
   )
@@ -597,7 +609,7 @@ export const OutreachHistoryTable = ({
 
   const activeRowCount = rows.filter((row) => !row.archivedAt).length
 
-  const copy = getOutreachHistoryCopy(isServe)
+  const copy = getOutreachHistoryCopy(isServe, planPricing)
   const emptyMessage =
     visible.length === 0 && activeFilterCount > 0
       ? copy.emptyFiltered
@@ -741,7 +753,9 @@ export const OutreachHistoryTable = ({
                   >
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {rowDisplayDate(row) ?? (
-                        <span className="text-muted-foreground">n/a</span>
+                        <span className="text-muted-foreground">
+                          {emptyValue}
+                        </span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -808,7 +822,7 @@ export const OutreachHistoryTable = ({
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{rowDisplayDate(row) ?? 'n/a'}</span>
+                    <span>{rowDisplayDate(row) ?? emptyValue}</span>
                     <ChannelBadge type={row.outreachType} />
                   </div>
                   <HistoryStatusText

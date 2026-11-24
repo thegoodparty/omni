@@ -49,6 +49,22 @@ vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
   useRobocallFreeOffer: () => mockFreeOffer,
 }))
 
+// Per-campaign pricing, off unless a test turns it on, and the credit it shows.
+const pricing = vi.hoisted(() => ({
+  on: false,
+  creditCents: 17500,
+  onSubscription: false,
+}))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: pricing.on }),
+}))
+vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
+  usePlan: () => ({
+    creditCents: pricing.creditCents,
+    onSubscription: pricing.onSubscription,
+  }),
+}))
+
 const renderGrid = (
   overrides: Partial<{
     onCreateSocial: () => void
@@ -564,5 +580,84 @@ describe('ChannelTileGrid — unit prices', () => {
     expect(subCopy('Phone banking')).toContain('Free')
     expect(subCopy('Door knocking')).toContain('Free')
     expect(subCopy('Email')).toContain('$0.01/email')
+  })
+})
+
+describe('ChannelTileGrid — header with per-campaign pricing', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    pricing.on = true
+    pricing.creditCents = 17500
+    pricing.onSubscription = false
+  })
+  afterEach(() => {
+    pricing.on = false
+  })
+
+  it('reads Send outreach with the credit balance in the header', () => {
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    expect(
+      screen.getByRole('heading', { name: 'Send outreach' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Pick a channel to draft and send.'),
+    ).toBeInTheDocument()
+    const credit = screen.getByTestId('outreach-credit-balance')
+    expect(credit).toHaveTextContent('Outreach credit $175.00')
+    expect(credit.parentElement).toBe(
+      screen.getByRole('heading', { name: 'Send outreach' }).parentElement
+        ?.parentElement,
+    )
+    expect(screen.queryByText(/left/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/About .* texts/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Add credit')).not.toBeInTheDocument()
+  })
+
+  it('shows an empty balance as $0.00', () => {
+    pricing.creditCents = 0
+    renderGrid()
+
+    expect(screen.getByTestId('outreach-credit-balance')).toHaveTextContent(
+      'Outreach credit $0.00',
+    )
+  })
+
+  it('shows no credit for a monthly subscriber', () => {
+    pricing.onSubscription = true
+    renderGrid()
+
+    expect(
+      screen.getByRole('heading', { name: 'Send outreach' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('outreach-credit-balance'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('prices the email tile with its 50¢ minimum', () => {
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    expect(screen.getByText('Email').closest('button')?.textContent).toContain(
+      '1\u00a2 each, 50\u00a2 minimum',
+    )
+  })
+
+  it('keeps the live header and email price with the flag off', () => {
+    pricing.on = false
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    expect(
+      screen.getByRole('heading', { name: 'Create a campaign' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Pick a channel to draft and send a new campaign.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('outreach-credit-balance'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Email').closest('button')?.textContent).toContain(
+      '$0.01/email',
+    )
   })
 })
