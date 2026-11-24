@@ -59,9 +59,9 @@ export interface DraftGate {
   pitchOpen: boolean
   // "Join Pro" on that dialog: the wizard takes the step's place.
   joinPitch: () => void
-  // Back off the wizard's first step: to the pitch when that is how the gate
-  // was reached, out of the gate otherwise. Unset flag off, where the wizard
-  // shows its own interstitial.
+  // Back off the wizard's first step returns to the pitch when the gate was
+  // reached through it. Unset otherwise, so the wizard falls back to its own
+  // interstitial as it always has.
   wizardBack: (() => void) | undefined
   explainerOpen: boolean
   setExplainerOpen: (open: boolean) => void
@@ -260,11 +260,8 @@ export const useDraftGate = ({
     gateCta,
     pitchOpen,
     joinPitch,
-    wizardBack: pitchAsDialog
-      ? gateOrigin === 'save'
-        ? backToPitch
-        : handleGateExit
-      : undefined,
+    wizardBack:
+      pitchAsDialog && gateOrigin === 'save' ? backToPitch : undefined,
     explainerOpen,
     setExplainerOpen,
     savingDraft,

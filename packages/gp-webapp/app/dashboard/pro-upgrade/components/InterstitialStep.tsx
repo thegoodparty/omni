@@ -26,13 +26,14 @@ const InterstitialStep = (): React.JSX.Element => {
   const planPitch = useContextualPlanPitch()
   const { plan } = usePlan()
   useEffect(() => {
-    // Flag on, the pitch is a dialog that reports its own events.
-    if (planPitch.enabled) return
+    // Flag on, the pitch is a dialog that reports its own events. Wait for
+    // the flag to settle so a late-resolving one doesn't report a view twice.
+    if (!planPitch.ready || planPitch.enabled) return
     trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, {
       channel: gateChannel,
       plan,
     })
-  }, [gateChannel, plan, planPitch.enabled])
+  }, [gateChannel, plan, planPitch.ready, planPitch.enabled])
 
   const handleJoin = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, {
