@@ -60,6 +60,9 @@ export type CheckoutPaymentProps = {
   // has to read this instead.
   onTotalChange?: (totalDollars: number) => void
   submitLabel?: string
+  // Per-campaign pricing form: wallet buttons, accordion methods.
+  walletsAndAccordion?: boolean
+  hidePromoSection?: boolean
   // Lays out chrome around the form (card, order summary) inside the
   // CheckoutProvider so it can read the live total via Stripe's useCheckout —
   // e.g. the Pro plan payment step.
@@ -72,6 +75,8 @@ const CheckoutPayment: React.FC<CheckoutPaymentProps> = ({
   onPaymentError,
   onTotalChange,
   submitLabel,
+  walletsAndAccordion,
+  hidePromoSection,
   renderLayout,
 }) => {
   const { checkoutSession } = useCheckoutSession()
@@ -86,6 +91,8 @@ const CheckoutPayment: React.FC<CheckoutPaymentProps> = ({
       onTotalChange={onTotalChange}
       sessionId={checkoutSession.id}
       submitLabel={submitLabel}
+      walletsAndAccordion={walletsAndAccordion}
+      hidePromoSection={hidePromoSection}
     />
   )
 

@@ -24,6 +24,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import { useCheckoutSession } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import CheckoutPayment from 'app/dashboard/purchase/components/CheckoutPayment'
+import { PromoCodeLink } from 'app/dashboard/purchase/components/PromoCodeSection'
 import PurchaseError from 'app/dashboard/purchase/components/PurchaseError'
 import {
   completeCheckoutSession,
@@ -115,10 +116,10 @@ const PlanOrderSummary = ({
   checkout: PlanCheckout
 }): React.JSX.Element => {
   const checkoutResult = useCheckout()
-  const total =
-    checkoutResult.type === 'loading' || checkoutResult.type === 'error'
-      ? null
-      : checkoutResult.checkout.total.total.minorUnitsAmount
+  const checkout =
+    checkoutResult.type === 'success' ? checkoutResult.checkout : null
+  const total = checkout ? checkout.total.total.minorUnitsAmount : null
+  const discount = checkout?.discountAmounts?.[0]
   return (
     <div className="flex flex-col gap-2.5 rounded-xl border border-base-border bg-card p-4">
       <div className="flex items-center justify-between gap-3">
@@ -147,11 +148,20 @@ const PlanOrderSummary = ({
           <span className="font-medium">{dollars(order.priceCents)}</span>
         </div>
       )}
+      {discount?.promotionCode && (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span>{`Promo code ${discount.promotionCode}`}</span>
+          <span className="font-medium text-success-dark">
+            &minus;{dollars(discount.minorUnitsAmount)}
+          </span>
+        </div>
+      )}
       <div className="h-px bg-base-border" />
       <div className="flex items-center justify-between gap-3 text-[15px] font-semibold">
         <span>Total</span>
         <span>{total === null ? '—' : dollars(total)}</span>
       </div>
+      {checkout && <PromoCodeLink checkout={checkout} />}
     </div>
   )
 }
@@ -286,6 +296,9 @@ interface PaymentContentProps {
   notice?: React.ReactNode
   footnote: React.ReactNode
   summary: React.ReactNode
+  // Per-campaign plan checkout: wallets, accordion, and the promo link in the
+  // order summary instead of the box above the form.
+  planForm?: boolean
 }
 
 const PaymentContent = ({
@@ -297,6 +310,7 @@ const PaymentContent = ({
   notice,
   footnote,
   summary,
+  planForm = false,
 }: PaymentContentProps): React.JSX.Element => {
   const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
   const hasFetchedSession = useRef(false)
@@ -348,6 +362,8 @@ const PaymentContent = ({
       onPaymentConfirmed={onConfirmed}
       onPaymentSuccess={onPaymentSuccess}
       onTotalChange={setTotal}
+      walletsAndAccordion={planForm}
+      hidePromoSection={planForm}
       submitLabel={
         typeof submitLabel === 'string' ? submitLabel : submitLabel(total)
       }
@@ -456,6 +472,7 @@ const PlanPayment = (): React.JSX.Element => {
         notice={planNotice(order)}
         footnote={PLAN_FOOTNOTE}
         summary={<PlanOrderSummary checkout={order} />}
+        planForm
       />
     </CheckoutSessionProvider>
   )

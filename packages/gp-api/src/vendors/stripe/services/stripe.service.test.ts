@@ -1080,11 +1080,7 @@ describe('StripeService.createCustomCheckoutSession for plans', () => {
     )
 
     const args = firstOrThrow(sessionsCreate.mock.calls)[0]
-    expect(args.payment_method_types).toEqual([
-      'card',
-      'amazon_pay',
-      'afterpay_clearpay',
-    ])
+    expect(args.payment_method_types).toEqual(['card', 'afterpay_clearpay'])
     expect(args.customer_creation).toBe('always')
     expect(args.invoice_creation).toEqual({ enabled: true })
   })

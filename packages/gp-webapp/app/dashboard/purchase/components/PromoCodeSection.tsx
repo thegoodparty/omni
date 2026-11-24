@@ -134,3 +134,34 @@ export default function PromoCodeSection({
     </div>
   )
 }
+
+// Link-style promo entry for an order summary (per-campaign pricing): a quiet
+// "Add a promo code" under the total that reveals the same field. An applied
+// code keeps the field open so it can be removed. Rendered inside the
+// CheckoutProvider, once the checkout has loaded.
+export function PromoCodeLink({
+  checkout,
+}: {
+  checkout: StripeCheckoutValue
+}): React.JSX.Element {
+  const promo = usePromoCode(checkout)
+  const [isOpen, setIsOpen] = useState(false)
+
+  if (!isOpen && !promo.hasAppliedPromo) {
+    return (
+      <div>
+        <Button
+          type="button"
+          variant="link"
+          size="small"
+          onClick={() => setIsOpen(true)}
+          className="px-0"
+        >
+          Add a promo code
+        </Button>
+      </div>
+    )
+  }
+
+  return <PromoCodeSection {...promo} />
+}

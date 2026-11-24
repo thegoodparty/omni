@@ -581,6 +581,7 @@ export const SmsReviewStep = ({
               onPaymentSuccess={handlePaidComplete}
               onPaymentError={setCardError}
               onTotalChange={setLiveTotalDollars}
+              walletsAndAccordion={planPricingEnabled}
             />
           </Card>
           {inlineCardError && (
