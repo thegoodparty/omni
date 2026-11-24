@@ -31,6 +31,7 @@ import {
   isTeamPlanRequired,
   toInviteErrorMessage,
 } from '../team.util'
+import { useRoleLabel } from '../useRoleLabel'
 
 type InviteRole = 'campaignAdmin' | 'volunteer'
 
@@ -40,17 +41,14 @@ type InviteRole = 'campaignAdmin' | 'volunteer'
 // way everywhere it's pickable in this feature.
 const ROLE_OPTIONS: {
   role: InviteRole
-  label: string
   icon: React.ReactNode
 }[] = [
   {
     role: 'campaignAdmin',
-    label: 'Campaign Manager',
     icon: <ShieldCheckIcon className="size-5" />,
   },
   {
     role: 'volunteer',
-    label: 'Volunteer',
     icon: <UserRoundIcon className="size-5" />,
   },
 ]
@@ -78,6 +76,7 @@ const InviteMemberDrawer = ({
   onInvited,
   onTeamPlanRequired,
 }: InviteMemberDrawerProps): React.JSX.Element => {
+  const getRoleLabel = useRoleLabel()
   const [step, setStep] = useState<1 | 2>(1)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -240,7 +239,7 @@ const InviteMemberDrawer = ({
                   </span>
                   <span className="flex flex-col gap-1">
                     <span className="font-medium text-foreground">
-                      {option.label}
+                      {getRoleLabel(option.role)}
                     </span>
                     <span className="text-sm font-normal text-muted-foreground">
                       {ROLE_DESCRIPTIONS[option.role]}

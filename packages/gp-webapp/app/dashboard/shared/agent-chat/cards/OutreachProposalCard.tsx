@@ -36,8 +36,8 @@ export const WIN_OUTREACH_PROPOSAL_COPY = {
   edit: 'Edit',
   // Fixed per channel, not written by the agent.
   draftedTitle: {
-    text: 'I drafted your first text',
-    phoneBanking: 'I drafted your call script',
+    text: 'I drafted a text for you',
+    phoneBanking: 'I drafted a phone banking script for you',
   },
 }
 

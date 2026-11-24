@@ -64,12 +64,14 @@ const preselectKey = (
   recommendedVariant: RecommendedListVariant | undefined,
 ): string => `${listId ?? ''}|${recommendedVariant ?? ''}`
 
-const tilePrice = (type: OutreachType): string =>
-  type === OUTREACH_TYPES.text
-    ? TILE_PRICES.text
+const tilePrice = (type: OutreachType, planPricing: boolean): string => {
+  const prices = planPricing ? WIN_PRICING_TILE_PRICES : TILE_PRICES
+  return type === OUTREACH_TYPES.text
+    ? prices.text
     : type === OUTREACH_TYPES.robocall
-      ? TILE_PRICES.robocall
+      ? prices.robocall
       : TILE_PRICES.free
+}
 
 const SMS_TILE_CLOSED_COPY = 'Not available for this race'
 
@@ -259,7 +261,9 @@ export const ChannelTileGrid = ({
               label={meta.label}
               tag={tag}
               tagTone={hasFreeOffer && !smsCountdown ? 'info' : 'muted'}
-              subCopy={textClosed ? SMS_TILE_CLOSED_COPY : tilePrice(type)}
+              subCopy={
+                textClosed ? SMS_TILE_CLOSED_COPY : tilePrice(type, planPricing)
+              }
               className={cn(
                 textClosed && 'bg-muted opacity-70 hover:border-border',
               )}

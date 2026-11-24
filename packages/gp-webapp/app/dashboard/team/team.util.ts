@@ -15,6 +15,14 @@ export const ROLE_LABELS: Record<string, string> = {
   volunteer: 'Volunteer',
 }
 
+// Sentence-case variant read under win_per_campaign_pricing (Nov 23 design
+// review). ROLE_LABELS itself stays as-is so flag-off renders are unchanged;
+// every display site goes through roleLabel / useRoleLabel instead.
+export const roleLabel = (role: string, sentenceCase: boolean): string =>
+  sentenceCase && role === 'campaignAdmin'
+    ? 'Campaign manager'
+    : (ROLE_LABELS[role] ?? role)
+
 // Locked copy (ENG-11058 design): the invite drawer's role-selection cards
 // and the team page's "How roles work" card must read identically, so both
 // read this one record rather than restating the sentences.
