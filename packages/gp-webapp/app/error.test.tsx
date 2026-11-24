@@ -5,9 +5,13 @@ import ErrorPage from './error'
 
 vi.mock('@shared/observability/reportClientError', () => ({
   reportClientError: vi.fn(),
+  reportClientInterruption: vi.fn(),
 }))
 
-import { reportClientError } from '@shared/observability/reportClientError'
+import {
+  reportClientError,
+  reportClientInterruption,
+} from '@shared/observability/reportClientError'
 
 const mockReportClientError = vi.mocked(reportClientError)
 
@@ -21,6 +25,7 @@ const chunkLoadErrors = [
 ]
 
 beforeEach(() => {
+  window.sessionStorage.clear()
   vi.clearAllMocks()
 })
 
@@ -43,13 +48,14 @@ const restoreLocation = (originalLocation: Location) =>
 
 describe('Error', () => {
   it.each(chunkLoadErrors)(
-    'reports %s, then reloads once Faro has had time to send it',
+    'logs a retry for %s without reporting an exception, then reloads',
     async (error) => {
       const { reloadSpy, originalLocation } = stubReload()
 
       render(<ErrorPage error={error} />)
 
-      expect(mockReportClientError).toHaveBeenCalledWith(error)
+      expect(reportClientInterruption).toHaveBeenCalledOnce()
+      expect(mockReportClientError).not.toHaveBeenCalled()
       expect(reloadSpy).not.toHaveBeenCalled()
 
       await waitFor(() => {
