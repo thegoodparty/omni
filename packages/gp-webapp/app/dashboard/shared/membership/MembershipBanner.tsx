@@ -134,8 +134,12 @@ export const MembershipBanner = (): React.JSX.Element | null => {
     if (action) {
       trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
     }
-    if (action === 'pitch') setPitchOpen(true)
-    else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
+    if (action === 'pitch') {
+      // Flag on, the banner opens the plan comparison page instead of the
+      // pitch dialog.
+      if (planPitch.enabled) router.push(planPitch.allPlansHref)
+      else setPitchOpen(true)
+    } else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
     else if (action === 'pin') setPinOpen(true)
     else if (action === 'schedule') router.push(MEMBERSHIP_SCHEDULE_HREF)
   }
@@ -182,7 +186,6 @@ export const MembershipBanner = (): React.JSX.Element | null => {
           onOpenChange={setPitchOpen}
           source="navigation"
           channel="generic"
-          raceSizePitch
         />
       )}
       {pinOpen && (
