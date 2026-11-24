@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { redirect } from 'next/navigation'
 import { isActiveOrgVolunteer } from '@shared/organizations/activeOrgVolunteer.server'
+import { OrganizationScope } from '@shared/organization-picker'
 import VolunteerSidebar from './VolunteerSidebar'
 
 export const dynamic = 'force-dynamic'
@@ -27,5 +28,9 @@ export default async function VolunteerLayout({
     redirect('/dashboard')
   }
 
-  return <VolunteerSidebar>{children}</VolunteerSidebar>
+  return (
+    <VolunteerSidebar>
+      <OrganizationScope>{children}</OrganizationScope>
+    </VolunteerSidebar>
+  )
 }

@@ -142,6 +142,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Writing a unit/component test                                | `docs/testing.md`                                                |
 | Reproducing a front-end error locally                        | `docs/debugging.md`                                              |
 | State / providers / React Query patterns                     | `docs/state-management.md`                                       |
+| Changing how an organization switch affects client state     | `docs/adr/2026-11-23-switching-organization-remounts-and-clears-client-state.md` |
 | Adding or removing a feature flag                            | `docs/feature-flags.md`                                          |
 | Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
 | Working inside a dashboard feature                           | `app/dashboard/<feature>/AGENTS.md`                              |

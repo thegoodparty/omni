@@ -179,14 +179,15 @@ isServe)` / `answerHeading(isServe)`, because paper is the only thing a
   and renders no assignees section for it: the roles the assign modal offers
   are campaign roles, so an elected official gets no assignment rather than
   one in Win's vocabulary.
-- **Org switching must not replay detail queries.** `outreachDetailQueryKey`
-  is not org-scoped, and a consumer that re-renders after a switch rebuilds
-  its cache entry and re-fetches immediately, under the incoming org's slug
-  header, which 404s (ENG-10991, both directions). `organization-picker.tsx`
-  therefore keeps `outreachDetailQueryPrefix` (and `contact-notes`) out of both
-  the cache clear and the refetch that follows it. A new query family keyed by
-  its own id inherits the same trap — pass the org slug in the key instead, as
-  `useOutreachAudience` does.
+- **Org switching remounts this page.** `outreachDetailQueryKey` is not
+  org-scoped, and a consumer that stays mounted across a switch rebuilds its
+  cache entry and re-fetches immediately, under the incoming org's slug header,
+  which 404s (ENG-10991, both directions). `OrganizationScope`
+  (`organization-picker.tsx`, mounted by `app/dashboard/layout.tsx`, so above
+  the page) unmounts it on a switch, so no row query is left with an observer to
+  rebuild it — including one a page calls in its own body. A new per-row family needs no exemption of its own
+  — but a switch resets this page's local state, including any rows held in
+  `useState`.
 - **Nav visibility mirrors page access**: `isElectedOffice` in
   `DashboardMenu.tsx`, the same elected-office existence the server-side
   `serveAccess()` gate on the route enforces. The mobile title comes from
