@@ -1624,6 +1624,13 @@ export class DomainsService
               domainName: domain.name,
               orderId: error.orderId,
               registrarCode: error.registrarCode,
+              // Whether the candidate's Stripe payment had already succeeded
+              // when the registrar refused: on the paid checkout path it has,
+              // so the refusal is a charge with no domain and the alert's
+              // reader owes a refund or a completed purchase. The agent
+              // reservation path above charges nothing.
+              paid: !options.skipPaymentVerification,
+              paymentId: domain.paymentId ?? null,
             },
             'Domain registrar rejected the purchase order; not retryable',
           )

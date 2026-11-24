@@ -532,7 +532,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     // and it is account-wide: the order is billed to GoodParty's own Vercel
     // team payment method, so a declined charge fails every campaign's
     // purchase until a person fixes billing — a billing problem that used to
-    // page as a gp-api gateway fault (ENG-11775).
+    // page as a gp-api gateway fault (ENG-11775). The line also carries
+    // `paid`, because the paid checkout path charges the candidate first: a
+    // refusal there is a charge with no domain, not a no-op.
     expr: [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -549,10 +551,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     timeRangeOffsetSeconds: 30,
     keepFiringFor: '1h',
     message: [
-      "The registrar refused a domain purchase order in the last 60 seconds. The order is billed to GoodParty's own Vercel team payment method, so this is not one campaign's problem: while the charge stays declined, no Pro campaign can buy any domain, and every attempt places another order that fails the same way. Nothing was charged and nothing was registered.",
-      'Click *View in Grafana* and search "Domain registrar rejected the purchase order; not retryable". The line names the `domainId`, `domainName`, `orderId` and `registrarCode`; a `registrarCode` of `payment-failed` means Vercel could not charge our own card.',
+      "The registrar refused a domain purchase order in the last 60 seconds. The order is billed to GoodParty's own Vercel team payment method, so this is not one campaign's problem: while the charge stays declined, no Pro campaign can buy any domain, and every attempt places another order that fails the same way. Nothing was registered.",
+      'Click *View in Grafana* and search "Domain registrar rejected the purchase order; not retryable". The line names the `domainId`, `domainName`, `orderId`, `registrarCode` and `paid`; a `registrarCode` of `payment-failed` means Vercel could not charge our own card.',
+      "`paid: true` means the candidate's own Stripe payment had already succeeded before the registrar refused: that candidate was charged and got no domain, and someone must refund the charge or finish the purchase once billing works. `paid: false` means nothing was charged, because the order came from the agent reservation path.",
       'A person with access to the GoodParty Vercel team must open Billing and find why the charge was declined (card, limit, expiry, unpaid invoice), then look up that `orderId` in the registrar. Nothing in gp-api can fix this, and retrying the purchase before billing is fixed just leaves another failed order.',
-      'Once billing works, the campaign can purchase again: a refusal suppresses a repeat call for 15 minutes and then the next attempt buys normally. Tell the campaign owner the domain was not bought and to retry after the fix.',
+      'Once billing works, the campaign can purchase again: a refusal suppresses a repeat call for 15 minutes and then the next attempt buys normally. With `paid: false`, tell the campaign owner the domain was not bought and to retry after the fix.',
     ].join('\n\n'),
   },
   {

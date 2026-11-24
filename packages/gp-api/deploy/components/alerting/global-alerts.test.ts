@@ -1038,6 +1038,14 @@ describe('win-domain-registrar-order-rejected', () => {
       widestRangeSeconds(alert!.expr),
     )
   })
+
+  // The paid checkout path charges the candidate before it places the order,
+  // so a refusal there strands a charge (ENG-11775 review).
+  it('tells on-call that a paid refusal left the candidate charged', () => {
+    const message = alert!.message
+    expect(message).toContain('`paid`')
+    expect(message).toContain('refund')
+  })
 })
 
 describe('operational error alerts that replaced #bot-dev posts', () => {

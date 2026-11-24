@@ -31,7 +31,12 @@ transient fault and re-driving a failed order is a supported flow.
 
 The 409 is not a route error, so a dedicated alert rule
 (`win-domain-registrar-order-rejected`) pages on the one log line the refusal
-writes.
+writes. That line carries `paid`, because the paid checkout path verifies the
+candidate's Stripe payment intent before it places the order: a refusal there is
+a charge with no domain, and gp-api has no refund path (see the TODO on
+`completeDomainRegistration`), so the alert tells on-call to refund the charge
+or finish the purchase once billing works. The agent reservation path charges
+nothing and logs `paid: false`.
 
 ## Context
 

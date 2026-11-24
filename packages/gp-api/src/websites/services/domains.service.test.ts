@@ -2328,6 +2328,53 @@ describe('DomainsService', () => {
           domainName: mockDomain.name,
           orderId: 'order_123',
           registrarCode: 'payment-failed',
+          // The agent reservation path never charges the candidate.
+          paid: false,
+        }),
+        'Domain registrar rejected the purchase order; not retryable',
+      )
+    })
+
+    it('logs a paid refusal as a charged candidate', async () => {
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockRejectedValue(new Error('not found')),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        purchaseDomain: vi.fn().mockResolvedValue({ orderId: 'order_123' }),
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        getRegistrarOrder: vi.fn().mockResolvedValue({
+          status: GetOrderStatus.Failed,
+          error: { code: 'payment-failed' },
+        }),
+        addDomainToProject: vi.fn().mockResolvedValue({}),
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        paymentId: 'pi_123',
+        price: new Decimal(12),
+      })
+      mockPayments.retrievePayment.mockResolvedValue({ status: 'succeeded' })
+
+      const error = await service
+        .completeDomainRegistration(10, contact)
+        .catch((e: unknown) => e)
+
+      expect(error).toBeInstanceOf(ConflictException)
+      // The alert's reader needs to know a charge is owed back: the paid path
+      // verifies the candidate's payment intent before placing the order.
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderId: 'order_123',
+          registrarCode: 'payment-failed',
+          paid: true,
+          paymentId: 'pi_123',
         }),
         'Domain registrar rejected the purchase order; not retryable',
       )
