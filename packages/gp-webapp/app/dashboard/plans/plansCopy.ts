@@ -1,8 +1,11 @@
-import { PLAN_PRICING } from '@goodparty_org/contracts'
+import {
+  PLAN_PRICING,
+  PRICE_PER_TEXT_TENTH_CENTS,
+} from '@goodparty_org/contracts'
 import type { ComponentType } from 'react'
 import {
   BookOpenIcon,
-  Building2Icon,
+  DoorOpenIcon,
   ListChecksIcon,
   MessageSquareIcon,
   ShieldCheckIcon,
@@ -73,48 +76,54 @@ export interface PlanFeature {
   offer?: string
 }
 
+// How many texts the included credit buys, from the same constants that price
+// a text. Cents times ten is tenth-cents, the unit PRICE_PER_TEXT is stored in.
+export const INCLUDED_CREDIT_TEXTS = Math.round(
+  (PLAN_PRICING.includedCreditCents * 10) / PRICE_PER_TEXT_TENTH_CENTS,
+)
+
 export const PLAN_FEATURES: PlanFeature[] = [
   {
-    title: 'Campaign plan and agent',
+    title: 'Campaign plan and manager',
     icon: ListChecksIcon,
-    caption: 'Your step-by-step plan, with an agent to help',
+    caption: 'Get a step-by-step plan for your race',
     from: 'free',
   },
   {
     title: 'Your story and public profile',
     icon: BookOpenIcon,
-    caption: "Tell voters who you are and why you're running",
+    caption: 'Tell voters who you are',
     from: 'free',
   },
   {
     title: 'Voter data and lists',
     icon: UsersRoundIcon,
-    caption: 'Find the voters who matter and build targeted lists',
+    caption: 'Find voters and build target lists',
     from: 'pro',
   },
   {
-    title: 'Texts and robocalls',
+    title: 'Voter outreach tools',
     icon: MessageSquareIcon,
-    caption: 'Introduce yourself and share your message',
+    caption: 'Texts, robocalls, and more',
     from: 'pro',
     offer: `${formatPlanCents(PLAN_PRICING.includedCreditCents)} credit`,
   },
   {
-    title: 'Door knocking and phone banking',
-    icon: Building2Icon,
-    caption: 'Routes and call lists for you and your volunteers',
+    title: 'Campaign verification',
+    icon: ShieldCheckIcon,
+    caption: 'Get registered to text voters, a $120 value',
     from: 'pro',
   },
   {
-    title: 'Campaign verification',
-    icon: ShieldCheckIcon,
-    caption: 'We register your campaign with the carriers',
+    title: 'Door knocking and phone banking',
+    icon: DoorOpenIcon,
+    caption: 'Routes and call lists for volunteers',
     from: 'pro',
   },
   {
     title: 'Logins for your team',
     icon: UsersIcon,
-    caption: 'Your campaign manager and volunteers get their own',
+    caption: 'Add a campaign manager and volunteers',
     from: 'team',
   },
 ]
@@ -130,8 +139,13 @@ export const PLANS_COPY = {
   title: 'Plans',
   back: 'Back to dashboard',
   heading: 'Unlock voter data and outreach',
-  subtitle: 'Pay once, good for your whole campaign.',
-  upgradeAnytime: 'Upgrade to Team anytime',
+  subtitle: 'Pay once for your plan, good for your whole race.',
+  recommend: (plan: string) => `We recommend ${plan} for a race your size.`,
+  bestForRace: 'Best for your race',
+  creditIncluded: `${formatPlanCents(PLAN_PRICING.includedCreditCents)} credit included`,
+  creditWorth: `(worth ${INCLUDED_CREDIT_TEXTS.toLocaleString('en-US')} texts)`,
+  everythingInPlus: (plan: string) => `Everything in ${plan}, plus`,
+  everythingInExcept: (plan: string) => `Everything in ${plan}, except`,
   compare: 'Compare plans',
   bonus: 'Bonus',
   currentBadge: 'Current plan',

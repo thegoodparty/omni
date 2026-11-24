@@ -120,6 +120,7 @@ export const MembershipChip = (): React.JSX.Element | null => {
           onOpenChange={setPitchOpen}
           source="navigation"
           channel="generic"
+          raceSizePitch
         />
       )}
       {pinOpen && (

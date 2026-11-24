@@ -1,10 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { OutreachHistoryTable } from './OutreachHistoryTable'
 import type { HistoryRow } from './historyStatus.util'
+
+const pricing = vi.hoisted(() => ({ on: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: pricing.on }),
+}))
 
 const desktopTable = () => screen.getAllByRole('table')[0] as HTMLElement
 
@@ -1094,5 +1099,60 @@ describe('OutreachHistoryTable — draft rows', () => {
     // this row), so both occurrences are expected rather than one.
     expect(within(desktopTable()).getAllByText('n/a')).toHaveLength(2)
     expect(screen.queryByText('Pro needed')).not.toBeInTheDocument()
+  })
+})
+
+describe('OutreachHistoryTable — per-campaign pricing copy', () => {
+  afterEach(() => {
+    pricing.on = false
+  })
+
+  const legacyPhoneRow: HistoryRow = {
+    id: 12,
+    date: '2026-07-15',
+    outreachType: 'phoneBanking',
+    name: 'Legacy phone bank',
+    status: 'completed',
+  }
+  const undatedRow: HistoryRow = {
+    id: 13,
+    outreachType: 'text',
+    name: 'Undated',
+    status: 'completed',
+  }
+
+  it('titles the history Active outreach with the flag on', () => {
+    pricing.on = true
+    render(
+      <OutreachHistoryTable rows={[legacyPhoneRow]} onRowClick={vi.fn()} />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Active outreach' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Active campaigns')).not.toBeInTheDocument()
+  })
+
+  it('keeps Active campaigns with the flag off', () => {
+    render(
+      <OutreachHistoryTable rows={[legacyPhoneRow]} onRowClick={vi.fn()} />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Active campaigns' }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows empty values as an em dash, never n/a, with the flag on', () => {
+    pricing.on = true
+    render(
+      <OutreachHistoryTable
+        rows={[legacyPhoneRow, undatedRow]}
+        onRowClick={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText('n/a')).not.toBeInTheDocument()
+    expect(within(desktopTable()).getAllByText('—').length).toBeGreaterThan(1)
   })
 })

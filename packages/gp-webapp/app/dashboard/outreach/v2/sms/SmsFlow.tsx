@@ -531,6 +531,45 @@ export const SuccessScreen = ({
     creditBeforeCents !== null,
   )
   const showCredit = creditBeforeCents !== null && creditUsedCents > 0
+  // A credit-priced send (per-campaign pricing on): the Nov 23 board's copy
+  // and layout. Everything else keeps the original screen.
+  const priced = creditBeforeCents !== null
+  const campaignLabel = priced ? 'SMS campaign' : 'sms campaign'
+  // The Stripe charge is only the card's share; the line item is the full
+  // price, so the credit that covered the rest goes back on top of it.
+  const lineItemDollars = receipt
+    ? (Math.round(receipt.amount * 100) + (showCredit ? creditUsedCents : 0)) /
+      100
+    : 0
+  const creditLabel = priced
+    ? `Outreach credit used (${formatOutreachCost(
+        Math.max((creditBeforeCents ?? 0) - creditUsedCents, 0),
+      )} left after)`
+    : 'Outreach credit used'
+
+  const creditRow = showCredit && (
+    <div className="flex justify-between gap-4">
+      <dt className="text-muted-foreground">{creditLabel}</dt>
+      <dd className="text-foreground">
+        {`\u2212${formatOutreachCost(creditUsedCents)}`}
+      </dd>
+    </div>
+  )
+
+  const downloadButton = receipt?.receiptUrl && (
+    <Button
+      type="button"
+      variant="outline"
+      size={priced ? 'small' : undefined}
+      className={priced ? 'w-full lg:w-auto' : 'w-full'}
+      onClick={() => {
+        window.open(receipt.receiptUrl ?? '', '_blank', 'noopener')
+      }}
+    >
+      <DownloadIcon className="size-4" />
+      Download receipt
+    </Button>
+  )
 
   return (
     <div className="space-y-6 py-8 text-center">
@@ -541,10 +580,14 @@ export const SuccessScreen = ({
       </div>
       <div className="space-y-2">
         <h2 className="text-2xl font-semibold text-foreground">
-          {paid ? 'Payment successful!' : 'Scheduled!'}
+          {paid
+            ? priced
+              ? 'Payment successful'
+              : 'Payment successful!'
+            : 'Scheduled!'}
         </h2>
         <p className="text-muted-foreground">
-          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
+          Your {campaignLabel} will reach {contactCount.toLocaleString()}{' '}
           recipients
           {sendAt
             ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
@@ -570,25 +613,17 @@ export const SuccessScreen = ({
                   SMS campaign, {contactCount.toLocaleString()} recipients
                 </dt>
                 <dd className="text-foreground">
-                  ${receipt.amount.toFixed(2)}
+                  ${lineItemDollars.toFixed(2)}
                 </dd>
               </div>
-              {showCredit && (
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">
-                    Outreach credit used
-                  </dt>
-                  <dd className="text-foreground">
-                    {`\u2212${formatOutreachCost(creditUsedCents)}`}
-                  </dd>
-                </div>
-              )}
+              {!priced && creditRow}
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Cost per outreach</dt>
                 <dd className="text-foreground">
                   ${PRICE_PER_MESSAGE.toFixed(3)}
                 </dd>
               </div>
+              {priced && creditRow}
               {receipt.cardBrand && receipt.cardLast4 && (
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Card</dt>
@@ -605,6 +640,11 @@ export const SuccessScreen = ({
               ${receipt.amount.toFixed(2)}
             </span>
           </div>
+          {priced && downloadButton && (
+            <div className="flex border-t border-border px-4 py-4 lg:justify-end">
+              {downloadButton}
+            </div>
+          )}
         </Card>
       )}
       {showCredit && !receipt && (
@@ -635,19 +675,7 @@ export const SuccessScreen = ({
           </div>
         </Card>
       )}
-      {receipt?.receiptUrl && (
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          onClick={() => {
-            window.open(receipt.receiptUrl ?? '', '_blank', 'noopener')
-          }}
-        >
-          <DownloadIcon className="size-4" />
-          Download receipt
-        </Button>
-      )}
+      {!priced && downloadButton}
       {showTestSend && outreachId !== null && (
         <SmsTestSendForm
           outreachId={outreachId}
@@ -655,9 +683,11 @@ export const SuccessScreen = ({
           ready={Boolean(jobQuery.data?.projectId)}
         />
       )}
-      <Button size="large" className="w-full" onClick={onDone}>
-        Done
-      </Button>
+      {!priced && (
+        <Button size="large" className="w-full" onClick={onDone}>
+          Done
+        </Button>
+      )}
     </div>
   )
 }
@@ -2479,7 +2509,13 @@ export const SmsFlow = ({
             ? handleBack
             : undefined
       }
-      cta={cta}
+      cta={
+        // The credit-priced confirmation keeps Done in the shell footer (the
+        // Nov 23 board); SuccessScreen renders none of its own then.
+        scheduled && outreachCredit.active && !surface.isServe
+          ? { label: 'Done', onClick: onClose }
+          : cta
+      }
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner).
       banner={

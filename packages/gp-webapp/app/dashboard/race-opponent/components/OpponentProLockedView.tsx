@@ -22,7 +22,7 @@ import {
 } from '@styleguide/components/ui/icons'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
 import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 
@@ -65,7 +65,7 @@ const OpponentProLockedView = (): React.JSX.Element => {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
   const upgradeCta = planPitch.enabled
     ? `Upgrade to ${planPitch.name}`
     : UPGRADE_CTA

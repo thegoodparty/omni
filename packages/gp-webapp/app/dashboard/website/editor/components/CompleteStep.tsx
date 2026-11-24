@@ -1,7 +1,7 @@
 import { Button } from '@styleguide'
 import Link from 'next/link'
 import HighFiveAnimation from '@shared/animations/HighFiveAnimation'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import ShareModal from '../../components/ShareModal'
 import { useState } from 'react'
 import Body2 from '@shared/typography/Body2'
@@ -27,7 +27,7 @@ const CompleteStep = ({
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const { smsCompliance } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
   return (
     <div className="text-center flex flex-col items-center gap-4">
       <div className="relative h-24 w-24 cursor-pointer">

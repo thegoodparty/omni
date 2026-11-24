@@ -219,6 +219,29 @@ describe('a Campaign Manager text card', () => {
     expect(await screen.findByTestId('pro-pitch')).toBeInTheDocument()
   })
 
+  it('offers Join Pro to send, never Team, on a race over the Team threshold', async () => {
+    planFlag.enabled = true
+    campaign.current = {
+      id: 9,
+      isPro: false,
+      raceTargetMetrics: { registeredVoters: 50_000 },
+    } as typeof campaign.current
+    api.mock('GET /v1/outreach/by-proposal-key/:proposalKey', {
+      status: 404,
+      data: {},
+    })
+    render(
+      <ProposalFlowsProvider mode="win">
+        <OutreachProposalCard proposal={card} />
+      </ProposalFlowsProvider>,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Join Pro to send' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Join Team/ })).toBeNull()
+  })
+
   it("keeps today's button for a Pro campaign with the flag on", async () => {
     planFlag.enabled = true
     campaign.current = { id: 9, isPro: true }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import type { CropperProps, CropperRef } from 'react-advanced-cropper'
 import userEvent from '@testing-library/user-event'
@@ -132,6 +132,25 @@ vi.mock('app/shared/experiments/winSmsPreviewEditFlag', () => ({
     enabled: winSmsPreviewRef.enabled,
   }),
 }))
+
+// Per-campaign pricing's credit hook, passed through unless a test pins it.
+const creditOverride = vi.hoisted(() => ({
+  value: null as { active: boolean; balanceCents: number } | null,
+}))
+vi.mock(
+  'app/dashboard/outreach/util/outreachCredit',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('app/dashboard/outreach/util/outreachCredit')
+      >()
+    return {
+      ...actual,
+      useOutreachCredit: () =>
+        creditOverride.value ?? actual.useOutreachCredit(),
+    }
+  },
+)
 
 const completeFreePurchase = vi.fn(
   async (
@@ -342,6 +361,7 @@ describe('SmsFlow', () => {
   })
 
   afterEach(() => {
+    creditOverride.value = null
     vi.useRealTimers()
   })
 
@@ -459,7 +479,7 @@ describe('SmsFlow', () => {
       ).toBeInTheDocument()
     })
   })
-  it('runs purpose → audience → compose → schedule → review and schedules free', async () => {
+  const runFreeFlowToScheduled = async () => {
     const draftCalls = mockDraft()
     let receiptCalls = 0
     api.mock('GET /v1/outreach/:id/receipt', () => {
@@ -578,11 +598,27 @@ describe('SmsFlow', () => {
     // the endpoint must never be called (it would 404 the free row).
     expect(
       screen.getByText(
-        /Your sms campaign will reach 1,200 recipients starting/,
+        /Your sms campaign will reach 1,200 recipients starting/i,
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
     expect(receiptCalls).toBe(0)
+  }
+
+  it('runs purpose → audience → compose → schedule → review and schedules free', async () => {
+    await runFreeFlowToScheduled()
+    // Pricing off: Done is the screen's own body button.
+    const done = screen.getAllByRole('button', { name: 'Done' })
+    expect(done).toHaveLength(1)
+    expect(done[0]?.closest('.space-y-6')).not.toBeNull()
+  })
+
+  it('puts Done in the flow footer once the send is credit-priced', async () => {
+    creditOverride.value = { active: true, balanceCents: 0 }
+    await runFreeFlowToScheduled()
+    const done = screen.getAllByRole('button', { name: 'Done' })
+    expect(done).toHaveLength(1)
+    expect(done[0]?.closest('.space-y-6')).toBeNull()
   })
 
   it('stops a list over the 200,000 send cap at the audience step', async () => {
@@ -3439,9 +3475,72 @@ describe('SuccessScreen outreach credit', () => {
       />,
     )
 
-    expect(await screen.findByText('Outreach credit used')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Outreach credit used ($0.00 left after)'),
+    ).toBeInTheDocument()
     expect(screen.getByText('\u2212$42.00')).toBeInTheDocument()
     expect(screen.getByText('Charged today')).toBeInTheDocument()
+  })
+
+  it('shows the full price as the line item when credit covers part of it', async () => {
+    api.mock('GET /v1/outreach/:id', detail(2750))
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 200,
+      data: {
+        amount: 56.5,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: 'https://pay.stripe.com/receipts/rcpt_2',
+        paidAt: '2026-08-24T12:00:00.000Z',
+      },
+    })
+    const onDone = vi.fn()
+    render(
+      <SuccessScreen
+        contactCount={2400}
+        sendAt={new Date('2026-09-08T10:00:00')}
+        outreachId={57}
+        paid
+        creditBeforeCents={2750}
+        onDone={onDone}
+      />,
+    )
+
+    expect(await screen.findByText('Payment successful')).toBeInTheDocument()
+    expect(
+      screen.getByText(/^Your SMS campaign will reach 2,400 recipients/),
+    ).toBeInTheDocument()
+    const lineItem = (await screen.findByText('SMS campaign, 2,400 recipients'))
+      .parentElement as HTMLElement
+    expect(within(lineItem).getByText('$84.00')).toBeInTheDocument()
+    expect(
+      screen.getByText('Outreach credit used ($0.00 left after)'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('\u2212$27.50')).toBeInTheDocument()
+    const charged = screen.getByText('Charged today')
+      .parentElement as HTMLElement
+    expect(within(charged).getByText('$56.50')).toBeInTheDocument()
+
+    // Board row order: line item, cost per outreach, credit, card, charged.
+    const labels = Array.from(document.querySelectorAll('dt')).map(
+      (el) => el.textContent,
+    )
+    expect(labels).toEqual([
+      'SMS campaign, 2,400 recipients',
+      'Cost per outreach',
+      'Outreach credit used ($0.00 left after)',
+      'Card',
+    ])
+
+    // Download sits inside the receipt card; Done lives in the flow footer,
+    // so the screen itself renders no Done.
+    const card = screen.getByText('Receipt').closest('[data-slot="card"]')
+    expect(
+      within(card as HTMLElement).getByRole('button', {
+        name: 'Download receipt',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
   })
 
   it('shows no credit rows when the send did not run on credit', () => {

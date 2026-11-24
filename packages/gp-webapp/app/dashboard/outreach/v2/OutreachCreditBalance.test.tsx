@@ -33,21 +33,21 @@ beforeEach(() => {
 })
 
 describe('OutreachCreditBalance', () => {
-  it('shows the balance and what it buys in texts', () => {
+  it('shows the balance as plain text, with no texts estimate', () => {
     render(<OutreachCreditBalance />)
 
-    expect(screen.getByText('$175.00 left')).toBeInTheDocument()
-    expect(
-      screen.getByText('About 5,000 texts at 3.5¢ each.'),
-    ).toBeInTheDocument()
+    expect(screen.getByTestId('outreach-credit-balance')).toHaveTextContent(
+      'Outreach credit $175.00',
+    )
+    expect(screen.queryByText(/left/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/About/)).not.toBeInTheDocument()
   })
 
-  it('shows an empty balance without the texts line', () => {
+  it('shows an empty balance', () => {
     state.cents = 0
     render(<OutreachCreditBalance />)
 
-    expect(screen.getByText('$0.00 left')).toBeInTheDocument()
-    expect(screen.queryByText(/About/)).not.toBeInTheDocument()
+    expect(screen.getByText('$0.00')).toBeInTheDocument()
   })
 
   it('shows nothing with the flag off', () => {

@@ -182,6 +182,7 @@ export const MembershipBanner = (): React.JSX.Element | null => {
           onOpenChange={setPitchOpen}
           source="navigation"
           channel="generic"
+          raceSizePitch
         />
       )}
       {pinOpen && (

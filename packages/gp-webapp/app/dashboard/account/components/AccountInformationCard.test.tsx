@@ -108,7 +108,7 @@ describe('AccountInformationCard plans', () => {
     })
     renderCard(true)
 
-    expect(screen.getByText('TEAM')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'TEAM' })).toBeInTheDocument()
     expect(screen.getByText('$399')).toBeInTheDocument()
     expect(screen.getByText(/Good through Nov 17, 2026/)).toBeInTheDocument()
     expect(screen.queryByText(/Upgrade to Team/)).not.toBeInTheDocument()

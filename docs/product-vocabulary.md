@@ -69,6 +69,13 @@ states name the thing "outreach" in Serve ("Your outreach", an "Outreach"
 column), because a list of everything an official sent reads as a campaign
 list to someone who never ran one.
 
+**Exception: the plan page.** The Win plan comparison page
+(`app/dashboard/plans/`) names the AI assistant by its feature name, "Campaign
+Manager", in the rows "Campaign plan and manager" and "Add a campaign manager
+and volunteers". It is a Win-only surface, so the Serve ban does not reach it.
+Do not copy the wording into anything Serve can see. See rule 48 in
+`docs/design-memory/learned.md`.
+
 ## How to fix it
 
 **Never rename the Win string.** The two surfaces mount the same components
