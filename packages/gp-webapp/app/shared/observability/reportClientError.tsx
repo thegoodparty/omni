@@ -34,10 +34,10 @@ export const reportClientError = (
 
 /**
  * A failure the browser raised about something we asked it for, which no change
- * of ours can prevent: a dropped connection, not a defect in our code. It goes
- * to Faro as a log line, never as an exception, because the exception stream is
- * what the front-end error alerts page on and a dropped socket is not an error
- * anyone can fix (ENG-11724).
+ * of ours can prevent: a dropped connection, or a payment the customer's bank
+ * declined, not a defect in our code. It goes to Faro as a log line, never as
+ * an exception, because the exception stream is what the front-end error alerts
+ * page on and neither is an error anyone here can fix (ENG-11724, ENG-11776).
  */
 export const reportClientInterruption = (
   message: string,

@@ -9,12 +9,16 @@ import {
 import { Button } from '@styleguide'
 import { Alert, AlertDescription } from '@styleguide/components/ui/alert'
 import { useSnackbar } from '@shared/utils/Snackbar'
-import { reportClientError } from '@shared/observability/reportClientError'
+import {
+  reportClientError,
+  reportClientInterruption,
+} from '@shared/observability/reportClientError'
 import { useMutation } from '@tanstack/react-query'
 import { StripeError } from '@stripe/stripe-js'
 import { useCheckoutSession } from './CheckoutSessionProvider'
 import { Spinner } from '@styleguide'
 import PromoCodeSection, { usePromoCode } from './PromoCodeSection'
+import { isCardDecline } from './isCardDecline'
 
 interface CheckoutFormProps {
   // Fired after a successful confirm when there is a Stripe session id to act
@@ -93,9 +97,24 @@ export default function CheckoutForm({
           reportClientError(error, { location: 'checkout-form' })
         } else {
           msg = error.message || 'Unexpected payment error'
-          reportClientError(new Error('checkout form stripe error'), {
-            stripeError: error,
-          })
+          // A declined card is an expected outcome of taking payment, so it
+          // must not enter the exception stream the new-error alert pages on:
+          // filed as an exception, every decline looked like a defect we
+          // shipped (ENG-11776). Only a failure we cannot attribute to the
+          // customer is reported, and its Stripe code goes in the message so
+          // the alert groups a broken integration on its own.
+          if (isCardDecline(error)) {
+            reportClientInterruption('checkout card declined', {
+              stripeError: error,
+            })
+          } else {
+            reportClientError(
+              new Error(
+                `checkout form stripe error: ${error.code ?? 'unknown'}`,
+              ),
+              { stripeError: error },
+            )
+          }
         }
         errorSnackbar(msg)
         setError(msg)
