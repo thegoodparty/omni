@@ -346,6 +346,44 @@ describe('DomainsService', () => {
       })
     })
 
+    it('buys again when a second charge arrives inside the window', async () => {
+      // The first order was refused minutes ago; the candidate has since paid
+      // again, so this is a redelivery of a new charge, not of the refused one.
+      // Answering 409 here would keep the money and record nothing.
+      mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
+        content: { contact: {} },
+        domain: {
+          ...mockDomain,
+          paymentId: 'pi_old',
+          status: DomainStatus.inactive,
+          operationId: 'order_refused_1',
+          registrarRefusalCode: 'payment-failed',
+          registrarRefusedAt: new Date(),
+        },
+        campaign: { userId: mockUser.id },
+      })
+      const completeSpy = vi
+        .spyOn(service, 'completeDomainRegistration')
+        .mockResolvedValue({
+          vercelResult: null,
+          projectResult: null,
+          message: 'Disabled',
+        })
+
+      await service.handleDomainPostPurchase(sessionId, metadata)
+
+      expect(mockPrisma.domain.update).toHaveBeenCalledWith({
+        where: { id: mockDomain.id },
+        data: {
+          paymentId: 'pi_123',
+          status: DomainStatus.pending,
+          registrarRefusalCode: null,
+          registrarRefusedAt: null,
+        },
+      })
+      expect(completeSpy).toHaveBeenCalled()
+    })
+
     it('should send null priceOfSelectedDomain when domain has no price', async () => {
       mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
         content: { contact: {} },

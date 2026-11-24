@@ -23,7 +23,11 @@ answers 409 with `errorCode: DOMAIN_REGISTRAR_ORDER_REJECTED`, the registrar
 code, the order id and `retryable: false`, on both the agent reservation path
 and the paid checkout path. The refused order id is persisted on the domain row
 with `registrarRefusalCode` and `registrarRefusedAt`, and a repeat call for the
-same name within 15 minutes answers the same 409 without placing an order.
+same name within 15 minutes answers the same 409 without placing an order. On
+the paid checkout path the suppression is keyed to the refused `paymentId`, so
+only a redelivery of that charge is answered 409; a new `paymentId` for the same
+name is a second charge that already succeeded, and it places a fresh order
+rather than leaving the money unrecorded.
 Every path that places a new order, and every order that completes, clears
 those two fields. A failed order with any other code, or with none, stays a
 retryable 502 exactly as before, because it cannot be told apart from a

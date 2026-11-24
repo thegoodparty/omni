@@ -446,7 +446,17 @@ export class DomainsService
     // The paid checkout path places its own order, outside the reservation
     // transaction, so it has to answer the refusal too: a Stripe redelivery
     // for a name the registrar already declined must not buy it again.
-    if (domain && domain.name === domainName) {
+    //
+    // Only a redelivery of the refused payment is suppressed. A different
+    // payment is a second, already-charged purchase — it falls through to the
+    // reuse branch below, which clears the refusal and places a fresh order.
+    // Answering it 409 would leave that charge unrecorded and unlogged, with no
+    // refund path.
+    if (
+      domain &&
+      domain.name === domainName &&
+      (!paymentId || domain.paymentId === paymentId)
+    ) {
       this.assertNotRecentlyRefused(domain)
     }
 
