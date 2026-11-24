@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@shared/hooks/useUser'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -23,6 +24,8 @@ import {
 } from '@styleguide/components/ui'
 
 export default function DeleteAccountPage(): React.JSX.Element {
+  const { enabled: sentenceCase } = useWinPerCampaignPricingFlag(false)
+  const deleteLabel = sentenceCase ? 'Delete account' : 'Delete Account'
   const [user] = useUser()
   const { signOut } = useClerk()
   const [modalOpen, setModalOpen] = useState(false)
@@ -60,7 +63,7 @@ export default function DeleteAccountPage(): React.JSX.Element {
   return (
     <Card className="w-full max-w-[640px] gap-4 p-6">
       <h2 className="m-0 text-xl font-semibold text-foreground">
-        Delete Account
+        {deleteLabel}
       </h2>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-0.5">
@@ -81,7 +84,7 @@ export default function DeleteAccountPage(): React.JSX.Element {
             setModalOpen(true)
           }}
         >
-          Delete Account
+          {deleteLabel}
         </Button>
       </div>
 
