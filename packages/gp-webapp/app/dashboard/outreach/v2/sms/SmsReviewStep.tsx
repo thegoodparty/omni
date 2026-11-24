@@ -139,7 +139,9 @@ interface SmsReviewStepProps {
   readOnlySummary?: boolean
   // paid=false on the free-texts redemption path — the success screen only
   // fetches a Stripe receipt for a real charge.
-  onComplete: (paid: boolean) => Promise<void>
+  // held: the card was authorized for a hold that captures when it sends,
+  // so nothing was charged at payment.
+  onComplete: (paid: boolean, held?: boolean) => Promise<void>
   // Win with per-campaign pricing: the flow shell's footer carries the primary
   // button (Schedule outreach / Complete purchase), so this step reports it
   // up and drops its own. Without it the button stays in the body.
@@ -311,7 +313,7 @@ export const SmsReviewStep = ({
       setPayError(true)
       throw new Error('Failed to complete purchase')
     }
-    await onComplete(true)
+    await onComplete(true, Boolean(checkoutSession?.isHold))
   }
 
   // What the footer button does, from the same states the body walks below.

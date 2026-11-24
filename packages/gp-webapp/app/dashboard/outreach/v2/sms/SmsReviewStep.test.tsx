@@ -214,8 +214,26 @@ describe('SmsReviewStep pay-before-ready ceiling copy', () => {
     expect(await screen.findByText('Up to $0.00')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Complete purchase' }))
 
-    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true))
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true, false))
     expect(completedSessionId).toBe('cs_test')
+  })
+
+  it('tells the flow the card was only authorized when the session is a hold', async () => {
+    live.dollars = 0
+    checkout.isHold = true
+    const onComplete = vi.fn()
+    mswServer.use(
+      http.post('/api/v1/payments/purchase/complete-checkout-session', () =>
+        HttpResponse.json({ alreadyProcessed: false }),
+      ),
+    )
+
+    renderStep({ priceIsCeiling: true, onComplete })
+
+    expect(await screen.findByText('Up to $0.00')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Complete purchase' }))
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(true, true))
   })
 
   it('states a flat due-today charge when the price is exact (default)', async () => {
