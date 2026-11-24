@@ -8,9 +8,9 @@ import { uploadFileToS3 } from '@shared/utils/s3Upload'
 import { apiRoutes } from 'gpApi/routes'
 import { useMutation } from '@tanstack/react-query'
 import imageCompression from 'browser-image-compression'
+import { SMS_IMAGE_MAX_BYTES } from '@goodparty_org/contracts'
 
 const ACCEPTED_FORMATS = ['.png', '.jpg', '.jpeg']
-const MAX_SIZE_KB = 500
 
 export const PollImageUpload: React.FC<{
   imageUrl?: string
@@ -23,7 +23,7 @@ export const PollImageUpload: React.FC<{
   const mutation = useMutation({
     mutationFn: async (file: File) => {
       const downsized = await imageCompression(file, {
-        maxSizeMB: MAX_SIZE_KB / 1024,
+        maxSizeMB: SMS_IMAGE_MAX_BYTES / (1024 * 1024),
         useWebWorker: true,
       })
       return uploadFileToS3(downsized, apiRoutes.polls.imageUploadUrl)
