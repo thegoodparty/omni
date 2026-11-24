@@ -97,25 +97,28 @@ party_affiliation, incumbent }] }` and the persister reads it, so a gp-api run
   the old runner stated it in the system prompt and every runway is counted from
   it. The dispatcher fills it and the judge's run route fills it, so both engines
   hand the agent the same date. It is the only agent that takes one.
-- The prompt is the instruction's rules, tightened where the Universal Judge
-  read a straight port as worse on sourcing and precision rather than on
-  arithmetic. The experiment's `http.head` link check and its "use only what
-  the input and fetched pages support" line do not survive as tools, so the
-  rules that depended on them are stated as instructions instead: a figure
-  comes from the input or from a page this run read, a citation names a URL
-  this run opened, a runway is a day count computed from `today`, and a thin
-  input is named rather than padded. The tightening also reverses two readings
-  the port invited: `winNumberEffective` is a planning target and not a rule
-  about who wins (a single seat earns no bullet about plurality or runoffs),
-  and `partisanType: nonpartisan` says nothing about party money, staff or
-  data. Step 0b and the "always wrong here" list carry the phrasings the judge
-  read as invented election law; Step 4 makes the agent recompute every derived
-  number before it submits. The old engine's validator loop re-read the
-  artifact's numbers; `submitOutput` validates the shape and nothing else, so a
-  bullet can state a phone-coverage share that counts numbers as voters, or a
-  sit-out share that is not 1 minus turnout, and still pass. The step names each
-  of those and the rule for a conflict between two input fields: report it, do
-  not reconcile it.
+- The prompt is the instruction's rules as written, with one exception, because
+  the Universal Judge said so four times over. A straight port lost on sourcing
+  and precision rather than on arithmetic, so the ported rules are stated as
+  instructions: a figure comes from the input or from a page this run read, a
+  citation names a URL this run opened, a runway is an exact day count computed
+  from `today`, and a thin input is named rather than padded. That replaces what
+  the experiment got from its `http.head` link check and its "use only what the
+  input and fetched pages support" line, neither of which survives the runtime
+  swap. The tightening also reverses two readings the port invited:
+  `winNumberEffective` is a planning target and not a rule about who wins, so a
+  single seat earns no bullet about plurality, runoffs or second place; and
+  `partisanType: nonpartisan` says nothing about party money, staff or data.
+  Step 0b and the "always wrong here" list name the phrasings the judge read as
+  invented election law or an invented statistic. Step 4 makes the agent
+  recompute every derived number before it submits, because the old engine's
+  validator loop re-read the artifact's numbers and `submitOutput` validates the
+  shape and nothing else: a bullet can state a phone-coverage share that counts
+  numbers as voters, or a sit-out share that is not 1 minus turnout, and still
+  pass. The step names each of those, and the rule for a conflict between two
+  input fields: report it, do not reconcile it. The Universal Judge then scored
+  the agent BETTER than the experiment it came from, so treat these rules as the
+  agent's contract rather than as scaffolding to relax.
 - **The output schema is the manifest's, unchanged**: the two lists ARE the
   section, so `parseOpportunitiesChallengesArtifact` reads the same shape from
   either engine's run and the persister did not change.
