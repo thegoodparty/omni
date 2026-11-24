@@ -962,10 +962,18 @@ describe('the managed panel wave job', () => {
 
         const wave = await waveAt(id, 1)
         expect(wave.replyWindowEndsAt).toBeNull()
-        expect(textSends()[0]?.[1][0]?.data).toMatchObject({
+        const data = textSends()[0]?.[1][0]?.data
+        expect(data).toMatchObject({
           outreachId: wave.outreach?.id,
-          agentHandoff: { handler, mode },
+          agentHandoff: { mode },
         })
+        // An agent payload keeps the shape the previous release's strict
+        // schema accepts, so a rolling deploy never strands it.
+        if (handler === 'api') {
+          expect(data).toHaveProperty('agentHandoff.handler', 'api')
+        } else {
+          expect(data).not.toHaveProperty('agentHandoff.handler')
+        }
       },
     )
 

@@ -466,19 +466,23 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       if (outreach.status === OutreachStatus.pending_payment) {
         await this.refreshDraft(enrollment, waveId, now, agent)
       }
+      // handler is only sent for api: the previous release's strict
+      // outreachTextSend schema rejects the key, and a rolling deploy can hand
+      // a newly queued agent send to an old worker.
       const claim = await this.funding.claimFree(
         waveId,
         row
           ? {
-              handler:
-                row.handler === OutreachHandoffHandler.api ? 'api' : 'agent',
+              ...(row.handler === OutreachHandoffHandler.api
+                ? { handler: 'api' as const }
+                : {}),
               mode: row.mode === 'auto' ? 'auto' : 'shadow',
               sendAt: row.sendAt,
               timeZone: row.timeZone,
             }
           : agent
             ? {
-                handler: agent.handler,
+                ...(agent.handler === 'api' ? { handler: 'api' as const } : {}),
                 mode: agent.mode,
                 sendAt: agent.sendAt,
                 timeZone: agent.timeZone,
