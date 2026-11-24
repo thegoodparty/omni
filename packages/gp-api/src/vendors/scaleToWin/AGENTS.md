@@ -3,7 +3,11 @@
 Vendor wrapper for Scale to Win (S2W), the peer-texting platform civic panel
 waves send through. It copies a template campaign, loads contacts from a CSV,
 previews, starts and sends. No HTTP routes of its own; the in-process mock is
-`src/vendorMocks/scaleToWin/`.
+`src/vendorMocks/scaleToWin/`. The caller is the `s2wPanelWaveSweep`
+schedule (`src/outreach/services/s2wPanelWaveSweep.service.ts`): a
+`ScaleToWinApiError` with no `vendorStatus` (a timeout), a 429 or a 5xx
+fails its run for a pg-boss retry, and any other status stops the row for a
+person with reason `<apiStep>_<code>`.
 
 ## Key files
 

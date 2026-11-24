@@ -74,6 +74,7 @@ import { OutreachInboundSweepService } from '@/outreach/services/outreachInbound
 import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
 import { OutreachP2pSmsReconcileService } from '@/outreach/services/outreachP2pSmsReconcile.service'
 import { OutreachTextHandoffService } from '@/outreach/services/outreachTextHandoff.service'
+import { S2wPanelWaveSweepService } from '@/outreach/services/s2wPanelWaveSweep.service'
 import { OutreachTextSendJobService } from '@/outreach/services/outreachTextSendJob.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { RunIdSchema } from '@/caseScout/schemas/caseScoutBucket.schema'
@@ -1418,6 +1419,15 @@ export const SCHEDULES = {
     cron: '8,23,38,53 * * * *',
     worker: async (_job, { get }) => {
       await get(OutreachTextHandoffService).sweepOverdue()
+    },
+    alertAfterWaitingMinutes: 30,
+  }),
+  // Every 5 minutes, dev and prod only: moves each api hand-off one step
+  // through Scale to Win.
+  s2wPanelWaveSweep: defineSchedule({
+    cron: '*/5 * * * *',
+    worker: async (_job, { get }) => {
+      await get(S2wPanelWaveSweepService).sweep()
     },
     alertAfterWaitingMinutes: 30,
   }),
