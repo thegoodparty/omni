@@ -200,22 +200,16 @@ export const draftingSystemPrompt = (parts: DraftPromptParts): string =>
     '- Exact figures that could point to one race, place or person ' +
       'become invented or rounded ones: vote totals and margins, signature ' +
       'and petition counts, budgets, populations, addresses, ages, and the ' +
-      'dates of specific events. When the failure is in arithmetic, invent ' +
-      'new numbers that keep the same mistake.',
-    '- A changed date keeps its place in time relative to when the user ' +
-      'asked: an event that had already happened stays in the past, and an ' +
-      'upcoming one stays upcoming. Prefer relative time ("last week\'s ' +
-      'general election", "this year\'s primary", "next month\'s filing ' +
-      'deadline") over a new year or calendar date. Use an absolute date ' +
-      'only when the failure needs one, such as date or weekday arithmetic, ' +
-      'and keep it on the same side of that moment.',
+      'dates of specific events. An invented date stays on the same side ' +
+      'of when the user asked: a past event gets a past date, an upcoming ' +
+      'one a future date. When the failure is in arithmetic, invent new ' +
+      'numbers that keep the same mistake.',
     '- A description that makes someone or somewhere unique (the only, ' +
       'first or youngest of something, an unusual job, a landmark, a ' +
       'yearly local event, a small group they belong to) becomes an ' +
       'ordinary one.',
     "- Write every sentence fresh, the user's own question included: ask " +
-      'it in different words and change every number and date in it, ' +
-      "keeping each date's place in time. " +
+      'it in different words and change every number and date in it. ' +
       'Never reuse a phrase from the session, however short or generic.',
     '',
     'The failure must survive the rewrite: change who, where and which ' +
