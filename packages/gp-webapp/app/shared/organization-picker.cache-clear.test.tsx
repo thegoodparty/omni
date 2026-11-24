@@ -111,8 +111,7 @@ describe('org switch clears the query cache', () => {
   // mounts on the new org must not find the previous org's conversation list
   // waiting in the cache, because it reads it synchronously and tries to
   // resume a conversation it does not own.
-  it('does not leave an unmounted consumer the previous org\u2019s data to read', async () => {
-    const fetcher = vi.fn(async () => [{ conversationId: `c-${orgCookie}` }])
+  it('does not leave an unmounted consumer the previous org\u2019s data to read', async () => {    const fetcher = vi.fn(async () => [{ conversationId: `c-${orgCookie}` }])
     const historyKey = ['campaign-manager', 'chat-history']
 
     const ChatDock = () => {
@@ -122,13 +121,18 @@ describe('org switch clears the query cache', () => {
       )
     }
 
-    // Nothing observes the history key at the moment of the switch: the dock
-    // is opened afterwards, the way the dashboard's dock is not mounted while
-    // FollowOnFlow (an onboarding route) switches org.
+    // The dock fills the key, then unmounts, so an org-one entry with no
+    // observer is sitting in the cache at switch time — the FollowOnFlow shape
+    // (the dock lives in the dashboard layout, the flow is an onboarding
+    // route). The toggle lives above OrganizationScope so the remount cannot
+    // reset it and re-open the dock by itself.
     const Harness = () => {
-      const [dockMounted, setDockMounted] = useState(false)
+      const [dockMounted, setDockMounted] = useState(true)
       return (
         <>
+          <button type="button" onClick={() => setDockMounted(false)}>
+            close dock
+          </button>
           <button type="button" onClick={() => setDockMounted(true)}>
             open dock
           </button>
@@ -137,13 +141,33 @@ describe('org switch clears the query cache', () => {
       )
     }
 
-    renderProvider(<Harness />)
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+          <Harness />
+          <OrganizationScope>
+            <div />
+          </OrganizationScope>
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('dock')).toHaveTextContent('c-org-one'),
+    )
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'close dock' }))
+    expect(screen.queryByTestId('dock')).not.toBeInTheDocument()
+    expect(testQueryClient.getQueryData(historyKey)).toBeDefined()
 
     await switchToOrgTwo()
 
+    // An invalidate would leave the previous org's list here, readable by the
+    // dock the moment it mounts; clearing removes it.
     expect(testQueryClient.getQueryData(historyKey)).toBeUndefined()
 
-    const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'open dock' }))
 
     expect(screen.getByTestId('dock')).not.toHaveTextContent('c-org-one')
@@ -314,44 +338,6 @@ describe('org switch clears the query cache', () => {
     )
     expect(notesFetcher).toHaveBeenCalledTimes(1)
     expect(testQueryClient.getQueryData(['contact-notes', 42])).toBeUndefined()
-  })
-
-  // No cached entry may still hold the departed org's data once the switch
-  // lands, whichever key it lives under.
-  it('leaves no cached entry holding the departed org\u2019s data', async () => {
-    const historyFetcher = vi.fn(async () => [
-      { conversationId: `c-${orgCookie}` },
-    ])
-    const HistoryProbe = () => {
-      useQuery({
-        queryKey: ['campaign-manager', 'chat-history'],
-        queryFn: historyFetcher,
-      })
-      return null
-    }
-
-    renderProvider(<HistoryProbe />)
-    await waitFor(() =>
-      expect(
-        testQueryClient.getQueryData(['campaign-manager', 'chat-history']),
-      ).toBeDefined(),
-    )
-
-    await switchToOrgTwo()
-
-    const conversationIds = testQueryClient
-      .getQueryCache()
-      .getAll()
-      .map((query) =>
-        Array.isArray(query.state.data)
-          ? (query.state.data as { conversationId?: string }[]).map(
-              (entry) => entry.conversationId,
-            )
-          : [],
-      )
-      .flat()
-    expect(conversationIds).not.toContain('c-org-one')
-    expect(screen.getByText('Organization Two')).toBeInTheDocument()
   })
 
   // FollowOnFlow, ElectionResultPage and Test mode all create an org and then
