@@ -230,7 +230,7 @@ describe('ProPitchDialog', () => {
   })
 
   describe('with win_per_campaign_pricing on', () => {
-    const renderPitch = (registeredVoters?: number) =>
+    const renderPitch = (registeredVoters?: number, raceSizePitch = false) =>
       render(
         <CampaignContext.Provider
           value={[
@@ -244,6 +244,7 @@ describe('ProPitchDialog', () => {
             channel="generic"
             open
             onOpenChange={vi.fn()}
+            raceSizePitch={raceSizePitch}
           />
         </CampaignContext.Provider>,
       )
@@ -288,9 +289,32 @@ describe('ProPitchDialog', () => {
       expect(rows[0]).not.toHaveTextContent('credit')
     })
 
-    it('pitches Team above the voter threshold with its badge and login row first', () => {
+    it('pitches Pro at a contextual gate whatever the race size', async () => {
       mockPlanFlag.enabled = true
       renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1)
+
+      expect(
+        screen.getByText('Join Pro to unlock voter data and outreach'),
+      ).toBeInTheDocument()
+      expect(screen.getByText('$299')).toBeInTheDocument()
+      expect(screen.queryByText('$399')).toBeNull()
+      expect(screen.queryByText('TEAM')).toBeNull()
+      expect(
+        screen.getByRole('link', { name: 'See all plans' }),
+      ).toHaveAttribute('href', '/dashboard/plans')
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Join Pro for $299' }),
+      )
+
+      expect(router.push).toHaveBeenCalledWith(
+        expect.stringMatching(/[?&]plan=pro(&|$)/),
+      )
+    })
+
+    it('pitches Team above the voter threshold with its badge and login row first', () => {
+      mockPlanFlag.enabled = true
+      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1, true)
 
       expect(
         screen.getByText('Join Team to unlock voter data and outreach'),
@@ -309,9 +333,22 @@ describe('ProPitchDialog', () => {
       ).toHaveAttribute('href', '/dashboard/plans?highlight=team')
     })
 
+    it('carries the pitched Team plan into the wizard, so it sells what the dialog showed', async () => {
+      mockPlanFlag.enabled = true
+      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1, true)
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Join Team for $399' }),
+      )
+
+      expect(router.push).toHaveBeenCalledWith(
+        expect.stringMatching(/[?&]plan=team(&|$)/),
+      )
+    })
+
     it('keeps the cta attribution as the plan name', async () => {
       mockPlanFlag.enabled = true
-      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1)
+      renderPitch(PLAN_PRICING.teamRecommendVoterThreshold + 1, true)
 
       await userEvent.click(
         screen.getByRole('button', { name: 'Join Team for $399' }),

@@ -9,7 +9,7 @@ import {
   type GateChannel,
 } from 'app/dashboard/outreach/v2/gate/gateCopy'
 import { ProPitchPanel } from 'app/dashboard/outreach/v2/gate/ProPitchPanel'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -23,7 +23,7 @@ const InterstitialStep = (): React.JSX.Element => {
   // whenever an outreach flow launches the wizard on this step — but sms is
   // the safest fallback shape (the two-step texting-plus-verification copy).
   const gateChannel: GateChannel = channel ?? 'sms'
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
   const { plan } = usePlan()
   const copy = planPitch.enabled
     ? planInterstitialCopy(planPitch)

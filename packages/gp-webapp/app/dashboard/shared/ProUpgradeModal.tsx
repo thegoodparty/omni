@@ -10,7 +10,7 @@ import { EVENTS, trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
 import { useEffect } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { SeeAllPlansLink } from 'app/dashboard/shared/plan/SeeAllPlansLink'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
@@ -62,7 +62,7 @@ export function ProUpgradeModal({
   const viablityScore = vendorP2v?.viability?.score || 0
   const { smsCompliance } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
   const planName = planPitch.enabled ? planPitch.name : 'Pro'
 
   let title: string,

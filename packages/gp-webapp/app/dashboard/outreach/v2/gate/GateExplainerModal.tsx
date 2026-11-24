@@ -13,7 +13,7 @@ import {
 } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { EXPLAINER_COPY, GATE_NOUN, type GateChannel } from './gateCopy'
-import { usePlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
+import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { ProPitchPanel } from './ProPitchPanel'
 import type { OutreachGateState } from './useOutreachGate'
 
@@ -40,7 +40,7 @@ export const GateExplainerModal = ({
   onPin,
 }: GateExplainerModalProps): React.JSX.Element | null => {
   const { requirement } = state
-  const planPitch = usePlanPitch()
+  const planPitch = useContextualPlanPitch()
 
   const requirementRef = useRef(requirement)
   requirementRef.current = requirement

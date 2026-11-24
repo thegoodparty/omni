@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   EXPLAINER_COPY,
@@ -18,6 +21,14 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 }))
 
 const trackEventMock = vi.mocked(trackEvent)
+
+const planFlag = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
+  useWinPerCampaignPricingFlag: () => ({
+    ready: true,
+    enabled: planFlag.enabled,
+  }),
+}))
 
 const stateWith = (
   overrides: Partial<OutreachGateState>,
@@ -40,6 +51,7 @@ const noop = {
 
 describe('GateExplainerModal', () => {
   beforeEach(() => {
+    planFlag.enabled = false
     trackEventMock.mockClear()
   })
 
@@ -109,6 +121,33 @@ describe('GateExplainerModal', () => {
     expect(content?.querySelector('.overflow-y-auto')).not.toContainElement(
       footer as HTMLElement,
     )
+  })
+
+  it('pitches Pro, never Team, on a race over the Team threshold', () => {
+    planFlag.enabled = true
+    render(
+      <CampaignContext.Provider
+        value={[
+          {
+            raceTargetMetrics: {
+              registeredVoters: PLAN_PRICING.teamRecommendVoterThreshold + 1,
+            },
+          } as unknown as Campaign,
+        ]}
+      >
+        <GateExplainerModal
+          channel="sms"
+          state={stateWith({ requirement: 'pro', twoStep: false })}
+          open
+          {...noop}
+        />
+      </CampaignContext.Provider>,
+    )
+
+    expect(
+      screen.getByText('Join Pro to send this campaign'),
+    ).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/Team|\$399/)
   })
 
   it('shows the channel value card and no verification card for a free non-texting channel', () => {
