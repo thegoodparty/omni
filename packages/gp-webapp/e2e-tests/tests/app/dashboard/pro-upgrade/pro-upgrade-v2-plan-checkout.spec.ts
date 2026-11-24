@@ -273,10 +273,9 @@ test('filed candidate buys Pro once and lands on the success step with a Good th
   ).toBeVisible({ timeout: 30_000 })
   await expect(page.getByText('A PIN is on its way')).toBeVisible()
   await expect(
-    page.getByText(
-      /Entering the PIN unlocks texting and your \$175 outreach credit/,
-    ),
+    page.getByText(/Entering the PIN unlocks texting\./),
   ).toBeVisible()
+  await expect(page.getByText('$175 outreach credit')).toBeVisible()
   await page.getByRole('button', { name: /Your receipt/ }).click()
   await expect(page.getByText('Good through')).toBeVisible({ timeout: 30_000 })
   await expect(page.getByText('$299.00').first()).toBeVisible()
