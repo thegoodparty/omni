@@ -8,6 +8,14 @@ h1{font-size:clamp(24px,5vw,34px);line-height:1.15;margin:6px 0 18px}
 h2{font-size:19px;margin:0 0 8px}
 .status{font-size:12px;letter-spacing:.04em;color:#52525b}
 .section{background:#fff;border:1px solid #e4e4e7;border-radius:12px;padding:14px 18px;margin:12px 0}
+.cardhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.cardhead h2{margin:0}
+.conf{flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid #ececef;border-radius:999px;padding:3px 10px;background:#fafafa;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#a1a1aa;font-weight:400;white-space:nowrap}
+.conf b{font-weight:600;letter-spacing:.06em;color:#71717a}
+.conf.high b{color:#52796f}
+.conf.medium b{color:#7c6a4d}
+.conf.low b{color:#8a5d60}
+.gap{margin:0 0 10px;font-size:13px;color:#52525b;border-left:2px solid #e4e4e7;padding-left:10px}
 .severity{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:10px}
 .sev{border:1px solid #e4e4e7;border-radius:8px;padding:10px;background:#f4f4f5;font-size:14px}
 .sev.on{background:#fee2e2;border:2px solid #b91c1c;color:#7f1d1d}
@@ -47,7 +55,13 @@ small,footer{color:#52525b}a{color:#4338ca}
 </section>
 
 <section class="section" id="five-whys">
-  <h2>Five Whys</h2>
+  <!-- Confidence pill in the card head, right side. Class is exactly one of high, medium, low. Never a number. -->
+  <div class="cardhead">
+    <h2>Five Whys</h2>
+    <span class="conf high">Confidence: <b>High</b></span>
+  </div>
+  <!-- Only below High: one sentence naming the missing evidence and the check that would settle it. Delete this line entirely when High. A Resolution pill below High does not make the page incomplete. -->
+  <p class="gap">{{What is unverified here, and the check that would settle it.}}</p>
   <ol>
     <li><strong>{{Why question?}}</strong> {{One or two plain-language sentences a non-engineer can follow, with no code or field names (put identifiers in Evidence), plus a link to evidence. Label Confirmed or Unknown.}}</li>
     <li>…</li><li>…</li><li>…</li><li>…</li>
@@ -61,11 +75,15 @@ small,footer{color:#52525b}a{color:#4338ca}
 </section>
 
 <section class="section" id="proposed-solution">
-  <h2>Resolution</h2>
+  <div class="cardhead">
+    <h2>Resolution</h2>
+    <span class="conf medium">Confidence: <b>Medium</b></span>
+  </div>
+  <p class="gap">{{What is unverified here, and the check that would settle it.}}</p>
   <p>{{Behavior to change, where, how to verify normal and failure paths. If incomplete: the exact commands below, each with who runs it and what each result means.}}</p>
   <pre>{{literal read-only SQL / stripe command / Loki query}}</pre>
   <p><strong>Cleanup (owned by the bug responder):</strong> {{identify, repair, verify; or why none is needed}}</p>
-  <p>{{Confirmed RCA only: ask reviewers for a thumbs up or a pinned comment. Incomplete: no approval request.}}</p>
+  <p>{{Confirmed RCA only: ask reviewers for a thumbs up or a pinned comment. Incomplete: no approval request. A Resolution pill below High on its own still allows this line.}}</p>
 </section>
 <details id="evidence">
   <summary>Evidence</summary>
