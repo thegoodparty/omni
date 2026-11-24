@@ -3,7 +3,7 @@ title: The product map checks each drawn flow against its code and marks drift o
 status: active
 decided_by: [datawithtristan, agent]
 date: 2026-11-24
-code: ['#PR']
+code: ['#4067']
 scope:
   - packages/runbooks/surfaces/product-map/**
 supersedes: []
