@@ -1,0 +1,726 @@
+/*
+ * The Serve warm welcome: its type ladder, its motion and the two things it
+ * draws (the counting number and the Meeting Briefing folder). Layout and
+ * color on everything else come from Tailwind utilities and the styleguide.
+ * Every color here is a design token.
+ *
+ * Motion rule for these screens: nothing snaps. Content fades and rises in,
+ * buttons last; a step slides out sideways as the next slides in; a change
+ * inside a step rises away before the next rises in. Reduced motion turns
+ * the animations off and leaves every end state in place.
+ */
+
+.ww {
+  /* One ladder, a major third from 14px. Phones shrink only the top. */
+  --ww-caption: 12px;
+  --ww-small: 14px;
+  --ww-body: 17px;
+  --ww-prompt: 22px;
+  --ww-title: clamp(28px, 3.6vw, 44px);
+  --ww-title-sm: 28px;
+  --ww-display-sm: clamp(34px, 5vw, 55px);
+  --ww-display: clamp(36px, 5.4vw, 68px);
+  /* The counting number, used once. */
+  --ww-number: clamp(76px, 15vw, 132px);
+
+  --ww-stagger: 55ms;
+  --ww-dur: 480ms;
+  --ww-rise: 10px;
+  --ww-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ww-top: 64px;
+  --ww-foot: 80px;
+}
+
+@media (max-width: 480px) {
+  .ww {
+    --ww-body: 16px;
+    --ww-prompt: 20px;
+    --ww-title: var(--ww-title-sm);
+    --ww-display: 36px;
+    --ww-display-sm: 36px;
+    --ww-top: 56px;
+    --ww-foot: 72px;
+  }
+}
+
+.ww-topbar {
+  height: var(--ww-top);
+}
+
+.ww-foot {
+  height: var(--ww-foot);
+}
+
+.ww-display,
+.ww-title {
+  font-family: var(--outfit-font), sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.ww-display {
+  font-size: var(--ww-display);
+  line-height: 1.1;
+}
+
+.ww-title {
+  font-size: var(--ww-title);
+  line-height: 1.12;
+}
+
+.ww-lede {
+  font-size: var(--ww-body);
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.ww-prompt {
+  font-size: var(--ww-prompt);
+  line-height: 1.35;
+}
+
+.ww-heading {
+  font-family: var(--outfit-font), sans-serif;
+  font-size: var(--ww-body);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.ww-small {
+  font-size: var(--ww-small);
+  line-height: 1.45;
+}
+
+.ww-caption {
+  font-size: var(--ww-caption);
+  line-height: 1.35;
+}
+
+/* The sign-up page's panel gradient, with two soft blobs wandering behind
+   every step. */
+.ww-stage {
+  background: linear-gradient(
+    138deg,
+    var(--tw-blue-100) 25%,
+    var(--color-waxflower-50) 100%
+  );
+  overflow: clip;
+  isolation: isolate;
+}
+
+.ww-stage::before,
+.ww-stage::after {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  pointer-events: none;
+  z-index: -1;
+  will-change: transform;
+}
+
+.ww-stage::before {
+  background: radial-gradient(
+    44% 44% at 30% 32%,
+    color-mix(in srgb, var(--goodparty-blue-200) 80%, transparent),
+    transparent 70%
+  );
+  animation: ww-blob-a 6s ease-in-out infinite;
+}
+
+.ww-stage::after {
+  background: radial-gradient(
+    44% 44% at 72% 70%,
+    color-mix(in srgb, var(--color-waxflower-100) 95%, transparent),
+    transparent 70%
+  );
+  animation: ww-blob-b 8.1s ease-in-out infinite;
+}
+
+@keyframes ww-blob-a {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  35% {
+    transform: translate(30%, 15%) scale(1.15);
+  }
+  70% {
+    transform: translate(-15%, 30%) scale(1);
+  }
+}
+
+@keyframes ww-blob-b {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  40% {
+    transform: translate(-30%, -18%) scale(1);
+  }
+  75% {
+    transform: translate(12%, -30%) scale(1.15);
+  }
+}
+
+/* A step scrolls when it is taller than the stage and sits centered when it
+   is not: its content carries auto margins inside a top-aligned box, so
+   nothing is clipped at both ends on a short phone. */
+.ww-step {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) 12px
+    max(16px, env(safe-area-inset-left, 0px));
+}
+
+.ww-step > * {
+  margin: auto;
+}
+
+.ww-step-leave {
+  animation: ww-step-out 360ms cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+.ww-step-enter {
+  animation: ww-step-in 520ms cubic-bezier(0, 0, 0.2, 1) 120ms both;
+}
+
+@keyframes ww-step-out {
+  to {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+}
+
+@keyframes ww-step-in {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Inside one step, states hand off vertically. */
+.ww-sub-out {
+  animation: ww-sub-out 320ms cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+.ww-sub-in {
+  animation: ww-sub-in 500ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+@keyframes ww-sub-out {
+  to {
+    opacity: 0;
+    transform: translateY(-22px);
+  }
+}
+
+@keyframes ww-sub-in {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Headlines and ledes arrive a word at a time. The outer span fades and
+   rises once; the inner one carries the ripple, so the two never fight. */
+.ww-word {
+  display: inline-block;
+  opacity: 0;
+  animation: ww-rise-in var(--ww-word-dur, var(--ww-dur)) var(--ww-ease) both;
+  animation-delay: calc(
+    var(--i) * var(--ww-word-stagger, var(--ww-stagger)) + var(--d, 0ms)
+  );
+}
+
+.ww-word > span {
+  display: inline-block;
+}
+
+.ww-ripple {
+  animation: ww-ripple 1.1s var(--ww-ease);
+  animation-delay: calc(var(--i) * 70ms);
+}
+
+/* Everything that is not a headline: cards, prompts, buttons. */
+.ww-rise {
+  opacity: 0;
+  animation: ww-rise-in var(--ww-dur) var(--ww-ease) both;
+  animation-delay: var(--d, 600ms);
+}
+
+@keyframes ww-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--ww-rise));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ww-ripple {
+  0% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-8px) scale(1.04);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+/* The footer's buttons: the old pair fades where it stands while the new
+   pair rises in. */
+.ww-dock-leave {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+/* On a phone the pair has to fit one row beside Back at a 44px tap height,
+   and Button has no size that narrow. Only the side padding changes. */
+@media (max-width: 480px) {
+  .ww-foot [data-slot='button'] {
+    padding-inline: 14px;
+  }
+
+  .ww-foot [data-slot='button'][data-kind='quiet'] {
+    padding-inline: 8px;
+  }
+}
+
+/* A block that makes room folds from nothing to its full height, so what is
+   around it glides instead of jumping. */
+.ww-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 550ms var(--ww-ease),
+    opacity 350ms ease;
+}
+
+.ww-fold > div {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.ww-fold-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+/* The breadcrumb: a bar and a label per step. Steps reached are blue and
+   tappable; the ones ahead are gray and are not. */
+.ww-crumb {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  font-size: var(--ww-caption);
+  line-height: 1.2;
+  color: var(--color-muted-foreground);
+  cursor: pointer;
+  transition: color 300ms;
+}
+
+.ww-crumb:disabled {
+  cursor: default;
+}
+
+.ww-crumb > i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-base-border);
+  transition: background 450ms ease 300ms;
+}
+
+.ww-crumb > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ww-crumb[data-reached='true'] {
+  color: var(--color-foreground);
+}
+
+.ww-crumb[data-reached='true'] > i {
+  background: var(--theme-primary);
+}
+
+.ww-crumb[aria-current='step'] {
+  font-weight: 600;
+}
+
+.ww-crumb:not(:disabled):hover > span {
+  color: var(--theme-primary);
+}
+
+@media (max-width: 640px) {
+  .ww-crumb {
+    min-height: 32px;
+    padding: 13px 0;
+  }
+
+  .ww-crumb > span {
+    display: none;
+  }
+}
+
+/* Step 1: the counting number. Its zeros arrive one at a time before the
+   count starts, and it pops when it lands on its value. */
+.ww-number {
+  font-family: var(--outfit-font), sans-serif;
+  font-size: var(--ww-number);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-primary);
+}
+
+.ww-zero {
+  display: inline-block;
+  opacity: 0;
+  animation: ww-zero-in 320ms var(--ww-ease) both;
+  animation-delay: calc(var(--i) * 70ms);
+}
+
+.ww-number-pop {
+  animation: ww-pop 700ms var(--ww-ease);
+}
+
+@keyframes ww-zero-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.35em) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ww-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Step 2: the date as a sentence. Each word is a button with a dotted
+   underline and a fixed width, so the line never shifts as it changes. */
+.ww-date {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.1em 0.3em;
+  font-family: var(--outfit-font), sans-serif;
+  font-size: var(--ww-display-sm);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.ww-date-word {
+  box-sizing: content-box;
+  padding: 0 0.04em 0.06em;
+  border-bottom: 0.09em dotted var(--theme-primary);
+  color: var(--color-foreground);
+  text-align: center;
+  cursor: pointer;
+  transition: color 150ms;
+}
+
+.ww-date-word:hover,
+.ww-date-word[aria-expanded='true'] {
+  color: var(--theme-primary);
+}
+
+.ww-date-word > small {
+  font-size: 0.5em;
+  font-weight: 600;
+  margin-left: 0.1em;
+}
+
+.ww-date-word > sup {
+  font-size: 0.55em;
+  font-weight: 600;
+  vertical-align: 0.45em;
+  top: 0;
+}
+
+/* Step 3: documents dropping into a folder, one a beat, forever. */
+.ww-folder {
+  position: relative;
+  width: 300px;
+  max-width: 100%;
+  height: 264px;
+  margin: 0 auto;
+  rotate: -2deg;
+  --ww-folder: color-mix(
+    in srgb,
+    var(--goodparty-blue-200) 65%,
+    var(--tw-white)
+  );
+}
+
+.ww-folder-back,
+.ww-folder-front {
+  position: absolute;
+  right: 14px;
+  bottom: 0;
+  left: 14px;
+  border-radius: 12px;
+}
+
+.ww-folder-back {
+  z-index: 1;
+  height: 196px;
+  background: var(--ww-folder);
+}
+
+.ww-folder-back::before {
+  content: '';
+  position: absolute;
+  top: -16px;
+  left: 0;
+  width: 96px;
+  height: 26px;
+  border-radius: 10px 10px 0 0;
+  background: var(--ww-folder);
+}
+
+.ww-folder-front {
+  z-index: 6;
+  height: 132px;
+  background: linear-gradient(
+    180deg,
+    var(--goodparty-blue-100),
+    var(--ww-folder)
+  );
+  box-shadow: 0 -3px 8px
+    color-mix(in srgb, var(--theme-tertiary-dark) 8%, transparent);
+}
+
+/* A white name tag stuck on the folder at a slight angle. */
+.ww-sticker {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  display: flex;
+  width: 208px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px 8px 9px;
+  border: 1px solid var(--color-base-border);
+  border-radius: 8px;
+  background: var(--color-card);
+  transform: translateX(-50%) rotate(-3deg);
+}
+
+.ww-sticker-name {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  height: 46px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 7px;
+  border: 1.5px solid var(--color-foreground);
+  border-radius: 5px;
+}
+
+.ww-sticker-name > b {
+  font-family: var(--outfit-font), sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ww-folder-label {
+  position: absolute;
+  right: 0;
+  bottom: 17px;
+  left: 0;
+  font-size: var(--ww-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.ww-doc {
+  position: absolute;
+  left: 50%;
+  z-index: 2;
+  width: 168px;
+  height: 190px;
+  padding: 16px 14px;
+  border: 1px solid var(--color-base-border);
+  border-radius: 8px;
+  background: var(--color-card);
+  font-size: var(--ww-small);
+  font-weight: 600;
+  line-height: 1.25;
+  transform: translateX(-50%);
+}
+
+.ww-doc > i {
+  display: block;
+  width: 78%;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--color-base-border);
+}
+
+.ww-doc > i:nth-of-type(2n) {
+  width: 56%;
+}
+
+.ww-doc > i:first-of-type {
+  margin-top: 12px;
+}
+
+.ww-doc-rest-1 {
+  top: 64px;
+  height: 150px;
+  transform: translateX(-50%) rotate(-2deg);
+}
+
+.ww-doc-rest-2 {
+  top: 76px;
+  height: 140px;
+  transform: translateX(-50%) rotate(1.5deg);
+}
+
+.ww-doc-rest-3 {
+  top: 88px;
+  height: 130px;
+  transform: translateX(-50%) rotate(-0.5deg);
+}
+
+/* Seven documents share one long loop (the percentages assume seven). One
+   drops and lands, the next appears a beat later, and the earlier one fades
+   out underneath it. */
+.ww-doc-drop {
+  top: 0;
+  opacity: 0;
+  animation:
+    ww-doc-drop var(--cycle) linear infinite,
+    ww-doc-fade var(--cycle) linear infinite;
+  animation-delay: var(--d);
+}
+
+@keyframes ww-doc-drop {
+  0% {
+    transform: translate(-50%, -70px) rotate(var(--r));
+    z-index: 6;
+    animation-timing-function: cubic-bezier(0.3, 0.7, 0.2, 1);
+  }
+  9% {
+    transform: translate(-50%, 60px) rotate(0);
+    z-index: 6;
+  }
+  17% {
+    z-index: 6;
+  }
+  17.2% {
+    z-index: 5;
+  }
+  28.5% {
+    z-index: 5;
+  }
+  29%,
+  100% {
+    transform: translate(-50%, 60px) rotate(0);
+    z-index: 2;
+  }
+}
+
+@keyframes ww-doc-fade {
+  0% {
+    opacity: 0;
+  }
+  2.5% {
+    opacity: 1;
+  }
+  25.5% {
+    opacity: 1;
+  }
+  28.5% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ww-stage::before,
+  .ww-stage::after,
+  .ww-step-leave,
+  .ww-step-enter,
+  .ww-sub-out,
+  .ww-sub-in,
+  .ww-ripple,
+  .ww-number-pop {
+    animation: none;
+  }
+
+  .ww-word,
+  .ww-rise,
+  .ww-zero {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .ww-doc-drop {
+    animation: none;
+    opacity: 0;
+  }
+
+  .ww-fold,
+  .ww-dock-leave,
+  .ww-crumb,
+  .ww-crumb > i {
+    transition: none;
+  }
+}

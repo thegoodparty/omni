@@ -21,11 +21,8 @@ import type {
 } from 'gpApi/api-endpoints'
 import type { OnboardingPriorityOption } from '@goodparty_org/contracts'
 import { setCookie } from 'helpers/cookieHelper'
-import {
-  ORG_SLUG_COOKIE,
-  ORG_SLUG_HEADER,
-} from '@shared/organizations/constants'
-import { servePartyFromCampaign } from './winParty'
+import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
+import { campaignParty } from './winParty'
 import { reportClientError } from '@shared/observability/reportClientError'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
@@ -35,8 +32,10 @@ import OnboardingTopBar from 'app/onboarding/shared/OnboardingTopBar'
 import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
 import { PRIORITY_FORM_COPY } from 'app/dashboard/priorities/priorityFormCopy'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
+import { useServeWarmWelcomeFlag } from '@shared/experiments/serveWarmWelcomeFlag'
 import { servePlaceOf } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import ServeOfficePicker, { type OfficePick } from './ServeOfficePicker'
+import { WarmWelcomeGate } from './warmWelcome/WarmWelcomeFlow'
 import {
   DistrictStoryStep,
   districtPointsQueryOptions,
@@ -93,27 +92,6 @@ import {
 
 const DEFAULT_OFFICE_LABEL = 'your elected office'
 
-// An office from a win with no party of its own still has the campaign's, so
-// the party step comes preselected. Best-effort: a miss leaves it to them.
-const campaignParty = async (
-  eo: ElectedOffice,
-): Promise<string | undefined> => {
-  if (eo.campaignId == null) return undefined
-  try {
-    const res = await clientRequest(
-      'GET /v1/campaigns/mine',
-      {},
-      {
-        headers: { [ORG_SLUG_HEADER]: `campaign-${eo.campaignId}` },
-        ignoreResponseError: true,
-      },
-    )
-    return res.ok ? servePartyFromCampaign(res.data.details) : undefined
-  } catch {
-    return undefined
-  }
-}
-
 // The priorities step waits this long for starter issues, then shows what it
 // has and keeps checking in the background so late issues still appear.
 const STARTER_ISSUES_WAIT_MS = 10_000
@@ -136,7 +114,23 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
   'story-grow': SERVE_STORY_EVENTS['story-grow'].viewed,
 }
 
+// The warm welcome replaces this flow for an office that came from a win,
+// while serve-warm-welcome is on. The flag is read first, so the stepper
+// never flashes ahead of it.
 export default function ServeOnboardingFlow(): React.JSX.Element {
+  const { ready, enabled } = useServeWarmWelcomeFlag()
+  if (!ready) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <LoaderCircle className="animate-spin" />
+      </div>
+    )
+  }
+  if (!enabled) return <StepperOnboardingFlow />
+  return <WarmWelcomeGate fallback={<StepperOnboardingFlow />} />
+}
+
+function StepperOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
   const router = useRouter()
   const queryClient = useQueryClient()

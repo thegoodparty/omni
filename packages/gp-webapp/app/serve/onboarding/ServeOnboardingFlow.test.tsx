@@ -22,6 +22,13 @@ vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: () => citizenPanelsFlag,
 }))
 
+// The warm welcome has its own tests (warmWelcome/WarmWelcomeFlow.test.tsx);
+// everything here is the stepper onboarding, so its flag stays off.
+vi.mock('@shared/experiments/serveWarmWelcomeFlag', () => ({
+  SERVE_WARM_WELCOME_FLAG_KEY: 'serve-warm-welcome',
+  useServeWarmWelcomeFlag: () => ({ ready: true, enabled: false }),
+}))
+
 const impersonation = vi.hoisted(() => ({ active: false }))
 vi.mock('@shared/hooks/useIsImpersonating', () => ({
   useIsImpersonating: () => impersonation.active,

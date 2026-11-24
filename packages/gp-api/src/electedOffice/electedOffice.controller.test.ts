@@ -1219,6 +1219,48 @@ describe('ElectedOfficeController', () => {
       },
     )
 
+    it.each(['warm-won', 'warm-meeting', 'warm-briefing', 'warm-recap'])(
+      'persists the %s checkpoint the warm welcome writes',
+      async (onboardingStep) => {
+        const created = await createElectedOffice()
+        expect(created.status).toBe(200)
+
+        const result = await service.client.put(
+          `/v1/elected-office/${created.data.id}`,
+          { onboardingStep },
+        )
+
+        expect(result.status).toBe(200)
+        expect(result.data.onboardingStep).toBe(onboardingStep)
+      },
+    )
+
+    it('finishes onboarding from the warm welcome without a pledge', async () => {
+      // The warm welcome shows no pledge and asks for no term, so its Done
+      // sends the completion stamp alone, onto an office that has its term.
+      const created = await createElectedOffice({
+        termStartDate: '2027-01-04',
+        termEndDate: '2031-01-04',
+        onboardingStep: 'confirm',
+      })
+      expect(created.status).toBe(200)
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        {
+          party: 'independent',
+          onboardingCompletedAt: '2026-11-24T12:00:00.000Z',
+          onboardingStep: 'warm-recap',
+        },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.onboardingCompletedAt).toBe('2026-11-24T12:00:00.000Z')
+      expect(result.data.onboardingStep).toBe('warm-recap')
+      expect(result.data.pledgedAt).toBeNull()
+      expect(result.data.termStartDate).toBe('2027-01-04')
+    })
+
     it('rejects an unknown onboardingStep value', async () => {
       // The column is validated against the known step set, so a typo or stale
       // client can't poison the resume pointer.

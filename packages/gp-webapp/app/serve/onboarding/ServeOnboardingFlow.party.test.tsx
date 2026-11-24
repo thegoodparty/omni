@@ -31,6 +31,11 @@ vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: () => ({ ready: true, enabled: false }),
 }))
 
+vi.mock('@shared/experiments/serveWarmWelcomeFlag', () => ({
+  SERVE_WARM_WELCOME_FLAG_KEY: 'serve-warm-welcome',
+  useServeWarmWelcomeFlag: () => ({ ready: true, enabled: false }),
+}))
+
 const mockClientRequest = vi.mocked(clientRequest)
 
 const renderFlow = () => render(<ServeOnboardingFlow />)

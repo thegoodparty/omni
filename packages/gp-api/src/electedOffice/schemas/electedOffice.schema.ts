@@ -26,6 +26,11 @@ export const SERVE_ONBOARDING_STEPS = [
   'story-grow',
   'priorities',
   'pledge',
+  // The warm welcome (serve-warm-welcome), WARM_WELCOME_STEPS in gp-webapp.
+  'warm-won',
+  'warm-meeting',
+  'warm-briefing',
+  'warm-recap',
 ] as const
 const ZServeOnboardingStep = z
   .enum(SERVE_ONBOARDING_STEPS)

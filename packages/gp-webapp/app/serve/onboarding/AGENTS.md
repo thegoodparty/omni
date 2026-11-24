@@ -12,6 +12,11 @@ progress bar; the step set and order live in `serveOnboardingConfig.ts`.
 | `districtStory/DistrictStoryMap.tsx`  | The one SVG map and its modes and motion                              |
 | `districtStory/DistrictBasemap.tsx`   | The street tiles behind a real district's dots                        |
 | `districtStory/DistrictStoryStep.tsx` | The story steps' data, copy and layout                                |
+| `warmWelcome/WarmWelcomeFlow.tsx`     | The warm welcome: who gets it, its data, checkpoints and Done         |
+| `warmWelcome/warmWelcomeConfig.ts`    | Its step ids, which steps are in the flow, who it opens for, all copy |
+| `warmWelcome/WarmWelcomeShell.tsx`    | Its frame: breadcrumb, stage, Back, and the footer's docked buttons   |
+| `warmWelcome/firstMeeting.ts`         | The first meeting, the briefing day, and the calendar links           |
+| `warmWelcome/warmWelcome.css`         | Its type ladder, motion, and the two things it draws                  |
 
 ## Step order
 
@@ -26,6 +31,64 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
   Chief of Staff home). Completion goes through
   `/post-auth-redirect?next=...&org=eo-<id>`; `org` names the office just
   finished so a user with several lands in it, not the first on the list.
+
+## The warm welcome (`serve-warm-welcome`)
+
+The onboarding a candidate sees right after they win, from Olly Farshi's
+design. `ServeOnboardingFlow` reads the flag first and, when it is on, renders
+`WarmWelcomeGate`, which opens the warm welcome for an office it can finish
+and the stepper below for every other one (`isWarmWelcomeOffice`): the office
+came from a win (`campaignId`), is unfinished, **already has both term
+dates**, and has a party that is not a major one (its own, else the
+campaign's). The warm welcome has no term step and no party step, and gp-api
+refuses the completion save without a full term, so an office missing either
+keeps the stepper, which asks. Flag off, nothing here runs.
+
+Steps, in order: `warm-won`, `warm-meeting`, `warm-briefing`, `warm-recap`.
+These are the first slice; Residents (the map and the civic panel) and
+Priorities are not built yet.
+
+- **You won**: "Well done, {first name}. You won!" and the number of people
+  they now serve, `districtPopulation` from the stats read the district
+  story uses. Without a population the card is left out. No vote count is
+  stored anywhere, so the design's first number is not shown.
+- **First meeting**: the first row of `GET /v1/meetings` that is still ahead
+  and on or after the term start (`firstMeetingFrom`). The official confirms
+  it (then a card with Google, Apple, Outlook, Microsoft 365, Yahoo and .ics
+  links built in the browser), changes it (a sentence of three menus), or
+  says they don't know yet. **A changed date lives only in this session**:
+  nothing saves it, and the briefing still follows the schedule gp-api has.
+  With no meeting found the step leaves the flow.
+- **Meeting Briefing**: the day it will be ready, `BRIEFING_LEAD_DAYS` (3)
+  before the meeting, which mirrors gp-api's `IMMINENCE_WINDOW_DAYS`. Nothing
+  is generated here. The step needs a meeting date; "I don't know yet" drops
+  it from the flow and the breadcrumb.
+- **Recap**: what happens next, then Done.
+
+**Done is the completion save**: `PUT /v1/elected-office/:id` with the party,
+`onboardingCompletedAt` and `onboardingStep: 'warm-recap'`. That stamp is
+what makes a dormant office live. It sends no `pledgedAt`, because no pledge
+is shown (a winner took the same pledge in Win onboarding, which keeps only a
+boolean), and no term dates, because they are already on the office. It then
+fires Recap Completed and Net New Completed (`flow: 'warm_welcome'`) and
+leaves through `/post-auth-redirect` like the stepper.
+
+Each forward move writes its step id to `onboardingStep` behind the move.
+gp-api's `SERVE_ONBOARDING_STEPS` lists the `warm-*` ids; a checkpoint the
+warm welcome does not know (the stepper's `confirm`) starts at the win.
+
+The frame is fixed to the window and each step scrolls inside the stage. A
+step names its footer buttons with `useDock(id, delay, actions)`; a new `id`
+fades the old pair out and rises the new one in. Motion follows the design's
+rule that nothing snaps: `Words` and `Rise` bring content in with buttons
+last, steps slide sideways, states inside a step hand off vertically
+(`useHandoff`), and reduced motion shows every end state at once.
+
+Events: one Viewed / Completed pair per step (`WARM_WELCOME_EVENTS`: You
+Won, First Meeting, Meeting Briefing, Recap). Viewed fires on every entry,
+Back included. You Won Completed carries `hasPopulation`; First Meeting
+Completed carries `meetingAnswer` (confirmed, corrected, unknown) and
+`calendar` (the one they added it to, or null).
 
 ## Ever-Pro winners (the Win to Serve handoff)
 
