@@ -47,11 +47,12 @@ const BASELINES = {
   // 2026-11-11: initial baseline, measured on main.
   // +1: ImportedInFilter's Select all link copies VoterFileStep's group
   // heading (section 7, step 1).
-  // +2: GateSurface's dialog (rounded corners, title and description type)
+  // +3: GateSurface's dialog (rounded corners, title and description type)
   // copies the restyle GateExplainerModal's own dialog already carries
   // (section 7, step 1). Both draw the same gate, so the Dialog fix covers
-  // both.
-  restyledComponents: 481,
+  // both. ENG-11762 counted +2 against its base; on main it is three
+  // components (DialogContent, DialogTitle, DialogDescription).
+  restyledComponents: 482,
 }
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
