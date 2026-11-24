@@ -3,7 +3,7 @@ title: Panel waves with handler api send through the Scale to Win API
 status: active
 decided_by: [tomer-tgp]
 date: 2026-11-23
-code: []
+code: ['#4033']
 scope:
   - packages/gp-api/src/outreach/util/textDeliverySlack.util.ts
   - packages/gp-api/src/managedPanelWaves/AGENTS.md
