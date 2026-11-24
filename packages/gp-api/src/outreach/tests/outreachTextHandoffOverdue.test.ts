@@ -170,6 +170,39 @@ describe('needs_human alarm count', () => {
     await handoffs().markOverdue(minutesPastCutoff(60))
     expect(counter).toHaveBeenCalledWith('needs_human', 0)
   })
+
+  it('stops counting a row once its wave closed without the replies', async () => {
+    const counter = vi.mocked(recordManagedPanelHandoffAlarm)
+    const enrollment = await service.prisma.managedCivicPanel.create({
+      data: {
+        organizationSlug: slug,
+        inviteMessage: 'Reply JOIN to share your perspectives.',
+        consentVersion: '2026-10-22',
+        approvedAt: new Date(),
+        goalMembers: 3,
+      },
+    })
+    const wave = await service.prisma.managedPanelWave.create({
+      data: { enrollmentId: enrollment.id, wave: 1 },
+    })
+    const { row } = await handoff()
+    await service.prisma.outreach.update({
+      where: { id: row.outreachId },
+      data: { managedPanelWaveId: wave.id },
+    })
+
+    counter.mockClear()
+    await handoffs().markOverdue(minutesPastCutoff(30))
+    expect(counter).toHaveBeenCalledWith('needs_human', 1)
+
+    await service.prisma.managedPanelWave.update({
+      where: { id: wave.id },
+      data: { closedAt: minutesPastCutoff(30) },
+    })
+    counter.mockClear()
+    await handoffs().markOverdue(minutesPastCutoff(60))
+    expect(counter).toHaveBeenCalledWith('needs_human', 0)
+  })
 })
 
 describe('outreachHandoffOverdueSweep', () => {
