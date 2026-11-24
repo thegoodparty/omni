@@ -376,10 +376,9 @@ export const JOBS = {
       get(CommunityIssueDispatchService).startOnboarding(job),
     // The step stops saying "searching" 60 seconds after the official reaches
     // it, and the search takes 25 to 55 of those, so a job can wait about 5 to
-    // 35 seconds to start before the user is told nothing was found. 1 is the
-    // smallest the field takes; paging and scale-out (from half of it) then
-    // begin while the user is still on the step.
-    alertAfterWaitingMinutes: 1,
+    // 35 seconds to start before the user is told nothing was found. Half a
+    // minute pages inside that band, and scale-out starts from half of it.
+    alertAfterWaitingMinutes: 0.5,
     // Each job holds its slot for a 25 to 55 second search, and the step only
     // waits 60 seconds before saying nothing was found, so the default one
     // slot per task would queue a burst past that window. The org-slug key is

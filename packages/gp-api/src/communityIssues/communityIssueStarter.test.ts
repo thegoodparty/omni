@@ -166,6 +166,17 @@ describe('community issues onboarding start', () => {
     expect(dispatchSpy()).toHaveBeenCalledTimes(1)
   })
 
+  it('does not pay for the search again when a retry only has the dispatch left', async () => {
+    vi.mocked(structuredSpy()).mockRejectedValue(new Error('Gemini down'))
+    dispatchSpy().mockRejectedValueOnce(new Error('dispatch failed'))
+
+    await service.client.post(PATH, {}, eoHeaders())
+    await service.jobs.settle()
+
+    expect(dispatchSpy()).toHaveBeenCalledTimes(2)
+    expect(structuredSpy()).toHaveBeenCalledTimes(1)
+  })
+
   it('runs one generation for concurrent starts on the same org', async () => {
     const [first, second] = await Promise.all([
       service.client.post(PATH, {}, eoHeaders()),

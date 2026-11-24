@@ -137,7 +137,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       )
       return
     }
-    await this.starter.seed(organizationSlug)
+    if (job.retryCount === 0) await this.starter.seed(organizationSlug)
     await this.onElectedOfficeCreated(electedOffice)
   }
 
