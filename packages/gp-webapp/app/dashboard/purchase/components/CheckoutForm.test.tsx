@@ -142,4 +142,58 @@ describe('CheckoutForm', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('cs_one_time'))
     checkoutValue.canConfirm = true
   })
+
+  describe('with the pay button outside the form', () => {
+    it('puts the id on the form and drops its own submit button', () => {
+      const { container } = render(
+        <CheckoutForm
+          onSuccess={vi.fn()}
+          sessionId="cs_one_time"
+          formId="pay-form"
+          hideSubmit
+        />,
+      )
+
+      expect(container.querySelector('form#pay-form')).not.toBeNull()
+      expect(
+        screen.queryByRole('button', { name: 'Complete Purchase' }),
+      ).toBeNull()
+    })
+
+    it('confirms when the form is submitted from outside and reports the pending state', async () => {
+      let release: (value: { type: 'success' }) => void = (value) => {
+        void value
+      }
+      confirmMock.mockReturnValueOnce(
+        new Promise((resolve) => {
+          release = resolve
+        }),
+      )
+      const onSuccess = vi.fn()
+      const onSubmittingChange = vi.fn()
+      const { container } = render(
+        <CheckoutForm
+          onSuccess={onSuccess}
+          sessionId="cs_one_time"
+          formId="pay-form"
+          hideSubmit
+          onSubmittingChange={onSubmittingChange}
+        />,
+      )
+      expect(onSubmittingChange).toHaveBeenLastCalledWith(false)
+
+      const form = container.querySelector('form#pay-form')
+      expect(form).toBeInstanceOf(HTMLFormElement)
+      ;(form as HTMLFormElement).requestSubmit()
+
+      await waitFor(() =>
+        expect(onSubmittingChange).toHaveBeenLastCalledWith(true),
+      )
+      release({ type: 'success' })
+      await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('cs_one_time'))
+      await waitFor(() =>
+        expect(onSubmittingChange).toHaveBeenLastCalledWith(false),
+      )
+    })
+  })
 })
