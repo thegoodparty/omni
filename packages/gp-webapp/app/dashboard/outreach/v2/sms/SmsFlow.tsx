@@ -502,6 +502,7 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
+  held = false,
   creditBeforeCents = null,
   showTestSend = false,
   onDone,
@@ -513,6 +514,9 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
+  // A hold-billing send: Stripe's amount is the undiscounted authorization,
+  // captured less the credit when it sends, so nothing was charged today.
+  held?: boolean
   // The balance as the review last showed it, so the receipt can say what is
   // left after this send. Null when the send did not run on credit.
   creditBeforeCents?: number | null
@@ -547,9 +551,11 @@ export const SuccessScreen = ({
   const priced = creditBeforeCents !== null
   const campaignLabel = priced ? 'SMS campaign' : 'sms campaign'
   // The Stripe charge is only the card's share; the line item is the full
-  // price, so the credit that covered the rest goes back on top of it.
+  // price, so the credit that covered the rest goes back on top of it. A
+  // hold already authorized the full price, credit and all.
   const lineItemDollars = receipt
-    ? (Math.round(receipt.amount * 100) + (showCredit ? creditUsedCents : 0)) /
+    ? (Math.round(receipt.amount * 100) +
+        (showCredit && !held ? creditUsedCents : 0)) /
       100
     : 0
   const creditLabel = priced
@@ -645,10 +651,18 @@ export const SuccessScreen = ({
               )}
             </dl>
           </div>
+          {held && (
+            <div className="flex items-center justify-between border-t border-border px-4 py-4">
+              <span className="font-medium text-foreground">Authorized</span>
+              <span className="font-semibold text-foreground">
+                ${receipt.amount.toFixed(2)}
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between border-t border-border px-4 py-4">
             <span className="font-semibold text-foreground">Charged today</span>
             <span className="font-semibold text-foreground">
-              ${receipt.amount.toFixed(2)}
+              ${(held ? 0 : receipt.amount).toFixed(2)}
             </span>
           </div>
           {priced && downloadButton && (
@@ -890,6 +904,7 @@ export const SmsFlow = ({
   const creditBeforeRef = useRef(outreachCredit.balanceCents)
   if (!scheduled) creditBeforeRef.current = outreachCredit.balanceCents
   const [paidSend, setPaidSend] = useState(false)
+  const [heldSend, setHeldSend] = useState(false)
 
   const draftRequestRef = useRef(0)
   // The body of a seed carried in from outside the flow, held until it has
@@ -1178,6 +1193,7 @@ export const SmsFlow = ({
     setDraftCreateError(false)
     setScheduled(false)
     setPaidSend(false)
+    setHeldSend(false)
     resetDraftMutation()
   }, [
     open,
@@ -2145,8 +2161,9 @@ export const SmsFlow = ({
     onProposalCreateFailed,
   ])
 
-  const handleScheduled = async (paid: boolean) => {
+  const handleScheduled = async (paid: boolean, held = false) => {
     setPaidSend(paid)
+    setHeldSend(held)
     setScheduled(true)
     void queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
     // A text campaign completes when it is bought and scheduled, not when
@@ -2684,6 +2701,7 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
+          held={heldSend}
           creditBeforeCents={
             outreachCredit.active && !surface.isServe
               ? creditBeforeRef.current
