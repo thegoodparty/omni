@@ -1025,6 +1025,16 @@ export const SmsFlow = ({
   const isFreeSend =
     Boolean(campaign?.hasFreeTextsOffer) &&
     (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
+  // Per-campaign pricing's review: one title whether or not the send is free,
+  // and the primary button in the shell footer next to Back. The review step
+  // reports that button up, since only it knows free from paid. Serve, a
+  // campaign on the free-texts offer and the build-mode summary keep theirs.
+  const reviewInFooter =
+    planPitch.enabled &&
+    !surface.isServe &&
+    !campaign?.hasFreeTextsOffer &&
+    !buildMode
+  const [reviewCta, setReviewCta] = useState<FlowShellCta | null>(null)
   // A list create succeeded enough to proceed. The sync path returns a token;
   // an async build (gp-api behind the `win_sms_hold_billing` flag) returns a
   // null token with only the buildId, which is NOT a failure — the checkout
@@ -2406,7 +2416,12 @@ export const SmsFlow = ({
                           disabled: !audience.selectedListId || image === null,
                           loading: draftGate.savingDraft,
                         }
-                      : null
+                      : // The review step owns its button (Schedule outreach or
+                        // Complete purchase) and reports it up under the
+                        // per-campaign pricing flag.
+                        stepId === 'review' && reviewInFooter
+                        ? reviewCta
+                        : null
 
   const cta: FlowShellCta | null = managed
     ? stepId === 'compose'
@@ -2473,9 +2488,11 @@ export const SmsFlow = ({
                 ? NAME_ONLY_COPY.title
                 : stepId === 'review' && buildMode
                   ? 'Review and verify'
-                  : stepId === 'review' && isFreeSend
-                    ? 'Review and send'
-                    : STEP_TITLES[stepId]
+                  : stepId === 'review' && reviewInFooter
+                    ? 'Review and pay'
+                    : stepId === 'review' && isFreeSend
+                      ? 'Review and send'
+                      : STEP_TITLES[stepId]
       }
       headerBadge={
         managed ? (
@@ -2996,6 +3013,7 @@ export const SmsFlow = ({
             onRetryBuild={handleRetryPhoneListBuild}
             readOnlySummary={buildMode}
             onComplete={handleScheduled}
+            {...(reviewInFooter && { onFooterCtaChange: setReviewCta })}
           />
           {draftGate.draftSaveError && (
             <p className="mt-4 text-sm text-destructive">

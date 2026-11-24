@@ -30,6 +30,10 @@ interface CheckoutFormProps {
   onTotalChange?: (totalDollars: number) => void
   sessionId?: string
   submitLabel?: string
+  // See CheckoutPaymentProps: the Pay button lives outside the form.
+  formId?: string
+  hideSubmit?: boolean
+  onSubmittingChange?: (submitting: boolean) => void
 }
 
 export default function CheckoutForm({
@@ -39,6 +43,9 @@ export default function CheckoutForm({
   onTotalChange,
   sessionId,
   submitLabel,
+  formId,
+  hideSubmit,
+  onSubmittingChange,
 }: CheckoutFormProps): React.JSX.Element {
   const { setError } = useCheckoutSession()
   const checkoutResult = useCheckout()
@@ -86,6 +93,9 @@ export default function CheckoutForm({
       onConfirmed={onConfirmed}
       onTotalChange={onTotalChange}
       submitLabel={submitLabel}
+      formId={formId}
+      hideSubmit={hideSubmit}
+      onSubmittingChange={onSubmittingChange}
       onError={(error) => {
         let msg: string
         if (error instanceof Error) {
@@ -116,6 +126,9 @@ function CheckoutFormContent({
   submitLabel = 'Complete Purchase',
   onError,
   onTotalChange,
+  formId,
+  hideSubmit,
+  onSubmittingChange,
 }: {
   checkout: StripeCheckoutValue
   sessionId?: string
@@ -124,6 +137,9 @@ function CheckoutFormContent({
   submitLabel?: string
   onError: (error: Error | StripeError) => void
   onTotalChange?: (totalDollars: number) => void
+  formId?: string
+  hideSubmit?: boolean
+  onSubmittingChange?: (submitting: boolean) => void
 }): React.JSX.Element {
   const promo = usePromoCode(checkout)
   const [hasConfirmedPayment, setHasConfirmedPayment] = useState(false)
@@ -169,6 +185,11 @@ function CheckoutFormContent({
     },
   })
 
+  const isSubmitting = mutation.isPending
+  useEffect(() => {
+    onSubmittingChange?.(isSubmitting)
+  }, [isSubmitting, onSubmittingChange])
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSubmitError(null)
@@ -183,7 +204,7 @@ function CheckoutFormContent({
   }, [currentTotal, onTotalChange])
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form id={formId} onSubmit={handleSubmit}>
       {originalTotal > 0 && (
         <div className="mb-6">
           <PromoCodeSection {...promo} />
@@ -219,15 +240,17 @@ function CheckoutFormContent({
           <AlertDescription>{submitError}</AlertDescription>
         </Alert>
       )}
-      <Button
-        type="submit"
-        disabled={mutation.isPending}
-        loading={mutation.isPending}
-        className="mt-6 w-full whitespace-nowrap"
-        size="large"
-      >
-        {submitLabel}
-      </Button>
+      {!hideSubmit && (
+        <Button
+          type="submit"
+          disabled={mutation.isPending}
+          loading={mutation.isPending}
+          className="mt-6 w-full whitespace-nowrap"
+          size="large"
+        >
+          {submitLabel}
+        </Button>
+      )}
     </form>
   )
 }

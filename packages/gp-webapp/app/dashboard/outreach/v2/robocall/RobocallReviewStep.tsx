@@ -5,9 +5,8 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { Card, IconButton, cn } from '@styleguide'
 import { PauseIcon, PlayIcon } from '@styleguide/components/ui/icons'
 import {
-  creditLeftNote,
   creditLines,
-  creditSourceLabel,
+  creditRowLabel,
   useOutreachCredit,
 } from 'app/dashboard/outreach/util/outreachCredit'
 import { outreachCostCents } from 'app/dashboard/outreach/util/outreachPricing'
@@ -122,8 +121,12 @@ export const RobocallReviewStep = ({
     <div className="space-y-6">
       <Intro
         channel="robocall"
-        title="Review your campaign"
-        body="Check the details below, then continue to payment to schedule your calls."
+        title={lines ? 'Review and pay' : 'Review your campaign'}
+        body={
+          lines
+            ? 'Review your details and pay.'
+            : 'Check the details below, then continue to payment to schedule your calls.'
+        }
       />
 
       <Card className="gap-0 overflow-hidden p-0">
@@ -166,7 +169,7 @@ export const RobocallReviewStep = ({
             <>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">
-                  {creditSourceLabel(credit.balanceCents)}
+                  {creditRowLabel(lines.leftCents)}
                 </span>
                 <span className="text-foreground">
                   {`\u2212$${money(lines.creditCents / 100)}`}
@@ -178,11 +181,6 @@ export const RobocallReviewStep = ({
                   ${money(lines.totalCents / 100)}
                 </span>
               </div>
-              {lines.leftCents > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {creditLeftNote(lines.leftCents)}
-                </p>
-              )}
             </>
           )}
           <p

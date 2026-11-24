@@ -638,6 +638,54 @@ describe('SmsFlow', () => {
     expect(done[0]?.closest('.space-y-6')).toBeNull()
   })
 
+  it('books a credit-covered send from the footer under per-campaign pricing', async () => {
+    planFlagRef.enabled = true
+    campaignState.campaign.hasFreeTextsOffer = false
+    creditOverride.value = { active: true, balanceCents: 17500 }
+    mockDraft()
+    const { onScheduled } = openFlow()
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Likely voters'))
+    await user.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await screen.findByRole('textbox', { name: 'Message body' })
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByText('Pick a date'))
+    await user.click(await screen.findByRole('button', { name: dayName(4) }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Review and pay' }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText('Outreach credit ($133.00 left after)'),
+    ).toBeInTheDocument()
+    const schedule = await screen.findByRole('button', {
+      name: 'Schedule outreach',
+    })
+    // The button is the shell footer's, beside Back, not the step body's.
+    expect(schedule.closest('.space-y-6')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Schedule campaign' }),
+    ).toBeNull()
+
+    await user.click(schedule)
+
+    await waitFor(() => expect(onScheduled).toHaveBeenCalledTimes(1))
+    expect(completeFreePurchase).toHaveBeenCalledWith(
+      'TEXT',
+      expect.objectContaining({ outreachId: 55 }),
+    )
+  })
+
   it('stops a list over the 200,000 send cap at the audience step', async () => {
     api.mock('GET /v1/contacts/list-detail', {
       status: 200,
