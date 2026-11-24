@@ -638,6 +638,54 @@ describe('SmsFlow', () => {
     expect(done[0]?.closest('.space-y-6')).toBeNull()
   })
 
+  it('books a credit-covered send from the footer under per-campaign pricing', async () => {
+    planFlagRef.enabled = true
+    campaignState.campaign.hasFreeTextsOffer = false
+    creditOverride.value = { active: true, balanceCents: 17500 }
+    mockDraft()
+    const { onScheduled } = openFlow()
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Likely voters'))
+    await user.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await screen.findByRole('textbox', { name: 'Message body' })
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByText('Pick a date'))
+    await user.click(await screen.findByRole('button', { name: dayName(4) }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Review and pay' }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText('Outreach credit ($133.00 left after)'),
+    ).toBeInTheDocument()
+    const schedule = await screen.findByRole('button', {
+      name: 'Schedule outreach',
+    })
+    // The button is the shell footer's, beside Back, not the step body's.
+    expect(schedule.closest('.space-y-6')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Schedule campaign' }),
+    ).toBeNull()
+
+    await user.click(schedule)
+
+    await waitFor(() => expect(onScheduled).toHaveBeenCalledTimes(1))
+    expect(completeFreePurchase).toHaveBeenCalledWith(
+      'TEXT',
+      expect.objectContaining({ outreachId: 55 }),
+    )
+  })
+
   it('stops a list over the 200,000 send cap at the audience step', async () => {
     api.mock('GET /v1/contacts/list-detail', {
       status: 200,
@@ -3736,6 +3784,45 @@ describe('SuccessScreen outreach credit', () => {
       }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
+  })
+
+  it('shows a credit-covered hold as authorized, not charged', async () => {
+    api.mock('GET /v1/outreach/:id', detail(16734))
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 200,
+      data: {
+        amount: 167.34,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: null,
+        paidAt: null,
+      },
+    })
+    render(
+      <SuccessScreen
+        contactCount={4781}
+        sendAt={null}
+        outreachId={57}
+        paid
+        held
+        creditBeforeCents={20000}
+        onDone={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByText('Outreach credit used ($32.66 left after)'),
+    ).toBeInTheDocument()
+    const lineItem = screen.getByText('SMS campaign, 4,781 recipients')
+      .parentElement as HTMLElement
+    expect(within(lineItem).getByText('$167.34')).toBeInTheDocument()
+    expect(screen.getByText('\u2212$167.34')).toBeInTheDocument()
+    const authorized = screen.getByText('Authorized')
+      .parentElement as HTMLElement
+    expect(within(authorized).getByText('$167.34')).toBeInTheDocument()
+    const charged = screen.getByText('Charged today')
+      .parentElement as HTMLElement
+    expect(within(charged).getByText('$0.00')).toBeInTheDocument()
   })
 
   it('shows no credit rows when the send did not run on credit', () => {

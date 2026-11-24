@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import CheckoutForm from './CheckoutForm'
 
@@ -11,6 +11,8 @@ const {
   setError,
   reportClientError,
   reportClientInterruption,
+  paymentElementOptions,
+  expressProps,
 } = vi.hoisted(() => {
   const confirmMock = vi.fn()
   return {
@@ -31,12 +33,29 @@ const {
     setError: vi.fn(),
     reportClientError: vi.fn(),
     reportClientInterruption: vi.fn(),
+    paymentElementOptions: { current: undefined as unknown },
+    expressProps: {
+      current: undefined as
+        | undefined
+        | {
+            options: unknown
+            onReady: (e: unknown) => void
+            onConfirm: (e: unknown) => void
+          },
+    },
   }
 })
 
 vi.mock('@stripe/react-stripe-js/checkout', () => ({
   useCheckout: () => ({ type: 'success', checkout: checkoutValue }),
-  PaymentElement: () => <div data-testid="payment-element" />,
+  PaymentElement: ({ options }: { options: unknown }) => {
+    paymentElementOptions.current = options
+    return <div data-testid="payment-element" />
+  },
+  ExpressCheckoutElement: (props: NonNullable<typeof expressProps.current>) => {
+    expressProps.current = props
+    return <div data-testid="express-element" />
+  },
 }))
 
 vi.mock('@shared/utils/Snackbar', () => ({
@@ -196,5 +215,212 @@ describe('CheckoutForm', () => {
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('cs_one_time'))
     checkoutValue.canConfirm = true
+  })
+
+  describe('wallets and accordion layout', () => {
+    it('keeps the tabbed Payment Element and no wallet buttons by default', () => {
+      render(<CheckoutForm onSuccess={vi.fn()} sessionId="cs_one_time" />)
+
+      expect(paymentElementOptions.current).toEqual({ layout: 'tabs' })
+      expect(screen.queryByTestId('express-element')).toBeNull()
+      expect(screen.getByText('Promo Code')).toBeInTheDocument()
+    })
+
+    it('shows wallets above an accordion Payment Element that skips wallets', () => {
+      render(
+        <CheckoutForm
+          onSuccess={vi.fn()}
+          sessionId="cs_one_time"
+          walletsAndAccordion
+        />,
+      )
+
+      expect(screen.getByTestId('express-element')).toBeInTheDocument()
+      expect(expressProps.current?.options).toMatchObject({
+        paymentMethods: {
+          applePay: 'auto',
+          googlePay: 'auto',
+          link: 'never',
+          amazonPay: 'never',
+          paypal: 'never',
+        },
+      })
+      expect(paymentElementOptions.current).toMatchObject({
+        layout: { type: 'accordion', radios: true, spacedAccordionItems: true },
+        wallets: { applePay: 'never', googlePay: 'never' },
+      })
+    })
+
+    it('hides the divider until a wallet is available on the device', () => {
+      render(
+        <CheckoutForm
+          onSuccess={vi.fn()}
+          sessionId="cs_one_time"
+          walletsAndAccordion
+        />,
+      )
+      expect(screen.queryByText('Or pay another way')).toBeNull()
+
+      act(() =>
+        expressProps.current?.onReady({
+          availablePaymentMethods: { applePay: true, googlePay: false },
+        }),
+      )
+      expect(screen.getByText('Or pay another way')).toBeInTheDocument()
+    })
+
+    it('shows no divider when Stripe reports no wallet', () => {
+      render(
+        <CheckoutForm
+          onSuccess={vi.fn()}
+          sessionId="cs_one_time"
+          walletsAndAccordion
+        />,
+      )
+
+      act(() =>
+        expressProps.current?.onReady({ availablePaymentMethods: undefined }),
+      )
+      expect(screen.queryByText('Or pay another way')).toBeNull()
+    })
+
+    it('completes the purchase from a wallet confirm through the same path as Pay', async () => {
+      const onSuccess = vi.fn()
+      const event = { paymentFailed: vi.fn(), expressPaymentType: 'apple_pay' }
+      render(
+        <CheckoutForm
+          onSuccess={onSuccess}
+          sessionId="cs_one_time"
+          walletsAndAccordion
+        />,
+      )
+
+      act(() => expressProps.current?.onConfirm(event))
+
+      await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('cs_one_time'))
+      expect(confirmMock).toHaveBeenCalledWith({
+        redirect: 'if_required',
+        expressCheckoutConfirmEvent: event,
+      })
+      expect(event.paymentFailed).not.toHaveBeenCalled()
+    })
+
+    it('fails the wallet sheet and shows the error when the wallet confirm is declined', async () => {
+      confirmMock.mockResolvedValueOnce({
+        type: 'error',
+        error: { message: 'Wallet declined.' },
+      })
+      const onSuccess = vi.fn()
+      const event = { paymentFailed: vi.fn(), expressPaymentType: 'google_pay' }
+      render(
+        <CheckoutForm
+          onSuccess={onSuccess}
+          sessionId="cs_one_time"
+          walletsAndAccordion
+        />,
+      )
+
+      act(() => expressProps.current?.onConfirm(event))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Wallet declined.',
+      )
+      expect(event.paymentFailed).toHaveBeenCalledWith({ reason: 'fail' })
+      expect(onSuccess).not.toHaveBeenCalled()
+    })
+
+    it('ignores a wallet tap while a payment is already in flight', async () => {
+      let release: (v: unknown) => void = vi.fn()
+      confirmMock.mockReturnValueOnce(
+        new Promise((resolve) => {
+          release = resolve
+        }),
+      )
+      const onSuccess = vi.fn()
+      const event = { paymentFailed: vi.fn(), expressPaymentType: 'apple_pay' }
+      render(
+        <CheckoutForm
+          onSuccess={onSuccess}
+          sessionId="cs_one_time"
+          walletsAndAccordion
+        />,
+      )
+
+      clickSubmit()
+      await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+      act(() => expressProps.current?.onConfirm(event))
+
+      expect(event.paymentFailed).toHaveBeenCalledWith({ reason: 'fail' })
+      expect(confirmMock).toHaveBeenCalledTimes(1)
+      release({ type: 'success' })
+      await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+    })
+
+    it('drops the promo box when the host draws the promo link', () => {
+      render(
+        <CheckoutForm
+          onSuccess={vi.fn()}
+          sessionId="cs_one_time"
+          walletsAndAccordion
+          hidePromoSection
+        />,
+      )
+
+      expect(screen.queryByText('Promo Code')).toBeNull()
+    })
+  })
+
+  describe('with the pay button outside the form', () => {
+    it('puts the id on the form and drops its own submit button', () => {
+      const { container } = render(
+        <CheckoutForm
+          onSuccess={vi.fn()}
+          sessionId="cs_one_time"
+          formId="pay-form"
+          hideSubmit
+        />,
+      )
+
+      expect(container.querySelector('form#pay-form')).not.toBeNull()
+      expect(
+        screen.queryByRole('button', { name: 'Complete Purchase' }),
+      ).toBeNull()
+    })
+
+    it('confirms when the form is submitted from outside and reports the pending state', async () => {
+      let release: (value: { type: 'success' }) => void = (value) => {
+        void value
+      }
+      confirmMock.mockReturnValueOnce(
+        new Promise((resolve) => {
+          release = resolve
+        }),
+      )
+      const onSuccess = vi.fn()
+      const onSubmittingChange = vi.fn()
+      const { container } = render(
+        <CheckoutForm
+          onSuccess={onSuccess}
+          sessionId="cs_one_time"
+          formId="pay-form"
+          hideSubmit
+          onSubmittingChange={onSubmittingChange}
+        />,
+      )
+      expect(onSubmittingChange).toHaveBeenLastCalledWith(false)
+
+      const form = container.querySelector('form#pay-form')
+      expect(form).toBeInstanceOf(HTMLFormElement)
+      ;(form as HTMLFormElement).requestSubmit()
+
+      await waitFor(() =>
+        expect(onSubmittingChange).toHaveBeenLastCalledWith(true),
+      )
+      release({ type: 'success' })
+      await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('cs_one_time'))
+      await waitFor(() =>
+        expect(onSubmittingChange).toHaveBeenLastCalledWith(false),
+      )
+    })
   })
 })

@@ -22,8 +22,11 @@ export const TILE_PRICES = {
   email: unitPriceLabel(PRICE_PER_EMAIL_TENTH_CENTS / 1000, 'email'),
 }
 
-// Tile copy that differs with the per-campaign pricing flag on. Only the email
-// tile does: its minimum is the Stripe floor, which the credit never lowers.
+// Tile copy that differs with the per-campaign pricing flag on. Text and
+// robocall read in cents (Nov 23 board); the email tile also carries its
+// minimum, the Stripe floor, which the credit never lowers.
 export const WIN_PRICING_TILE_PRICES = {
+  text: `${centsLabel(PRICE_PER_TEXT * 100)}/text`,
+  robocall: `${centsLabel(robocallCost * 100)}/call`,
   email: `${centsLabel(PRICE_PER_EMAIL_TENTH_CENTS / 10)} each, ${EMAIL_MIN_CHARGE_CENTS}¢ minimum`,
 }

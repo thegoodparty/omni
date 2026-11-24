@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common'
 import { metrics } from '@opentelemetry/api'
+import { OutreachHandoffApiStep } from '@/generated/prisma'
 
 // Same meter pattern as managedPanelFunding.metrics.ts: no-op without OTLP
 // export, and a record can never break the caller.
@@ -46,5 +47,30 @@ export const recordManagedPanelHandoffAlarm = (
     alarmCounter.add(count, { kind, environment: environment() })
   } catch (error) {
     logger.error('Failed to record managed panel handoff alarm', error)
+  }
+}
+
+// A gauge has no `_total` suffix, so Prometheus exposes this as
+// managed_panel_handoff_api_step_rows{step=...}. Every step is written on
+// each sweep, zeros included, so a step that empties drops to 0 instead of
+// holding its last value.
+const apiStepGauge = metrics
+  .getMeter('gp-api')
+  .createGauge('managed_panel.handoff_api_step.rows', {
+    description:
+      'Text hand-off rows the Scale to Win sweep handles, by api step, so a ' +
+      'row stuck in one step shows',
+  })
+
+export const recordManagedPanelHandoffApiSteps = (
+  counts: Record<OutreachHandoffApiStep, number>,
+): void => {
+  if (!isOtelEnabled()) return
+  try {
+    for (const step of Object.values(OutreachHandoffApiStep)) {
+      apiStepGauge.record(counts[step], { step, environment: environment() })
+    }
+  } catch (error) {
+    logger.error('Failed to record managed panel handoff api steps', error)
   }
 }

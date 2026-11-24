@@ -29,7 +29,8 @@ import { MoreHorizontalIcon, Trash2Icon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { ROLE_LABELS, teamQueryKey } from 'app/dashboard/team/team.util'
+import { teamQueryKey } from 'app/dashboard/team/team.util'
+import { useRoleLabel } from 'app/dashboard/team/useRoleLabel'
 import InviteMemberDialog from 'app/dashboard/team/components/InviteMemberDialog'
 import { volunteerAssignmentsQueryKey } from 'app/volunteer/components/AssignmentsPage'
 import { OutreachAssignModal, initialsFor } from './OutreachAssignModal'
@@ -60,6 +61,7 @@ export const OutreachAssigneesSection = ({
   outreachId,
   outreachName,
 }: OutreachAssigneesSectionProps) => {
+  const getRoleLabel = useRoleLabel()
   const organization = useOrganization()
   const orgSlug = organization?.slug
   const queryClient = useQueryClient()
@@ -235,7 +237,7 @@ export const OutreachAssigneesSection = ({
                         {displayName}
                       </span>
                       <Badge variant="soft" shape="pill">
-                        {ROLE_LABELS[assignee.role] ?? assignee.role}
+                        {getRoleLabel(assignee.role)}
                       </Badge>
                     </div>
                     {member?.email && (

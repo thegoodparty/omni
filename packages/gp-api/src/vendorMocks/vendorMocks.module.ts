@@ -7,6 +7,7 @@ import { VercelMockController } from './vercel/vercelMock.controller'
 import { Route53MockController } from './route53/route53Mock.controller'
 import { SesMockController } from './ses/sesMock.controller'
 import { CloudwatchMockController } from './ses/cloudwatchMock.controller'
+import { ScaleToWinMockController } from './scaleToWin/scaleToWinMock.controller'
 import { VendorMockRecordService } from './vendorMockRecord.service'
 import { VendorMockRecordAuditService } from './vendorMockRecordAudit.service'
 
@@ -20,6 +21,7 @@ import { VendorMockRecordAuditService } from './vendorMockRecordAudit.service'
     Route53MockController,
     SesMockController,
     CloudwatchMockController,
+    ScaleToWinMockController,
   ],
   providers: [VendorMockRecordService, VendorMockRecordAuditService],
   exports: [VendorMockRecordService],

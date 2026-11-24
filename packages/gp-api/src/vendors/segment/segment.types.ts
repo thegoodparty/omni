@@ -319,6 +319,9 @@ export const EVENTS = {
     CivicPanelStatusChanged: 'Contacts - Civic Panel Status Changed',
     CivicPanelWaveSent: 'Contacts - Civic Panel Wave Sent',
     CivicPanelWaveClosed: 'Contacts - Civic Panel Wave Closed',
+    // An api-handled send the Scale to Win sweep stopped for a person:
+    // { wave, handoff: 'api', step, errorCode }.
+    CivicPanelWaveErrored: 'Contacts - Civic Panel Wave Errored',
     CivicPanelReady: 'Contacts - Civic Panel Ready',
     CivicPanelMilestoneReached: 'Contacts - Civic Panel Milestone Reached',
     // Import contacts (src/contactUploads). Completed fires when the match

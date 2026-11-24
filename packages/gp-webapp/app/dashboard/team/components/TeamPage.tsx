@@ -39,16 +39,19 @@ import {
   useOrganization,
   useOrganizationRole,
 } from '@shared/organization-picker'
+import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
+import { PLAN_PRICING } from '@goodparty_org/contracts'
+import { formatPlanCents } from 'app/dashboard/shared/plan/planPitch'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { format, parseISO } from 'date-fns'
 import {
   ROLE_DESCRIPTIONS,
-  ROLE_LABELS,
   formatName,
   teamQueryKey,
   teamStatsQueryKey,
 } from '../team.util'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
+import { useRoleLabel } from '../useRoleLabel'
 import { UNAVAILABLE_COPY, useTeamInviteGate } from '../useTeamInviteGate'
 import InviteMemberDrawer from './InviteMemberDrawer'
 
@@ -56,6 +59,8 @@ const TeamPage = (): React.JSX.Element => {
   const organization = useOrganization()
   const role = useOrganizationRole()
   const isOwner = role === 'owner'
+  const { enabled: planPricing } = useWinPerCampaignPricingFlag(false)
+  const getRoleLabel = useRoleLabel()
   const orgSlug = organization?.slug
   // Team accounts are Win-only in Phase 1 (ENG-10816 non-goal: Serve staff
   // accounts are out of scope — every elected-office surface stays
@@ -99,7 +104,7 @@ const TeamPage = (): React.JSX.Element => {
     refetchOnMount: 'always',
   })
 
-  const { gated, unavailableReason } = useTeamInviteGate(data?.invites)
+  const { gated, plan, unavailableReason } = useTeamInviteGate(data?.invites)
 
   // Independent of the members query (ENG-11080): a stats failure must never
   // degrade member management, so it gets its own isPending/isError rather
@@ -302,6 +307,22 @@ const TeamPage = (): React.JSX.Element => {
                 {UNAVAILABLE_COPY[unavailableReason]}
               </p>
             )}
+            {/* Flag on removes this box (ENG-11764: the Team pitch dialog
+                carries the same message); flag off keeps it. */}
+            {!planPricing && gated && isOwner && plan === 'pro' && (
+              <div className="rounded-lg bg-muted p-4">
+                <p className="m-0 text-sm font-medium text-foreground">
+                  Logins for your team come with Team
+                </p>
+                <p className="m-0 text-sm text-muted-foreground">
+                  Invite opens the upgrade to Team. You pay the{' '}
+                  {formatPlanCents(
+                    PLAN_PRICING.teamCents - PLAN_PRICING.proCents,
+                  )}{' '}
+                  difference, and your outreach credit comes with you.
+                </p>
+              </div>
+            )}
             {isError ? (
               <p className="m-0 text-sm text-destructive">
                 Couldn’t load your team. Try refreshing the page.
@@ -341,9 +362,7 @@ const TeamPage = (): React.JSX.Element => {
                         <TableCell>
                           {formatName(member.name, member.email)}
                         </TableCell>
-                        <TableCell>
-                          {ROLE_LABELS[member.role] ?? member.role}
-                        </TableCell>
+                        <TableCell>{getRoleLabel(member.role)}</TableCell>
                         <TableCell>{member.email}</TableCell>
                         {renderStatCells(member)}
                         <TableCell>
@@ -374,7 +393,7 @@ const TeamPage = (): React.JSX.Element => {
                                     }
                                   >
                                     <ShieldCheckIcon />
-                                    Make Campaign Manager
+                                    Make {getRoleLabel('campaignAdmin')}
                                   </DropdownMenuItem>
                                 )}
                                 {member.role !== 'volunteer' && (
@@ -456,7 +475,7 @@ const TeamPage = (): React.JSX.Element => {
                       <TableRow key={invite.id}>
                         <TableCell>{invite.name}</TableCell>
                         <TableCell>
-                          {ROLE_LABELS[invite.role] ?? invite.role}
+                          {getRoleLabel(invite.role)}
                           {/* List-scoped volunteer invites (ENG-11049) are
                               created from — and only make sense in the
                               context of — one outreach list, so a bare

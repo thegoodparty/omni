@@ -643,6 +643,15 @@ describe('ChannelTileGrid — header with per-campaign pricing', () => {
     )
   })
 
+  it('prices the text and robocall tiles in cents', () => {
+    renderGrid({ onCreateEmail: vi.fn() })
+
+    const subCopy = (label: string) =>
+      screen.getByText(label).closest('button')?.textContent
+    expect(subCopy('SMS')).toContain('3.5\u00a2/text')
+    expect(subCopy('Robocall')).toContain('4.5\u00a2/call')
+  })
+
   it('keeps the live header and email price with the flag off', () => {
     pricing.on = false
     renderGrid({ onCreateEmail: vi.fn() })

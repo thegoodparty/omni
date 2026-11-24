@@ -19,7 +19,7 @@ import {
 import type { EmailSurface } from './emailSurface'
 import {
   creditLines,
-  creditSourceLabel,
+  creditRowLabel,
   useOutreachCredit,
 } from 'app/dashboard/outreach/util/outreachCredit'
 
@@ -93,7 +93,10 @@ export const EmailReviewStep = ({
 
   return (
     <div className="space-y-6">
-      <Intro title={surface.review.title} body={surface.review.caption} />
+      <Intro
+        title={lines ? 'Review and pay' : surface.review.title}
+        body={lines ? 'Review your details and pay.' : surface.review.caption}
+      />
 
       <EmailSummary
         surface={surface}
@@ -122,9 +125,8 @@ export const EmailReviewStep = ({
         credit={
           lines
             ? {
-                label: creditSourceLabel(outreachCredit.balanceCents),
+                label: creditRowLabel(lines.leftCents),
                 cents: lines.creditCents,
-                leftCents: lines.leftCents,
               }
             : undefined
         }

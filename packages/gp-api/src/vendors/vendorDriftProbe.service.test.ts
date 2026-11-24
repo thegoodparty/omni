@@ -12,6 +12,8 @@ import {
 } from './geoapify/services/geoapifyRoutePlanner.service'
 import { PeerlyAccountService } from './peerly/services/peerlyAccount.service'
 import { PeerlyIdentityService } from './peerly/services/peerlyIdentity.service'
+import { ScaleToWinCampaignSchema } from './scaleToWin/schemas/scaleToWinCampaign.schema'
+import { ScaleToWinCampaignService } from './scaleToWin/services/scaleToWinCampaign.service'
 import * as vendorSchemaMetrics from './shared/vendorSchema.metrics'
 import { SlackService } from './slack/services/slack.service'
 import { VendorDriftProbeService } from './vendorDriftProbe.service'
@@ -62,6 +64,7 @@ describe('VendorDriftProbeService', () => {
   let geoapify: { fetchRoutingBodyForProbe: ReturnType<typeof vi.fn> }
   let vercel: { checkDomainPrice: ReturnType<typeof vi.fn> }
   let route53: { listPrices: ReturnType<typeof vi.fn> }
+  let scaleToWinCampaigns: { get: ReturnType<typeof vi.fn> }
   let logger: PinoLogger
   let recordVendorSchemaMismatch: ReturnType<typeof vi.spyOn>
 
@@ -71,6 +74,7 @@ describe('VendorDriftProbeService', () => {
       .spyOn(vendorSchemaMetrics, 'recordVendorSchemaMismatch')
       .mockImplementation(() => undefined)
     vi.stubEnv('DRIFT_PROBE_PEERLY_IDENTITY_ID', 'approved-identity')
+    vi.stubEnv('DRIFT_PROBE_S2W_CAMPAIGN_ID', 'template-campaign')
     vi.clearAllMocks()
     logger = createMockLogger()
     slack = { message: vi.fn().mockResolvedValue('ok') }
@@ -109,6 +113,9 @@ describe('VendorDriftProbeService', () => {
     route53 = {
       listPrices: vi.fn().mockResolvedValue({ Prices: [{ Name: 'com' }] }),
     }
+    scaleToWinCampaigns = {
+      get: vi.fn().mockResolvedValue({ id: 'template-campaign' }),
+    }
 
     const module = await Test.createTestingModule({
       providers: [
@@ -122,6 +129,7 @@ describe('VendorDriftProbeService', () => {
         { provide: GeoapifyRoutePlannerService, useValue: geoapify },
         { provide: VercelService, useValue: vercel },
         { provide: AwsRoute53Service, useValue: route53 },
+        { provide: ScaleToWinCampaignService, useValue: scaleToWinCampaigns },
       ],
     }).compile()
     service = module.get(VendorDriftProbeService)
@@ -146,6 +154,7 @@ describe('VendorDriftProbeService', () => {
     expect(geoapify.fetchRoutingBodyForProbe).toHaveBeenCalledTimes(1)
     expect(vercel.checkDomainPrice).toHaveBeenCalledTimes(1)
     expect(route53.listPrices).toHaveBeenCalledTimes(1)
+    expect(scaleToWinCampaigns.get).toHaveBeenCalledWith('template-campaign')
   }
 
   it('reports a thrown CallHub call as call failed with a status only, and the others pass', async () => {
@@ -226,5 +235,40 @@ describe('VendorDriftProbeService', () => {
     expect(
       results.find((result) => result.endpoint === '/v2/tdlc/:id/get_usecases'),
     ).toMatchObject({ status: 'skipped' })
+  })
+
+  it('skips the Scale to Win probe when no template campaign is configured', async () => {
+    vi.stubEnv('DRIFT_PROBE_S2W_CAMPAIGN_ID', '')
+
+    const results = await service.runProbes()
+
+    expect(scaleToWinCampaigns.get).not.toHaveBeenCalled()
+    expect(
+      results.find((result) => result.vendor === 'scaleToWin'),
+    ).toMatchObject({
+      status: 'skipped',
+      detail: 'DRIFT_PROBE_S2W_CAMPAIGN_ID is not set',
+    })
+  })
+
+  it('reports Scale to Win campaign drift as a schema mismatch', async () => {
+    const { error } = ScaleToWinCampaignSchema.safeParse({
+      id: 'template-campaign',
+      status: 'SOMETHING_NEW',
+      scriptVariants: [],
+      textingHoursTimezone: null,
+      textingHoursStart: null,
+      textingHoursEnd: null,
+    })
+    scaleToWinCampaigns.get.mockRejectedValue(error)
+
+    const results = await service.runProbes()
+
+    expect(results.find((result) => result.vendor === 'scaleToWin')).toEqual({
+      vendor: 'scaleToWin',
+      endpoint: '/subaccounts/:subaccountId/campaigns/:id',
+      status: 'schema_mismatch',
+      detail: 'status',
+    })
   })
 })

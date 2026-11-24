@@ -93,14 +93,15 @@ describe('RobocallReviewStep outreach credit', () => {
 
     expect(screen.getByText('$90.00')).toBeInTheDocument()
     expect(
-      screen.getByText('From your $175.00 outreach credit'),
+      screen.getByText('Outreach credit ($85.00 left after)'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Review and pay' }),
     ).toBeInTheDocument()
     expect(screen.getByText('\u2212$90.00')).toBeInTheDocument()
     expect(screen.getByText('Total')).toBeInTheDocument()
     expect(screen.getByText('$0.00')).toBeInTheDocument()
-    expect(
-      screen.getByText('$85.00 outreach credit left after it sends.'),
-    ).toBeInTheDocument()
+    expect(screen.queryByText(/credit left after it sends/)).toBeNull()
   })
 
   it('totals what the credit leaves when it covers part', () => {
@@ -117,7 +118,7 @@ describe('RobocallReviewStep outreach credit', () => {
     credit.enabled = true
     render(<RobocallReviewStep {...props} />)
 
-    expect(screen.queryByText(/From your/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Outreach credit \(/)).not.toBeInTheDocument()
   })
 
   it('keeps the old rows with the flag off', () => {
@@ -125,6 +126,6 @@ describe('RobocallReviewStep outreach credit', () => {
     render(<RobocallReviewStep {...props} />)
 
     expect(screen.getByText('Estimated cost')).toBeInTheDocument()
-    expect(screen.queryByText(/From your/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Outreach credit \(/)).not.toBeInTheDocument()
   })
 })

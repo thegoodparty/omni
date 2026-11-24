@@ -235,7 +235,7 @@ describe('PlansPage', () => {
     })
     expect(pro[0]).toHaveAttribute(
       'href',
-      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Pro&plan=pro',
+      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Pro&plan=pro&back=%2Fdashboard%2Fplans',
     )
   })
 
@@ -247,7 +247,7 @@ describe('PlansPage', () => {
     })
     expect(team[0]).toHaveAttribute(
       'href',
-      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team',
+      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team&back=%2Fdashboard%2Fplans',
     )
   })
 
@@ -260,7 +260,7 @@ describe('PlansPage', () => {
     })
     expect(team[0]).toHaveAttribute(
       'href',
-      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team',
+      '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team&back=%2Fdashboard%2Fplans',
     )
   })
 

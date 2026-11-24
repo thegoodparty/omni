@@ -15,6 +15,7 @@ import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import SuccessStep from './SuccessStep'
 import { PLAN_RECEIPT_QUERY_KEY } from './PlanReceiptCard'
+import { PIN_NOTICE_BODY } from 'app/dashboard/campaign-verification/verificationCopy'
 
 vi.mock('app/shared/experiments/winPerCampaignPricingFlag', () => ({
   useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: true }),
@@ -62,6 +63,7 @@ const setup = (
   vi.mocked(useProUpgradeCarry).mockReturnValue({
     plan,
     returnTo: carry.returnTo ?? null,
+    backTo: null,
     fromPro: carry.fromPro ?? false,
     markFromPro: vi.fn(),
   })
@@ -144,16 +146,38 @@ describe('SuccessStep with per-campaign pricing on', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('keeps the PIN note and says it also unlocks the credit', async () => {
+  it('lists the outreach credit as a fourth unlocked row and keeps the PIN note plain', async () => {
     setup('pro')
     renderStep()
 
     expect(await screen.findByText('Welcome to Pro')).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        /Entering the PIN unlocks texting and your \$175 outreach credit\./,
-      ),
-    ).toBeInTheDocument()
+    expect(screen.getByText('$175 outreach credit')).toBeInTheDocument()
+    expect(screen.getByText(PIN_NOTICE_BODY)).toBeInTheDocument()
+    expect(screen.queryByText(/and your \$175/)).not.toBeInTheDocument()
+  })
+
+  it('sends Done on the standalone confirmation to Voter Outreach', async () => {
+    setup('pro')
+    renderStep()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Done' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/outreach')
+    expect(wizard.exit).not.toHaveBeenCalled()
+  })
+
+  it('hands back to the flow from Continue when the wizard was opened in a sheet', async () => {
+    setup('pro')
+    render(
+      <ProUpgradeWizardContext.Provider value={{ ...wizard, channel: 'sms' }}>
+        <SuccessStep />
+      </ProUpgradeWizardContext.Provider>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+
+    expect(wizard.complete).toHaveBeenCalled()
+    expect(router.push).not.toHaveBeenCalled()
   })
 
   it('welcomes a Pro holder to Team with what stays, and invites the team at the Team Settings drawer', async () => {
@@ -178,6 +202,7 @@ describe('SuccessStep with per-campaign pricing on', () => {
       await screen.findByText(/Still good through November 17, 2027\./),
     ).toBeInTheDocument()
     expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
+    expect(screen.queryByText('$175 outreach credit')).not.toBeInTheDocument()
 
     fireEvent.click(await screen.findByRole('button', { name: /Your receipt/ }))
     expect(screen.getByText('Team plan upgrade')).toBeInTheDocument()

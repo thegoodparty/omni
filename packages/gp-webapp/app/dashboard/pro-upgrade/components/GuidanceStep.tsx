@@ -58,7 +58,7 @@ const GuidanceStep = (): React.JSX.Element => {
   )
   const allRows = buildRows(
     planPricing
-      ? `Add your payment details to activate ${planName} for ${planPrice}. It is one payment per campaign.`
+      ? `Add your payment details to activate ${planName} for ${planPrice}, one payment for your whole race.`
       : SUBSCRIPTION_PAYMENT_BODY,
   )
   const { smsCompliance, smsCutoffDate, generalElectionDate } =
@@ -155,9 +155,11 @@ const GuidanceStep = (): React.JSX.Element => {
           variant="ghost"
           size="large"
           className="w-full sm:w-auto"
-          // Launched from an outreach flow the pitch is behind this step;
-          // on the standalone page there is nothing behind it but the exit.
-          onClick={channel ? goToPreviousStep : exit}
+          // Launched from an outreach flow the pitch is behind this step.
+          // With per-campaign pricing the standalone page goes back to
+          // wherever the candidate came from (the plan page, a gate); before
+          // it, there is nothing behind this step but the exit.
+          onClick={channel || planPricing ? goToPreviousStep : exit}
         >
           Back
         </Button>

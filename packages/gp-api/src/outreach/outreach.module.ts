@@ -63,6 +63,7 @@ import {
 } from './interfaces/textDeliveryHandoff.interface'
 import { sendTextDeliverySlackMessage } from './util/textDeliverySlack.util'
 import { OutreachTextHandoffService } from './services/outreachTextHandoff.service'
+import { S2wPanelWaveSweepService } from './services/s2wPanelWaveSweep.service'
 import { OutreachTextIngestService } from './services/outreachTextIngest.service'
 import { OutreachPanelRepliesService } from './services/outreachPanelReplies.service'
 import { OutreachTextSendFundingService } from './services/outreachTextSendFunding.service'
@@ -196,6 +197,7 @@ import { OutreachP2pSmsPromoService } from './services/outreachP2pSmsPromo.servi
     // of them declares it as a dependency.
     OutreachTextDeliveryService,
     OutreachTextHandoffService,
+    S2wPanelWaveSweepService,
     OutreachTextIngestService,
     OutreachPanelRepliesService,
     // The funding gate on every text send, and its daily reconciliation.
