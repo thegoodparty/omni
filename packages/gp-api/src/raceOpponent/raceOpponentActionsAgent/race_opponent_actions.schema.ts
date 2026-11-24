@@ -27,6 +27,10 @@ export const RaceOpponentActionsInputSchema = z.strictObject({
   l2DistrictType: z.string().min(1).optional(),
   l2DistrictName: z.string().min(1).optional(),
   raceContext: RaceContextSchema,
+  // The run's date. The PMF Engine's instruction stamped `generated_at` in
+  // Python; here the model writes the artifact, and without the date it
+  // invents one from an archived page it read.
+  today: z.iso.date(),
 })
 export type RaceOpponentActionsInput = z.infer<
   typeof RaceOpponentActionsInputSchema

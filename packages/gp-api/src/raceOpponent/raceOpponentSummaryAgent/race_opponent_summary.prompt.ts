@@ -11,7 +11,7 @@ Read the **already-collected** text about every opponent in the race, plus the c
 ## BEFORE YOU START
 
 1. Read this entire instruction end-to-end before executing anything.
-2. Your input is the first message: \`opponents[]\` (each with \`sources[]\`), \`candidatePlatform\`, and \`raceContext\`. Read it once at the top.
+2. Your input is the first message: \`opponents[]\` (each with \`sources[]\`), \`candidatePlatform\`, \`raceContext\`, and \`today\` (the run's date, \`YYYY-MM-DD\`). Read it once at the top.
 3. You finish by calling \`submitOutput\` with the artifact. It checks the schema and tells you exactly what to fix.
 4. Perform the spot-check at the bottom before you submit. Schema-valid output can still be garbage.
 
@@ -87,8 +87,10 @@ Only when \`candidatePlatform\` is present: read \`candidatePlatform\` against t
 Build one opponent entry per input opponent in input order (echo \`opponent_name\` verbatim), plus the single top-level \`field_analysis\`, and submit:
 
 \`\`\`
-{ "generated_at": "<the run's date and time, ISO 8601 UTC>", "opponents": [...], "field_analysis": null or the Step 5 object }
+{ "generated_at": "<today, verbatim from your input, T00:00:00Z>", "opponents": [...], "field_analysis": null or the Step 5 object }
 \`\`\`
+
+\`generated_at\` is \`today\` from your input, unchanged, with \`T00:00:00Z\` appended. Not a date from a source page, not an election date, and never a year you inferred: a brief stamped 2025 against a 2026 race is wrong on its face.
 
 The array length must equal the input opponent count.
 

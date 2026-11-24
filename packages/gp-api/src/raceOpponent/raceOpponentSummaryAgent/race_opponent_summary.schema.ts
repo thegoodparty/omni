@@ -37,6 +37,10 @@ export const RaceOpponentSummaryInputSchema = z.strictObject({
     .min(1),
   candidatePlatform: CandidatePlatformSchema.optional(),
   raceContext: RaceContextSchema,
+  // The run's date. The PMF Engine's instruction stamped `generated_at` in
+  // Python; here the model writes the artifact, and without the date it
+  // invents one from a source page it read.
+  today: z.iso.date(),
 })
 export type RaceOpponentSummaryInput = z.infer<
   typeof RaceOpponentSummaryInputSchema

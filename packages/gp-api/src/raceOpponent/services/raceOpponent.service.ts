@@ -3,7 +3,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common'
-import { isAfter } from 'date-fns'
+import { format, isAfter } from 'date-fns'
 import { z } from 'zod'
 import {
   RaceOpponent,
@@ -483,6 +483,9 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         })),
         ...(candidatePlatform ? { candidatePlatform } : {}),
         raceContext,
+        // The PMF Engine's runner stamped `generated_at` itself; the model
+        // writes the artifact here, so the run states its own date.
+        today: format(new Date(), 'yyyy-MM-dd'),
       },
       async () => ({
         // The contract types opponents as a non-empty tuple; the
@@ -578,6 +581,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
             }
           : {}),
         raceContext,
+        // The PMF Engine's runner stamped `generated_at` itself; here the model
+        // writes the artifact, so the run states its own date. Same reason the
+        // opportunities dispatcher passes one.
+        today: format(new Date(), 'yyyy-MM-dd'),
       },
       async () => ({
         // The contract types opponents as a non-empty tuple; the
