@@ -612,6 +612,8 @@ export { PLAN_PRICING } from './payments/PlanPricing.const'
 export { planEndsAt, planLastDay } from './payments/PlanEndsAt'
 export {
   PlanReceiptSchema,
+  PlanReceiptPaymentMethodSchema,
+  type PlanReceiptPaymentMethod,
   type PlanReceipt,
 } from './payments/PlanReceipt.schema'
 export {
@@ -1498,6 +1500,8 @@ export {
   type SmsPurpose,
   SMS_COMPOSED_MAX_LENGTH,
   SMS_BODY_MAX_LENGTH,
+  SMS_IMAGE_MAX_BYTES,
+  SMS_LONG_MESSAGE_LENGTH,
   SmsDraftRequestSchema,
   type SmsDraftRequest,
   SmsDraftResponseSchema,

@@ -66,7 +66,8 @@ charged through the other.
   card is plain `PIN_NOTICE_BODY`, and the standalone Done opens
   `/dashboard/outreach` (in an outreach flow `complete()` still returns to it).
 - **Success.** `PlanReceiptCard` reads `GET plan-receipt` (cents; card and
-  receipt URL null on a full promo). Team's button is "Invite your team",
+  receipt URL null on a full promo; `paymentMethod` names Afterpay, which has
+  no card, and Apple Pay or Google Pay on top of the card). Team's button is "Invite your team",
   going to `/dashboard/team?invite=1`, which `TeamPage` reads to open the
   invite drawer.
 

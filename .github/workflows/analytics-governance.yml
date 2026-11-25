@@ -73,8 +73,8 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run == true }}
       SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
       SLACK_EVENT_LIFECYCLE_CHANNEL_ID: ${{ vars.SLACK_EVENT_LIFECYCLE_CHANNEL_ID }}
-      # Interim sheet identity until the Google service account (DATA-2072):
-      # a base64 of the personal OAuth token pickle. Absent -> step skips.
+      # The sheet steps run on a personal Google OAuth token: a base64 of its
+      # token pickle. Absent -> step skips.
       GP_SHEETS_TOKEN_B64: ${{ secrets.GP_SHEETS_TOKEN_B64 }}
       GP_EVENT_STATE_SHEET_ID: ${{ vars.GP_EVENT_STATE_SHEET_ID }}
       # Deep-links the Slack "browse gaps" link to the gaps tab; unset -> the
@@ -325,9 +325,9 @@ jobs:
           )"
           gh pr merge "$branch" --auto --squash
 
-      # Interim path until DATA-2072 (Google service account — none exists in
-      # the org yet): the personal OAuth token pickle, injected as a base64
-      # secret. Skips with a visible warning when the secret is absent, so the
+      # Runs on a personal Google OAuth token pickle, injected as a base64
+      # secret (re-mint with packages/runbooks/scripts/shell/mint-sheets-token.sh
+      # and update GP_SHEETS_TOKEN_B64). Skips with a visible warning when the secret is absent, so the
       # sheet surface going un-refreshed is never silent; once the secret
       # exists, an expired/revoked token fails the step (and so notifies
       # Slack) rather than skipping.
@@ -343,7 +343,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$GP_SHEETS_TOKEN_B64" ] || [ -z "$GP_EVENT_STATE_SHEET_ID" ]; then
-            msg="Event-state sheet NOT refreshed: no CI sheet identity yet (DATA-2072). The sheet only updates via laptop-side runs until then."
+            msg="Event-state sheet NOT refreshed: GP_SHEETS_TOKEN_B64 or GP_EVENT_STATE_SHEET_ID is not set. Mint a token with packages/runbooks/scripts/shell/mint-sheets-token.sh and update the secret."
             echo "::warning::$msg"
             echo ":warning: $msg" >> "$GITHUB_STEP_SUMMARY"
             exit 0

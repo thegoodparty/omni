@@ -355,17 +355,21 @@ beforeEach(() => {
   secondReadAnswer = async () => '[]'
 
   const model = service.app.get(CaseScoutModelService)
-  vi.spyOn(model, 'scoreTranscript').mockImplementation(async (transcript) => {
-    transcripts.push(transcript)
-    const result = scoreFor(sessionIdIn(transcript))
-    if (result instanceof Error) throw result
-    return result
-  })
-  vi.spyOn(model, 'draftCase').mockImplementation(async (_system, text) => {
-    const result = draftFor(sessionIdIn(text))
-    if (result instanceof Error) throw result
-    return result
-  })
+  vi.spyOn(model, 'scoreTranscript').mockImplementation(
+    async (_scope, transcript) => {
+      transcripts.push(transcript)
+      const result = scoreFor(sessionIdIn(transcript))
+      if (result instanceof Error) throw result
+      return result
+    },
+  )
+  vi.spyOn(model, 'draftCase').mockImplementation(
+    async (_scope, _system, text) => {
+      const result = draftFor(sessionIdIn(text))
+      if (result instanceof Error) throw result
+      return result
+    },
+  )
   vi.spyOn(model, 'secondRead').mockImplementation(() => secondReadAnswer())
 
   vi.spyOn(
@@ -889,6 +893,40 @@ describe('caseScoutDraft', () => {
     )
     expect(notes[0]?.text).toContain('heldForDate=1')
     expect(notes[0]?.text).toContain("('conv-sev-1-3', 'conv-sev-0-3')")
+  })
+
+  it('gives the second read the real chat and writes nothing it flagged', async () => {
+    await seedSessions([3])
+    draftFor = () => newCase('thanks-a-volunteer', 'thanks a volunteer')
+    secondReadAnswer = async () => '["Odalys Brennick of Quarry Bend"]'
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    expect(
+      ledgerLines().map((l) => [l.outcome, l.gateFailures, l.failureSummary]),
+    ).toEqual([
+      [
+        'gated',
+        ['secondRead'],
+        'the second read flagged a detail from the real chat',
+      ],
+    ])
+    expect(
+      service.app.get(CaseScoutModelService).secondRead,
+    ).toHaveBeenCalledWith(
+      expect.stringContaining('thanks a volunteer'),
+      'A question.',
+      expect.any(AbortSignal),
+    )
+    expect(
+      service.app.get(CaseScoutModelService).scoreTranscript,
+    ).toHaveBeenCalledWith(
+      ChatScope.chief_of_staff,
+      expect.any(String),
+      expect.any(AbortSignal),
+    )
+    const written = [...objects.values(), ...notes.map((n) => n.text)]
+    expect(written.some((text) => text.includes('Odalys'))).toBe(false)
   })
 
   it('gates a needs-setup line and withholds one that fails', async () => {

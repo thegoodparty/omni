@@ -78,7 +78,7 @@ export const draftCandidate = async (
   for (let attempt = 0; attempt < DRAFT_PARSE_ATTEMPTS; attempt++) {
     let text: string
     try {
-      text = await drafter.draftCase(system, transcript, signal)
+      text = await drafter.draftCase(session.scope, system, transcript, signal)
     } catch (err) {
       if (signal.aborted) throw err
       throw new DraftingError(

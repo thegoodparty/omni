@@ -203,6 +203,7 @@ const FixtureResultSchema = z.strictObject({
         ])
         .nullable(),
       reason: z.string().nullable(),
+      flagged: z.array(z.string()).nullable().optional(),
     })
     .nullable(),
   case: DraftedCaseSchema.nullable(),

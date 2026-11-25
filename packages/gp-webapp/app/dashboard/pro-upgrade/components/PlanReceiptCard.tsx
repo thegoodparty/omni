@@ -59,6 +59,7 @@ const Row = ({
 // charge: no "/mo", and the date the plan stays good through. Nothing draws
 // until gp-api answers, so a receipt is never made up. A promo that covered
 // the plan in full has no card and no Stripe receipt, so those rows drop out.
+// Afterpay has no card, so it gets its own row.
 export const PlanReceiptCard = ({
   receipt,
   plan,
@@ -111,11 +112,22 @@ export const PlanReceiptCard = ({
             }
             value={amount}
           />
-          {receipt.cardBrand && receipt.cardLast4 && (
-            <Row
-              label="Card"
-              value={`${cardBrandLabel(receipt.cardBrand)} •••• ${receipt.cardLast4}`}
-            />
+          {receipt.paymentMethod === 'afterpay' ? (
+            <Row label="Paid with" value="Afterpay" />
+          ) : (
+            receipt.cardBrand &&
+            receipt.cardLast4 && (
+              <Row
+                label="Card"
+                value={`${cardBrandLabel(receipt.cardBrand)} •••• ${receipt.cardLast4}${
+                  receipt.paymentMethod === 'apple_pay'
+                    ? ' via Apple Pay'
+                    : receipt.paymentMethod === 'google_pay'
+                      ? ' via Google Pay'
+                      : ''
+                }`}
+              />
+            )
           )}
           {receipt.planEndsAt && (
             <Row

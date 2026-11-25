@@ -3786,6 +3786,45 @@ describe('SuccessScreen outreach credit', () => {
     expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
   })
 
+  it('shows a credit-covered hold as authorized, not charged', async () => {
+    api.mock('GET /v1/outreach/:id', detail(16734))
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 200,
+      data: {
+        amount: 167.34,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: null,
+        paidAt: null,
+      },
+    })
+    render(
+      <SuccessScreen
+        contactCount={4781}
+        sendAt={null}
+        outreachId={57}
+        paid
+        held
+        creditBeforeCents={20000}
+        onDone={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByText('Outreach credit used ($32.66 left after)'),
+    ).toBeInTheDocument()
+    const lineItem = screen.getByText('SMS campaign, 4,781 recipients')
+      .parentElement as HTMLElement
+    expect(within(lineItem).getByText('$167.34')).toBeInTheDocument()
+    expect(screen.getByText('\u2212$167.34')).toBeInTheDocument()
+    const authorized = screen.getByText('Authorized')
+      .parentElement as HTMLElement
+    expect(within(authorized).getByText('$167.34')).toBeInTheDocument()
+    const charged = screen.getByText('Charged today')
+      .parentElement as HTMLElement
+    expect(within(charged).getByText('$0.00')).toBeInTheDocument()
+  })
+
   it('shows no credit rows when the send did not run on credit', () => {
     render(
       <SuccessScreen

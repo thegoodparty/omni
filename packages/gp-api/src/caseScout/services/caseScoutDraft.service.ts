@@ -198,8 +198,8 @@ export class CaseScoutDraftService {
     const working: LedgerEntry[] = [...history]
     const caseLists = new Map<string, CaseListInfo>()
     const spendCap = spendCapUsd()
-    const secondRead: SecondReadCall = (text) =>
-      this.model.secondRead(text, job.signal)
+    const secondRead: SecondReadCall = (text, source) =>
+      this.model.secondRead(text, source, job.signal)
 
     const drafts: BundleDraft[] = []
     const needsSetup: Bundle['needsSetup'] = []

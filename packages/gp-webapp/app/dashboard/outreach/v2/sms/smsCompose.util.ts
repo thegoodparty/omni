@@ -7,6 +7,7 @@ import {
   checkSmsStandards,
   CIVIC_PANEL_JOIN_LINE,
   findCivicPanelJoinLine,
+  SMS_IMAGE_MAX_BYTES,
   SMS_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import { SOCIAL_PURPOSE_LABELS } from '../socialPurposes'
@@ -611,7 +612,7 @@ export const addIdentificationBack = (
   return `${greeting} ${intro}${rest ? ` ${rest}` : ''}`
 }
 
-export const IMAGE_MAX_BYTES = 500000
+export const IMAGE_MAX_BYTES = SMS_IMAGE_MAX_BYTES
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
 
 const PROFILE_PHOTO_MAX_EDGE = 1024
@@ -637,7 +638,7 @@ export const inMemoryCopy = (file: File): Promise<File> =>
   })
 
 // The profile photo the SMS image starts from. Avatars are stored at up to
-// 5 MB, ten times what an MMS attachment allows, so anything over the cap or
+// 5 MB, several times what an MMS attachment allows, so anything over the cap or
 // in another format is redrawn as a JPEG. Null on any failure: the dropzone
 // is still there, so a missing prefill only costs the candidate one upload.
 export const profilePhotoFile = async (url: string): Promise<File | null> => {

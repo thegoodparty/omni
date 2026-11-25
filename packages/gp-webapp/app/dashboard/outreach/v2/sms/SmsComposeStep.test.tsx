@@ -15,6 +15,7 @@ const PAID_FOR_BY = 'Paid for by Friends of Jane.'
 const renderStep = (
   standardsFailures: SmsRequiredPart[],
   paidForByText: string | null = PAID_FOR_BY,
+  composedLength = 44,
 ) => {
   const onAddRequiredBack = vi.fn()
   const onImageChange = vi.fn()
@@ -33,7 +34,7 @@ const renderStep = (
       onMessageChange={vi.fn()}
       mergeTagChannel="peerly"
       hasWrittenBody
-      composedLength={44}
+      composedLength={composedLength}
       aiAction="improve"
       onAiAction={vi.fn()}
       isDrafting={false}
@@ -55,6 +56,31 @@ describe('SmsComposeStep counter', () => {
     renderStep([])
     expect(screen.getByText('44 chars')).toBeInTheDocument()
     expect(screen.queryByText(/SMS/)).toBeNull()
+  })
+
+  it('stays neutral up to 1,000 characters', () => {
+    renderStep([], PAID_FOR_BY, 1000)
+    expect(screen.getByText('1000 chars')).not.toHaveClass('text-warning-dark')
+    expect(screen.queryByText(/Shorter texts work better/)).toBeNull()
+  })
+
+  it('turns yellow and warns past 1,000 characters', () => {
+    renderStep([], PAID_FOR_BY, 1001)
+    expect(screen.getByText('1001 chars')).toHaveClass('text-warning-dark')
+    expect(
+      screen.getByText(
+        'Shorter texts work better. Try to keep it under 1,000 characters.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('turns red past 2,000 characters, with the limit error alone', () => {
+    renderStep([], PAID_FOR_BY, 2001)
+    const counter = screen.getByText('2001 chars')
+    expect(counter).toHaveClass('text-destructive')
+    expect(counter).not.toHaveClass('text-warning-dark')
+    expect(screen.queryByText(/Shorter texts work better/)).toBeNull()
+    expect(screen.getByText(/under 2000 characters/)).toBeInTheDocument()
   })
 })
 
