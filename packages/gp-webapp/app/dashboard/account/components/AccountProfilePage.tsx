@@ -37,7 +37,7 @@ const AccountProfilePage = ({
         description="Manage your account settings and configuration."
       />
 
-      <div className="w-full bg-muted px-4 py-6 pb-20 sm:px-8 md:px-16">
+      <div className="w-full px-4 py-6 pb-20 sm:px-8 md:px-16">
         <div className="mx-auto flex w-full max-w-[640px] flex-col gap-4">
           <PersonalInformationCard
             user={user}

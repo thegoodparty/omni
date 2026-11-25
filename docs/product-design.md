@@ -586,7 +586,8 @@ change in the styleguide reaches every screen at once.
 - **Neutral by default.** Content is `text-foreground`, secondary text is
   `text-muted-foreground` (on `bg-card` too), edges are `border-border`
   (borders, not shadows: `design-memory/learned.md` #21). The page behind
-  the cards is `bg-page`, set once by the layout, never by a page. A quiet
+  the cards is `bg-page`, set once by the layout; a Win page never sets its
+  own. A quiet
   panel or highlight is `bg-muted`. There is no yellow highlight.
 - **Blue means "you can act here."** `primary` is for the one primary action
   (section 5), links, focus, and a checked control (checkbox, switch,
