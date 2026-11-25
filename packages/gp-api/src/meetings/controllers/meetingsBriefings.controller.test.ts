@@ -347,7 +347,9 @@ describe('GET /v1/meetings', () => {
     expect(result.data.scheduleKnown).toBe(true)
     expect(result.data.meetings.length).toBeGreaterThan(0)
     expect(
-      (result.data.meetings as Array<{ meetingName: string }>)[0].meetingName,
+      firstOrThrow(
+        result.data.meetings as Array<{ meetingName: string }>,
+      ).meetingName,
     ).toBe('City Council')
   })
 
