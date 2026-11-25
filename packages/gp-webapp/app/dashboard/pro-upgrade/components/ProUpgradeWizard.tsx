@@ -74,13 +74,17 @@ const ProUpgradeWizard = ({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { heldPlan, onSubscription } = usePlan()
+  const { heldPlan, isPaid, onSubscription } = usePlan()
   // Read once: later step URLs carry the same values back, but state is what
   // survives a step that was pushed without them.
   const [carry, setCarry] = useState<ProUpgradeCarry>(() =>
     parseProUpgradeCarry(searchParams),
   )
   const carryRef = useRef(carry)
+  // The entry sends a paid campaign that does not hold Team (a Pro holder, or a
+  // granted Pro with no plan) asking for Team straight to payment, alone.
+  const teamUpgrade =
+    carry.plan === 'team' && isPaid && heldPlan !== 'team' && !onSubscription
   const markFromPro = useCallback(() => {
     carryRef.current = { ...carryRef.current, fromPro: true }
     setCarry(carryRef.current)
@@ -123,7 +127,9 @@ const ProUpgradeWizard = ({
       orderIndex === 0 ||
       (currentStep === PRO_UPGRADE_STEP.PAYMENT &&
         carryRef.current.plan === 'team' &&
-        heldPlan === 'pro')
+        isPaid &&
+        heldPlan !== 'team' &&
+        !onSubscription)
     if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
       router.push(stepHref(PRO_UPGRADE_STEP.STATUS))
     } else if (!firstStep) {
@@ -131,7 +137,16 @@ const ProUpgradeWizard = ({
     } else {
       router.push(carryRef.current.backTo ?? '/dashboard')
     }
-  }, [currentStep, orderIndex, stepOrder, router, stepHref, heldPlan])
+  }, [
+    currentStep,
+    orderIndex,
+    stepOrder,
+    router,
+    stepHref,
+    heldPlan,
+    isPaid,
+    onSubscription,
+  ])
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
   const handleChromeExit = useCallback(() => {
@@ -186,9 +201,7 @@ const ProUpgradeWizard = ({
           }
           position={
             // Design: Pro to Team is one step, so there is no stepper.
-            carry.plan === 'team' && heldPlan === 'pro'
-              ? null
-              : stepPosition(currentStep)
+            teamUpgrade ? null : stepPosition(currentStep)
           }
           onExit={handleChromeExit}
         >

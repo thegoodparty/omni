@@ -231,6 +231,31 @@ describe('ProUpgradeWizard', () => {
       ...PLAN,
       plan: 'pro',
       heldPlan: 'pro',
+      isPaid: true,
+    })
+
+    render(
+      <ProUpgradeWizard>
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/plans')
+  })
+
+  it('returns Back from the Team payment of a Pro campaign holding no plan to the page that carried it in', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(
+        'plan=team&back=%2Fdashboard%2Fplans',
+      ) as ReadonlyURLSearchParams,
+    )
+    vi.mocked(usePlan).mockReturnValue({
+      ...PLAN,
+      plan: 'pro',
+      heldPlan: 'free',
+      isPaid: true,
     })
 
     render(
