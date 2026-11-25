@@ -5,6 +5,7 @@ import PlansPage from './PlansPage'
 
 const mockPlan = vi.hoisted(() => ({
   current: 'free' as string,
+  held: null as string | null,
   onSubscription: false,
   recommendTeam: false,
 }))
@@ -20,6 +21,7 @@ vi.mock('../shared/DashboardLayout', () => ({
 vi.mock('../shared/membership/deriveMembershipState', () => ({
   usePlan: () => ({
     plan: mockPlan.current,
+    heldPlan: mockPlan.held ?? mockPlan.current,
     onSubscription: mockPlan.onSubscription,
     recommendTeam: mockPlan.recommendTeam,
   }),
@@ -28,6 +30,7 @@ vi.mock('../shared/membership/deriveMembershipState', () => ({
 describe('PlansPage', () => {
   beforeEach(() => {
     mockPlan.current = 'free'
+    mockPlan.held = null
     mockPlan.onSubscription = false
     mockPlan.recommendTeam = false
   })
@@ -262,6 +265,19 @@ describe('PlansPage', () => {
       'href',
       '/dashboard/pro-upgrade?source=navigation&channel=generic&cta=Join+Team&plan=team&back=%2Fdashboard%2Fplans',
     )
+  })
+
+  it('prices Team in full for a legacy subscriber whose plan columns read free', () => {
+    mockPlan.current = 'pro'
+    mockPlan.held = 'free'
+    render(<PlansPage highlightTeam={false} />)
+
+    expect(
+      screen.getAllByRole('link', {
+        name: `Join Team for $${PLAN_PRICING.teamCents / 100}`,
+      }).length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryAllByRole('link', { name: /Join Pro/ })).toHaveLength(0)
   })
 
   it('marks the current plan as plain text with no button under it', () => {

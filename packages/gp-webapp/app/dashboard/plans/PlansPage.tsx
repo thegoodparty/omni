@@ -17,14 +17,19 @@ interface PlansPageProps {
 }
 
 const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
-  const { plan: currentPlan, onSubscription, recommendTeam } = usePlan()
+  const {
+    plan: currentPlan,
+    heldPlan,
+    onSubscription,
+    recommendTeam,
+  } = usePlan()
   const highlighted: PlanKey =
     highlightTeam || (currentPlan === 'free' && recommendTeam) ? 'team' : 'pro'
   // Only a Free campaign is told which plan fits its race.
   const recommended: PlanKey | null =
     currentPlan === 'free' ? highlighted : null
   const offerFor = (plan: PlanKey): { href: string | null } | null => {
-    const column = planColumnsFor(currentPlan, onSubscription).find(
+    const column = planColumnsFor(heldPlan, onSubscription).find(
       (c) => c.plan === plan,
     )
     if (plan === 'free' || !column?.cta) return null
@@ -63,6 +68,7 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
           <div className="hidden md:block">
             <PlansTable
               currentPlan={currentPlan}
+              heldPlan={heldPlan}
               onSubscription={onSubscription}
               highlighted={highlighted}
               recommended={recommended}
@@ -72,6 +78,7 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
           <div className="md:hidden">
             <PlanCards
               currentPlan={currentPlan}
+              heldPlan={heldPlan}
               onSubscription={onSubscription}
               highlighted={highlighted}
               recommended={recommended}

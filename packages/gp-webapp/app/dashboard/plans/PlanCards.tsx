@@ -17,6 +17,8 @@ import {
 
 interface PlanCardsProps {
   currentPlan: PlanKey
+  // What gp-api prices Team against; differs from currentPlan for a legacy subscriber.
+  heldPlan: PlanKey
   onSubscription?: boolean
   highlighted: PlanKey
   // The plan the page recommends; null for a campaign that is not on Free.
@@ -30,6 +32,7 @@ interface PlanCardsProps {
 // what differs from the highlighted plan.
 export const PlanCards = ({
   currentPlan,
+  heldPlan,
   onSubscription,
   highlighted,
   recommended,
@@ -37,7 +40,7 @@ export const PlanCards = ({
 }: PlanCardsProps): React.JSX.Element => {
   const rank = (plan: PlanKey): number =>
     plan === highlighted ? 0 : plan === 'free' ? 2 : 1
-  const columns = [...planColumnsFor(currentPlan, onSubscription)].sort(
+  const columns = [...planColumnsFor(heldPlan, onSubscription)].sort(
     (a, b) => rank(a.plan) - rank(b.plan),
   )
   const highlightedName =

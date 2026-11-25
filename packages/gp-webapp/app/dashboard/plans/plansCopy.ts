@@ -49,14 +49,15 @@ export const PLAN_COLUMNS: PlanColumn[] = [
   },
 ]
 
-// A Pro campaign pays only the difference to move to Team. A monthly
+// A campaign holding a Pro plan pays only the difference to move to Team (the
+// held plan, as gp-api prices it, not the legacy-aware access plan). A monthly
 // subscriber can't buy Team, so their Team column keeps the full price.
 export const planColumnsFor = (
-  currentPlan: PlanKey,
+  heldPlan: PlanKey,
   onSubscription = false,
 ): PlanColumn[] =>
   PLAN_COLUMNS.map((column) =>
-    column.plan === 'team' && currentPlan === 'pro' && !onSubscription
+    column.plan === 'team' && heldPlan === 'pro' && !onSubscription
       ? {
           ...column,
           cta: `Join Team for ${formatPlanCents(
