@@ -127,7 +127,7 @@ describe('StripeService Pro subscription checkout', () => {
         'https://app.test/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
       )
       expect(args.success_url).toBeUndefined()
-      expect(args.metadata).toEqual({ userId })
+      expect(args.metadata).toEqual({ userId, campaignId })
       expect(args.subscription_data).toEqual({
         metadata: { userId, campaignId },
       })
@@ -153,7 +153,7 @@ describe('StripeService Pro subscription checkout', () => {
       ).rejects.toThrow(BadGatewayException)
     })
 
-    it('carries the same userId metadata as the redirect subscription session', async () => {
+    it('carries the same metadata as the redirect subscription session', async () => {
       sessionsCreate.mockResolvedValue({
         id: 'cs_test',
         client_secret: 'cs_test_secret',

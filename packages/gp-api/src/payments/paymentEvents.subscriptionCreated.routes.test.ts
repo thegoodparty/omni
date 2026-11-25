@@ -1,3 +1,4 @@
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
 import { useTestService } from '@/test-service'
@@ -5,7 +6,7 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { addDays, format } from 'date-fns'
 import Stripe from 'stripe'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CampaignPlanLevel, PlanPricingModel } from '../generated/prisma'
 import { CheckoutSessionMode, WebhookEventType } from './payments.types'
 
@@ -99,10 +100,12 @@ const checkoutCompletedEvent = ({
   subscriptionId,
   customerId,
   userId,
+  campaignId,
 }: {
   subscriptionId: string
   customerId: string
   userId: number
+  campaignId?: number
 }) =>
   eventEnvelope(WebhookEventType.CheckoutSessionCompleted, {
     id: 'cs_test_pro',
@@ -111,7 +114,10 @@ const checkoutCompletedEvent = ({
     customer: customerId,
     subscription: subscriptionId,
     payment_status: 'paid',
-    metadata: { userId: String(userId) },
+    metadata: {
+      userId: String(userId),
+      ...(campaignId ? { campaignId: String(campaignId) } : {}),
+    },
   })
 
 let campaignSeq = 0
@@ -394,6 +400,285 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
     const updated = await readCampaign(campaign.id)
     expect(updated.details.subscriptionId).toBe('sub_unstamped')
     expect(updated.isPro).toBe(false)
+  })
+})
+
+describe('POST /v1/payments/events — invoice.paid', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  const paidInvoice = (subscriptionId: string, legacy = false) =>
+    eventEnvelope(WebhookEventType.InvoicePaid, {
+      id: 'in_pro_paid',
+      object: 'invoice',
+      status: 'paid',
+      ...(legacy
+        ? { subscription: subscriptionId }
+        : {
+            parent: { subscription_details: { subscription: subscriptionId } },
+          }),
+    })
+
+  const mockSubscription = (
+    id: string,
+    metadata: Stripe.Metadata,
+    status: Stripe.Subscription.Status = 'active',
+    product = 'prod_QAR4xrqUhyHHqX',
+  ) =>
+    vi
+      .spyOn(service.app.get(StripeService), 'retrieveSubscription')
+      .mockResolvedValue({
+        id,
+        status,
+        metadata,
+        items: { data: [{ price: { product } }] },
+        lastResponse: { headers: {}, requestId: 'req_test', statusCode: 200 },
+      } as Stripe.Response<Stripe.Subscription>)
+
+  it('grants Pro only on payment and only to the campaign named at checkout', async () => {
+    vi.stubEnv('STRIPE_PRO_INVOICE_ONLY', 'true')
+    const campaign = await seedCampaign({ electionDate: '2025-01-01' })
+    const other = await seedCampaign()
+    const opponentCollection = spyOnOpponentCollection()
+    const subscriptionId = 'sub_invoice_paid'
+    const metadata = {
+      userId: String(service.user.id),
+      campaignId: String(campaign.id),
+    }
+    mockSubscription(subscriptionId, metadata)
+
+    const created = await deliverStripeEvent(
+      subscriptionCreatedEvent({
+        subscriptionId,
+        customerId: 'cus_invoice_paid',
+        status: 'active',
+        metadata,
+      }),
+    )
+    expect(created.status).toBe(200)
+    expect((await readCampaign(campaign.id)).isPro).toBe(false)
+    expect((await readCampaign(campaign.id)).details.subscriptionId).toBeFalsy()
+
+    const checkout = await deliverStripeEvent(
+      checkoutCompletedEvent({
+        subscriptionId,
+        customerId: 'cus_invoice_paid',
+        userId: service.user.id,
+        campaignId: campaign.id,
+      }),
+    )
+    expect(checkout.status).toBe(200)
+    expect((await readCampaign(campaign.id)).isPro).toBe(false)
+    expect((await readCampaign(campaign.id)).details.subscriptionId).toBeFalsy()
+
+    const resumed = await deliverStripeEvent(
+      eventEnvelope(WebhookEventType.CustomerSubscriptionResumed, {
+        id: subscriptionId,
+        customer: 'cus_invoice_paid',
+      }),
+    )
+    expect(resumed.status).toBe(200)
+    expect((await readCampaign(campaign.id)).isPro).toBe(false)
+    expect((await readCampaign(campaign.id)).details.subscriptionId).toBeFalsy()
+
+    const invoice = paidInvoice(subscriptionId)
+    expect((await deliverStripeEvent(invoice)).status).toBe(200)
+    expect((await deliverStripeEvent(invoice)).status).toBe(200)
+
+    const updated = await readCampaign(campaign.id)
+    expect(updated).toMatchObject({
+      isPro: true,
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.subscription,
+      details: { subscriptionId, electionDate: '2025-01-01' },
+    })
+    expect(updated.details.isProUpdatedAt).toBeDefined()
+    expect((await readCampaign(other.id)).isPro).toBe(false)
+    expect(opponentCollection).toHaveBeenCalledExactlyOnceWith(campaign.id)
+  })
+
+  it('repairs a legacy subscription only if it has an existing campaign link', async () => {
+    const subscriptionId = 'sub_legacy_invoice_paid'
+    const campaign = await seedCampaign({ subscriptionId })
+    const other = await seedCampaign()
+    mockSubscription(subscriptionId, {})
+
+    expect(
+      (await deliverStripeEvent(paidInvoice(subscriptionId, true))).status,
+    ).toBe(200)
+    expect((await readCampaign(campaign.id)).isPro).toBe(true)
+    expect((await readCampaign(other.id)).isPro).toBe(false)
+  })
+
+  it('does not fall back when the metadata names a campaign owned by someone else', async () => {
+    const campaign = await seedCampaign()
+    const subscriptionId = 'sub_mismatched_invoice'
+    mockSubscription(subscriptionId, {
+      userId: String(service.user.id + 1),
+      campaignId: String(campaign.id),
+    })
+
+    expect((await deliverStripeEvent(paidInvoice(subscriptionId))).status).toBe(
+      200,
+    )
+    const updated = await readCampaign(campaign.id)
+    expect(updated.isPro).toBe(false)
+    expect(updated.details.subscriptionId).toBeFalsy()
+  })
+
+  it('honors a paid zero-dollar trial invoice in invoice-only mode', async () => {
+    vi.stubEnv('STRIPE_PRO_INVOICE_ONLY', 'true')
+    const campaign = await seedCampaign()
+    const subscriptionId = 'sub_trial_invoice'
+    mockSubscription(
+      subscriptionId,
+      { userId: String(service.user.id), campaignId: String(campaign.id) },
+      'trialing',
+    )
+
+    const res = await deliverStripeEvent(
+      eventEnvelope(WebhookEventType.InvoicePaid, {
+        id: 'in_trial_invoice',
+        status: 'paid',
+        amount_paid: 0,
+        subscription: subscriptionId,
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: true,
+      details: { subscriptionId },
+    })
+  })
+
+  it('does not grant Pro for a different Stripe product', async () => {
+    const campaign = await seedCampaign()
+    const subscriptionId = 'sub_other_product'
+    mockSubscription(
+      subscriptionId,
+      { userId: String(service.user.id), campaignId: String(campaign.id) },
+      'active',
+      'prod_other',
+    )
+
+    expect((await deliverStripeEvent(paidInvoice(subscriptionId))).status).toBe(
+      200,
+    )
+    expect((await readCampaign(campaign.id)).isPro).toBe(false)
+    expect((await readCampaign(campaign.id)).details.subscriptionId).toBeFalsy()
+  })
+
+  it('does not restore access from an invoice older than the plan end', async () => {
+    const campaign = await seedCampaign()
+    const subscriptionId = 'sub_invoice_before_end'
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { planEndedAt: new Date('2026-01-01') },
+    })
+    mockSubscription(subscriptionId, {
+      userId: String(service.user.id),
+      campaignId: String(campaign.id),
+    })
+
+    const invoice = { ...paidInvoice(subscriptionId), created: 1 }
+    expect((await deliverStripeEvent(invoice)).status).toBe(200)
+    expect((await readCampaign(campaign.id)).isPro).toBe(false)
+    expect((await readCampaign(campaign.id)).details.subscriptionId).toBeFalsy()
+  })
+
+  it('does not select a campaign when two legacy campaigns have the same link', async () => {
+    const subscriptionId = 'sub_legacy_multiple_links'
+    const first = await seedCampaign({ subscriptionId })
+    const second = await seedCampaign({ subscriptionId })
+    mockSubscription(subscriptionId, {})
+
+    expect((await deliverStripeEvent(paidInvoice(subscriptionId))).status).toBe(
+      200,
+    )
+    expect((await readCampaign(first.id)).isPro).toBe(false)
+    expect((await readCampaign(second.id)).isPro).toBe(false)
+  })
+
+  it('acknowledges a second subscription without replacing the existing link', async () => {
+    const campaign = await seedCampaign({ subscriptionId: 'sub_existing' })
+    const subscriptionId = 'sub_duplicate_checkout'
+    mockSubscription(subscriptionId, {
+      userId: String(service.user.id),
+      campaignId: String(campaign.id),
+    })
+
+    expect((await deliverStripeEvent(paidInvoice(subscriptionId))).status).toBe(
+      200,
+    )
+    expect(await readCampaign(campaign.id)).toMatchObject({
+      isPro: false,
+      details: { subscriptionId: 'sub_existing' },
+    })
+  })
+
+  it('does not grant Pro when the campaign owner changes before the write', async () => {
+    const campaign = await seedCampaign()
+    const subscriptionId = 'sub_owner_changed'
+    mockSubscription(subscriptionId, {
+      userId: String(service.user.id),
+      campaignId: String(campaign.id),
+    })
+    const newOwner = await service.prisma.user.create({
+      data: { email: 'new-campaign-owner@example.com' },
+    })
+    const campaigns = service.app.get(CampaignsService)
+    const setIsPro = campaigns.setIsPro.bind(campaigns)
+    vi.spyOn(campaigns, 'setIsPro').mockImplementationOnce(async (...args) => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { userId: newOwner.id },
+      })
+      return setIsPro(...args)
+    })
+
+    expect((await deliverStripeEvent(paidInvoice(subscriptionId))).status).toBe(
+      200,
+    )
+    expect((await readCampaign(campaign.id)).isPro).toBe(false)
+    expect((await readCampaign(campaign.id)).details.subscriptionId).toBeFalsy()
+  })
+
+  it('does not grant Pro to a deleted user', async () => {
+    const campaign = await seedCampaign()
+    const subscriptionId = 'sub_deleted_user'
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: { isDeleted: true } },
+    })
+    mockSubscription(subscriptionId, {
+      userId: String(service.user.id),
+      campaignId: String(campaign.id),
+    })
+
+    expect((await deliverStripeEvent(paidInvoice(subscriptionId))).status).toBe(
+      200,
+    )
+    expect((await readCampaign(campaign.id)).isPro).toBe(false)
+    expect((await readCampaign(campaign.id)).details.subscriptionId).toBeFalsy()
+  })
+
+  it('does not reactivate a canceled subscription on an old paid invoice', async () => {
+    const campaign = await seedCampaign()
+    const subscriptionId = 'sub_canceled_invoice'
+    mockSubscription(
+      subscriptionId,
+      {
+        userId: String(service.user.id),
+        campaignId: String(campaign.id),
+      },
+      'canceled',
+    )
+
+    expect((await deliverStripeEvent(paidInvoice(subscriptionId))).status).toBe(
+      200,
+    )
+    const updated = await readCampaign(campaign.id)
+    expect(updated.isPro).toBe(false)
+    expect(updated.details.subscriptionId).toBeFalsy()
   })
 })
 

@@ -917,6 +917,7 @@ export class StripeService {
   ): Promise<Stripe.Checkout.SessionCreateParams> => ({
     metadata: {
       userId: user.id,
+      campaignId,
     },
     subscription_data: {
       metadata: {
@@ -1169,6 +1170,17 @@ export class StripeService {
       }
       throw e
     }
+  }
+
+  isProSubscription(subscription: Stripe.Subscription) {
+    const proProductId = STRIPE_SECRET_KEY?.includes('live')
+      ? LIVE_PRODUCT_ID
+      : TEST_PRODUCT_ID
+    return subscription.items.data.some(({ price }) =>
+      typeof price.product === 'string'
+        ? price.product === proProductId
+        : price.product.id === proProductId,
+    )
   }
 
   async retrieveSubscription(subscriptionId: string) {

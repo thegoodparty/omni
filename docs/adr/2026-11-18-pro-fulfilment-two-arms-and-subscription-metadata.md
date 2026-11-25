@@ -1,6 +1,7 @@
 ---
 title: Pro fulfilment has two webhook arms, and the subscription carries its own account link
-status: active
+status: superseded
+superseded_by: 2026-11-25-paid-stripe-invoices-grant-pro.md
 decided_by: [agent]
 date: 2026-11-18
 code: ['#3876']

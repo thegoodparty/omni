@@ -805,6 +805,9 @@ jwIDAQAB
         prod: 'robocall-free-offer-2026-11',
       }),
       // The nightly case scout (src/caseScout/AGENTS.md). On in dev and prod.
+      STRIPE_PRO_INVOICE_ONLY: String(
+        config.getBoolean('stripeProInvoiceOnly') ?? false,
+      ),
       // The bucket belongs to gp-ai's case-scout module. The send switch is
       // off everywhere, so each night's handoff is held in the bucket for a
       // person to read and nothing goes to Delegate. Previews never run it.
