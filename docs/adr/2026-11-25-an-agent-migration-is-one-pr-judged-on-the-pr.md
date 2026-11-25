@@ -25,10 +25,14 @@ PR's preview on gp-api's engine. A verdict of BETTER, NO DIFFERENCE FOUND or
 CAN'T SAY with `handledWhen` unregressed, plus Delegate's approval, is the
 migration passing; promoting the PR is the migration happening.
 
-Rollback is reverting the PR's list lines. That is safe only because a
-migrating agent's readers read a run by id from either engine's table: a reader
-that picks its table from `runsOnGpApi` strands every run the other engine
-wrote, so the readers must be two-way across the flip.
+Rollback is reverting the PR's list lines. That only works if the agent's
+readers are two-way: look a run up by id in `AgentRun` and in `ExperimentRun`
+and return whichever holds it, the way `agentRunRoutes.service.ts`'s `read`
+does. A reader that picks one table from `runsOnGpApi` cannot see a run the
+other engine wrote, so after a revert its gate finds no run and dispatches a
+second one. The community-issue and campaign-strategy readers are that one-way
+shape today; a migration that advertises a revert as its rollback changes its
+readers first.
 
 ## Context
 
@@ -43,6 +47,11 @@ The lists are the source of truth for which engine runs an agent where, and a
 judge run in a preview needs the agent in the preview list or both arms run the
 PMF Engine and the suite compares it with itself.
 
+The trade this makes: the merge is the prod flip, so the verdict precedes
+production traffic instead of following it, and a revert is the only recovery.
+That is why a safe-not-unproven revert is part of the same PR rather than an
+assumption about the readers that exist.
+
 ## Alternatives rejected
 
 - **Dev first, prod in a later PR.** Two merges and a dev-vs-prod engine
@@ -51,9 +60,10 @@ PMF Engine and the suite compares it with itself.
   unproven.
 - **Judge after merging.** The proof would arrive after the change is live,
   and a WORSE verdict would leave only a revert.
-- **Readers that keep switching tables with `runsOnGpApi`.** Then reverting the
-  list lines orphans the runs the other engine stored, so the advertised
-  rollback is not one.
+- **Readers that keep switching tables with `runsOnGpApi`.** The shape the
+  community-issue and campaign-strategy readers have today. It makes the flip
+  atomic, but it strands the runs the other engine wrote, so a revert is not the
+  rollback this rule promises.
 
 ## Revisit if
 

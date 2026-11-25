@@ -68,7 +68,9 @@ as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
 ## Migration plan
 
-In this order. A step starts when the one before it is done.
+In this order. A step starts when the one before it is done. Step 1's bar was
+successful production traffic; a migration's is the judge verdict and approval
+on its own PR, which arrive before the merge (step 3).
 
 1. **`trending_issues` live in prod.** The template for every later agent:
    the definition, its web tools, its judge suite, and the
@@ -97,11 +99,14 @@ In this order. A step starts when the one before it is done.
    it compares the PMF Engine in dev against the PR's preview on gp-api's
    engine. That verdict, and Delegate's approval of it, is the proof, and
    promoting the PR is the migration. Rollback is reverting the PR's list
-   lines, and that is only safe because the readers read both engines' tables
-   across the flip: one that picks its table from the switch strands the runs
-   the other engine wrote, so a migrating agent's readers read a run by id
-   from either table. CI's per-case results are in the `judge-eval-results`
-   artifact ([`judge/AGENTS.md`](../packages/judge/AGENTS.md)).
+   lines, and that only rolls back if the agent's readers are two-way: one that
+   picks its table from the switch cannot read a run the other engine wrote, so
+   after a revert its gate sees no run and dispatches a second one. The
+   community-issue readers are that one-way shape today. A migrating agent's
+   readers look a run up by id in both tables, as the judge's read route does,
+   and stay two-way across the flip. CI's per-case results are in the
+   `judge-eval-results` artifact
+   ([`judge/AGENTS.md`](../packages/judge/AGENTS.md)).
    - **Wave 1, web tools only:** `race_opponent_summary`,
      `opposition_research`, `opportunities_and_challenges`,
      `race_opponent_collection`, `self_research`, `meeting_schedule`.

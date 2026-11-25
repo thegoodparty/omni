@@ -259,14 +259,19 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
 
 1. Register it in `AGENTS` under its experiment id, so every reader and gate
    that queries the PMF Engine's `ExperimentRun` rows of that `experimentType`
-   has one that queries `AgentRun` rows of that `agentName` too (see
+   has one that queries `AgentRun` rows of that `agentName` (see
    `communityIssueRead.service.ts` and
-   `communityIssueDispatch.service.ts` for two that do). Both are live at once
-   through the flip: the engine that ran a run decides which table holds it, so
-   a gate left on the old table alone is a duplicate-dispatch bug — it sees no
-   runs and lets the type run again — and a reader left on it alone strands
-   every run the other engine wrote. Reverting a migration's list lines is only
-   a safe rollback while the readers read both.
+   `communityIssueDispatch.service.ts` for two that have been). A gate left on
+   the old table is a duplicate-dispatch bug: it sees no runs and lets the type
+   run again.
+   - Those readers pick one table from `runsOnGpApi`. That makes the flip
+     atomic and is not enough for a migration whose rollback is reverting its
+     list lines: a single-table reader cannot read a run the other engine
+     wrote, so after a revert the gate sees no run and dispatches again.
+   - A migrating agent's readers are two-way across the flip: look the run up
+     by id in `AgentRun` and in `ExperimentRun`, as
+     `agentRunRoutes.service.ts`'s `read` does. That is the one place a
+     migration departs from the readers already in.
 2. The prompt is the experiment's `instruction.md` with the runtime parts
    swapped: input in the first message, our tools, `submitOutput` instead of
    the file and validator. Input and output schemas come from the manifest;

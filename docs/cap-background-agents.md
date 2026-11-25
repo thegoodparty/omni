@@ -202,8 +202,8 @@ dormant and dispatches nothing.
   in a preview, both in dev and only `trending_issues` in prod;
   `src/agents/AGENTS.md`).
 - **Campaign strategy** (`src/campaignStrategy/`) — experiments `opposition_research`
-  - `opportunities_and_challenges`, persisted section by section. Each experiment
-  can run on gp-api's own agents, and `CampaignStrategyService` picks
+  and `opportunities_and_challenges`, persisted section by section. Each
+  experiment can run on gp-api's own agents, and `CampaignStrategyService` picks
   its run table, its artifact store and its dispatch from that same per-agent
   switch, so a section the switch moves lands on the plan exactly as before.
   Both are on gp-api's engine in a preview only while the judge compares them
