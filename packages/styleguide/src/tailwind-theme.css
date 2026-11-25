@@ -58,6 +58,7 @@
   --color-input: var(--input, #e2e8f0);
   --color-ring: var(--ring, #020817);
   --color-background: var(--background, #ffffff);
+  --color-page: var(--page, var(--base-muted));
   --color-foreground: var(--foreground, #020817);
   --color-muted: var(--muted, #f8fafc);
   --color-muted-foreground: var(--muted-foreground, #64748b);

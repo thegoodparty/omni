@@ -60,7 +60,7 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   `MobileMenuTrigger`'s top bar via this route's `MOBILE_PAGE_TITLES` entry in
   `DashboardLayout` — keep that entry, or mobile loses its title. Everything
   below the bar (locked view or `RaceOpponentList`) sits in a
-  `flex-1 px-4 py-6 lg:px-8` body on the layout's `bg-muted` surface; each
+  `flex-1 px-4 py-6 lg:px-8` body on the layout's `bg-page` surface; each
   state centers itself in that body
   with its own `mx-auto max-w-*` (608px for the report/processing screen, 560px
   for the locked view and the manual-entry form) rather than the shell

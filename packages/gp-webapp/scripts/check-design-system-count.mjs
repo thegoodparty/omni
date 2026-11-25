@@ -52,7 +52,7 @@ const BASELINES = {
   // (section 7, step 1). Both draw the same gate, so the Dialog fix covers
   // both. ENG-11762 counted +2 against its base; on main it is three
   // components (DialogContent, DialogTitle, DialogDescription).
-  restyledComponents: 482,
+  restyledComponents: 481,
 }
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
