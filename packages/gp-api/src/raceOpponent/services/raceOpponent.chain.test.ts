@@ -24,6 +24,7 @@ const seedCampaign = async (isPro = true) => {
       organizationSlug: SLUG,
       isPro,
     },
+    include: { user: true },
   })
 }
 
