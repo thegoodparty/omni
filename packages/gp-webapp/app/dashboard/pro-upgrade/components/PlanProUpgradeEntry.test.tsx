@@ -35,6 +35,9 @@ const result = (data: unknown) =>
 const setup = (
   plan: 'free' | 'pro',
   carry: { plan: 'pro' | 'team' | null; returnTo: string | null },
+  // A Pro campaign whose plan columns read free (granted or legacy Pro, or an
+  // ended one-time plan): isPro is set but nothing is held.
+  heldPlan: 'free' | 'pro' = plan,
 ): void => {
   vi.mocked(useQuery).mockImplementation((options) => {
     const { queryKey } = options as { queryKey: unknown }
@@ -48,7 +51,7 @@ const setup = (
   })
   vi.mocked(usePlan).mockReturnValue({
     plan,
-    heldPlan: plan,
+    heldPlan,
     isPaid: plan !== 'free',
     onSubscription: false,
     planEndsAt: null,
@@ -75,6 +78,16 @@ describe('ProUpgradeEntry with a plan in the URL', () => {
 
     expect(router.replace).toHaveBeenCalledWith(
       '/dashboard/pro-upgrade/payment?plan=team&returnTo=%2Fdashboard%2Fteam',
+    )
+  })
+
+  it('sends a Pro campaign holding no plan asking for Team to payment, not the success step', () => {
+    setup('pro', { plan: 'team', returnTo: null }, 'free')
+
+    render(<ProUpgradeEntry />)
+
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade/payment?plan=team',
     )
   })
 

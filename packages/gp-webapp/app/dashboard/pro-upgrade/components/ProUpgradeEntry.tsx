@@ -68,9 +68,13 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
   const { ready: flagReady, enabled: planPricing } =
     useWinPerCampaignPricingFlag(false)
   const carry = useProUpgradeCarry()
-  const { heldPlan } = usePlan()
+  const { heldPlan, onSubscription } = usePlan()
   const upgradeToTeam =
-    planPricing && carry.plan === 'team' && heldPlan === 'pro'
+    planPricing &&
+    carry.plan === 'team' &&
+    !onSubscription &&
+    heldPlan !== 'team' &&
+    (heldPlan === 'pro' || Boolean(campaign?.isPro))
 
   // Only a Team request needs the flag settled to pick its step; waiting on it
   // for everyone would hold every other entry behind the flag fetch.
