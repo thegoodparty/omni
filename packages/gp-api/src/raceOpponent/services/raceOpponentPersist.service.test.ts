@@ -10,6 +10,7 @@ import {
 } from '../raceOpponent.constants'
 import { RaceOpponentPersistService } from './raceOpponentPersist.service'
 import { RaceOpponentService } from './raceOpponent.service'
+import type { RaceOpponentActionsOutput } from '../raceOpponentActionsAgent/race_opponent_actions.schema'
 
 const service = useTestService()
 
@@ -80,6 +81,23 @@ const card = (overrides: Record<string, unknown> = {}) => ({
 })
 
 const persist = () => service.app.get(RaceOpponentPersistService)
+
+// The gp-api hooks receive the run's validated output, so this is the agent's
+// own output type, not the looser snake_case JSON the PMF path reads from S3.
+const actionsArtifact = (): RaceOpponentActionsOutput => ({
+  generated_at: '2026-11-25T00:00:00Z',
+  haystaq_status: 'no_district',
+  actions: [
+    {
+      title: 'Knock the north precinct',
+      body: 'Your opponent skipped the last three council votes on road repair.',
+      sms_message: 'Hi, this is Jane — I show up for every road-repair vote.',
+      opponent_name: 'John Smith',
+      issue: 'infrastructure',
+      haystaq: null,
+    },
+  ],
+})
 
 const rows = (campaignId: number) =>
   service.prisma.raceOpponentStandoutAction.findMany({
@@ -343,7 +361,7 @@ describe('the gp-api completion hooks persist where the PMF consumer does', () =
 
     await persist().onActionsArtifact({
       runId: run.id,
-      artifact: { generated_at: '2026-11-25T00:00:00Z', actions: [card()] },
+      artifact: actionsArtifact(),
     })
 
     const persisted = await rows(campaign.id)
@@ -364,7 +382,7 @@ describe('the gp-api completion hooks persist where the PMF consumer does', () =
 
     await persist().onActionsArtifact({
       runId: run.id,
-      artifact: { generated_at: '2026-11-25T00:00:00Z', actions: [card()] },
+      artifact: actionsArtifact(),
     })
 
     expect(rechain).toHaveBeenCalledTimes(1)
