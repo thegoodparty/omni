@@ -32,7 +32,7 @@ import {
   MeetingResourceLocationType,
   Prisma,
 } from '../../generated/prisma'
-import { addDays, differenceInCalendarDays } from 'date-fns'
+import { addDays, differenceInCalendarDays, isAfter } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
@@ -238,6 +238,13 @@ type TargetMeeting = {
   meetingName?: string // official meeting-body name from the schedule (same reason)
 }
 
+// One engine's newest completed schedule run. `read` is deferred so the reader
+// only pays for the winner's artifact — an S3 GET for the PMF Engine.
+type ScheduleCandidate = {
+  createdAt: Date
+  read: () => Promise<MeetingSchedule | null>
+}
+
 export type BriefingDispatchOutcome = {
   dispatched: boolean
   // A meeting_briefing run for this office is QUEUED/RUNNING/AWAITING_RESUME
@@ -274,27 +281,38 @@ export class MeetingBriefingsService extends createPrismaBase(
   async loadLatestScheduleForOrg(
     organizationSlug: string,
   ): Promise<MeetingSchedule | null> {
-    // Whichever engine the switch sends this agent's next run to is the one
-    // whose runs the schedule comes from: gp-api's own agents keep the
-    // artifact on the AgentRun row, the PMF Engine publishes it to S3.
-    if (!runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)) {
-      return this.publishedScheduleForOrg(organizationSlug)
-    }
-    // Cutover: an office whose schedule last ran on the PMF Engine has no
-    // AgentRun yet, and dropping its published schedule would empty its
-    // meetings list, its briefing dispatch and its hint until a new run
-    // lands. The published artifact is the same shape and is the better
-    // answer until the first gp-api run exists; after that the AgentRun wins.
-    // Removed at teardown.
-    return (
-      (await this.agentScheduleForOrg(organizationSlug)) ??
-      this.publishedScheduleForOrg(organizationSlug)
-    )
+    // Both tables answer, and the newer run wins. A run dispatched before the
+    // switch flipped keeps its artifact where it was — gp-api's agents on the
+    // AgentRun row, the PMF Engine in S3 — so a reader that trusted the switch
+    // would call an office with a real schedule scheduleless, emptying its
+    // meetings list, its imminence gate and its briefing dispatch. Nothing
+    // re-dispatches a schedule for an office that already exists, so that would
+    // not recover on its own.
+    //
+    // Newest wins rather than the switched-to engine, because an office can
+    // hold a completed schedule in both tables: the manual re-dispatch path
+    // does not check for an existing run, so a re-dispatch after the flip
+    // leaves a newer `AgentRun` beside the older published one, and a revert
+    // that preferred the published row would serve the stale schedule. The
+    // switch only breaks a tie. Removed at teardown.
+    const [onGpApi, onPmf] = await Promise.all([
+      this.scheduleCandidateOnGpApi(organizationSlug),
+      this.scheduleCandidateOnPmf(organizationSlug),
+    ])
+    if (!onGpApi) return onPmf ? onPmf.read() : null
+    if (!onPmf) return onGpApi.read()
+
+    const [preferred, other] = runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)
+      ? [onGpApi, onPmf]
+      : [onPmf, onGpApi]
+    return isAfter(other.createdAt, preferred.createdAt)
+      ? other.read()
+      : preferred.read()
   }
 
-  private async agentScheduleForOrg(
+  private async scheduleCandidateOnGpApi(
     organizationSlug: string,
-  ): Promise<MeetingSchedule | null> {
+  ): Promise<ScheduleCandidate | null> {
     const run = await this.client.agentRun.findFirst({
       where: {
         organizationSlug,
@@ -303,24 +321,29 @@ export class MeetingBriefingsService extends createPrismaBase(
         artifact: { not: Prisma.DbNull },
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { id: true, artifact: true },
+      select: { id: true, artifact: true, createdAt: true },
     })
     if (!run) return null
 
-    const parsed = MeetingScheduleOutputSchema.safeParse(run.artifact)
-    if (!parsed.success) {
-      this.logger.error(
-        { organizationSlug, runId: run.id },
-        'meeting_schedule AgentRun artifact is not a schedule',
-      )
-      return null
+    return {
+      createdAt: run.createdAt,
+      read: async () => {
+        const parsed = MeetingScheduleOutputSchema.safeParse(run.artifact)
+        if (!parsed.success) {
+          this.logger.error(
+            { organizationSlug, runId: run.id },
+            'meeting_schedule AgentRun artifact is not a schedule',
+          )
+          return null
+        }
+        return toMeetingSchedule(parsed.data)
+      },
     }
-    return toMeetingSchedule(parsed.data)
   }
 
-  private async publishedScheduleForOrg(
+  private async scheduleCandidateOnPmf(
     organizationSlug: string,
-  ): Promise<MeetingSchedule | null> {
+  ): Promise<ScheduleCandidate | null> {
     const run = await this.client.experimentRun.findFirst({
       where: {
         organizationSlug,
@@ -332,18 +355,24 @@ export class MeetingBriefingsService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
     })
     if (!run || !run.artifactBucket || !run.artifactKey) return null
+    const { artifactBucket, artifactKey } = run
 
-    const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
-    if (!raw) return null
+    return {
+      createdAt: run.createdAt,
+      read: async () => {
+        const raw = await this.s3.getFile(artifactBucket, artifactKey)
+        if (!raw) return null
 
-    try {
-      return parseSchedule(raw)
-    } catch {
-      this.logger.error(
-        { organizationSlug, runId: run.runId },
-        'meeting_schedule artifact is not valid JSON',
-      )
-      return null
+        try {
+          return parseSchedule(raw)
+        } catch {
+          this.logger.error(
+            { organizationSlug, runId: run.runId },
+            'meeting_schedule artifact is not valid JSON',
+          )
+          return null
+        }
+      },
     }
   }
 
@@ -381,39 +410,15 @@ export class MeetingBriefingsService extends createPrismaBase(
     // retry spawns a duplicate live run. A FAILED-only run is
     // not blocking: the first attempt did not succeed and nothing else
     // re-dispatches it (a dead run is only marked FAILED by the gp-ai
-    // ECS task-reaper, which does not re-dispatch). The engine that will run
-    // it is the one whose runs answer "already ran": gp-api's own agents
-    // record an AgentRun, the PMF Engine an ExperimentRun.
-    const existingScheduleRun = runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)
-      ? await this.client.agentRun.findFirst({
-          where: {
-            organizationSlug: electedOffice.organizationSlug,
-            agentName: SCHEDULE_EXPERIMENT_TYPE,
-            status: {
-              in: [
-                AgentRunStatus.queued,
-                AgentRunStatus.running,
-                AgentRunStatus.completed,
-              ],
-            },
-          },
-          select: { id: true },
-        })
-      : await this.client.experimentRun.findFirst({
-          where: {
-            organizationSlug: electedOffice.organizationSlug,
-            experimentType: SCHEDULE_EXPERIMENT_TYPE,
-            status: {
-              in: [
-                ExperimentRunStatus.QUEUED,
-                ExperimentRunStatus.RUNNING,
-                ExperimentRunStatus.AWAITING_RESUME,
-                ExperimentRunStatus.COMPLETED,
-              ],
-            },
-          },
-          select: { runId: true },
-        })
+    // ECS task-reaper, which does not re-dispatch).
+    //
+    // Both engines' tables answer, not the switch's: an office whose schedule
+    // already ran on the PMF Engine has an `ExperimentRun`, and after the flip
+    // reads only `AgentRun` it would look like it never ran. A run dispatched
+    // before the flip is the same case an in-flight one is.
+    const existingScheduleRun = await this.existingScheduleRunForOrg(
+      electedOffice.organizationSlug,
+    )
     if (existingScheduleRun) {
       this.logger.info(
         { electedOfficeId: electedOffice.id },
@@ -430,6 +435,42 @@ export class MeetingBriefingsService extends createPrismaBase(
     // the briefing if a meeting falls inside the window. This guarantees
     // we never run a briefing without a fresh schedule.
     await this.dispatchSchedule(ctx)
+  }
+
+  private async existingScheduleRunForOrg(
+    organizationSlug: string,
+  ): Promise<{ id: string } | null> {
+    const onGpApi = await this.client.agentRun.findFirst({
+      where: {
+        organizationSlug,
+        agentName: SCHEDULE_EXPERIMENT_TYPE,
+        status: {
+          in: [
+            AgentRunStatus.queued,
+            AgentRunStatus.running,
+            AgentRunStatus.completed,
+          ],
+        },
+      },
+      select: { id: true },
+    })
+    if (onGpApi) return onGpApi
+    const onPmf = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug,
+        experimentType: SCHEDULE_EXPERIMENT_TYPE,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+            ExperimentRunStatus.COMPLETED,
+          ],
+        },
+      },
+      select: { runId: true },
+    })
+    return onPmf ? { id: onPmf.runId } : null
   }
 
   private async loadLocationHint(

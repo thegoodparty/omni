@@ -185,8 +185,8 @@ dormant and dispatches nothing.
   agent types, `meeting_schedule` then `meeting_briefing`. Signup dispatches the
   schedule; schedule completion chains a briefing if the **imminence gate** passes (a
   projected meeting within `IMMINENCE_WINDOW_DAYS = 3`). `meeting_schedule` can
-  instead run on gp-api's own agents (`AGENTS_ON_GP_API`, which names it in a
-  preview and nowhere else; `src/agents/AGENTS.md`). The `meetingBriefingsDaily`
+  instead run on gp-api's own agents (`AGENTS_ON_GP_API`, which
+  `deploy/agentsOnGpApi.ts` sets per environment; `src/agents/AGENTS.md`). The `meetingBriefingsDaily`
   pg-boss schedule (`0 7 * * *` UTC) sends one `meetingBriefingDispatch` job per
   candidate office, and each job dispatches if the office is still eligible. The "brief now" UI path
   bypasses the gate and widens the window to 60 days. User-supplied agendas ride as
@@ -198,9 +198,8 @@ dormant and dispatches nothing.
   `onExperimentRunCompleted` re-reads S3, validates, **verifies the artifact's
   `organization_slug` and `generated_for_run_id` match the run** (anti-cross-
   contamination), then upserts. `trending_issues` and `top_community_issues`
-  can instead run on gp-api's own agents (`AGENTS_ON_GP_API`, which names both
-  in a preview, both in dev and only `trending_issues` in prod;
-  `src/agents/AGENTS.md`).
+  can instead run on gp-api's own agents (`AGENTS_ON_GP_API`, which
+  `deploy/agentsOnGpApi.ts` sets per environment; `src/agents/AGENTS.md`).
 - **Campaign strategy** (`src/campaignStrategy/`) — experiments `opposition_research`
   and `opportunities_and_challenges`, persisted section by section. Each
   experiment can run on gp-api's own agents, and `CampaignStrategyService` picks

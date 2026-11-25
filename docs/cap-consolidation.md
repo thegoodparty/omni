@@ -6,13 +6,7 @@ Status: in progress. The core, `AgentMessage` and `trending_issues` are on
 main. `deploy/agentsOnGpApi.ts` says which agents run on gp-api's engine in
 which environment, and it is the only statement of that: a preview names
 every registered agent, because a preview is the Universal Judge's candidate
-arm; dev names `trending_issues` and `top_community_issues`; prod names
-`trending_issues`. So `trending_issues` is on gp-api's engine in all three,
-`top_community_issues` in preview and dev with prod still on the PMF Engine,
-and `meeting_schedule`, `opposition_research` and
-`opportunities_and_challenges` in a preview only, where the judge compares
-them against the PMF Engine. Every other agent runs on the PMF Engine. An
-agent a list leaves out runs in that environment as
+arm. An agent a list leaves out runs in that environment as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
@@ -104,23 +98,27 @@ on its own PR, which arrive before the merge (step 3).
    run this org already has by org, agent type and status, and reads one table,
    so a reader on one engine cannot see a run the other engine stored — after a
    revert it finds nothing and dispatches a second run. `meeting_schedule`'s
-   dispatch gate and latest-schedule read are in that shape on main today. So a
-   migration makes its readers two-way first: the gate and the latest-run read
-   check both tables by org and type, and a by-id read falls through to the
-   other table, as the judge's read route does. That is the one place a
-   migration departs from the readers already in, and it is the migration
-   author's to do — no check tests a revert, because the judge verdict does not.
+   dispatch gate and latest-schedule read were in that shape, and now read both
+   tables: the gate checks both, and the latest-schedule read takes whichever
+   engine's newest completed run is later, so a flip cannot serve the other
+   engine's older schedule. So a migration makes its readers two-way first: the
+   gate and the latest-run read check both tables by org and type, and a by-id
+   read falls through to the other table, as the judge's read route does. That
+   is the one place a migration departs from the readers already in, and it is
+   the migration author's to do — no check tests a revert, because the judge
+   verdict does not.
    CI's per-case results are in the `judge-eval-results` artifact
    ([`judge/AGENTS.md`](../packages/judge/AGENTS.md)).
    - **Wave 1, web tools only:** `race_opponent_summary`,
      `opposition_research`, `opportunities_and_challenges`,
      `race_opponent_collection`, `self_research`, `meeting_schedule`.
      `opposition_research`, `opportunities_and_challenges` and
-     `meeting_schedule` are on main and in the preview list, so a judge run
-     compares them against the PMF Engine; nothing else in this wave is. The
-     opponent chain runs collection, then summary, then actions, and one chain
-     is one migration: collection and summary land with actions, in the PR
-     that puts all three in every list.
+     `meeting_schedule` are in the preview and dev lists and run on gp-api's
+     engine in both; prod still runs them on the PMF Engine, and a promote PR
+     moves them there once their dev runs are healthy. Nothing else in this
+     wave is migrated. The opponent chain runs collection, then summary, then
+     actions, and one chain is one migration: collection and summary land with
+     actions, in the PR that puts all three in every list.
    - **Wave 2, needs a Databricks tool:** `race_opponent_actions`,
      `opponent_research`, `top_community_issues` (on gp-api's engine in
      preview and dev; prod is still on the PMF Engine), `campaign_tracker_tasks`.

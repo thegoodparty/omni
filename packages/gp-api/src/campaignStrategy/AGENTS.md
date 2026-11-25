@@ -34,6 +34,14 @@ Engine's result consumer calls. `sectionRunFor` is public
 so the race-opponent page's discovery status reads the same table the dispatcher
 wrote to.
 
+**The switch is not a hard cut, and one edge is accepted while it is dev-only.**
+`sectionRunFrom` reads the one table the switch names, so a section whose run is
+still on the other engine at the deploy reads as `redispatch`: the plan spends an
+attempt on a second paid run and the first one's artifact has no plan to land in.
+In dev that costs a duplicate run on one plan, which is what dev is for. Making
+the reader fall back to the other table is what turns reverting the line into a
+rollback, and it lands with the prod flip, not before.
+
 `superseded` is the one status the two engines disagree about, so a `SectionRun`
 carries its `engine` and `sectionRunIsInFlight` reads it. The PMF Engine's resume
 sweep writes it on a predecessor _after_ dispatching a successor that shares the
