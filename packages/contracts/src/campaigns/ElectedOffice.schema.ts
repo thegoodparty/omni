@@ -21,6 +21,10 @@ export const ElectedOfficeSchema = z.object({
   selfReported: z.boolean(),
   // Resume checkpoint: the furthest serve-onboarding step the holder reached.
   onboardingStep: z.string().nullable(),
+  // When the holder asked for one text the moment their first Meeting
+  // Briefing is ready (ISO), or null. Written with the boolean
+  // `briefingTextReminder` on PUT /v1/elected-office/:id.
+  briefingTextReminderAt: z.string().nullable(),
   userId: z.number(),
   campaignId: z.number().nullable(),
   createdAt: z.string(),
@@ -29,10 +33,19 @@ export const ElectedOfficeSchema = z.object({
 
 export type ElectedOffice = z.infer<typeof ElectedOfficeSchema>
 
+// `GET /v1/elected-office/current`: the office plus the holder's own vote
+// count in the race that won it, from the office's linked Win campaign. Null
+// when the office came from no campaign or no source has sent a count.
+export const CurrentElectedOfficeSchema = ElectedOfficeSchema.extend({
+  votesReceived: z.number().int().nullable(),
+})
+
+export type CurrentElectedOffice = z.infer<typeof CurrentElectedOfficeSchema>
+
 // `GET /v1/elected-office/mine`: each of the caller's offices, plus what its
 // linked Win campaign says. The active org can be the office's own `eo-*`
 // org, where the client has no campaign to read, so the server answers.
-export const MyElectedOfficeSchema = ElectedOfficeSchema.extend({
+export const MyElectedOfficeSchema = CurrentElectedOfficeSchema.extend({
   hasWinIssues: z.boolean(),
   campaignWasEverPro: z.boolean(),
   // An office prepared ahead of an ever-Pro campaign's result: dormant, and

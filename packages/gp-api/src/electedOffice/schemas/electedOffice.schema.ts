@@ -26,10 +26,12 @@ export const SERVE_ONBOARDING_STEPS = [
   'story-grow',
   'priorities',
   'pledge',
-  // The warm welcome (serve-warm-welcome), WARM_WELCOME_STEPS in gp-webapp.
+  // The warm welcome, WARM_WELCOME_STEPS in gp-webapp.
   'warm-won',
   'warm-meeting',
   'warm-briefing',
+  'warm-residents',
+  'warm-priorities',
   'warm-recap',
 ] as const
 const ZServeOnboardingStep = z
@@ -99,6 +101,9 @@ export const CreateElectedOfficeSchema = z
 export const UpdateElectedOfficeSchema = z
   .object({
     ...electedOfficeWritableFields,
+    // The holder's yes or no to one text when their first Meeting Briefing is
+    // ready. Stored as briefingTextReminderAt; see electedOffice.prisma.
+    briefingTextReminder: z.boolean().optional(),
   })
   .superRefine(refineTermDates)
 

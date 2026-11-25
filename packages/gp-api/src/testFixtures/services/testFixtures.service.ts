@@ -736,8 +736,20 @@ export class TestFixturesService {
     } else if (action === 'ddhq.result.won') {
       // A DDHQ win as gp-data-platform writes it: the column alone, straight
       // to Postgres, so no gp-api path reconciles the office and only the
-      // winOfficeSweep schedule can find it.
+      // winOfficeSweep schedule can find it. `params.votesReceived` is the
+      // winner's vote count, written with the result when the source has one.
       if (VENDOR_MODE !== 'mock') throw new NotFoundException()
+      const votesReceived = body.params?.['votesReceived']
+      if (
+        votesReceived !== undefined &&
+        (typeof votesReceived !== 'number' ||
+          !Number.isInteger(votesReceived) ||
+          votesReceived < 0)
+      ) {
+        throw new BadRequestException(
+          'params.votesReceived must be a non-negative integer',
+        )
+      }
       const campaign = await this.campaigns.client.campaign.findUnique({
         where: { id: campaignId },
         select: { user: { select: { email: true } } },
@@ -747,7 +759,7 @@ export class TestFixturesService {
       }
       await this.campaigns.client.campaign.update({
         where: { id: campaignId },
-        data: { didWin: true },
+        data: { didWin: true, votesReceived },
       })
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)

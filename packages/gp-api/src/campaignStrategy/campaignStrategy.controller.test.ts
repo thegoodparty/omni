@@ -25,6 +25,7 @@ const sampleCampaign = {
   isPro: false,
   isDemo: false,
   didWin: null,
+  votesReceived: null,
   primaryResult: null,
   ballotStatus: null,
   signupGoal: null,

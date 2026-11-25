@@ -27,6 +27,10 @@ model Campaign {
   isPro                    Boolean?                @default(false) @map("is_pro")
   isDemo                   Boolean                 @default(false) @map("is_demo")
   didWin                   Boolean?                @map("did_win")
+  // The candidate's own vote count in the race `didWin` is about. Whoever
+  // records the result writes it with it (gp-data-platform's DDHQ write, or
+  // the M2M campaign update); null until a source sends one.
+  votesReceived            Int?                    @map("votes_received")
   primaryResult            String?                 @map("primary_result")
   // Onboarding's "Are you already on the ballot?" answer. A column, not a
   // details key: the details allowlist strips anything it does not name, so a

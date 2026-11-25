@@ -98,6 +98,11 @@ exposure.
 Reason: same shape as poll results — one meeting's agenda is ready, addressed
 by that meeting's id.
 
+The event also carries `textReminder` (boolean). It is true on exactly one
+event per office: the first after the official asked, in Serve onboarding,
+for a text when their first Meeting Briefing is ready. A HubSpot workflow
+that sends that text branches on it; every other event carries false.
+
 **Caveat, flagged for the Ops portal spot-check:** unlike poll results, this
 event's payload carries real per-meeting content (`execSummary`, the
 flattened top agenda items, `meetingPlace`) — the same shape as the

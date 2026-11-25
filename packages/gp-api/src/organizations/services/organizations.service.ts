@@ -66,7 +66,8 @@ export type FriendlyOrganization = {
  *   the picker greys out as "Past", so this can never promote a seat the picker
  *   is calling over, and a former office holder running again is not stranded
  *   in a dashboard for an office they no longer hold. An office with no term
- *   dates yet is not held by that same rule.
+ *   dates yet is not held by that same rule, unless a win created it and its
+ *   winner finished Serve onboarding.
  * - Begun: `isHeldOffice` derives from `termEndDate` alone and does not look at
  *   `termStartDate` (see `deriveIsActive`), so an office whose term starts in
  *   the future already reads as held — its end date is years out. That is not

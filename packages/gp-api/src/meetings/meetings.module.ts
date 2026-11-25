@@ -15,6 +15,7 @@ import { BriefingItemLinksService } from './services/briefingItemLinks.service'
 import { BriefingPdfService } from './services/briefingPdf.service'
 import { BriefingSeedService } from './services/briefingSeed.service'
 import { MeetingBriefingsService } from './services/meetingBriefings.service'
+import { StatedFirstMeetingService } from './services/statedFirstMeeting.service'
 import { UserAgendaUploadService } from './services/userAgendaUpload.service'
 
 @Module({
@@ -33,6 +34,7 @@ import { UserAgendaUploadService } from './services/userAgendaUpload.service'
   providers: [
     BriefingItemLinksService,
     MeetingBriefingsService,
+    StatedFirstMeetingService,
     UserAgendaUploadService,
     BriefingPdfService,
     BriefingSeedService,

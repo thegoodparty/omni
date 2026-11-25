@@ -637,6 +637,8 @@ export {
 export {
   ElectedOfficeSchema,
   type ElectedOffice,
+  CurrentElectedOfficeSchema,
+  type CurrentElectedOffice,
   MyElectedOfficeSchema,
   type MyElectedOffice,
 } from './campaigns/ElectedOffice.schema'
@@ -1203,6 +1205,21 @@ export {
   BRIEFING_IMMINENCE_WINDOW_DAYS,
   BRIEFING_DAILY_DISPATCH_HOUR_UTC,
 } from './meetings/BriefingDispatchTiming'
+
+export {
+  MEETING_SOURCE_VALUES,
+  MeetingSourceSchema,
+  type MeetingSource,
+  USER_AGENDA_STATUS_VALUES,
+  UserAgendaStatusSchema,
+  type UserAgendaStatus,
+  MeetingListItemSchema,
+  type MeetingListItem,
+  MeetingsListResponseSchema,
+  type MeetingsListResponse,
+  StatedFirstMeetingSchema,
+  type StatedFirstMeeting,
+} from './meetings/MeetingsList.schema'
 
 export {
   CommunityIssuesDispatchRequestSchema,
