@@ -388,10 +388,26 @@ export = async () => {
         description:
           'Logical replication for the Databricks Lakeflow Connect CDC pipeline',
         parameters: [
-          { name: 'rds.logical_replication', value: '1' },
-          { name: 'aurora.enhanced_logical_replication', value: '0' },
-          { name: 'aurora.logical_replication_backup', value: '1' },
-          { name: 'aurora.logical_replication_globaldb', value: '1' },
+          {
+            name: 'rds.logical_replication',
+            value: '1',
+            applyMethod: 'pending-reboot',
+          },
+          {
+            name: 'aurora.enhanced_logical_replication',
+            value: '0',
+            applyMethod: 'pending-reboot',
+          },
+          {
+            name: 'aurora.logical_replication_backup',
+            value: '1',
+            applyMethod: 'pending-reboot',
+          },
+          {
+            name: 'aurora.logical_replication_globaldb',
+            value: '1',
+            applyMethod: 'pending-reboot',
+          },
           {
             name: 'max_slot_wal_keep_size',
             value: '10240',
