@@ -35,9 +35,12 @@ import {
   ROBOCALL_NUMBER_FEE_CENTS,
 } from '@/shared/util/robocallPricing.util'
 import { firstOrThrow } from '@/shared/test-utils/arrays.util'
+import { OutreachDraftService } from '../services/outreachDraft.service'
 import {
   OutreachStatus,
   OutreachType,
+  Prisma,
+  PrismaClient,
   RobocallSettleState,
 } from '../../generated/prisma'
 
@@ -198,7 +201,9 @@ describe('POST /v1/outreach/drafts', () => {
     expect(uploadFile).toHaveBeenCalledWith(
       ASSET_DOMAIN,
       expect.anything(),
-      IMAGE_KEY,
+      expect.stringMatching(
+        /^scheduled-campaign\/jane-doe\/p2p\/draft\/[0-9a-f-]{36}\/image\.png$/,
+      ),
       expect.objectContaining({ contentType: 'image/png' }),
     )
   })
@@ -480,23 +485,57 @@ describe('POST /v1/outreach/drafts from a chat card', () => {
     )
   })
 
-  it('leaves one row when the card is saved twice at once', async () => {
+  // The retry only runs when a second tap's insert meets the first's row after
+  // the key was read as free, so the read is made to miss once.
+  it('updates the row that won the key when its own insert loses the race', async () => {
     const proposalKey = randomUUID()
+    const { client } = service.app.get(OutreachDraftService) as unknown as {
+      client: PrismaClient
+    }
+    const run = client.$transaction.bind(client) as (
+      fn: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    ) => Promise<unknown>
+    let missed = false
+    const spy = vi.spyOn(client, '$transaction').mockImplementation(((
+      fn: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    ) =>
+      run(async (tx) => {
+        if (missed) return fn(tx)
+        missed = true
+        await service.prisma.outreach.create({
+          data: {
+            campaignId: CAMPAIGN_ID,
+            organizationSlug: orgSlug,
+            outreachType: OutreachType.p2p,
+            status: OutreachStatus.draft,
+            name: 'Winner',
+            proposalKey,
+            title: `P2P Outreach - Campaign ${CAMPAIGN_ID}`,
+          },
+        })
+        const blind = new Proxy(tx.outreach, {
+          get: (target, prop, receiver) =>
+            prop === 'findUnique'
+              ? async () => null
+              : Reflect.get(target, prop, receiver),
+        })
+        return fn(
+          new Proxy(tx, {
+            get: (t, p) => (p === 'outreach' ? blind : Reflect.get(t, p)),
+          }),
+        )
+      })) as unknown as typeof client.$transaction)
 
-    const results = await Promise.all([
-      createP2pDraft('First', { proposalKey }),
-      createP2pDraft('Second', { proposalKey }),
-    ])
+    const res = await createP2pDraft('Second tap', { proposalKey })
+    spy.mockRestore()
 
-    expect(results.map((res) => res.status)).toEqual([
-      HttpStatus.CREATED,
-      HttpStatus.CREATED,
-    ])
-    expect(
-      await service.prisma.outreach.count({
-        where: { campaignId: CAMPAIGN_ID, proposalKey },
-      }),
-    ).toBe(1)
+    expect(missed).toBe(true)
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const rows = await service.prisma.outreach.findMany({
+      where: { campaignId: CAMPAIGN_ID, proposalKey },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.name).toBe('Second tap')
   })
 
   it('hands the key to a new draft when the card is saved after its text was canceled', async () => {

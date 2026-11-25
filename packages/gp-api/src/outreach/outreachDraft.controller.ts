@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
   BadRequestException,
   Body,
@@ -78,9 +79,11 @@ export class OutreachDraftController {
           'Image filename and MIME type are required for a texting draft',
         )
       }
-      // The send path's key embeds the send date; a draft has none.
+      // The send path's key embeds the send date; a draft has none, so a
+      // folder of its own per upload keeps two drafts (the hub's and a
+      // card's) from sharing an object that either one's cleanup could take.
       const imageKey = this.s3.buildKey(
-        `scheduled-campaign/${campaign.slug}/p2p/draft`,
+        `scheduled-campaign/${campaign.slug}/p2p/draft/${randomUUID()}`,
         image.filename,
       )
       const imageUrl = await this.s3.uploadFile(
