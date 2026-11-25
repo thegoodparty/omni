@@ -25,14 +25,7 @@ BEGIN
   END IF;
   -- rds_replication exists on RDS and Aurora only. It is what lets the role
   -- open a replication connection there.
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication')
-    AND NOT EXISTS (
-      SELECT 1 FROM pg_auth_members m
-      JOIN pg_roles r ON r.oid = m.roleid
-      JOIN pg_roles u ON u.oid = m.member
-      WHERE r.rolname = 'rds_replication' AND u.rolname = 'databricks_lakeflow'
-    )
-  THEN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') THEN
     BEGIN
       GRANT rds_replication TO databricks_lakeflow;
     EXCEPTION WHEN duplicate_object OR unique_violation THEN
