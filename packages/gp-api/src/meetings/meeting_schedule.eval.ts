@@ -6,7 +6,7 @@ import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 // questions are `grading`. A case marked unscored there is a normal case here
 // whose condition says it is a control.
 //
-// This suite judged the migration while the two engines still split the arms:
+// This suite judged the migration while dev and preview ran different engines:
 // dev dispatched meeting_schedule to the PMF Engine and a preview named it in
 // AGENTS_ON_GP_API. Both now run gp-api's engine, so it is a regression suite
 // (docs/agent-evals.md).
