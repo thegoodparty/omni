@@ -9,6 +9,8 @@ const {
   errorSnackbar,
   successSnackbar,
   setError,
+  reportClientError,
+  reportClientInterruption,
   paymentElementOptions,
   expressProps,
 } = vi.hoisted(() => {
@@ -29,6 +31,8 @@ const {
     errorSnackbar: vi.fn(),
     successSnackbar: vi.fn(),
     setError: vi.fn(),
+    reportClientError: vi.fn(),
+    reportClientInterruption: vi.fn(),
     paymentElementOptions: { current: undefined as unknown },
     expressProps: {
       current: undefined as
@@ -59,7 +63,8 @@ vi.mock('@shared/utils/Snackbar', () => ({
 }))
 
 vi.mock('@shared/observability/reportClientError', () => ({
-  reportClientError: vi.fn(),
+  reportClientError,
+  reportClientInterruption,
 }))
 
 vi.mock('./CheckoutSessionProvider', () => ({
@@ -151,6 +156,51 @@ describe('CheckoutForm', () => {
     confirmMock.mockResolvedValueOnce({ type: 'success' })
     clickSubmit()
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
+  it('keeps a declined card out of the exception stream the alert pages on', async () => {
+    // A bank decline is an expected outcome of taking payment, not a defect:
+    // reported as a client exception it filed a "new front-end error" alert for
+    // every decline, indistinguishable from a bug we shipped (ENG-11776).
+    confirmMock.mockResolvedValueOnce({
+      type: 'error',
+      error: {
+        message: 'The payment attempt failed.',
+        code: 'paymentFailed',
+        paymentFailed: { declineCode: 'generic_decline' },
+      },
+    })
+
+    render(<CheckoutForm onSuccess={vi.fn()} sessionId="cs_one_time" />)
+    clickSubmit()
+
+    await waitFor(() => expect(reportClientInterruption).toHaveBeenCalled())
+    expect(reportClientError).not.toHaveBeenCalled()
+    // The customer still gets the same message, snackbar and inline error.
+    expect(errorSnackbar).toHaveBeenCalledWith('The payment attempt failed.')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The payment attempt failed.',
+    )
+  })
+
+  it('reports a genuine Stripe failure with its code so the alert can tell it apart', async () => {
+    confirmMock.mockResolvedValueOnce({
+      type: 'error',
+      error: { message: 'An unknown error occurred.', code: 'api_error' },
+    })
+
+    render(<CheckoutForm onSuccess={vi.fn()} sessionId="cs_one_time" />)
+    clickSubmit()
+
+    await waitFor(() =>
+      expect(reportClientError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'checkout form stripe error: api_error',
+        }),
+        { stripeError: expect.objectContaining({ code: 'api_error' }) },
+      ),
+    )
+    expect(reportClientInterruption).not.toHaveBeenCalled()
   })
 
   it('submits on the first click even while Stripe has not yet set canConfirm', async () => {
