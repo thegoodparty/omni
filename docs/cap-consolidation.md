@@ -99,8 +99,8 @@ on its own PR, which arrive before the merge (step 3).
    run this org already has by org, agent type and status, and reads one table,
    so a reader on one engine cannot see a run the other engine stored — after a
    revert it finds nothing and dispatches a second run. `meeting_schedule`'s
-   dispatch gate and latest-schedule read are in that shape on main today. So a
-   migration makes its readers two-way first: the gate and the latest-run read
+   dispatch gate and latest-schedule read were in that shape, and now read both
+   tables. So a migration makes its readers two-way first: the gate and the latest-run read
    check both tables by org and type, and a by-id read falls through to the
    other table, as the judge's read route does. That is the one place a
    migration departs from the readers already in, and it is the migration
@@ -111,8 +111,9 @@ on its own PR, which arrive before the merge (step 3).
      `opposition_research`, `opportunities_and_challenges`,
      `race_opponent_collection`, `self_research`, `meeting_schedule`.
      `opposition_research`, `opportunities_and_challenges` and
-     `meeting_schedule` are on main and in the preview list, so a judge run
-     compares them against the PMF Engine; nothing else in this wave is. The
+     `meeting_schedule` are in the preview and dev lists and run on gp-api's
+     engine in both; prod still runs them on the PMF Engine. Nothing else in
+     this wave is migrated. The
      opponent chain runs collection, then summary, then actions, and one chain
      is one migration: collection and summary land with actions, in the PR
      that puts all three in every list.
