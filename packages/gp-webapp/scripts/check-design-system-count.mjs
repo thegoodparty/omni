@@ -52,7 +52,9 @@ const BASELINES = {
   // (section 7, step 1). Both draw the same gate, so the Dialog fix covers
   // both. ENG-11762 counted +2 against its base; on main it is three
   // components (DialogContent, DialogTitle, DialogDescription).
-  restyledComponents: 481,
+  // SidebarInset's bg-page in DashboardLayout is the layout's page surface
+  // (docs/product-design.md section 9).
+  restyledComponents: 482,
 }
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -70,7 +72,7 @@ const STYLEGUIDE_IMPORT_RE =
 // counted, and neither are icon and Skeleton sizes or a Card's padding, which
 // is how those components are meant to be used.
 const COLOR_WORDS =
-  'primary|secondary|tertiary|destructive|success|info|warning|error|muted|accent|foreground|background|card|popover|border|input|ring|white|black|transparent|current|brand|base|neutral|grayscale|slate|gray|zinc|blue|red|green|yellow|orange|purple|indigo|components|tw|link|disabled|inherit'
+  'primary|secondary|tertiary|destructive|success|info|warning|error|muted|accent|foreground|background|page|card|popover|border|input|ring|white|black|transparent|current|brand|base|neutral|grayscale|slate|gray|zinc|blue|red|green|yellow|orange|purple|indigo|components|tw|link|disabled|inherit'
 const RESTYLE_RES = [
   new RegExp(
     `^(?:bg|text|border|ring|fill|stroke|outline|divide|from|to|via|placeholder|decoration)-(?:\\[|(?:${COLOR_WORDS})(?:-|/|$))`,
