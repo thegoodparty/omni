@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
@@ -74,7 +75,8 @@ const ProUpgradeWizard = ({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { heldPlan, isPaid, onSubscription } = usePlan()
+  const { heldPlan, onSubscription } = usePlan()
+  const [campaign] = useCampaign()
   // Read once: later step URLs carry the same values back, but state is what
   // survives a step that was pushed without them.
   const [carry, setCarry] = useState<ProUpgradeCarry>(() =>
@@ -84,7 +86,10 @@ const ProUpgradeWizard = ({
   // The entry sends a paid campaign that does not hold Team (a Pro holder, or a
   // granted Pro with no plan) asking for Team straight to payment, alone.
   const teamUpgrade =
-    carry.plan === 'team' && isPaid && heldPlan !== 'team' && !onSubscription
+    carry.plan === 'team' &&
+    !onSubscription &&
+    heldPlan !== 'team' &&
+    (heldPlan === 'pro' || Boolean(campaign?.isPro))
   const markFromPro = useCallback(() => {
     carryRef.current = { ...carryRef.current, fromPro: true }
     setCarry(carryRef.current)
@@ -127,9 +132,9 @@ const ProUpgradeWizard = ({
       orderIndex === 0 ||
       (currentStep === PRO_UPGRADE_STEP.PAYMENT &&
         carryRef.current.plan === 'team' &&
-        isPaid &&
+        !onSubscription &&
         heldPlan !== 'team' &&
-        !onSubscription)
+        (heldPlan === 'pro' || Boolean(campaign?.isPro)))
     if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
       router.push(stepHref(PRO_UPGRADE_STEP.STATUS))
     } else if (!firstStep) {
@@ -144,7 +149,7 @@ const ProUpgradeWizard = ({
     router,
     stepHref,
     heldPlan,
-    isPaid,
+    campaign?.isPro,
     onSubscription,
   ])
 

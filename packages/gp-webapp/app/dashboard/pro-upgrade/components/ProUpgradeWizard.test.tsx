@@ -20,6 +20,11 @@ vi.mock('next/navigation', () => ({
   useSearchParams: vi.fn(),
 }))
 
+const { mockUseCampaign } = vi.hoisted(() => ({ mockUseCampaign: vi.fn() }))
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => mockUseCampaign(),
+}))
+
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: vi.fn(),
 }))
@@ -83,6 +88,7 @@ describe('ProUpgradeWizard', () => {
     vi.spyOn(window, 'scrollTo').mockImplementation(noop)
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
     vi.mocked(usePlan).mockReturnValue(PLAN)
+    mockUseCampaign.mockReturnValue([{ isPro: false }])
     mockUseSearchParams.mockReturnValue(
       new URLSearchParams() as ReadonlyURLSearchParams,
     )
@@ -251,6 +257,7 @@ describe('ProUpgradeWizard', () => {
         'plan=team&back=%2Fdashboard%2Fplans',
       ) as ReadonlyURLSearchParams,
     )
+    mockUseCampaign.mockReturnValue([{ isPro: true }])
     vi.mocked(usePlan).mockReturnValue({
       ...PLAN,
       plan: 'pro',
@@ -266,6 +273,33 @@ describe('ProUpgradeWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
 
     expect(router.push).toHaveBeenCalledWith('/dashboard/plans')
+  })
+
+  it('steps Back through the wizard from the Team payment of a campaign that is not Pro, as the entry walks it in', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(
+        'plan=team&back=%2Fdashboard%2Fplans',
+      ) as ReadonlyURLSearchParams,
+    )
+    mockUseCampaign.mockReturnValue([{ isPro: false }])
+    vi.mocked(usePlan).mockReturnValue({
+      ...PLAN,
+      plan: 'pro',
+      heldPlan: 'free',
+      isPaid: true,
+    })
+
+    render(
+      <ProUpgradeWizard>
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+    expect(router.push).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/dashboard\/pro-upgrade\/[a-z-]+\?.*plan=team/),
+    )
   })
 
   it('places filing details between the EIN and payment', () => {
