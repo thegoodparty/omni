@@ -97,7 +97,7 @@ slot under the key, so it neither 409s into the hub's draft nor replaces it:
 saving the same card again updates its row in place (the superseded image is
 deleted once the row points at the new one), a card whose earlier text was
 canceled or failed hands the key to the new draft, and a text already past
-checkout, or another org's or channel's key, is a 409. The hub's own cap
+checkout, or another org's or channel's key, is a 409. A fresh send under the key (`createUnderProposalKey`) deletes the card's saved draft rather than leaving it keyless in the hub's slot. The hub's own cap
 counts unkeyed drafts only. The convert then moves the keyed row in place, so
 its key makes the proposal sent once paid; the cap check runs INSIDE the insert's
 `Serializable` transaction (with a cheap `preflight` copy before the image

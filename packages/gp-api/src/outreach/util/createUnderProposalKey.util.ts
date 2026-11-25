@@ -78,10 +78,20 @@ export const createUnderProposalKey = async <T>(
       if (holder) {
         const refusal = refusalFor(holder)
         if (refusal) throw refusal
-        await tx.outreach.update({
-          where: { id: holder.id },
-          data: { proposalKey: null },
-        })
+        // A saved draft under the key is this card's own earlier work that
+        // this create supersedes. Keeping it would leave a keyless draft in
+        // the hub's one slot, so it goes (its image is left in the bucket,
+        // the lesser harm); any other unpaid row just gives up the key.
+        if (holder.status === OutreachStatus.draft) {
+          await tx.outreach.deleteMany({
+            where: { id: holder.id, status: OutreachStatus.draft },
+          })
+        } else {
+          await tx.outreach.update({
+            where: { id: holder.id },
+            data: { proposalKey: null },
+          })
+        }
       }
       return create(tx)
     })

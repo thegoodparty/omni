@@ -117,11 +117,13 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
     await this.requireOwnFilter(campaign, input.voterFileFilterId)
   }
 
+  // Returns the row's id once it is committed; reading it back is the
+  // caller's, so a failure there is not mistaken for a failed write.
   async createP2pDraft(
     campaign: Campaign,
     input: CreateOutreachDraftRequest,
     imageUrl: string,
-  ): Promise<OutreachDetail> {
+  ): Promise<number> {
     await this.requireOwnFilter(campaign, input.voterFileFilterId)
     const fields = {
       name: input.name,
@@ -133,7 +135,7 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
       voterFileFilterId: input.voterFileFilterId,
       trackerTaskId: input.trackerTaskId,
     }
-    const id = input.proposalKey
+    return input.proposalKey
       ? await this.saveProposalP2pDraft(campaign, input.proposalKey, fields)
       : (
           await this.createDraftRow(campaign.id, OutreachType.p2p, (tx) =>
@@ -142,6 +144,9 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
             }),
           )
         ).id
+  }
+
+  findDraftDetail(campaign: Campaign, id: number): Promise<OutreachDetail> {
     return this.socialService.findDetail({ campaignId: campaign.id }, id)
   }
 

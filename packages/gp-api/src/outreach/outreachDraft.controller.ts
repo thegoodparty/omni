@@ -93,8 +93,9 @@ export class OutreachDraftController {
           baseUrl: `https://${ASSET_DOMAIN}`,
         },
       )
+      let id: number
       try {
-        return await this.drafts.createP2pDraft(campaign, body, imageUrl)
+        id = await this.drafts.createP2pDraft(campaign, body, imageUrl)
       } catch (error) {
         // preflight is a plain read; the transaction inside createP2pDraft
         // is the real cap, and when it rejects a racing second create the
@@ -104,6 +105,9 @@ export class OutreachDraftController {
           .catch(() => undefined)
         throw error
       }
+      // The row is committed and points at the image: from here on a failure
+      // must not delete it.
+      return this.drafts.findDraftDetail(campaign, id)
     }
 
     const { audioKey, callbackNumber } = body
