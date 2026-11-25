@@ -3,15 +3,16 @@
 The plan for moving every in-product agent into gp-api, on one engine.
 ClickUp ticket 17tnw2b5rd0, "Consolidate In-Product Agent Architecture".
 Status: in progress. The core, `AgentMessage` and `trending_issues` are on
-main; `trending_issues` runs on gp-api's own agents in dev and prod, and a
-preview runs every agent gp-api has, because a preview is the Universal
-Judge's candidate arm. `top_community_issues` runs on gp-api's own agents in
-dev only, and prod still sends it to the PMF Engine until its dev runs are
-confirmed healthy. `opposition_research` and `opportunities_and_challenges`
-are built on gp-api's agents with their switch off everywhere but preview,
-where the Universal Judge compares them against the PMF Engine. Every other
-agent still runs on the PMF Engine in
-every environment. Until an agent moves, it runs as
+main. `deploy/agentsOnGpApi.ts` says which agents run on gp-api's engine in
+which environment, and it is the only statement of that: a preview names
+every registered agent, because a preview is the Universal Judge's candidate
+arm; dev names `trending_issues` and `top_community_issues`; prod names
+`trending_issues`. So `trending_issues` is on gp-api's engine in all three,
+`top_community_issues` in preview and dev with prod still on the PMF Engine,
+and `meeting_schedule`, `opposition_research` and
+`opportunities_and_challenges` in a preview only, where the judge compares
+them against the PMF Engine. Every other agent runs on the PMF Engine. An
+agent a list leaves out runs in that environment as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
@@ -67,17 +68,18 @@ as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
 ## Migration plan
 
-In this order. A step starts when the one before it is done, and done means
-successful production traffic, not a merged PR.
+In this order. A step starts when the one before it is done. Step 1's bar was
+successful production traffic; a migration's is the judge verdict and approval
+on its own PR, which arrive before the merge (step 3).
 
 1. **`trending_issues` live in prod.** The template for every later agent:
    the definition, its web tools, its judge suite, and the
    `AGENTS_ON_GP_API` switch. The switch is a plain environment variable in
    the task definition, not a secret: `environmentVariables` in
-   `packages/gp-api/deploy/index.ts` sets it per environment, so the flip is
-   one reviewed line. `runsOnGpApi` reads it, and unset means the PMF Engine.
-   Dev's value landed with #3871, prod's with #3875. A preview names every
-   agent in the registry (`deploy/agentsOnGpApi.ts`), never a subset: the
+   `packages/gp-api/deploy/index.ts` sets it from `deploy/agentsOnGpApi.ts`, so
+   a flip is one reviewed line. `runsOnGpApi` reads it, and an agent it does
+   not name runs on the PMF Engine. A preview names every
+   agent in the registry, never a subset: the
    judge's candidate arm is a preview, and an agent a preview left out would
    run the PMF Engine on both arms
    ([`agent-evals.md`](agent-evals.md)).
@@ -89,24 +91,40 @@ successful production traffic, not a merged PR.
    `AgentMessage` turn it was left on. Nothing uses `ChatMessage` or
    `ChatMessageSegment`, and #3893 drops both tables, staged a deploy later so
    no task serving during that rollout was still reading them.
-3. **The remaining background agents, in waves.** Each agent is one PR: its
-   definition, its readers moved from `ExperimentRun` to `AgentRun`, its judge
-   suite (see [Writing agent evals](agent-evals.md)), and its `qa/` manifest
-   deleted. Flip its switch only after the dev versus preview comparison passes;
+3. **The remaining background agents, in waves.** One migration is one PR:
+   the agent, its readers, its judge suite (see
+   [Writing agent evals](agent-evals.md)), its `qa/` manifest deleted, and its
+   entry in the preview, dev and prod lists in `deploy/agentsOnGpApi.ts`.
+   While that PR is open, dev still runs `main`'s lists, so a `/judge-eval` on
+   it compares the PMF Engine in dev against the PR's preview on gp-api's
+   engine. That verdict, and Delegate's approval of it, is the proof, and
+   promoting the PR is the migration. Rollback is reverting the PR's list
+   lines, which restores the old engine only if the agent's readers can read
+   that engine's runs. They cannot as the switch is written: a gate asks which
+   run this org already has by org, agent type and status, and reads one table,
+   so a reader on one engine cannot see a run the other engine stored — after a
+   revert it finds nothing and dispatches a second run. `meeting_schedule`'s
+   dispatch gate and latest-schedule read are in that shape on main today. So a
+   migration makes its readers two-way first: the gate and the latest-run read
+   check both tables by org and type, and a by-id read falls through to the
+   other table, as the judge's read route does. That is the one place a
+   migration departs from the readers already in, and it is the migration
+   author's to do — no check tests a revert, because the judge verdict does not.
    CI's per-case results are in the `judge-eval-results` artifact
    ([`judge/AGENTS.md`](../packages/judge/AGENTS.md)).
-   Rollback is the switch.
    - **Wave 1, web tools only:** `race_opponent_summary`,
      `opposition_research`, `opportunities_and_challenges`,
-     `race_opponent_collection`, `self_research`, `meeting_schedule`. Each is
-     built on gp-api's agents with its switch off everywhere but preview, where
-     a judge run compares it against the PMF Engine. The opponent chain runs
-     collection, then summary, then actions, and those three flip together, so
-     collection and summary are built in wave 1 but wait for actions before
-     they flip.
+     `race_opponent_collection`, `self_research`, `meeting_schedule`.
+     `opposition_research`, `opportunities_and_challenges` and
+     `meeting_schedule` are on main and in the preview list, so a judge run
+     compares them against the PMF Engine; nothing else in this wave is. The
+     opponent chain runs collection, then summary, then actions, and one chain
+     is one migration: collection and summary land with actions, in the PR
+     that puts all three in every list.
    - **Wave 2, needs a Databricks tool:** `race_opponent_actions`,
-     `opponent_research`, `top_community_issues` (moved, dev),
-     `campaign_tracker_tasks`. The tool exists: `queryDatabricks`
+     `opponent_research`, `top_community_issues` (on gp-api's engine in
+     preview and dev; prod is still on the PMF Engine), `campaign_tracker_tasks`.
+     The tool exists: `queryDatabricks`
      (`packages/gp-api/src/agents/tools/queryDatabricks.ts`) runs one
      aggregate-only SELECT under the agent's own table allowlist and row cap,
      refuses a query that does not prove the run's own state filter (and its
@@ -120,7 +138,7 @@ successful production traffic, not a merged PR.
    - **Delete, not migrate:** `district_issue_pulse` and
      `district_issue_snapshot` (nothing dispatches them), and every `qa/`
      checker.
-4. **Teardown** once every switch points at gp-api: delete the SQS queue,
+4. **Teardown** once the prod list names every agent: delete the SQS queue,
    dispatch Lambdas, DynamoDB job table, Fargate runner, broker, S3
    manifests, the Python agent packages, `ExperimentRun` and its readers, and
    the leftover price tables.

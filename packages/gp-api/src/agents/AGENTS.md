@@ -259,22 +259,42 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
 
 1. Register it in `AGENTS` under its experiment id, so every reader and gate
    that queries the PMF Engine's `ExperimentRun` rows of that `experimentType`
-   can be pointed at `AgentRun` rows of that `agentName` (see
+   has one that queries `AgentRun` rows of that `agentName` (see
    `communityIssueRead.service.ts` and
-   `communityIssueDispatch.service.ts` for the ones that have been). A gate
-   left on the old table is a duplicate-dispatch bug: it sees no runs and lets
-   the type run again.
+   `communityIssueDispatch.service.ts` for two that have been). A gate left on
+   the old table is a duplicate-dispatch bug: it sees no runs and lets the type
+   run again.
+   - Those readers pick one table from `runsOnGpApi`, which makes the flip
+     atomic. A migration's rollback is reverting its list lines, and that
+     restores the old engine only if its readers can read that engine's runs.
+     One that reads a single table cannot: a gate asks which run this org
+     already has by org, agent type and status, and a run the other engine
+     stored is invisible, so after a revert the gate dispatches a second one.
+     `meeting_schedule`'s gate and latest-schedule read
+     (`meetingBriefings.service.ts`) are that shape on main today.
+   - So a migrating agent's readers are two-way first: the gate and the
+     latest-run read query both `AgentRun` and `ExperimentRun` by org and agent
+     type, and a read by id falls through to the other table, as
+     `agentRunRoutes.service.ts`'s `read` does. This is the one place a
+     migration departs from the readers already in, it belongs to the migration
+     PR, and nothing checks it — the judge verdict never tests a revert.
 2. The prompt is the experiment's `instruction.md` with the runtime parts
    swapped: input in the first message, our tools, `submitOutput` instead of
    the file and validator. Input and output schemas come from the manifest;
    leave out fields gp-api knows (the run id) and add them in `onArtifact`.
 3. `onArtifact` calls the code that ingests the PMF Engine's artifact today.
 4. The dispatcher calls `AgentsService.run` when `runsOnGpApi(name)`: the
-   experiment ids in `AGENTS_ON_GP_API`, comma-separated. Unset means the
-   PMF Engine, so the switch flips per environment. Keep the test-user and
-   test-mode check `ExperimentRunsService.dispatchRun` makes; `run` does not
-   make it.
-5. Add a pairwise migration suite. See [Writing agent evals](../../../../docs/agent-evals.md).
+   experiment ids in `AGENTS_ON_GP_API`, comma-separated, which
+   `deploy/agentsOnGpApi.ts` sets per environment (`preview`, `dev`, `prod`).
+   Unset means the PMF Engine, so the switch is per environment. Keep the
+   test-user and test-mode check `ExperimentRunsService.dispatchRun` makes;
+   `run` does not make it.
+5. Add it to all three lists in `deploy/agentsOnGpApi.ts` in the same PR, with
+   the agent, its readers and its judge suite — one PR is the whole migration.
+   While that PR is open, dev runs `main`'s lists, so its `/judge-eval` reads
+   the PMF Engine on the base arm and gp-api's engine on the preview; that
+   verdict is the proof. Add a pairwise migration suite. See
+   [Writing agent evals](../../../../docs/agent-evals.md).
 6. Delete its `qa/` manifest under `packages/runbooks/experiments/`. QA
    checkers are not migrated.
 
