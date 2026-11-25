@@ -37,9 +37,9 @@ session cap and the marker but are never sent to a model.
 
 | File                                    | Holds                                                                                                                                                                                                                             |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them                                                                                                                                                   |
+| `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them; what each covered assistant is briefed with every turn; the product map as that assistant renders it                                             |
 | `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist                                                                                                      |
-| `services/caseScoutModel.service.ts`    | The three model calls; never any tools                                                                                                                                                                                            |
+| `services/caseScoutModel.service.ts`    | The three model calls; never any tools. Scoring and drafting lead with the scope's product map behind a cache breakpoint                                                                                                          |
 | `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy (from every role and tool input, only when the source run carries a number or a mid-sentence capital), contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
 | `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                                                                                                                       |
 | `schemas/draftedCase.schema.ts`         | Mirror of `ChatCaseSchema` (see Gotchas)                                                                                                                                                                                          |
@@ -54,17 +54,64 @@ session cap and the marker but are never sent to a model.
   moves to another role and goes generic; exact figures that could point to
   one race, place or person (totals, margins, counts, addresses, ages, event
   dates) are invented or rounded; unique descriptions become ordinary ones;
-  every sentence is written fresh. The failure itself must survive.
+  every sentence is written fresh. Every place is the fixture's own town or
+  office, never another real city, and every link or email is on
+  example.com, example.org or example.net. The failure itself must survive.
 - **Contact patterns** catch emails, URLs, ten-digit phones and seven-digit
-  local numbers (`555-0123`, `555 0123`). Only a hyphenated one can pass, as
-  an ordinance number or a range: one whose last four digits read as a year
-  (`245-2025`), or a rising pair whose second number is a round hundred
-  (`500-1000`). A spaced or dotted year (`555 1999`) is still a phone.
-- **The second read** flags names and also unnamed descriptions that point to
-  one real person or place: the only, first or youngest holder of a role, a
-  distinctive town detail, the exact result of a past election, recount or
-  petition, an exact age, a child described past "a child". Roles, states,
-  office titles, round numbers and relative dates never count.
+  local numbers (`555-0123`, `555 0123`). An email or URL whose host is
+  exactly `example.com`, `example.org` or `example.net`, or a subdomain of
+  one, passes; a lookalike (`example.org.evil.test`, `notexample.com`,
+  `https://example.com@evil.test/`) and any URL with a userinfo part still
+  block. Only a hyphenated number can pass, as an ordinance number or a
+  range: one whose last four digits read as a year (`245-2025`), or a rising
+  pair whose second number is a round hundred (`500-1000`). A spaced or
+  dotted year (`555 1999`) is still a phone.
+- **The second read** compares the draft with the real chat (the same source
+  texts the copy check reads) and lists only what came from that chat and
+  could identify a person or place in it: a name the chat gives, or a detail
+  from the chat that points back to one of its people or places unnamed (the
+  only, first or youngest holder of a role, a distinctive town detail, the
+  exact result of a past election, recount or petition, an exact age, a
+  child described past "a child"), or a claim the chat makes about one of its
+  people kept in its specifics (the same act, place or fund under a new role).
+  Invented names and places, real places the chat never mentions and the test
+  account's own town (`TEST_ACCOUNT_TOWN`, pinned to the judge's seed) never
+  count, nor do roles, states, office titles, round numbers and relative
+  dates. The chat
+  comes last in the message as material, never instructions, so text in it
+  addressed to a checker changes nothing. It fails closed: a call error, or
+  an answer still unreadable after one retry, blocks. What it flagged may be
+  real identifiers, so the job writes only the rule and a fixed reason; only
+  the quality bench keeps the list (`gate.flagged` in `results.json`).
+  Decision record:
+  `docs/adr/2026-11-25-case-scout-second-read-compares-against-the-real-chat.md`.
+
+## What the scorer and drafter know about the assistant
+
+The stored transcript has tool names and inputs but never their results, and
+none of the system prompt the assistant is handed each turn. So a correct
+answer can look invented. `caseScout.prompts.ts` lists, per covered scope,
+the kinds of facts that briefing carries (the race record and live race data
+with the win number and contact goal, the plan's opportunities, challenges
+and opponents, top tasks; the office record, priorities and report-backs), read
+from `campaignManagerPrompt.ts` and `chiefOfStaffPrompt.ts`. A new block there
+that carries account facts belongs in that list too.
+
+- **The scorer** is told a specific number, opponent, local event, priority or
+  product step that could have come from the briefing, the product map or a
+  tool result is not evidence of fabrication; only the transcript showing it
+  wrong (a correction, a contradiction, an impossibility) is.
+- **The drafter** drafts a fabrication case only when the failure holds up
+  given the briefing and tool calls. A failure that rests on facts only the
+  real account had becomes `needsSetup`, naming what the test account would
+  need, never a user turn that brings those facts up. Each later turn must
+  make sense whatever the live assistant replies, because the judge posts it
+  to a fresh test account.
+- **Both** read the scope's product map exactly as the assistant renders it
+  (`buildProductKnowledgeBlocks`, help center on, Pro left out), as the first
+  system block with an Anthropic cache breakpoint, so a night's calls in one
+  scope read it from the cache. It is about 12,400 tokens for Win and 18,400
+  for Serve on the Opus 4.7 tokenizer.
 
 ## Bucket (`case-scout-<env>`)
 

@@ -19,7 +19,10 @@ feature in your head.
 | `productMapCoverage.test.ts` | Where CI fails when the map goes stale.                                      |
 
 Rendered into `../campaign-manager/campaignManagerPrompt.ts` (`'win'`) and
-`../chief-of-staff/services/chiefOfStaffPrompt.ts` (`'serve'`).
+`../chief-of-staff/services/chiefOfStaffPrompt.ts` (`'serve'`). The nightly
+case scout renders the same blocks into its scoring and drafting prompts
+(`src/caseScout/caseScout.prompts.ts`), so a step the map spells out is never
+scored or drafted as one the assistant made up.
 
 The analytics product map (`packages/runbooks/surfaces/product-map/build.py`)
 also reads each area's `name`, `path` and `modes` from this file, with a regex.

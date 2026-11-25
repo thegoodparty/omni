@@ -51,8 +51,45 @@ const isLocalPhone = ([
 
 const URL_PATTERN = new RegExp(
   String.raw`(?<!${WORD})(?:https?://|www\.)\S+`,
-  'iu',
+  'giu',
 )
+const EMAILS = new RegExp(EMAIL.source, 'gu')
+const HOST_RUN = /^[\p{L}\p{N}_.-]+/u
+const URL_SCHEME = /^https?:\/\//iu
+const TRAILING_PUNCTUATION = /[.,;:!?'")\]}>]+$/u
+const HOSTNAME = /^[a-z0-9.-]+$/u
+const PORT = /:\d+$/u
+
+// The reserved example domains (RFC 2606) name no one, so a drafter can write
+// a link or an address on them. Only the host decides: a lookalike that merely
+// contains one ("example.org.evil.com", "user@example.com.evil.net") blocks.
+const EXAMPLE_DOMAINS = ['example.com', 'example.org', 'example.net']
+
+const isExampleHost = (host: string): boolean =>
+  HOSTNAME.test(host) &&
+  EXAMPLE_DOMAINS.some(
+    (domain) => host === domain || host.endsWith(`.${domain}`),
+  )
+
+// The host read on from the "@" over every character a host can hold, not
+// just what EMAIL matched, so "a@example.com-evil.net" is read whole.
+const emailHost = (text: string, match: RegExpMatchArray): string => {
+  const at = (match.index ?? 0) + match[0].indexOf('@')
+  const run = HOST_RUN.exec(text.slice(at + 1))?.[0] ?? ''
+  return run.replace(/\.+$/u, '').toLowerCase()
+}
+
+// Anything past the scheme up to the first path, query or fragment character.
+// A userinfo part ("https://example.com@evil.com/") can hide the real host,
+// so it never passes.
+const urlHost = (url: string): string | undefined => {
+  const authority = url
+    .replace(URL_SCHEME, '')
+    .split(/[/?#\\]/u)[0]
+    ?.replace(TRAILING_PUNCTUATION, '')
+  if (authority === undefined || authority.includes('@')) return undefined
+  return authority.replace(PORT, '').replace(/\.+$/u, '').toLowerCase()
+}
 
 export type CaseCandidate = {
   caseId: string
@@ -71,15 +108,23 @@ export type GateRule =
   | 'secondRead'
   | 'schema'
 
+// `flagged` is what a second read that blocked listed. It may hold real
+// identifiers, so the draft job never writes it anywhere; only the quality
+// bench keeps it, in its local, gitignored results.
 export type GateResult =
   | { passed: true }
-  | { passed: false; rule: GateRule; reason: string }
+  | { passed: false; rule: GateRule; reason: string; flagged?: string[] }
 
 // The second read failed to run at all (no answer to parse). Blocks at once,
 // with no retry; an unparseable answer gets one retry instead.
 export class SecondReadCallError extends Error {}
 
-export type SecondReadCall = (draftText: string) => Promise<string>
+// The draft's text, and the real chat it was drafted from: every role and tool
+// input, the copy check's own source.
+export type SecondReadCall = (
+  draftText: string,
+  sourceText: string,
+) => Promise<string>
 
 export type CaseText = Pick<
   CaseCandidate,
@@ -192,11 +237,24 @@ export const checkCopiedText = (
 
 export const checkContactPatterns = (fields: string[]): string | undefined => {
   const text = fields.join(' ')
-  if (EMAIL.test(text)) return 'an email address appeared in a case field'
+  if (
+    [...text.matchAll(EMAILS)].some(
+      (match) => !isExampleHost(emailHost(text, match)),
+    )
+  ) {
+    return 'an email address appeared in a case field'
+  }
   if (PHONE.test(text) || [...text.matchAll(LOCAL_PHONE)].some(isLocalPhone)) {
     return 'a phone number appeared in a case field'
   }
-  if (URL_PATTERN.test(text)) return 'a URL appeared in a case field'
+  if (
+    [...text.matchAll(URL_PATTERN)].some((match) => {
+      const host = urlHost(match[0])
+      return host === undefined || !isExampleHost(host)
+    })
+  ) {
+    return 'a URL appeared in a case field'
+  }
   return undefined
 }
 
@@ -209,31 +267,46 @@ const readFlagged = (raw: string) => {
   }
 }
 
-// Sees only the draft, never the transcript or the denylist, and fails
-// closed: a call error or an answer still unreadable after one retry blocks.
+type LayerFailure = { reason: string; flagged?: string[] }
+
+const failure = (reason: string | undefined): LayerFailure | undefined =>
+  reason === undefined ? undefined : { reason }
+
+// Compares the draft with the real chat and blocks only on what came from it;
+// never sees the denylist. Fails closed: a call error or an answer still
+// unreadable after one retry blocks.
 export const runSecondRead = async (
   fields: string[],
+  sourceTexts: string[],
   call: SecondReadCall,
-): Promise<string | undefined> => {
+): Promise<LayerFailure | undefined> => {
   const draftText = fields.join('\n')
+  const sourceText = sourceTexts.join('\n---\n')
   for (let attempt = 1; ; attempt++) {
     let raw: string
     try {
-      raw = await call(draftText)
+      raw = await call(draftText, sourceText)
     } catch (err) {
       if (err instanceof SecondReadCallError) {
-        return 'the second read call failed'
+        return { reason: 'the second read call failed' }
       }
       throw err
     }
     const flagged = readFlagged(raw)
     if (flagged !== undefined) {
       return flagged.length > 0
-        ? 'the second read flagged a likely real identifier'
+        ? {
+            reason: 'the second read flagged a detail from the real chat',
+            flagged: flagged.map((item) =>
+              typeof item === 'string' ? item : JSON.stringify(item),
+            ),
+          }
         : undefined
     }
     if (attempt >= SECOND_READ_MAX_ATTEMPTS) {
-      return 'the second read returned an unparseable answer after a retry'
+      return {
+        reason: 'the second read returned an unparseable answer after a retry',
+      }
     }
   }
 }
@@ -254,16 +327,16 @@ const gateStrings = async (
   secondRead: SecondReadCall,
   schema?: () => string | undefined,
 ): Promise<GateResult> => {
-  const layers: Array<[GateRule, () => Promise<string | undefined>]> = [
-    ['denylist', async () => checkDenylist(fields, denylist)],
-    ['copiedText', async () => checkCopiedText(fields, sourceTexts)],
-    ['contactPattern', async () => checkContactPatterns(fields)],
-    ['secondRead', () => runSecondRead(fields, secondRead)],
+  const layers: Array<[GateRule, () => Promise<LayerFailure | undefined>]> = [
+    ['denylist', async () => failure(checkDenylist(fields, denylist))],
+    ['copiedText', async () => failure(checkCopiedText(fields, sourceTexts))],
+    ['contactPattern', async () => failure(checkContactPatterns(fields))],
+    ['secondRead', () => runSecondRead(fields, sourceTexts, secondRead)],
   ]
-  if (schema) layers.push(['schema', async () => schema()])
+  if (schema) layers.push(['schema', async () => failure(schema())])
   for (const [rule, check] of layers) {
-    const reason = await check()
-    if (reason !== undefined) return { passed: false, rule, reason }
+    const result = await check()
+    if (result !== undefined) return { passed: false, rule, ...result }
   }
   return { passed: true }
 }

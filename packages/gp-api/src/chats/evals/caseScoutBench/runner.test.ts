@@ -148,8 +148,8 @@ describe('runBench with label-echo stubs', () => {
 describe('the checks catch a regression', () => {
   it('fails every should-draft fixture when everything scores clean', async () => {
     const bench = await run({
-      scoreTranscript: async (transcript, signal) => {
-        const response = await STUB.scoreTranscript(transcript, signal)
+      scoreTranscript: async (scope, transcript, signal) => {
+        const response = await STUB.scoreTranscript(scope, transcript, signal)
         return {
           ...response,
           requests: response.requests.map((r) => ({
@@ -171,8 +171,8 @@ describe('the checks catch a regression', () => {
   it('fails only the pattern check for a wrong pattern', async () => {
     const result = await resultFor(
       {
-        scoreTranscript: async (transcript, signal) => {
-          const response = await STUB.scoreTranscript(transcript, signal)
+        scoreTranscript: async (scope, transcript, signal) => {
+          const response = await STUB.scoreTranscript(scope, transcript, signal)
           return fixtureIdOf(transcript) === 'f01-unsourced-turnout-math'
             ? {
                 ...response,
@@ -192,11 +192,12 @@ describe('the checks catch a regression', () => {
 
   const withDraftQuestion = (fixtureId: string, question: string) => ({
     draftCase: async (
+      scope: string,
       system: string,
       transcript: string,
       signal: AbortSignal,
     ) => {
-      const text = await STUB.draftCase(system, transcript, signal)
+      const text = await STUB.draftCase(scope, system, transcript, signal)
       if (fixtureIdOf(transcript) !== fixtureId) return text
       const draft = JSON.parse(text) as { case: { question: string } }
       draft.case.question = question
@@ -235,14 +236,42 @@ describe('the checks catch a regression', () => {
       { secondRead: async () => '["Somewhere Real"]' },
       'f02-modeled-party-as-registration',
     )
-    expect(result.gate).toMatchObject({ passed: false, rule: 'secondRead' })
+    expect(result.gate).toMatchObject({
+      passed: false,
+      rule: 'secondRead',
+      flagged: ['Somewhere Real'],
+    })
     expect(result.checks.drafted?.status).toBe('fail')
+  })
+
+  it('hands the second read the session it was drafted from', async () => {
+    const sources: string[] = []
+    const result = await resultFor(
+      {
+        secondRead: async (_draftText, sourceText) => {
+          sources.push(sourceText)
+          return '[]'
+        },
+      },
+      'f02-modeled-party-as-registration',
+    )
+    expect(result.gate).toMatchObject({ passed: true, flagged: null })
+    const fixture = FIXTURES.find(
+      (f) => f.id === 'f02-modeled-party-as-registration',
+    )
+    const firstUserTurn = fixture?.messages.find((m) => m.role === 'user')
+    expect(firstUserTurn).toBeDefined()
+    expect(
+      sources.some((source) =>
+        source.includes(firstUserTurn?.content ?? '(none)'),
+      ),
+    ).toBe(true)
   })
 
   it('fails the duplicate when the scout drafts it', async () => {
     const result = await resultFor(
       {
-        draftCase: async (system, transcript, signal) =>
+        draftCase: async (scope, system, transcript, signal) =>
           fixtureIdOf(transcript) === 'd01-claims-meeting-booked'
             ? JSON.stringify({
                 outcome: 'newCase',
@@ -254,7 +283,7 @@ describe('the checks catch a regression', () => {
                   handledWhen: 'h',
                 },
               })
-            : STUB.draftCase(system, transcript, signal),
+            : STUB.draftCase(scope, system, transcript, signal),
       },
       'd01-claims-meeting-booked',
     )
@@ -265,14 +294,14 @@ describe('the checks catch a regression', () => {
   it('passes an accepted covered-by alternative', async () => {
     const result = await resultFor(
       {
-        draftCase: async (system, transcript, signal) =>
+        draftCase: async (scope, system, transcript, signal) =>
           fixtureIdOf(transcript) === 'f09-outside-canvassing-app'
             ? JSON.stringify({
                 outcome: 'coveredBy',
                 failureSummary: 'outside tool',
                 caseId: 'product-how-to-from-the-map',
               })
-            : STUB.draftCase(system, transcript, signal),
+            : STUB.draftCase(scope, system, transcript, signal),
       },
       'f09-outside-canvassing-app',
     )
@@ -283,8 +312,8 @@ describe('the checks catch a regression', () => {
   it('fails a borderline chat the scout drafts', async () => {
     const result = await resultFor(
       {
-        scoreTranscript: async (transcript, signal) => {
-          const response = await STUB.scoreTranscript(transcript, signal)
+        scoreTranscript: async (scope, transcript, signal) => {
+          const response = await STUB.scoreTranscript(scope, transcript, signal)
           return fixtureIdOf(transcript) ===
             'b01-six-slogans-when-asked-for-three'
             ? {

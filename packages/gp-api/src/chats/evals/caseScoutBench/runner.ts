@@ -7,8 +7,10 @@ import {
   COVERED_SCOPES,
 } from '@/caseScout/caseScout.config'
 import {
+  productMapReference,
   SCORING_PROMPT,
   SECOND_READ_PROMPT,
+  secondReadMessage,
 } from '@/caseScout/caseScout.prompts'
 import {
   DraftOutcome,
@@ -119,10 +121,13 @@ type DraftResponseCase = {
   handledWhen: string
 }
 
+// `flagged` is what a blocking second read listed, kept so a reviewer can see
+// it. Only the bench keeps it: the draft job never writes it anywhere.
 export type GateSummary = {
   passed: boolean
   rule: GateRule | null
   reason: string | null
+  flagged?: string[] | null
 }
 
 export type Grades = {
@@ -307,13 +312,20 @@ export const runBench = async ({
   for (const session of sessions) {
     if (!COVERED_SCOPES.has(session.scope)) continue
     const transcript = renderSessionTranscript(session)
-    const inputChars = SCORING_PROMPT.length + transcript.length
+    const inputChars =
+      productMapReference(session.scope).length +
+      SCORING_PROMPT.length +
+      transcript.length
     let lastParseError = 'unknown'
     let score: BenchScore | undefined
     let callFailed = false
     for (let attempt = 0; attempt < SCORE_PARSE_ATTEMPTS; attempt++) {
       try {
-        const response = await model.scoreTranscript(transcript, signal)
+        const response = await model.scoreTranscript(
+          session.scope,
+          transcript,
+          signal,
+        )
         calls.push({
           stage: 'score',
           sessionId: session.sessionId,
@@ -367,16 +379,19 @@ export const runBench = async ({
   // Records each drafting call by wrapping the model the shared drafter is
   // handed, so the bench drafts through exactly the job's code.
   const recordingDrafter = (session: Session): Drafter => ({
-    draftCase: async (system, transcript, callSignal) => {
+    draftCase: async (scope, system, transcript, callSignal) => {
       let text = ''
       try {
-        text = await model.draftCase(system, transcript, callSignal)
+        text = await model.draftCase(scope, system, transcript, callSignal)
         return text
       } finally {
         calls.push({
           stage: 'draft',
           sessionId: session.sessionId,
-          inputChars: system.length + transcript.length,
+          inputChars:
+            productMapReference(scope).length +
+            system.length +
+            transcript.length,
           outputChars: text.length,
         })
       }
@@ -385,16 +400,18 @@ export const runBench = async ({
 
   const recordingSecondRead =
     (session: Session): SecondReadCall =>
-    async (draftText) => {
+    async (draftText, sourceText) => {
       let output = ''
       try {
-        output = await model.secondRead(draftText, signal)
+        output = await model.secondRead(draftText, sourceText, signal)
         return output
       } finally {
         calls.push({
           stage: 'gate',
           sessionId: session.sessionId,
-          inputChars: SECOND_READ_PROMPT.length + draftText.length,
+          inputChars:
+            SECOND_READ_PROMPT.length +
+            secondReadMessage(draftText, sourceText).length,
           outputChars: output.length,
         })
       }
@@ -402,8 +419,13 @@ export const runBench = async ({
 
   const gateSummary = (gate: GateResult): GateSummary =>
     gate.passed
-      ? { passed: true, rule: null, reason: null }
-      : { passed: false, rule: gate.rule, reason: gate.reason }
+      ? { passed: true, rule: null, reason: null, flagged: null }
+      : {
+          passed: false,
+          rule: gate.rule,
+          reason: gate.reason,
+          flagged: gate.flagged ?? null,
+        }
 
   for (const { session } of candidates) {
     const agentId = session.scope
