@@ -47,6 +47,8 @@ The grader cannot verify that a cited source is real. Use `handledWhen` for grou
 
 The judge compares blinded outputs in both orders for each of three attempts per case. The suite looks for a meaningful difference in wins or a regression in `handledWhen`. Only **WORSE** and **CAN'T JUDGE** fail the suite. See [the trending issues suite](../packages/gp-api/src/communityIssues/trendingIssuesAgent/trending_issues.eval.ts).
 
+An engine migration is judged on its own PR, and that verdict is the migration's proof. The PR adds the agent to the preview, dev and prod lists in `deploy/agentsOnGpApi.ts`, but dev runs `main`'s lists until it merges, so a pairwise suite on that PR reads the PMF Engine on the base arm and gp-api's engine on the candidate. `handledWhen` is what keeps that comparison honest across the two engines: state the requirement in terms of the artifact, not of either engine's behaviour. A suite whose cases are all thin-data or otherwise unscoreable ties on both arms and proves nothing.
+
 ### Chat suites
 
 A chat agent has no run route to poll. The turn streams and the reply is the SSE
