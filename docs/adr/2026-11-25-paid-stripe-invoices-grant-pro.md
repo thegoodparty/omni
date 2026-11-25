@@ -3,6 +3,7 @@ title: Paid Stripe invoices grant Pro on the campaign selected at checkout
 status: active
 decided_by: [swain]
 date: 2026-11-25
+code: ['#4074']
 scope:
   - packages/gp-api/src/payments/**
   - packages/gp-api/src/vendors/stripe/**
