@@ -46,6 +46,10 @@
 .gp-btn--outline:hover { background: color-mix(in srgb, var(--gp-dark) 5%, transparent); }
 .gp-btn--ghost { background: transparent; border-color: transparent; color: var(--gp-dark); }
 .gp-btn--ghost:hover { background: color-mix(in srgb, var(--gp-dark) 5%, transparent); }
+.gp-btn--ghost-primary { background: transparent; border-color: transparent; color: var(--gp-primary); }
+.gp-btn--ghost-primary:hover { background: color-mix(in srgb, var(--gp-primary) 5%, transparent); }
+.gp-btn--ghost-destructive { background: transparent; border-color: transparent; color: var(--theme-destructive); }
+.gp-btn--ghost-destructive:hover { background: color-mix(in srgb, var(--theme-destructive) 5%, transparent); }
 .gp-btn--link { background: transparent; border-color: transparent; color: var(--gp-primary); text-decoration: underline; text-underline-offset: 4px; }
 .gp-btn--neutral { background: var(--tw-slate-200); border-color: transparent; color: var(--gp-dark); }
 
