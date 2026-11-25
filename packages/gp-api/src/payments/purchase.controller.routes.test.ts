@@ -303,6 +303,7 @@ describe('GET /v1/payments/purchase/plan-receipt', () => {
       paidAt: purchase.createdAt.toISOString(),
       cardBrand: 'visa',
       cardLast4: '4242',
+      paymentMethod: 'card',
       receiptUrl: 'https://stripe.test/receipt',
       planEndsAt: new Date(
         Date.parse(`${campaign.details?.electionDate}T00:00:00Z`) +
@@ -331,8 +332,52 @@ describe('GET /v1/payments/purchase/plan-receipt', () => {
     expect(res.data).toMatchObject({
       cardBrand: null,
       cardLast4: null,
+      paymentMethod: null,
       receiptUrl: null,
     })
+  })
+
+  it.each([
+    {
+      name: 'Afterpay, which has no card',
+      details: { type: 'afterpay_clearpay', afterpay_clearpay: {} },
+      expected: { paymentMethod: 'afterpay', cardBrand: null, cardLast4: null },
+    },
+    {
+      name: 'Apple Pay, with the card under it',
+      details: {
+        type: 'card',
+        card: { brand: 'visa', last4: '4242', wallet: { type: 'apple_pay' } },
+      },
+      expected: {
+        paymentMethod: 'apple_pay',
+        cardBrand: 'visa',
+        cardLast4: '4242',
+      },
+    },
+  ])('names the payment method for $name', async ({ details, expected }) => {
+    const campaign = await seedCampaign()
+    await seedPurchase(campaign.id, 'cs_receipt_method')
+    vi.spyOn(
+      service.app.get(StripeService),
+      'retrieveCheckoutSessionWithCharge',
+    ).mockResolvedValue({
+      payment_intent: {
+        latest_charge: {
+          receipt_url: 'https://stripe.test/receipt',
+          payment_method_details: details,
+        },
+      },
+    } as unknown as Awaited<
+      ReturnType<StripeService['retrieveCheckoutSessionWithCharge']>
+    >)
+
+    const res = await service.client.get(PLAN_RECEIPT_ROUTE, {
+      headers: { 'x-organization-slug': campaign.organizationSlug },
+    })
+
+    expect(res.status).toBe(200)
+    expect(PlanReceiptSchema.parse(res.data)).toMatchObject(expected)
   })
 })
 

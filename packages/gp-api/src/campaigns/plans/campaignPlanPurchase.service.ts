@@ -12,6 +12,7 @@ import {
   PLAN_PRICING,
   PlanPurchaseMetadataSchema,
   PlanReceipt,
+  PlanReceiptPaymentMethod,
   planEndsAt,
 } from '@goodparty_org/contracts'
 import Stripe from 'stripe'
@@ -226,13 +227,24 @@ export class CampaignPlanPurchaseService
       typeof session.payment_intent?.latest_charge === 'object'
         ? session.payment_intent.latest_charge
         : null
-    const card = charge?.payment_method_details?.card
+    const details = charge?.payment_method_details
+    const card = details?.card
+    const wallet = card?.wallet?.type
+    const paymentMethod: PlanReceiptPaymentMethod | null =
+      details?.type === 'afterpay_clearpay'
+        ? 'afterpay'
+        : !card
+          ? null
+          : wallet === 'apple_pay' || wallet === 'google_pay'
+            ? wallet
+            : 'card'
 
     return {
       amountCents: purchase.amountCents,
       paidAt: purchase.createdAt.toISOString(),
       cardBrand: card?.brand ?? null,
       cardLast4: card?.last4 ?? null,
+      paymentMethod,
       receiptUrl: charge?.receipt_url ?? null,
       planEndsAt: planEndsAt(campaign)?.toISOString() ?? null,
     }
