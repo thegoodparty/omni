@@ -188,7 +188,14 @@ export class DomainsController {
       'errors; a repeated call for the same domain returns ' +
       'alreadyExisted: true. Conflicts (a different in-progress domain ' +
       'for the campaign, or the domain is no longer available) return ' +
-      '4xx. On success the domain reaches DomainStatus.submitted. ' +
+      '4xx. One 409 is terminal and must NOT be retried: ' +
+      'errorCode DOMAIN_REGISTRAR_ORDER_REJECTED means the registrar ' +
+      'refused the order itself (usually a declined charge on our own ' +
+      'account), carries retryable: false, the registrarCode and the ' +
+      'orderId, and the same answer comes back for a repeat call. ' +
+      'Report it to a person instead of trying another domain on the ' +
+      'same cause. On success the domain reaches ' +
+      'DomainStatus.submitted. ' +
       'Poll GET /v1/domains/status to observe progression to ' +
       'registered / active.',
   })

@@ -53,6 +53,31 @@ export const hasSupportedTld = (value: string): boolean =>
   value.includes('.') &&
   SUPPORTED_TLD_SET.has(value.slice(value.lastIndexOf('.') + 1))
 
+/**
+ * The registrar accepted the order and then failed it on its own side.
+ *
+ * Distinct from every other failure on this path on purpose: a poll we could
+ * not complete, or Vercel's API answering badly, means we do not know how the
+ * order ended and the caller may safely try again. A refusal is a verdict —
+ * the same order never completes — so it is reported as terminal, and the
+ * registrar's own code is carried out with it because it names who can fix it
+ * (a declined charge is a billing problem on our own account, not the
+ * candidate's).
+ */
+export class RegistrarOrderRejectedError extends Error {
+  constructor(
+    readonly orderId: string,
+    readonly domainName: string,
+    readonly registrarCode: string | null,
+  ) {
+    super(
+      `Registrar order ${orderId} for ${domainName} was rejected` +
+        (registrarCode ? `: ${registrarCode}` : ''),
+    )
+    this.name = 'RegistrarOrderRejectedError'
+  }
+}
+
 // Enum for domain operation statuses
 export enum DomainOperationStatus {
   SUBMITTED = 'SUBMITTED',
