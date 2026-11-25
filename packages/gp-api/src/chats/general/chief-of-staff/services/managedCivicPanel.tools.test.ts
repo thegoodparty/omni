@@ -1,3 +1,4 @@
+import { addDays, format } from 'date-fns'
 import { describe, expect, it, vi } from 'vitest'
 import {
   MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
@@ -192,6 +193,49 @@ describe('the managed civic panel tools', () => {
     expect(
       await toolsFor(panel(), true).run('read_managed_panel'),
     ).not.toHaveProperty('headsUp')
+  })
+
+  it('holds the heads-up until the first invites are within 30 days, and says when they go out', async () => {
+    const day = (days: number) =>
+      format(addDays(new Date(), days), 'yyyy-MM-dd')
+    const headsUpPost = vi.fn(() =>
+      Promise.resolve({ place: 'Asheville', post: 'The post.' }),
+    )
+    const runRead = (firstSendDate: string) =>
+      (
+        buildManagedCivicPanelTools({
+          panels: {
+            read: () =>
+              Promise.resolve({
+                panel: panel({
+                  progress: {
+                    members: 0,
+                    goalMembers: 275,
+                    wavesSent: 0,
+                    nextWaveAt: null,
+                    firstSendDate,
+                    readyWeekOf: firstSendDate,
+                  },
+                }),
+              }),
+            headsUpPost,
+          } as unknown as ManagedCivicPanelService,
+          organization,
+          officialName: 'Jordan Rivera',
+          setUp: true,
+        }).read_managed_panel as unknown as {
+          execute: (input: object) => Promise<{ nextSendDate: string }>
+        }
+      ).execute({})
+
+    const far = await runRead(day(60))
+    expect(far).not.toHaveProperty('headsUp')
+    expect(headsUpPost).not.toHaveBeenCalled()
+    expect(far.nextSendDate).toBe(
+      format(addDays(new Date(), 60), 'EEEE, MMMM d'),
+    )
+
+    expect(await runRead(day(20))).toHaveProperty('headsUp')
   })
 
   it('shows the panel card only once there is a panel', async () => {

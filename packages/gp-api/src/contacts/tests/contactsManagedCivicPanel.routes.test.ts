@@ -6,7 +6,10 @@ import {
   isWeekend,
   nextMonday,
   nextSaturday,
+  nextSunday,
   parseISO,
+  previousFriday,
+  startOfWeek,
   subDays,
 } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -14,6 +17,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_LEAVE_LINE,
+  MANAGED_PANEL_FIRST_SEND_MAX_DAYS,
   SMS_COMPOSED_MAX_LENGTH,
   type ManagedCivicPanelResponse,
 } from '@goodparty_org/contracts'
@@ -357,6 +361,21 @@ describe('POST /v1/contacts/civic-panel/managed', () => {
     expect(res.data.panel).toMatchObject({ status: 'building', inviteMessage })
   })
 
+  it('approves an invite whose own words also ask for a JOIN reply', async () => {
+    const slug = await seedOrg()
+    const inviteMessage = [
+      'Hi {{first_name}}, this is Anna Whitlock, your Northampton Council Member-elect.',
+      'I’d like to hear from residents who want a voice in our community. So, I’m inviting a select group of neighbors to share their views. I’ll text you about once a month to ask what you think. If you’d like to be part of this civic panel, please reply with JOIN.',
+      'This is a nonpartisan panel. Your replies come straight to me, and I won’t share them publicly without asking you first.',
+      `${CIVIC_PANEL_JOIN_LINE}\nReply STOP to opt out.`,
+    ].join('\n\n')
+
+    const res = await approve(slug, { inviteMessage, consentVersion: CONSENT })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.panel?.inviteMessage).toBe(inviteMessage)
+  })
+
   it('400s an invite with the citizens’ panel wording of the JOIN line', async () => {
     const slug = await seedOrg()
 
@@ -455,12 +474,75 @@ describe('POST /v1/contacts/civic-panel/managed', () => {
       expect(row.firstSendDate).toBe(firstSendDate)
     })
 
-    it('400s today, a weekend day, or more than 30 days out', async () => {
-      const today = format(pacificDay(0), DAY)
-      const weekend = format(nextSaturday(pacificDay(0)), DAY)
-      const tooFar = format(pacificDay(31), DAY)
+    it('starts them up to 90 days out, past the 30 days other sends get', async () => {
+      const lastDay = pacificDay(MANAGED_PANEL_FIRST_SEND_MAX_DAYS)
+      const dates = [
+        weekdayFrom(31),
+        weekdayFrom(57),
+        format(isWeekend(lastDay) ? previousFriday(lastDay) : lastDay, DAY),
+      ]
 
-      for (const firstSendDate of [today, weekend, tooFar, '2026-02-30']) {
+      for (const firstSendDate of dates) {
+        const slug = await seedOrg()
+        const res = await approve(slug, withDate(firstSendDate))
+
+        expect(res.status).toBe(HttpStatus.OK)
+        expect(res.data.panel?.status).toBe(ManagedCivicPanelStatus.building)
+        expect(res.data.panel?.progress).toMatchObject({
+          wavesSent: 0,
+          nextWaveAt: null,
+          firstSendDate,
+          readyWeekOf: format(
+            startOfWeek(addDays(parseISO(firstSendDate), 14), {
+              weekStartsOn: 1,
+            }),
+            DAY,
+          ),
+        })
+        const read = await get(slug)
+        expect(read.data.panel?.progress.firstSendDate).toBe(firstSendDate)
+      }
+    })
+
+    it('400s a weekday more than 90 days out', async () => {
+      const slug = await seedOrg()
+
+      const res = await approve(
+        slug,
+        withDate(weekdayFrom(MANAGED_PANEL_FIRST_SEND_MAX_DAYS + 1)),
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain(
+        'Cannot schedule more than 90 days in advance',
+      )
+      expect(
+        await service.prisma.managedCivicPanel.count({
+          where: { organizationSlug: slug },
+        }),
+      ).toBe(0)
+    })
+
+    it('400s a weekend day, near or far', async () => {
+      const weekends = [
+        nextSaturday(pacificDay(0)),
+        nextSaturday(pacificDay(40)),
+        nextSunday(pacificDay(60)),
+      ]
+
+      for (const day of weekends) {
+        const slug = await seedOrg()
+        const res = await approve(slug, withDate(format(day, DAY)))
+
+        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+        expect(JSON.stringify(res.data)).toContain(
+          'Cannot schedule on the weekend',
+        )
+      }
+    })
+
+    it('400s today or a day that does not exist', async () => {
+      for (const firstSendDate of [format(pacificDay(0), DAY), '2026-02-30']) {
         const slug = await seedOrg()
         const res = await approve(slug, withDate(firstSendDate))
         expect(res.status).toBe(HttpStatus.BAD_REQUEST)

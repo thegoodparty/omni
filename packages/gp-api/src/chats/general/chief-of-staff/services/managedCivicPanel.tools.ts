@@ -10,6 +10,7 @@ import type { Organization } from '../../../../generated/prisma'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import type { CivicPanelReachService } from '@/contacts/services/civicPanelReach.service'
+import { managedHeadsUpIsDue } from '@/outreach/services/outreachServeSmsCreate.service'
 
 export const EXPLAIN_MANAGED_PANEL_TOOL = 'explain_managed_panel'
 export const OFFER_MANAGED_PANEL_INVITE_TOOL = 'offer_managed_panel_invite'
@@ -144,26 +145,33 @@ export const buildManagedCivicPanelTools = ({
       'resume it; ready: it reached its goal; exhausted: everyone a text ' +
       'can reach has been invited and it is short of its goal; stopped), ' +
       'its members and member goal, the day the first invites go out, the ' +
-      'week it should be ready, when the next invites go out, and the day ' +
-      'it was ready. Until the first invites go out it also returns ' +
-      'headsUp: the line to say and the post to offer them.',
+      'week it should be ready, when the next invites go out (the first ' +
+      'ones, until they have gone out), and the day it was ready. In the ' +
+      'weeks before the first invites go out it also returns headsUp: the ' +
+      'line to say and the post to offer them.',
     inputSchema: noInput,
     execute: async () => {
       const { panel } = await panels.read(organization)
       if (!panel) return { status: 'not_set_up' }
       const { nextWaveAt, firstSendDate, wavesSent } = panel.progress
+      const awaitingFirstSend = panel.status === 'building' && wavesSent === 0
       const headsUp =
         officialName !== undefined &&
-        panel.status === 'building' &&
-        wavesSent === 0
+        awaitingFirstSend &&
+        managedHeadsUpIsDue(firstSendDate, new Date())
           ? await panels.headsUpPost(organization, officialName)
           : null
+      const timeline = managedPanelTimeline(panel.progress)
       return {
         status: panel.status,
         members: panel.progress.members,
         goalMembers: panel.progress.goalMembers,
-        ...managedPanelTimeline(panel.progress),
-        nextSendDate: nextWaveAt ? format(nextWaveAt, 'EEEE, MMMM d') : null,
+        ...timeline,
+        nextSendDate: awaitingFirstSend
+          ? timeline.firstSendDate
+          : nextWaveAt
+            ? format(nextWaveAt, 'EEEE, MMMM d')
+            : null,
         readyDate: panel.readyAt ? format(panel.readyAt, 'MMMM d') : null,
         ...(headsUp && {
           headsUp: {

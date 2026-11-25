@@ -48,6 +48,7 @@ import {
   REPORT_BACK_DUE_DAYS,
 } from '@/outreach/services/outreachReportBack.service'
 import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
+import { managedHeadsUpIsDue } from '@/outreach/services/outreachServeSmsCreate.service'
 
 // Community issues have no natural deadline; give their cards a fixed window so
 // they ride the existing active/this_week/missed bucketing off dueDate.
@@ -590,7 +591,8 @@ export class DashboardCardsService extends createPrismaBase(
   }
 
   // The heads-up post card: made while the approved panel builds and no
-  // invites have gone out, due the day the first ones go out. Done once the
+  // invites have gone out, once the first ones are close enough for the
+  // post's words to be true, due the day they go out. Done once the
   // first wave sends or the office saves a social post after approving, so
   // a post made from the chat's card closes it too. Skip works as on the
   // other civic panel cards; no Mark done.
@@ -641,6 +643,7 @@ export class DashboardCardsService extends createPrismaBase(
     }
     if (card || panel.status !== ManagedCivicPanelStatus.building) return
     const { firstSendDate } = panel.progress
+    if (!managedHeadsUpIsDue(firstSendDate, new Date())) return
     await tx.dashboardCard.create({
       data: {
         ...where,

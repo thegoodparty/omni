@@ -355,6 +355,41 @@ describe('the managed panel wave job', () => {
       })
     })
 
+    it('waits out a day 90 days away with no draw, notice or status change', async () => {
+      const { id } = await enroll({ firstSendDate: '2027-01-19' })
+      const slack = vi.mocked(service.app.get(SlackService).message)
+
+      // The hourly schedule on the approval day, past the stall alert and
+      // the five-day backstop a sent wave would reach, and two days before.
+      for (const at of [
+        WEDNESDAY,
+        new Date('2026-10-24T12:19:00Z'),
+        new Date('2026-10-28T12:19:00Z'),
+        new Date('2026-12-05T12:19:00Z'),
+        new Date('2027-01-17T12:19:00Z'),
+      ]) {
+        await runWaves(at)
+        expect(await job().advance(id, at)).toBe('waiting')
+      }
+
+      expect(await waves(id)).toHaveLength(0)
+      expect(textSends()).toHaveLength(0)
+      expect(slack).not.toHaveBeenCalled()
+      expect(await enrollment(id)).toMatchObject({
+        status: ManagedCivicPanelStatus.building,
+        freeTextsUsed: 0,
+      })
+
+      expect(await job().advance(id, new Date('2027-01-18T12:19:00Z'))).toBe(
+        'sent',
+      )
+
+      const wave = await waveAt(id, 1)
+      expect(wave.outreach?.scheduledLocalDate).toBe('2027-01-19')
+      // 11am Pacific on the chosen day, plus 48 hours.
+      expect(wave.replyWindowEndsAt).toEqual(new Date('2027-01-21T19:00:00Z'))
+    })
+
     it('gives later waves the two-day lead once the day has passed', async () => {
       const { id } = await enroll({ firstSendDate: '2026-10-19' })
 

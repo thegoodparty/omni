@@ -242,6 +242,7 @@ export {
   MANAGED_CIVIC_PANEL_STATUSES,
   ManagedCivicPanelStatusSchema,
   type ManagedCivicPanelStatus,
+  MANAGED_PANEL_FIRST_SEND_MAX_DAYS,
   ApproveManagedCivicPanelInputSchema,
   type ApproveManagedCivicPanelInput,
   MANAGED_CIVIC_PANEL_ACTIONS,

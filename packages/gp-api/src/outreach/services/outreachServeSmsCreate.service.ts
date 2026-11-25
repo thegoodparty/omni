@@ -5,6 +5,7 @@ import {
   findCivicPanelLeaveLine,
   FOLLOW_UP_BUSINESS_DAYS,
   isCivicPanelOnlyList,
+  MANAGED_PANEL_FIRST_SEND_MAX_DAYS,
   MIN_TEXTS_PER_ROUND,
   ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
   ServeSmsCreateRequest,
@@ -209,7 +210,9 @@ export const nextManagedSendDate = (now: Date): string => {
 
 // The first invites of a managed civic panel go out on the day the official
 // picks: tomorrow at the earliest (the agent sends them, so no ops lead), at
-// most 30 days out, and never on a weekend, when ops does not send.
+// most MANAGED_PANEL_FIRST_SEND_MAX_DAYS out so an official not yet sworn in
+// can start them after they take office, and never on a weekend, when ops
+// does not send. Every other send keeps MAX_SERVE_SMS_SCHEDULE_DAYS.
 export const assertManagedFirstSendDateAllowed = (
   firstSendDate: string,
   now: Date = new Date(),
@@ -219,9 +222,10 @@ export const assertManagedFirstSendDateAllowed = (
   if (date <= today) {
     throw new BadRequestException('The first invites can start tomorrow')
   }
-  if (date > addDays(today, MAX_SERVE_SMS_SCHEDULE_DAYS)) {
+  if (date > addDays(today, MANAGED_PANEL_FIRST_SEND_MAX_DAYS)) {
     throw new BadRequestException(
-      `Cannot schedule more than ${MAX_SERVE_SMS_SCHEDULE_DAYS} days in advance`,
+      'Cannot schedule more than ' +
+        `${MANAGED_PANEL_FIRST_SEND_MAX_DAYS} days in advance`,
     )
   }
   if (isWeekend(date)) {
@@ -249,6 +253,17 @@ export const managedStartIsLater = (
 ): boolean =>
   firstSendDate !== null &&
   firstSendDate > format(addDays(referenceToday(now), 1), 'yyyy-MM-dd')
+
+// The heads-up post tells residents the invites come "over the next few
+// weeks", so it is offered only once the first send is this close.
+export const MANAGED_HEADS_UP_LEAD_DAYS = 30
+
+export const managedHeadsUpIsDue = (
+  firstSendDate: string,
+  now: Date,
+): boolean =>
+  firstSendDate <=
+  format(addDays(referenceToday(now), MANAGED_HEADS_UP_LEAD_DAYS), 'yyyy-MM-dd')
 
 const AGENT_SEND_HOUR = '11:00:00'
 const AGENT_SEND_MIN_LEAD_MS = 2 * 60 * 60 * 1000
