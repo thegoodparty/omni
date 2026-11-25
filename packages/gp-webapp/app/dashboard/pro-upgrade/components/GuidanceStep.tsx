@@ -118,7 +118,7 @@ const GuidanceStep = (): React.JSX.Element => {
     <div className="flex min-h-full flex-1 flex-col">
       {smsBanner}
       <h1 className="mb-2 text-xl font-semibold">
-        Let&apos;s gather a few things to unlock Pro
+        Let&apos;s gather a few things to unlock {planName}
       </h1>
       <p className="mb-6 text-base text-base-muted-foreground">
         Have this information available to verify your campaign.
