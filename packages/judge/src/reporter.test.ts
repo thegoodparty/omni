@@ -215,6 +215,38 @@ describe('PairwiseReporter', () => {
     }
   })
 
+  it('keeps a WORSE verdict when model evidence needs redaction', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pairwise-reporter-'))
+    const secret = 'x'.repeat(32)
+    const verdict = structuredClone(confirmed)
+    verdict.confirmed[0]!.attempts[0]!.evidence = [`a source was missing\n${secret}`]
+    const withEvidence = [{
+      children: {
+        allSuites: () => [{
+          fullName: 'grounding suite',
+          meta: () => ({ pairwiseVerdict: suiteVerdictAnnotation(verdict) }),
+          children: { allTests: () => [] },
+        }],
+      },
+    }] as unknown as TestModule[]
+    try {
+      const path = join(dir, 'verdicts.json')
+      const summaryPath = join(dir, 'summary.md')
+      vi.stubEnv('JUDGE_VERDICTS_FILE', path)
+      vi.stubEnv('GITHUB_STEP_SUMMARY', summaryPath)
+      vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+      new PairwiseReporter().onTestRunEnd(withEvidence, [], 'failed')
+      expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual([
+        { suite: 'grounding suite', label: 'WORSE' },
+      ])
+      const summary = readFileSync(summaryPath, 'utf8')
+      expect(summary).toContain('a source was missing &#91;redacted&#93;')
+      expect(summary).not.toContain(secret)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("writes every attempt's orders and reasoning to JUDGE_RESULTS_FILE", () => {
     const dir = mkdtempSync(join(tmpdir(), 'pairwise-reporter-'))
     try {
