@@ -5,6 +5,59 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TestModule } from 'vitest/node'
 import { suiteVerdictAnnotation } from './annotation'
 import PairwiseReporter, { collectPairwiseResults } from './reporter'
+import { readCaseVerdict, readVerdict } from './stats'
+
+const confirmed = readVerdict({
+  cases: [
+    readCaseVerdict({
+      caseId: 'a1-baseline',
+      readings: [
+        {
+          attempt: 1,
+          changes: [
+            {
+              criterion: 'grounding',
+              direction: 'worse',
+              evidence: ['base cited a source, candidate did not'],
+            },
+          ],
+          disagreements: [],
+        },
+        {
+          attempt: 2,
+          changes: [
+            {
+              criterion: 'grounding',
+              direction: 'worse',
+              evidence: ['base cited a source, candidate did not'],
+            },
+          ],
+          disagreements: [],
+        },
+        { attempt: 3, changes: [], disagreements: ['proportionality'] },
+      ],
+    }),
+    readCaseVerdict({
+      caseId: 'a2-thin',
+      readings: [
+        {
+          attempt: 1,
+          changes: [
+            {
+              criterion: 'disclosure',
+              direction: 'better',
+              evidence: ['base said nothing, candidate named the gap'],
+            },
+          ],
+          disagreements: [],
+        },
+        { attempt: 2, changes: [], disagreements: [] },
+        { attempt: 3, changes: [], disagreements: [] },
+      ],
+    }),
+  ],
+  notJudged: 1,
+})
 
 const cases = [
   {
@@ -19,10 +72,15 @@ const cases = [
         message: JSON.stringify({
           attempt: 1,
           aArm: 'base',
-          winner: 'candidate',
-          reasoning: 'B answered the question.',
-          handledWhen: { base: 'no', candidate: 'yes' },
-          scores: { task_success: { base: 2, candidate: 4 } },
+          reasoning: 'B dropped the source.',
+          handledWhen: { base: 'yes', candidate: 'no' },
+          changes: [
+            {
+              criterion: 'grounding',
+              better: 'base',
+              evidence: 'base cited a source, candidate did not',
+            },
+          ],
         }),
       },
       {
@@ -30,18 +88,32 @@ const cases = [
         message: JSON.stringify({
           attempt: 1,
           aArm: 'candidate',
-          winner: 'candidate',
-          reasoning: 'A answered the question.',
-          handledWhen: { base: 'no', candidate: 'yes' },
-          scores: { task_success: { base: 2, candidate: 4 } },
+          reasoning: 'A dropped the source.',
+          handledWhen: { base: 'yes', candidate: 'no' },
+          changes: [
+            {
+              criterion: 'grounding',
+              better: 'base',
+              evidence: 'base cited a source, candidate did not',
+            },
+          ],
         }),
       },
       {
         type: 'pairwise-decision',
         message: JSON.stringify({
           attempt: 1,
-          winner: 'candidate',
-          ordersAgree: true,
+          changes: [
+            {
+              criterion: 'grounding',
+              direction: 'worse',
+              evidence: [
+                'base cited a source, candidate did not',
+                'base cited a source, candidate did not',
+              ],
+            },
+          ],
+          disagreements: [],
         }),
       },
     ],
@@ -55,24 +127,7 @@ const modules = [
         {
           fullName: 'suite | name',
           meta: () => ({
-            pairwiseVerdict: suiteVerdictAnnotation({
-              label: 'WORSE',
-              sign: {
-                forBase: 6,
-                forCandidate: 0,
-                ties: 0,
-                pBetter: 1,
-                pWorse: 0.015625,
-              },
-              handled: {
-                basePass: 0,
-                baseTotal: 0,
-                candidatePass: 0,
-                candidateTotal: 0,
-                pWorse: 1,
-              },
-              notJudged: 0,
-            }),
+            pairwiseVerdict: suiteVerdictAnnotation(confirmed),
             pairwiseNotJudged: suiteVerdictAnnotation([
               {
                 caseId: 'a1-baseline',
@@ -110,12 +165,35 @@ describe('PairwiseReporter', () => {
       new PairwiseReporter().onTestRunEnd(modules, [], 'failed')
       const summary = readFileSync(path, 'utf8')
       expect(summary).toContain(
-        '| suite &#124; name | WORSE | 6 | 0 | 0 | 0 | 1.000 | 0.016 | 0/0 | 0/0 | 1.000 |',
+        '| suite &#124; name | WORSE | 6 | 1 | 1 | 0 | 2 | 1 |',
+      )
+      expect(summary).toContain(
+        '| suite &#124; name | a1-baseline | grounding | regression | 2 | base cited a source, candidate did not / base cited a source, candidate did not |',
+      )
+      expect(summary).toContain(
+        '| suite &#124; name | a1-baseline | WORSE | 3 | 0 | 0 | 1 | −grounding |',
+      )
+      expect(summary).toContain(
+        '| suite &#124; name | a2-thin | NO DIFFERENCE FOUND | 3 | 0 | 2 | 0 | none |',
       )
       expect(summary).toContain(
         '| suite &#124; name | a1-baseline | 2 | base | b5474767-7a55-4029-8b43-e720f85e53b8 (superseded) | the run failed: run superseded |',
       )
       expect(write).toHaveBeenCalledWith(summary)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('carries no p-value anywhere in the table', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pairwise-reporter-'))
+    try {
+      vi.stubEnv('GITHUB_STEP_SUMMARY', join(dir, 'summary.md'))
+      const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+      new PairwiseReporter().onTestRunEnd(modules, [], 'failed')
+      const table = String(write.mock.calls[0]?.[0])
+      expect(table).not.toMatch(/p[- ]?(better|worse|value|&lt;)/i)
+      expect(table).not.toContain('0.015625')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -128,6 +206,7 @@ describe('PairwiseReporter', () => {
       vi.stubEnv('JUDGE_VERDICTS_FILE', path)
       vi.stubEnv('GITHUB_STEP_SUMMARY', join(dir, 'summary.md'))
       new PairwiseReporter().onTestRunEnd(modules, [], 'failed')
+      // The guard switches on `label` alone; nothing else may reach it.
       expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual([
         { suite: 'suite | name', label: 'WORSE' },
       ])
@@ -146,27 +225,64 @@ describe('PairwiseReporter', () => {
       new PairwiseReporter().onTestRunEnd(modules, [], 'failed')
       const [suite] = JSON.parse(readFileSync(path, 'utf8'))
       expect(suite.verdict.label).toBe('WORSE')
-      expect(suite.verdict.sign.pWorse).toBe(0.015625)
+      expect(suite.verdict.confirmed).toEqual([
+        {
+          caseId: 'a1-baseline',
+          criterion: 'grounding',
+          direction: 'worse',
+          attempts: [
+            {
+              attempt: 1,
+              evidence: ['base cited a source, candidate did not'],
+            },
+            {
+              attempt: 2,
+              evidence: ['base cited a source, candidate did not'],
+            },
+          ],
+        },
+      ])
       expect(suite.cases).toEqual([
         {
           case: 'a1-baseline',
           attempts: [
             {
               attempt: 1,
-              winner: 'candidate',
-              ordersAgree: true,
+              changes: [
+                {
+                  criterion: 'grounding',
+                  direction: 'worse',
+                  evidence: [
+                    'base cited a source, candidate did not',
+                    'base cited a source, candidate did not',
+                  ],
+                },
+              ],
+              disagreements: [],
               orders: [
                 {
                   aArm: 'base',
-                  winner: 'candidate',
-                  reasoning: 'B answered the question.',
-                  handledWhen: { base: 'no', candidate: 'yes' },
+                  reasoning: 'B dropped the source.',
+                  handledWhen: { base: 'yes', candidate: 'no' },
+                  changes: [
+                    {
+                      criterion: 'grounding',
+                      better: 'base',
+                      evidence: 'base cited a source, candidate did not',
+                    },
+                  ],
                 },
                 {
                   aArm: 'candidate',
-                  winner: 'candidate',
-                  reasoning: 'A answered the question.',
-                  handledWhen: { base: 'no', candidate: 'yes' },
+                  reasoning: 'A dropped the source.',
+                  handledWhen: { base: 'yes', candidate: 'no' },
+                  changes: [
+                    {
+                      criterion: 'grounding',
+                      better: 'base',
+                      evidence: 'base cited a source, candidate did not',
+                    },
+                  ],
                 },
               ],
             },
@@ -187,6 +303,7 @@ describe('PairwiseReporter', () => {
           error: 'the run failed: run superseded',
         },
       ])
+      expect(JSON.stringify(suite)).not.toMatch(/pBetter|pWorse|sign|alpha/)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
