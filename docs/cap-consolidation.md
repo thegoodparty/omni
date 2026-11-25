@@ -2,11 +2,12 @@
 
 The plan for moving every in-product agent into gp-api, on one engine.
 ClickUp ticket 17tnw2b5rd0, "Consolidate In-Product Agent Architecture".
-Status: in progress. The core, `AgentMessage` and `trending_issues` are on
-main. `deploy/agentsOnGpApi.ts` says which agents run on gp-api's engine in
-which environment, and it is the only statement of that: a preview names
-every registered agent, because a preview is the Universal Judge's candidate
-arm. An agent a list leaves out runs in that environment as
+Status: in progress. The core, `AgentMessage` and every registered background
+agent are on main. `deploy/agentsOnGpApi.ts` says which agents run on gp-api's
+engine in which environment, and it is the only statement of that: every
+environment names every registered agent, and a preview must, because a preview
+is the Universal Judge's candidate arm. An agent a list leaves out runs in that
+environment as
 [`cap-background-agents.md`](cap-background-agents.md) describes; chat runs
 as [`cap-interactive-agents.md`](cap-interactive-agents.md) describes.
 
@@ -113,16 +114,18 @@ on its own PR, which arrive before the merge (step 3).
      `opposition_research`, `opportunities_and_challenges`,
      `race_opponent_collection`, `self_research`, `meeting_schedule`.
      `opposition_research`, `opportunities_and_challenges` and
-     `meeting_schedule` are in the preview and dev lists and run on gp-api's
-     engine in both; prod still runs them on the PMF Engine, and a promote PR
-     moves them there once their dev runs are healthy. `self_research` is not
-     migrated. The opponent chain runs collection, then summary, then actions,
-     and one chain is one migration: all three are in the preview, dev and prod
-     lists together.
+     `meeting_schedule` run on gp-api's engine in every environment, and each
+     one's migration PR compared the real old engine with the real new one and
+     the judge read it as no worse. `self_research` is built but unmerged. The
+     opponent chain runs collection, then summary, then actions, and one chain
+     is one migration: all three are in the preview, dev and prod lists
+     together.
    - **Wave 2, needs a Databricks tool:** `race_opponent_actions` (in every
      list, as the chain's last link), `opponent_research`,
-     `top_community_issues` (on gp-api's engine in preview and dev; prod is
-     still on the PMF Engine), `campaign_tracker_tasks`.
+     `top_community_issues`, `campaign_tracker_tasks`.
+     `top_community_issues` runs on gp-api's engine in every environment; #3880
+     deferred its judge sweep, so it is the one agent in a list with no verdict
+     behind it.
      The tool exists: `queryDatabricks`
      (`packages/gp-api/src/agents/tools/queryDatabricks.ts`) runs one
      aggregate-only SELECT under the agent's own table allowlist and row cap,

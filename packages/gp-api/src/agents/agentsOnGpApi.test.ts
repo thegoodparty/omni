@@ -10,22 +10,9 @@ describe('agentsOnGpApi', () => {
     expect(agentsOnGpApi('preview').split(',')).toEqual(Object.keys(AGENTS))
   })
 
-  it('names the migrated agents in dev and prod; a preview names them all', () => {
-    expect(agentsOnGpApi('dev').split(',')).toEqual([
-      'trending_issues',
-      'top_community_issues',
-      'meeting_schedule',
-      'opportunities_and_challenges',
-      'opposition_research',
-      'race_opponent_actions',
-      'race_opponent_collection',
-      'race_opponent_summary',
-    ])
-    expect(agentsOnGpApi('prod').split(',')).toEqual([
-      'trending_issues',
-      'race_opponent_actions',
-      'race_opponent_collection',
-      'race_opponent_summary',
-    ])
+  it('names every registered agent in dev and prod', () => {
+    const everyAgent = [...Object.keys(AGENTS)].sort()
+    expect([...agentsOnGpApi('dev').split(',')].sort()).toEqual(everyAgent)
+    expect([...agentsOnGpApi('prod').split(',')].sort()).toEqual(everyAgent)
   })
 })
