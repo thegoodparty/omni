@@ -105,7 +105,7 @@ export const estimateBefore = (
         ASSUMED_OUTPUT_TOKENS.score,
       ),
       draft: usd(
-        reference + system.length + transcript.length,
+        system.length + transcript.length,
         ASSUMED_OUTPUT_TOKENS.draft,
       ),
       gate: usd(

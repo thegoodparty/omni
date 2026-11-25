@@ -1510,9 +1510,9 @@ export default defineExpectedResultEvalSuite('case_scout_deidentifier', {
     // fails the attempt; an unreadable reply is a real outcome the job has.
     let callFailed = false
     const drafter: Drafter = {
-      draftCase: async (scope, system, transcript, callSignal) => {
+      draftCase: async (system, transcript, callSignal) => {
         try {
-          return await model.draftCase(scope, system, transcript, callSignal)
+          return await model.draftCase(system, transcript, callSignal)
         } catch (err) {
           callFailed = true
           // DraftingError drops the cause, and a rate limit and a timeout
