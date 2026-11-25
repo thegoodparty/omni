@@ -18,10 +18,25 @@ a person to read, and the Slack note still posts.
 the one thing that leaves it is the handoff: gated, de-identified strings and
 nothing that points back at a conversation.
 
-**The five `cases/<agent>.json` files are read, never written.** The job reads
-them off main for case-id collisions and existing conditions, and the scout's
-bench reads them to check that a draft parses once appended. No judge runs
-them, so a change to one has no effect on any gate.
+**The job reads existing cases from the judged suites.** For case-id
+collisions, `coveredBy` and the list cap it reads each covered agent's
+pairwise suite (`campaign_assistant.eval.ts`, `chief_of_staff.eval.ts`) off
+main, because that is where Delegate appends the scout's cases and what the
+judge runs. A suite cannot be imported here (the build leaves out `*.eval.ts`,
+and it imports a dev-only package), so `util/suiteCases.util.ts` reads each
+case's `id` and `grading.condition` from the raw source: string literals, or
+several joined by `+`, nothing computed. `suiteCases.util.test.ts` checks that
+reader against the TypeScript AST of both suites, so a case it would misread
+fails CI in the PR that adds it. Decision record:
+`docs/adr/2026-11-25-case-scout-reads-the-judged-suites.md`.
+
+**The five `cases/<agent>.json` files are read, never written.** The job still
+reads the agent's file off main for its `note` (the drafter's fixture
+description) and as a fallback: ids are the union of both, and a condition in
+both reads the suite's. A failed or unreadable source is a line in the run
+record; only when neither reads does the night draft against an empty list.
+The scout's bench reads the files to check that a draft parses once appended.
+No judge runs them, so a change to one has no effect on any gate.
 
 ## Flow
 
