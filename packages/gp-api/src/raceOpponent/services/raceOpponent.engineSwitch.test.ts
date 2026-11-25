@@ -246,9 +246,23 @@ describe('race opponent chain engine switch', () => {
 
   // The PMF Engine's dispatchRun makes the test-user check and `run` does not, so
   // the gp-api branch has to make it itself or a synthetic org spends a paid run.
+  // The source row matters: with an empty read dispatchSummary returns before it
+  // ever reaches the guard, so a test that omits it passes with the guard deleted.
+  const seedSourceForSummary = (prisma: ReturnType<typeof basePrisma>) => {
+    prisma.raceOpponent.findMany = vi.fn().mockResolvedValue([
+      {
+        opponentName: 'Jane Rival',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://ballotpedia.org/Jane_Rival',
+        content: { text: 'collected bio' },
+      },
+    ])
+  }
+
   it('skips the dispatch for a test-user org on the gp-api branch', async () => {
     vi.stubEnv('AGENTS_ON_GP_API', RACE_OPPONENT_SUMMARY)
     const prisma = basePrisma()
+    seedSourceForSummary(prisma)
     prisma.organization.findUnique = vi.fn().mockResolvedValue({
       owner: { email: 'someone@test.goodparty.org' },
       testModeCreatedAt: null,
@@ -258,12 +272,14 @@ describe('race opponent chain engine switch', () => {
 
     await service.dispatchSummary(campaign)
 
+    expect(prisma.organization.findUnique).toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
 
   it('skips the dispatch for a test-mode org on the gp-api branch', async () => {
-    vi.stubEnv('AGENTS_ON_GP_API', RACE_OPPONENT_COLLECTION)
+    vi.stubEnv('AGENTS_ON_GP_API', RACE_OPPONENT_SUMMARY)
     const prisma = basePrisma()
+    seedSourceForSummary(prisma)
     prisma.organization.findUnique = vi.fn().mockResolvedValue({
       owner: { email: 'real@example.com' },
       testModeCreatedAt: new Date(),
@@ -273,6 +289,7 @@ describe('race opponent chain engine switch', () => {
 
     await service.dispatchSummary(campaign)
 
+    expect(prisma.organization.findUnique).toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
 

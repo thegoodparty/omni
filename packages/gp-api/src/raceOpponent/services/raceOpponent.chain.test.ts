@@ -63,6 +63,11 @@ afterEach(() => {
 // re-chain runs while its own row is still `running`. If it counts itself as in
 // flight, dispatchSummary returns and the newer collection is never structured,
 // which strands the page on 'running' (ENG-10614).
+//
+// The real dispatchSummary runs here, against the seeded `running` row, because
+// the fix is inside findInFlightChainRun: spying dispatchSummary would only prove
+// the id was passed, and the exclusion could be deleted with the test still
+// green.
 describe('the re-chain excludes the run that is finishing', () => {
   it('dispatches a newer collection instead of matching the finishing summary', async () => {
     vi.stubEnv(
@@ -87,17 +92,27 @@ describe('the re-chain excludes the run that is finishing', () => {
         content: { text: 'collected bio' },
       },
     })
-    const dispatchSummary = vi
-      .spyOn(service.app.get(RaceOpponentService), 'dispatchSummary')
-      .mockResolvedValue()
+    const run = vi
+      .spyOn(service.app.get(AgentsService), 'run')
+      .mockResolvedValue({ runId: 'chained-summary-run' } as never)
 
     await service.app
       .get(RaceOpponentPersistService)
       .onSummaryFailure({ runId: finishing.id })
 
-    const [dispatched, exceptRunId] = dispatchSummary.mock.calls[0] ?? []
-    expect(dispatched?.id).toBe(campaign.id)
-    expect(exceptRunId).toBe(finishing.id)
+    // The finishing row is STILL `running` when the re-chain asks, so this only
+    // dispatches if the exclusion is real.
+    expect(
+      await service.prisma.agentRun.findUnique({
+        where: { id: finishing.id },
+        select: { status: true },
+      }),
+    ).toEqual({ status: AgentRunStatus.running })
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(run).toHaveBeenCalledWith(
+      RACE_OPPONENT_SUMMARY,
+      expect.objectContaining({ organizationSlug: SLUG }),
+    )
   })
 
   // The other half of the same rule: a summary run that is NOT the finishing one
