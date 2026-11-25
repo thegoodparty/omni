@@ -1,5 +1,6 @@
 import { COVERED_SCOPES } from '@/caseScout/caseScout.config'
 import {
+  productMapReference,
   SCORING_MODEL,
   SCORING_PROMPT,
   SECOND_READ_PROMPT,
@@ -7,7 +8,10 @@ import {
 import type { CaseListInfo } from '@/caseScout/services/caseScoutCaseLists.service'
 import { buildDraftingPrompt } from '@/caseScout/util/drafting.util'
 import { segmentIntoSessions } from '@/caseScout/util/sessions.util'
-import { renderSessionTranscript } from '@/caseScout/util/transcript.util'
+import {
+  renderSessionTranscript,
+  sessionSourceTexts,
+} from '@/caseScout/util/transcript.util'
 import { CASES_DIR } from '../judge/cases'
 import {
   conversationIdOf,
@@ -93,17 +97,19 @@ export const estimateBefore = (
       recentProposals: [],
     })
 
+    const reference = productMapReference(session.scope).length
+    const source = sessionSourceTexts(session).join('\n---\n').length
     const costs: Record<Stage, number> = {
       score: usd(
-        SCORING_PROMPT.length + transcript.length,
+        reference + SCORING_PROMPT.length + transcript.length,
         ASSUMED_OUTPUT_TOKENS.score,
       ),
       draft: usd(
-        system.length + transcript.length,
+        reference + system.length + transcript.length,
         ASSUMED_OUTPUT_TOKENS.draft,
       ),
       gate: usd(
-        SECOND_READ_PROMPT.length + ASSUMED_GATE_DRAFT_CHARS,
+        SECOND_READ_PROMPT.length + ASSUMED_GATE_DRAFT_CHARS + source,
         ASSUMED_OUTPUT_TOKENS.gate,
       ),
     }

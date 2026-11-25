@@ -248,6 +248,11 @@ const fixtureCard = (fixture: FixtureResult): string => {
       `<p>${status('fail')} ${escapeHtml(String(gate.rule))}: ` +
         `${escapeHtml(String(gate.reason))}</p>`,
     )
+    if (gate.flagged && gate.flagged.length > 0) {
+      parts.push(
+        `<p>Flagged: ${gate.flagged.map((item) => escapeHtml(item)).join('; ')}</p>`,
+      )
+    }
   }
 
   const checks = Object.entries(fixture.checks)
