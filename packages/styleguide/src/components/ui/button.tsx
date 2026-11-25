@@ -24,6 +24,10 @@ const buttonVariants = cva(
           'bg-transparent border-tertiary-dark text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
         ghost:
           'bg-transparent border-transparent text-tertiary-dark hover:bg-tertiary-dark/5 focus-visible:ring-[3px]',
+        ghostPrimary:
+          'bg-transparent border-transparent text-primary hover:bg-primary/5 focus-visible:ring-[3px]',
+        ghostDestructive:
+          'bg-transparent border-transparent text-destructive hover:bg-destructive/5 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40',
         link: 'bg-transparent text-link border-transparent underline underline-offset-4 hover:text-link/80',
         neutral:
           'bg-tertiary-light text-tertiary-dark border-transparent hover:bg-tertiary-light/80',
@@ -62,7 +66,10 @@ interface ButtonProps
 /**
  * Name the action with a verb plus object, never "Submit" or "OK". Pass
  * `loading` while the action runs instead of disabling it. Don't disable submit
- * to signal missing input; show the field errors when pressed.
+ * to signal missing input; show the field errors when pressed. For a quiet
+ * action in the primary or destructive color (Regenerate, Remove), use
+ * `ghostPrimary` or `ghostDestructive`, never `ghost` or `link` with a color
+ * className.
  *
  * @summary Use for any action with a text label, like saving or sending. For an
  * icon-only action, use IconButton; for an on/off choice, use ToggleGroup.

@@ -3011,6 +3011,29 @@ next free C-ID and status `proposed`.
   ClickUp: ENG-11641
 - **Owner:** developers (design reviews the component PR)
 
+### C-43 Button ghost in primary and destructive
+
+- **Solves:** G-12 (quiet blue and red actions restyled through className).
+- **Job:** a quiet action in the primary or destructive color, like
+  Regenerate or Remove. `Button` variants `ghostPrimary` and
+  `ghostDestructive` take the same color token as the filled `default` and
+  `destructive` buttons, as text with a light hover tint.
+- **Replaces today:** `ghost` or `link` with a color className in
+  `dashboard/contacts/crm/lists/ListCard.tsx:154`,
+  `dashboard/contacts/crm/lists/ListsIndex.tsx:89`,
+  `dashboard/contacts/crm/recommended/RecommendedVoterListCard.tsx:82`,
+  `dashboard/contacts/crm/lists/CitizensPanelListCard.tsx:47`,
+  `dashboard/door-knocking/native/createFlow/WhoStep.tsx:205`,
+  `dashboard/pro-upgrade/components/EinHowToCollapsible.tsx:109`,
+  `dashboard/outreach/v2/OutreachDetailsDrawer.tsx:785` and `:1039`,
+  `dashboard/shared/testMode/TestModeSheet.tsx:456`, and Regenerate in
+  `dashboard/outreach/v2/email/EmailWriteStep.tsx:430`. Each moves when its
+  screen is next touched; the email editor uses it first.
+- **Exists in DS?** Partly (`ghost` exists only in `tertiary-dark`).
+- **Priority:** medium · **Status:** approved by Eugene 2026-11-25; Bryan and
+  Olly to confirm in #tmp-design-agent · ClickUp: —
+- **Owner:** design
+
 ## Existing DS components to adopt
 
 These exist in the styleguide but aren't used where they should be. Adopt
