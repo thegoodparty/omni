@@ -33,12 +33,6 @@ Agents live with their product: `trending_issues` is
 `src/campaignStrategy/oppositionResearch/`, and `opportunities_and_challenges`
 is `src/campaignStrategy/opportunitiesAndChallengesAgent/`.
 
-Which of them run here is per environment (`deploy/agentsOnGpApi.ts`): prod
-runs `trending_issues`; dev adds `top_community_issues`, `meeting_schedule`,
-`opportunities_and_challenges` and `opposition_research`; a preview runs every
-agent in the registry, because it is the judge's candidate arm. An agent left
-out runs on the PMF Engine.
-
 ## Adding an agent
 
 ```ts

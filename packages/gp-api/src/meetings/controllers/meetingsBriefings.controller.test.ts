@@ -25,7 +25,11 @@ const seedElectedOffice = async (orgSlug: string) => {
 
 const seedScheduleRun = async (
   organizationSlug: string,
-  options?: { artifactBucket?: string; artifactKey?: string },
+  options?: {
+    artifactBucket?: string
+    artifactKey?: string
+    createdAt?: Date
+  },
 ) =>
   service.prisma.experimentRun.create({
     data: {
@@ -34,6 +38,36 @@ const seedScheduleRun = async (
       status: ExperimentRunStatus.COMPLETED,
       artifactBucket: options?.artifactBucket ?? 'schedule-bucket',
       artifactKey: options?.artifactKey ?? 'schedule-key.json',
+      ...(options?.createdAt ? { createdAt: options.createdAt } : {}),
+    },
+  })
+
+const seedAgentScheduleRun = async (
+  organizationSlug: string,
+  options: { meetingName: string; rrule: string; createdAt?: Date },
+) =>
+  service.prisma.agentRun.create({
+    data: {
+      agentName: 'meeting_schedule',
+      organizationSlug,
+      status: AgentRunStatus.completed,
+      manifest: {},
+      shapeHash: 'a-shape-hash',
+      input: { organizationSlug },
+      ...(options.createdAt ? { createdAt: options.createdAt } : {}),
+      artifact: {
+        generated_at: '2026-01-01',
+        status: 'found',
+        meeting_name: options.meetingName,
+        location: 'City Hall Council Chambers, 200 Main St',
+        rrule: options.rrule,
+        human: '2nd and 4th Monday',
+        time: '19:00',
+        timezone: 'America/Denver',
+        duration_minutes: 180,
+        sources: [{ url: 'https://example.gov', note: 'meeting page' }],
+        discovered_schedule_location: null,
+      },
     },
   })
 
@@ -113,6 +147,12 @@ const seedBriefingTarget = async (orgSlug: string, rrule: string) => {
 }
 
 describe('GET /v1/meetings', () => {
+  // `runsOnGpApi` reads process.env on every call, so a stub left in place
+  // silently changes the engine every later test in this describe reads.
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('returns 404 when user has no elected office', async () => {
     const result = await service.client.get('/v1/meetings', {
       headers: { 'x-organization-slug': 'nonexistent' },
@@ -311,32 +351,16 @@ describe('GET /v1/meetings', () => {
 
   // The other direction, which is what makes reverting the line a rollback: an
   // office whose schedule ran on gp-api's engine keeps it on the AgentRun row
-  // and has no published artifact at all.
+  // and has no published artifact at all. The switch is set off explicitly so
+  // the published-first branch is the one under test.
   it('reads a gp-api schedule after the switch is turned back off', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', '')
     const orgSlug = 'eo-agent-schedule-after-revert'
     await seedElectedOffice(orgSlug)
-    await service.prisma.agentRun.create({
-      data: {
-        agentName: 'meeting_schedule',
-        organizationSlug: orgSlug,
-        status: AgentRunStatus.completed,
-        manifest: {},
-        shapeHash: 'a-shape-hash',
-        input: { organizationSlug: orgSlug },
-        artifact: {
-          generated_at: '2026-01-01',
-          status: 'found',
-          meeting_name: 'City Council',
-          location: 'City Hall Council Chambers, 200 Main St',
-          rrule: 'FREQ=MONTHLY;BYDAY=2MO,4MO',
-          human: '2nd and 4th Monday',
-          time: '19:00',
-          timezone: 'America/Denver',
-          duration_minutes: 180,
-          sources: [{ url: 'https://example.gov', note: 'meeting page' }],
-          discovered_schedule_location: null,
-        },
-      },
+    mockS3({})
+    await seedAgentScheduleRun(orgSlug, {
+      meetingName: 'City Council',
+      rrule: 'FREQ=MONTHLY;BYDAY=2MO,4MO',
     })
 
     const result = await service.client.get('/v1/meetings', {
@@ -347,10 +371,65 @@ describe('GET /v1/meetings', () => {
     expect(result.data.scheduleKnown).toBe(true)
     expect(result.data.meetings.length).toBeGreaterThan(0)
     expect(
-      firstOrThrow(
-        result.data.meetings as Array<{ meetingName: string }>,
-      ).meetingName,
+      firstOrThrow(result.data.meetings as Array<{ meetingName: string }>)
+        .meetingName,
     ).toBe('City Council')
+  })
+
+  // An office can hold a completed schedule in both tables, because the manual
+  // re-dispatch path does not check for an existing run. A reader that trusted
+  // the switched-to table would serve the older schedule and hide the newer one.
+  it('serves the newer PMF schedule though the switch prefers gp-api', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    const orgSlug = 'eo-both-tables-pmf-newer'
+    await seedElectedOffice(orgSlug)
+    await seedAgentScheduleRun(orgSlug, {
+      meetingName: 'Old Council',
+      rrule: 'FREQ=MONTHLY;BYDAY=2MO,4MO',
+      createdAt: subDays(new Date(), 2),
+    })
+    await seedScheduleRun(orgSlug, { createdAt: subDays(new Date(), 1) })
+    mockS3({
+      'schedule-key.json': JSON.stringify({
+        ...foundSchedule,
+        meeting_name: 'New Council',
+      }),
+    })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.status).toBe(200)
+    expect(
+      firstOrThrow(result.data.meetings as Array<{ meetingName: string }>)
+        .meetingName,
+    ).toBe('New Council')
+  })
+
+  // The mirror image: a manual re-dispatch after the flip leaves a newer
+  // AgentRun beside the older published one, and a revert must still serve it.
+  it('serves the newer gp-api schedule though the switch prefers the PMF Engine', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', '')
+    const orgSlug = 'eo-both-tables-gp-api-newer'
+    await seedElectedOffice(orgSlug)
+    await seedScheduleRun(orgSlug, { createdAt: subDays(new Date(), 2) })
+    mockS3({ 'schedule-key.json': JSON.stringify(foundSchedule) })
+    await seedAgentScheduleRun(orgSlug, {
+      meetingName: 'Re-dispatched Council',
+      rrule: 'FREQ=MONTHLY;BYDAY=2MO,4MO',
+      createdAt: subDays(new Date(), 1),
+    })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.status).toBe(200)
+    expect(
+      firstOrThrow(result.data.meetings as Array<{ meetingName: string }>)
+        .meetingName,
+    ).toBe('Re-dispatched Council')
   })
 
   it('marks dates with existing briefings as hasBriefing:true', async () => {

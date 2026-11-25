@@ -32,7 +32,7 @@ import {
   MeetingResourceLocationType,
   Prisma,
 } from '../../generated/prisma'
-import { addDays, differenceInCalendarDays } from 'date-fns'
+import { addDays, differenceInCalendarDays, isAfter } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
@@ -238,6 +238,13 @@ type TargetMeeting = {
   meetingName?: string // official meeting-body name from the schedule (same reason)
 }
 
+// One engine's newest completed schedule run. `read` is deferred so the reader
+// only pays for the winner's artifact — an S3 GET for the PMF Engine.
+type ScheduleCandidate = {
+  createdAt: Date
+  read: () => Promise<MeetingSchedule | null>
+}
+
 export type BriefingDispatchOutcome = {
   dispatched: boolean
   // A meeting_briefing run for this office is QUEUED/RUNNING/AWAITING_RESUME
@@ -274,32 +281,38 @@ export class MeetingBriefingsService extends createPrismaBase(
   async loadLatestScheduleForOrg(
     organizationSlug: string,
   ): Promise<MeetingSchedule | null> {
-    // The switch picks the order, not the only table. A run dispatched before
-    // the switch flipped keeps its artifact where it was — gp-api's agents on
-    // the AgentRun row, the PMF Engine in S3 — so a reader that consulted one
-    // table would call an office with a real schedule scheduleless, emptying
-    // its meetings list, its imminence gate and its briefing dispatch. Nothing
+    // Both tables answer, and the newer run wins. A run dispatched before the
+    // switch flipped keeps its artifact where it was — gp-api's agents on the
+    // AgentRun row, the PMF Engine in S3 — so a reader that trusted the switch
+    // would call an office with a real schedule scheduleless, emptying its
+    // meetings list, its imminence gate and its briefing dispatch. Nothing
     // re-dispatches a schedule for an office that already exists, so that would
     // not recover on its own.
     //
-    // The switched-to engine answers first because it has the newer run; the
-    // other is the fallback that makes flipping the line — in either direction —
-    // a safe rollback. Removed at teardown.
-    if (!runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)) {
-      return (
-        (await this.publishedScheduleForOrg(organizationSlug)) ??
-        this.agentScheduleForOrg(organizationSlug)
-      )
-    }
-    return (
-      (await this.agentScheduleForOrg(organizationSlug)) ??
-      this.publishedScheduleForOrg(organizationSlug)
-    )
+    // Newest wins rather than the switched-to engine, because an office can
+    // hold a completed schedule in both tables: the manual re-dispatch path
+    // does not check for an existing run, so a re-dispatch after the flip
+    // leaves a newer `AgentRun` beside the older published one, and a revert
+    // that preferred the published row would serve the stale schedule. The
+    // switch only breaks a tie. Removed at teardown.
+    const [onGpApi, onPmf] = await Promise.all([
+      this.scheduleCandidateOnGpApi(organizationSlug),
+      this.scheduleCandidateOnPmf(organizationSlug),
+    ])
+    if (!onGpApi) return onPmf ? onPmf.read() : null
+    if (!onPmf) return onGpApi.read()
+
+    const [preferred, other] = runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)
+      ? [onGpApi, onPmf]
+      : [onPmf, onGpApi]
+    return isAfter(other.createdAt, preferred.createdAt)
+      ? other.read()
+      : preferred.read()
   }
 
-  private async agentScheduleForOrg(
+  private async scheduleCandidateOnGpApi(
     organizationSlug: string,
-  ): Promise<MeetingSchedule | null> {
+  ): Promise<ScheduleCandidate | null> {
     const run = await this.client.agentRun.findFirst({
       where: {
         organizationSlug,
@@ -308,24 +321,29 @@ export class MeetingBriefingsService extends createPrismaBase(
         artifact: { not: Prisma.DbNull },
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { id: true, artifact: true },
+      select: { id: true, artifact: true, createdAt: true },
     })
     if (!run) return null
 
-    const parsed = MeetingScheduleOutputSchema.safeParse(run.artifact)
-    if (!parsed.success) {
-      this.logger.error(
-        { organizationSlug, runId: run.id },
-        'meeting_schedule AgentRun artifact is not a schedule',
-      )
-      return null
+    return {
+      createdAt: run.createdAt,
+      read: async () => {
+        const parsed = MeetingScheduleOutputSchema.safeParse(run.artifact)
+        if (!parsed.success) {
+          this.logger.error(
+            { organizationSlug, runId: run.id },
+            'meeting_schedule AgentRun artifact is not a schedule',
+          )
+          return null
+        }
+        return toMeetingSchedule(parsed.data)
+      },
     }
-    return toMeetingSchedule(parsed.data)
   }
 
-  private async publishedScheduleForOrg(
+  private async scheduleCandidateOnPmf(
     organizationSlug: string,
-  ): Promise<MeetingSchedule | null> {
+  ): Promise<ScheduleCandidate | null> {
     const run = await this.client.experimentRun.findFirst({
       where: {
         organizationSlug,
@@ -337,18 +355,24 @@ export class MeetingBriefingsService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
     })
     if (!run || !run.artifactBucket || !run.artifactKey) return null
+    const { artifactBucket, artifactKey } = run
 
-    const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
-    if (!raw) return null
+    return {
+      createdAt: run.createdAt,
+      read: async () => {
+        const raw = await this.s3.getFile(artifactBucket, artifactKey)
+        if (!raw) return null
 
-    try {
-      return parseSchedule(raw)
-    } catch {
-      this.logger.error(
-        { organizationSlug, runId: run.runId },
-        'meeting_schedule artifact is not valid JSON',
-      )
-      return null
+        try {
+          return parseSchedule(raw)
+        } catch {
+          this.logger.error(
+            { organizationSlug, runId: run.runId },
+            'meeting_schedule artifact is not valid JSON',
+          )
+          return null
+        }
+      },
     }
   }
 

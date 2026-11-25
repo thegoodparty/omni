@@ -282,17 +282,31 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
     vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
     const suffix = Date.now()
     const owner = await service.prisma.user.create({
-      data: { email: `dedup-flip-${suffix}@example.com` },
+      data: {
+        email: `dedup-flip-${suffix}@example.com`,
+        clerkId: `clerk-${suffix}`,
+        firstName: 'Test',
+        lastName: 'Official',
+      },
     })
     const orgSlug = `eo-dedup-flip-${suffix}`
     await service.prisma.organization.create({
-      data: { slug: orgSlug, ownerId: owner.id },
+      data: {
+        slug: orgSlug,
+        ownerId: owner.id,
+        positionId: `br-pos-dedup-flip-${suffix}`,
+      },
     })
     const electedOffice = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgSlug, userId: owner.id },
     })
     await seedScheduleForOrg(orgSlug)
 
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
@@ -306,6 +320,48 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
 
     expect(runSpy).not.toHaveBeenCalled()
     expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  // Control for the test above: the same setup with the PMF run removed does
+  // dispatch, so the assertions there can fail. Without this, a gate-less
+  // implementation would pass the dedup test by never resolving a context.
+  it('dispatches the same office when no schedule run exists to dedupe on', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    const suffix = Date.now()
+    const owner = await service.prisma.user.create({
+      data: {
+        email: `dedup-flip-control-${suffix}@example.com`,
+        clerkId: `clerk-control-${suffix}`,
+        firstName: 'Test',
+        lastName: 'Official',
+      },
+    })
+    const orgSlug = `eo-dedup-flip-control-${suffix}`
+    await service.prisma.organization.create({
+      data: {
+        slug: orgSlug,
+        ownerId: owner.id,
+        positionId: `br-pos-dedup-control-${suffix}`,
+      },
+    })
+    const electedOffice = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: owner.id },
+    })
+
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const runSpy = vi
+      .spyOn(service.app.get(AgentsService), 'run')
+      .mockResolvedValue({ runId: 'agent-run' })
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onElectedOfficeCreated(electedOffice)
+
+    expect(runSpy).toHaveBeenCalledTimes(1)
   })
 
   it('re-dispatches when the only existing schedule run failed', async () => {
