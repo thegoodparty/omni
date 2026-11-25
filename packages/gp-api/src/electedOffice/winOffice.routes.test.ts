@@ -5,7 +5,10 @@ import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.se
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 import { CampaignsController } from '@/campaigns/campaigns.controller'
 import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
-import { campaignWasEverPro } from '@goodparty_org/contracts'
+import {
+  campaignWasEverPro,
+  UpdateCampaignM2MSchema,
+} from '@goodparty_org/contracts'
 import { addYears, format, subDays, subMonths } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Campaign, Prisma, PrioritySource, UserRole } from '../generated/prisma'
@@ -270,6 +273,45 @@ describe('a win creates a dormant elected office', () => {
 
       const [office] = await officesFor(campaign.id)
       expect(office?.winSource).toBe('staff')
+    })
+
+    it("takes the winner's vote count with the result, and clears it for a new race", async () => {
+      const campaigns = service.app.get(CampaignsController)
+      const body = UpdateCampaignM2MSchema.parse({
+        didWin: true,
+        votesReceived: 4821,
+      })
+      await campaigns.updateCampaign({ id: campaign.id }, body)
+
+      const [office] = await officesFor(campaign.id)
+      const mine = await service.client.get('/v1/elected-office/mine')
+      expect(mine.data).toEqual([
+        expect.objectContaining({ id: office?.id, votesReceived: 4821 }),
+      ])
+
+      await campaigns.updateCampaign(
+        { id: campaign.id },
+        {
+          details: { electionDate: NEXT_ELECTION },
+          resetElectionResults: true,
+        },
+      )
+      expect(
+        await service.prisma.campaign.findUniqueOrThrow({
+          where: { id: campaign.id },
+          select: { didWin: true, votesReceived: true },
+        }),
+      ).toEqual({ didWin: null, votesReceived: null })
+    })
+
+    it('reads a result sent without a vote count as none', () => {
+      expect(
+        UpdateCampaignM2MSchema.parse({ didWin: true }).votesReceived,
+      ).toBeUndefined()
+      expect(
+        UpdateCampaignM2MSchema.safeParse({ didWin: true, votesReceived: 1.5 })
+          .success,
+      ).toBe(false)
     })
   })
 

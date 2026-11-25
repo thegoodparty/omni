@@ -17,6 +17,9 @@ export const CampaignSchema = z.object({
   isPro: z.boolean().nullish(),
   isDemo: z.boolean(),
   didWin: z.boolean().nullish(),
+  // The candidate's own vote count in the race `didWin` is about. Sent with
+  // the result; absent or null means no source has one.
+  votesReceived: z.number().int().min(0).nullish(),
   primaryResult: z.enum(['won', 'lost']).nullish(),
   dateVerified: zCoerceDate().nullish(),
   tier: CampaignTierSchema.nullish(),

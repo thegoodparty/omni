@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   NotFoundException,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -53,31 +55,28 @@ import {
 } from '../schemas/briefingSeed.schema'
 import { BriefingSeedService } from '../services/briefingSeed.service'
 import { MeetingBriefingsService } from '../services/meetingBriefings.service'
+import { StatedFirstMeetingService } from '../services/statedFirstMeeting.service'
 import { UserAgendaUploadService } from '../services/userAgendaUpload.service'
+import {
+  type MeetingListItem,
+  type MeetingsListResponse,
+  MeetingsListResponseSchema,
+  type StatedFirstMeeting,
+  StatedFirstMeetingSchema,
+} from '@goodparty_org/contracts'
 
-import type { UserAgendaStatus } from '../services/userAgendaUpload.service'
+// A stated first meeting with no schedule to take a length from. Serve
+// onboarding's own fallback is the same two hours.
+const DEFAULT_STATED_MEETING_MINUTES = 120
 
-type MeetingListItem = {
-  meetingDate: string
-  meetingTime: string
-  meetingTimezone: string
-  durationMinutes: number
-  meetingName: string
-  location: string
-  hasBriefing: boolean
-  userAgendaStatus: UserAgendaStatus | null
-  /**
-   * Why gp-api declined to publish the user's agenda run, when
-   * userAgendaStatus is 'rejected'. Machine string; the web app turns it
-   * into a label. Null otherwise.
-   */
-  userAgendaReason: string | null
-}
+const stringOrEmpty = (value: string | undefined): string =>
+  typeof value === 'string' ? value : ''
 
 @Controller('meetings')
 export class MeetingsBriefingsController {
   constructor(
     private readonly meetingBriefings: MeetingBriefingsService,
+    private readonly statedFirstMeetings: StatedFirstMeetingService,
     private readonly userAgendaUploads: UserAgendaUploadService,
     private readonly briefingSeed: BriefingSeedService,
     private readonly s3: S3Service,
@@ -85,7 +84,10 @@ export class MeetingsBriefingsController {
 
   @UseElectedOffice()
   @Get()
-  async list(@ReqElectedOffice() electedOffice: ElectedOffice) {
+  @ResponseSchema(MeetingsListResponseSchema)
+  async list(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+  ): Promise<MeetingsListResponse> {
     const schedule = await this.meetingBriefings.loadLatestScheduleForOrg(
       electedOffice.organizationSlug,
     )
@@ -97,6 +99,15 @@ export class MeetingsBriefingsController {
     )
     const windowTo = addMonths(now, 3)
     const today = formatInTimeZone(now, 'UTC', 'yyyy-MM-dd')
+
+    // The official's own first meeting shapes the list until its day passes:
+    // it stands in for the schedule's meeting that day, and the schedule's
+    // earlier ones are not theirs.
+    const statedMeeting = await this.statedFirstMeetings.forOffice(
+      electedOffice.id,
+    )
+    const stated =
+      statedMeeting && statedMeeting.meetingDate >= today ? statedMeeting : null
 
     const projectedDates = knownSchedule
       ? this.meetingBriefings.projectMeetingDates({
@@ -121,47 +132,78 @@ export class MeetingsBriefingsController {
 
     const byDate = new Map<string, MeetingListItem>()
 
-    if (knownSchedule) {
+    // A PMF Engine schedule is read as it was written, so its fields are held
+    // to their types here: one malformed artifact must not fail the list.
+    const fromSchedule = knownSchedule && {
+      meetingTime: stringOrEmpty(knownSchedule.time),
+      meetingTimezone: stringOrEmpty(knownSchedule.timezone),
+      durationMinutes:
+        typeof knownSchedule.duration_minutes === 'number'
+          ? knownSchedule.duration_minutes
+          : 0,
+      meetingName: stringOrEmpty(knownSchedule.meeting_name),
+      location: stringOrEmpty(knownSchedule.location),
+    }
+
+    if (fromSchedule) {
       for (const date of projectedDates) {
         if (date < today) continue
+        if (stated && date <= stated.meetingDate) continue
         byDate.set(date, {
+          ...fromSchedule,
           meetingDate: date,
-          meetingTime: knownSchedule.time,
-          meetingTimezone: knownSchedule.timezone,
-          durationMinutes: knownSchedule.duration_minutes,
-          meetingName: knownSchedule.meeting_name,
-          location: knownSchedule.location,
           hasBriefing: false,
           userAgendaStatus: null,
           userAgendaReason: null,
+          source: 'schedule',
         })
       }
+    }
+
+    if (stated) {
+      byDate.set(stated.meetingDate, {
+        durationMinutes: DEFAULT_STATED_MEETING_MINUTES,
+        meetingName: '',
+        location: '',
+        ...fromSchedule,
+        ...stated,
+        meetingTimezone: await this.meetingBriefings.meetingTimezone(
+          electedOffice.organizationSlug,
+          schedule,
+        ),
+        hasBriefing: false,
+        userAgendaStatus: null,
+        userAgendaReason: null,
+        source: 'official',
+      })
     }
 
     for (const row of briefingRows) {
       const date = formatInTimeZone(row.meetingDate, 'UTC', 'yyyy-MM-dd')
       const existing = byDate.get(date)
-      const artifactName = row.artifact?.meeting_name
-      const artifactLocation = row.artifact?.location
+      const artifactName = stringOrEmpty(row.artifact?.meeting_name)
+      const artifactLocation = stringOrEmpty(row.artifact?.location)
+      const official = existing?.source === 'official' ? existing : null
       byDate.set(date, {
         meetingDate: date,
-        meetingTime: row.meetingTime,
-        meetingTimezone: row.meetingTimezone,
+        meetingTime: official?.meetingTime ?? row.meetingTime,
+        meetingTimezone: official?.meetingTimezone ?? row.meetingTimezone,
         durationMinutes:
-          existing?.durationMinutes ?? knownSchedule?.duration_minutes ?? 0,
+          existing?.durationMinutes ?? fromSchedule?.durationMinutes ?? 0,
         meetingName:
           artifactName ||
           existing?.meetingName ||
-          knownSchedule?.meeting_name ||
+          fromSchedule?.meetingName ||
           '',
         location:
           artifactLocation ||
           existing?.location ||
-          knownSchedule?.location ||
+          fromSchedule?.location ||
           '',
         hasBriefing: true,
         userAgendaStatus: existing?.userAgendaStatus ?? null,
         userAgendaReason: existing?.userAgendaReason ?? null,
+        source: existing?.source ?? 'schedule',
       })
     }
 
@@ -203,6 +245,7 @@ export class MeetingsBriefingsController {
         hasBriefing: false,
         userAgendaStatus: status,
         userAgendaReason: reason,
+        source: 'schedule',
       })
     }
 
@@ -211,6 +254,29 @@ export class MeetingsBriefingsController {
     )
 
     return { scheduleKnown: !!knownSchedule, meetings }
+  }
+
+  // Serve onboarding saves the day and time an official gives when the
+  // schedule's first meeting is wrong, and clears it when they take the
+  // schedule's after all.
+  @UseElectedOffice()
+  @Put('first-meeting')
+  @ResponseSchema(StatedFirstMeetingSchema)
+  setFirstMeeting(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body(new ZodValidationPipe(StatedFirstMeetingSchema))
+    body: StatedFirstMeeting,
+  ): Promise<StatedFirstMeeting> {
+    return this.statedFirstMeetings.set(electedOffice.id, body)
+  }
+
+  @UseElectedOffice()
+  @Delete('first-meeting')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async clearFirstMeeting(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+  ): Promise<void> {
+    await this.statedFirstMeetings.clear(electedOffice.id)
   }
 
   @UseElectedOffice()
@@ -233,12 +299,19 @@ export class MeetingsBriefingsController {
         electedOffice.organizationSlug,
       )
       const info = schedule?.status === 'found' ? schedule : null
+      const stated = await this.statedFirstMeetings.forOffice(electedOffice.id)
+      const official = stated?.meetingDate === date ? stated : null
       return {
         status: 'awaiting_agenda',
         meetingDate: date,
         meetingName: info?.meeting_name ?? '',
-        meetingTime: info?.time ?? '',
-        meetingTimezone: info?.timezone ?? '',
+        meetingTime: official?.meetingTime ?? info?.time ?? '',
+        meetingTimezone: official
+          ? await this.meetingBriefings.meetingTimezone(
+              electedOffice.organizationSlug,
+              schedule,
+            )
+          : (info?.timezone ?? ''),
         location: info?.location ?? '',
         durationMinutes: info?.duration_minutes ?? 0,
       }

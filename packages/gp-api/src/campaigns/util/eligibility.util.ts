@@ -120,14 +120,15 @@ export const isActiveCampaign = (campaign: Campaign, now: Date): boolean => {
 }
 
 // A held office is exactly an "active" office, and isActive is now derived
-// purely from the term end date (the stored column was dropped). Terms are
+// from the term end date (the stored column was dropped). Terms are
 // half-open [start, end): termEndDate is the exclusive boundary at which the
 // successor takes over (BallotReady reports a 4-year term as e.g. 2020-01-01 →
 // 2024-01-01), so the office is held while now < termEndDate. A null
 // termEndDate means we lack term data, so it is not "held" until the holder
-// supplies dates (the dashboard term-date modal prompts for them).
+// supplies dates (the dashboard term-date modal prompts for them), unless a
+// win created it and its holder finished Serve onboarding (deriveIsActive).
 export const isHeldOffice = (office: ElectedOffice, now: Date): boolean =>
-  deriveIsActive(office.termEndDate, now)
+  deriveIsActive(office, now)
 
 export const organizationStatus = (
   org: { campaign: Campaign | null; electedOffice: ElectedOffice | null },

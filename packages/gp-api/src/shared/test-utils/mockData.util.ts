@@ -42,6 +42,7 @@ export const createMockCampaign = (
   isPro: false,
   isDemo: false,
   didWin: null,
+  votesReceived: null,
   primaryResult: null,
   dateVerified: null,
   tier: null,

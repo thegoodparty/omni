@@ -46,6 +46,11 @@ describe('ElectedOfficeController', () => {
       headers: { 'x-organization-slug': orgSlug },
     })
 
+  // No organization header, so no campaign: an office that did not come from
+  // a win.
+  const createLeadOffice = (body: Record<string, unknown> = {}) =>
+    service.client.post('/v1/elected-office', body)
+
   describe('GET /elected-office/current', () => {
     it('returns current elected office', async () => {
       const created = await createElectedOffice({
@@ -71,6 +76,43 @@ describe('ElectedOfficeController', () => {
       })
 
       expect(result.status).toBe(404)
+    })
+
+    it("carries the winner's vote count once the result's source has sent one", async () => {
+      const created = await createElectedOffice()
+      const current = () =>
+        service.client.get('/v1/elected-office/current', {
+          headers: { 'x-organization-slug': `eo-${created.data.id}` },
+        })
+
+      expect((await current()).data.votesReceived).toBeNull()
+      expect(
+        (await service.client.get('/v1/elected-office/mine')).data[0]
+          .votesReceived,
+      ).toBeNull()
+
+      // The way gp-data-platform writes a DDHQ result: straight to the row.
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { didWin: true, votesReceived: 4821 },
+      })
+
+      expect((await current()).data.votesReceived).toBe(4821)
+      expect(
+        (await service.client.get('/v1/elected-office/mine')).data[0]
+          .votesReceived,
+      ).toBe(4821)
+    })
+
+    it('has no vote count for an office that came from no campaign', async () => {
+      const created = await createLeadOffice()
+
+      const result = await service.client.get('/v1/elected-office/current', {
+        headers: { 'x-organization-slug': `eo-${created.data.id}` },
+      })
+
+      expect(result.status).toBe(200)
+      expect(result.data.votesReceived).toBeNull()
     })
 
     it('resolves elected office via x-organization-slug header', async () => {
@@ -1072,9 +1114,10 @@ describe('ElectedOfficeController', () => {
     it('rejects completing onboarding on a term-less placeholder', async () => {
       // A term-less placeholder (bare magic-link lead) must not be markable as
       // onboarding-complete — that would permanently skip the serve flow.
-      const placeholder = await createElectedOffice()
+      const placeholder = await createLeadOffice()
       expect(placeholder.status).toBe(200)
       expect(placeholder.data.termStartDate).toBeNull()
+      expect(placeholder.data.campaignId).toBeNull()
 
       const result = await service.client.put(
         `/v1/elected-office/${placeholder.data.id}`,
@@ -1219,7 +1262,14 @@ describe('ElectedOfficeController', () => {
       },
     )
 
-    it.each(['warm-won', 'warm-meeting', 'warm-briefing', 'warm-recap'])(
+    it.each([
+      'warm-won',
+      'warm-meeting',
+      'warm-briefing',
+      'warm-residents',
+      'warm-priorities',
+      'warm-recap',
+    ])(
       'persists the %s checkpoint the warm welcome writes',
       async (onboardingStep) => {
         const created = await createElectedOffice()
@@ -1259,6 +1309,273 @@ describe('ElectedOfficeController', () => {
       expect(result.data.onboardingStep).toBe('warm-recap')
       expect(result.data.pledgedAt).toBeNull()
       expect(result.data.termStartDate).toBe('2027-01-04')
+    })
+
+    describe('a winner finishing with the term they know', () => {
+      const DONE = {
+        party: 'independent',
+        onboardingCompletedAt: '2026-11-25T12:00:00.000Z',
+        onboardingStep: 'warm-recap',
+      }
+
+      const termLengthOnFile = (frequency: number[] | null) =>
+        vi
+          .spyOn(
+            service.app.get(ElectionsService),
+            'getElectionFrequencyByBrHashId',
+          )
+          .mockResolvedValue(
+            frequency && { frequency, electionDate: '2026-11-03T00:00:00Z' },
+          )
+
+      const winOfficeForRace = async () => {
+        await service.prisma.campaign.update({
+          where: { id: campaign.id },
+          data: { details: { raceId: 'Z2lk-race' } },
+        })
+        const created = await createElectedOffice({ onboardingStep: 'confirm' })
+        expect(created.status).toBe(200)
+        expect(created.data.campaignId).toBe(campaign.id)
+        return created.data.id as string
+      }
+
+      it('finishes with no term dates and reads as held', async () => {
+        const id = await winOfficeForRace()
+
+        const done = await service.client.put(`/v1/elected-office/${id}`, DONE)
+
+        expect(done.status).toBe(200)
+        expect(done.data).toMatchObject({
+          onboardingCompletedAt: '2026-11-25T12:00:00.000Z',
+          termStartDate: null,
+          termEndDate: null,
+          termLengthDays: null,
+          isActive: true,
+        })
+        const mine = await service.client.get('/v1/elected-office/mine')
+        expect(mine.data).toEqual([expect.objectContaining({ isActive: true })])
+        vi.spyOn(
+          service.app.get(ElectionsService),
+          'getPositionById',
+        ).mockResolvedValue({
+          id: '2875e5f3-ecf0-6fae-f270-6951f85e8468',
+          brPositionId: 'br-pos-1',
+          brDatabaseId: 'br-db-1',
+          state: 'MA',
+          name: 'City Council',
+        })
+        const organizations = await service.client.get('/v1/organizations')
+        expect(organizations.data).toMatchObject({
+          organizations: [
+            { slug: `eo-${id}`, status: 'active' },
+            { slug: orgSlug },
+          ],
+        })
+      })
+
+      it('starts the term on the first meeting date and ends it the term length later', async () => {
+        const lookup = termLengthOnFile([4])
+        const id = await winOfficeForRace()
+
+        const done = await service.client.put(`/v1/elected-office/${id}`, {
+          ...DONE,
+          termStartDate: '2027-01-07',
+        })
+
+        expect(done.status).toBe(200)
+        expect(done.data).toMatchObject({
+          termStartDate: '2027-01-07',
+          termEndDate: '2031-01-07',
+          termLengthDays: 1461,
+          isActive: true,
+        })
+        expect(lookup).toHaveBeenCalledWith('Z2lk-race')
+      })
+
+      it('takes the first gap of a staggered cadence as the term length', async () => {
+        termLengthOnFile([2, 4])
+        const id = await winOfficeForRace()
+
+        const done = await service.client.put(`/v1/elected-office/${id}`, {
+          ...DONE,
+          termStartDate: '2027-01-07',
+        })
+
+        expect(done.data.termEndDate).toBe('2029-01-07')
+      })
+
+      it.each([
+        ['the race has no cadence', []],
+        ['the race cannot be read', null],
+      ])(
+        'keeps the start and leaves the end open when %s',
+        async (_, frequency) => {
+          termLengthOnFile(frequency)
+          const id = await winOfficeForRace()
+
+          const done = await service.client.put(`/v1/elected-office/${id}`, {
+            ...DONE,
+            termStartDate: '2027-01-07',
+          })
+
+          expect(done.status).toBe(200)
+          expect(done.data).toMatchObject({
+            onboardingCompletedAt: '2026-11-25T12:00:00.000Z',
+            termStartDate: '2027-01-07',
+            termEndDate: null,
+            isActive: true,
+          })
+        },
+      )
+
+      it('keeps an end date the office already has', async () => {
+        const lookup = termLengthOnFile([4])
+        const id = await winOfficeForRace()
+        await service.prisma.electedOffice.update({
+          where: { id },
+          data: { termEndDate: new Date('2030-12-01') },
+        })
+
+        const done = await service.client.put(`/v1/elected-office/${id}`, {
+          ...DONE,
+          termStartDate: '2027-01-07',
+        })
+
+        expect(done.data.termEndDate).toBe('2030-12-01')
+        expect(lookup).not.toHaveBeenCalled()
+      })
+
+      it('derives nothing on a write that does not finish onboarding', async () => {
+        const lookup = termLengthOnFile([4])
+        const id = await winOfficeForRace()
+
+        const saved = await service.client.put(`/v1/elected-office/${id}`, {
+          termStartDate: '2027-01-07',
+        })
+
+        expect(saved.data.termEndDate).toBeNull()
+        expect(lookup).not.toHaveBeenCalled()
+      })
+
+      it('finishes a re-elected incumbent whose first meeting falls in the term they hold', async () => {
+        termLengthOnFile([4])
+        const heldOrg = await service.prisma.organization.create({
+          data: { slug: `eo-held-${Date.now()}`, ownerId: service.user.id },
+        })
+        await service.prisma.electedOffice.create({
+          data: {
+            userId: service.user.id,
+            organizationSlug: heldOrg.slug,
+            termStartDate: new Date('2023-01-10'),
+            termEndDate: new Date('2027-01-12'),
+            onboardingCompletedAt: new Date('2023-01-11'),
+          },
+        })
+        const id = await winOfficeForRace()
+
+        const done = await service.client.put(`/v1/elected-office/${id}`, {
+          ...DONE,
+          termStartDate: '2026-12-08',
+        })
+
+        expect(done.status).toBe(200)
+        expect(done.data).toMatchObject({
+          onboardingCompletedAt: '2026-11-25T12:00:00.000Z',
+          termStartDate: null,
+          termEndDate: null,
+          isActive: true,
+        })
+      })
+
+      it('still refuses a full term that overlaps an office they hold', async () => {
+        const heldOrg = await service.prisma.organization.create({
+          data: { slug: `eo-held-${Date.now()}`, ownerId: service.user.id },
+        })
+        await service.prisma.electedOffice.create({
+          data: {
+            userId: service.user.id,
+            organizationSlug: heldOrg.slug,
+            termStartDate: new Date('2023-01-10'),
+            termEndDate: new Date('2027-01-12'),
+          },
+        })
+        const id = await winOfficeForRace()
+
+        const done = await service.client.put(`/v1/elected-office/${id}`, {
+          ...DONE,
+          termStartDate: '2026-12-08',
+          termEndDate: '2030-12-08',
+        })
+
+        expect(done.status).toBe(409)
+      })
+    })
+
+    describe('the text reminder for a first Meeting Briefing', () => {
+      it('keeps the moment of the yes, and clears it on a no', async () => {
+        const created = await createElectedOffice()
+        expect(created.data.briefingTextReminderAt).toBeNull()
+        const url = `/v1/elected-office/${created.data.id}`
+
+        const yes = await service.client.put(url, {
+          briefingTextReminder: true,
+        })
+        expect(yes.status).toBe(200)
+        expect(yes.data.briefingTextReminderAt).toEqual(expect.any(String))
+
+        const again = await service.client.put(url, {
+          briefingTextReminder: true,
+          onboardingStep: 'warm-residents',
+        })
+        expect(again.data.briefingTextReminderAt).toBe(
+          yes.data.briefingTextReminderAt,
+        )
+
+        const other = await service.client.put(url, { party: 'independent' })
+        expect(other.data.briefingTextReminderAt).toBe(
+          yes.data.briefingTextReminderAt,
+        )
+
+        const no = await service.client.put(url, {
+          briefingTextReminder: false,
+        })
+        expect(no.data.briefingTextReminderAt).toBeNull()
+        const mine = await service.client.get('/v1/elected-office/mine')
+        expect(mine.data[0].briefingTextReminderAt).toBeNull()
+      })
+
+      it('rejects an M2M update that sets it', async () => {
+        const created = await createElectedOffice()
+        const controller = service.app.get(ElectedOfficeController)
+
+        await expect(
+          controller.update(
+            created.data.id,
+            { briefingTextReminder: true } as never,
+            {
+              m2mToken: { sub: 'svc' },
+              user: undefined,
+            } as unknown as IncomingRequest,
+          ),
+        ).rejects.toBeInstanceOf(ForbiddenException)
+      })
+    })
+
+    it('never writes a vote count', async () => {
+      const created = await createElectedOffice()
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { votesReceived: 99, party: 'independent' },
+      )
+
+      expect(result.status).toBe(200)
+      expect(
+        await service.prisma.campaign.findUniqueOrThrow({
+          where: { id: campaign.id },
+          select: { votesReceived: true },
+        }),
+      ).toEqual({ votesReceived: null })
     })
 
     it('rejects an unknown onboardingStep value', async () => {
@@ -1306,7 +1623,7 @@ describe('ElectedOfficeController', () => {
     it('rejects completing onboarding with only a term end date (no start)', async () => {
       // A term with an end but no start isn't a real term; onboarding must not
       // complete against it.
-      const placeholder = await createElectedOffice()
+      const placeholder = await createLeadOffice()
       expect(placeholder.status).toBe(200)
 
       const result = await service.client.put(
@@ -1325,7 +1642,7 @@ describe('ElectedOfficeController', () => {
       // (indefinite) term would land the EO in a state the dashboard term-date
       // modal perpetually re-prompts (it requires both dates to save) with no
       // way to satisfy it, so completion must require an end date too.
-      const created = await createElectedOffice({ termStartDate: '2025-01-01' })
+      const created = await createLeadOffice({ termStartDate: '2025-01-01' })
       expect(created.status).toBe(200)
       expect(created.data.termEndDate).toBeNull()
 
@@ -1340,7 +1657,7 @@ describe('ElectedOfficeController', () => {
     it('rejects completing onboarding when only a start is supplied alongside it', async () => {
       // Same guard via a partial PUT that sets the start and completion together
       // but leaves the end null.
-      const placeholder = await createElectedOffice()
+      const placeholder = await createLeadOffice()
       expect(placeholder.status).toBe(200)
 
       const result = await service.client.put(

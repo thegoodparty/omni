@@ -1217,7 +1217,63 @@ describe('MeetingBriefingsService Agenda Created event', () => {
     expect(trackSpy).toHaveBeenCalledWith(
       service.user.id,
       'Briefing Assistant - Agenda Created',
-      expect.objectContaining({ meetingPlace: 'Council Chambers' }),
+      expect.objectContaining({
+        meetingPlace: 'Council Chambers',
+        textReminder: false,
+      }),
+    )
+  })
+
+  it('carries the text reminder on the first briefing after the yes, and only that one', async () => {
+    const trackSpy = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
+    const { eo, briefingRun } = await createBriefingReadyRun(
+      `eo-briefing-text-reminder-${Date.now()}`,
+    )
+    const saidYes = await service.client.put(`/v1/elected-office/${eo.id}`, {
+      briefingTextReminder: true,
+    })
+    expect(saidYes.status).toBe(200)
+    const briefings = service.app.get(MeetingBriefingsService)
+    const textReminders = () =>
+      trackSpy.mock.calls
+        .filter(([, event]) => event === 'Briefing Assistant - Agenda Created')
+        .map(([, , properties]) => properties?.textReminder)
+
+    await briefings.onExperimentRunCompleted(briefingRun)
+    expect(textReminders()).toEqual([true])
+
+    // The same meeting is briefed again on its day, and later meetings follow.
+    await briefings.onExperimentRunCompleted(briefingRun)
+    expect(textReminders()).toEqual([true, false])
+    const office = await service.client.get('/v1/elected-office/mine')
+    expect(office.data[0].briefingTextReminderAt).toBe(
+      saidYes.data.briefingTextReminderAt,
+    )
+  })
+
+  it('carries no text reminder after the official took the yes back', async () => {
+    const trackSpy = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
+    const { eo, briefingRun } = await createBriefingReadyRun(
+      `eo-briefing-text-reminder-off-${Date.now()}`,
+    )
+    for (const briefingTextReminder of [true, false]) {
+      await service.client.put(`/v1/elected-office/${eo.id}`, {
+        briefingTextReminder,
+      })
+    }
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onExperimentRunCompleted(briefingRun)
+
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      'Briefing Assistant - Agenda Created',
+      expect.objectContaining({ textReminder: false }),
     )
   })
 })
@@ -1447,6 +1503,174 @@ describe('the meetingBriefingsDaily schedule', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  describe('on the meeting’s own clock', () => {
+    // A Thursday 7 pm meeting, January 7 2027, and the job's 07:00 UTC run.
+    const THURSDAY_7PM = { rrule: 'FREQ=WEEKLY;BYDAY=TH', time: '19:00' }
+
+    const seedOnboardedOffice = async (orgSlug: string) => {
+      await seedOrgAndCampaign(orgSlug, { positionId: `pos-${orgSlug}` })
+      mockResolveServeContext({
+        state: 'MA',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      return service.prisma.electedOffice.create({
+        data: {
+          onboardingCompletedAt: new Date(),
+          organizationSlug: orgSlug,
+          userId: service.user.id,
+        },
+      })
+    }
+
+    const runDailyJobOn = async (day: string) => {
+      vi.useFakeTimers({
+        toFake: ['Date'],
+        now: new Date(`${day}T07:00:00Z`),
+      })
+      try {
+        // The activity gate reads the same clock.
+        await service.prisma.user.update({
+          where: { id: service.user.id },
+          data: { metaData: { lastVisited: Date.now() } },
+        })
+        const dispatchSpy = vi
+          .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+          .mockResolvedValue(undefined)
+        dispatchSpy.mockClear()
+        await service.jobs.runSchedule('meetingBriefingsDaily')
+        return dispatchSpy.mock.calls.map(([run]) => run.params)
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+
+    it('starts a 7 pm meeting’s briefing three days before it, not two', async () => {
+      const orgSlug = `eo-cron-evening-${Date.now()}`
+      await seedOnboardedOffice(orgSlug)
+      await seedScheduleForOrg(orgSlug, {
+        ...THURSDAY_7PM,
+        timezone: 'America/New_York',
+      })
+
+      expect(await runDailyJobOn('2027-01-03')).toEqual([])
+      expect(await runDailyJobOn('2027-01-04')).toEqual([
+        expect.objectContaining({
+          meetingDate: '2027-01-07',
+          meetingTime: '19:00',
+          meetingTimezone: 'America/New_York',
+        }),
+      ])
+    })
+
+    it('waits a run when 07:00 UTC is still the evening before for the meeting', async () => {
+      const orgSlug = `eo-cron-pacific-${Date.now()}`
+      await seedOnboardedOffice(orgSlug)
+      await seedScheduleForOrg(orgSlug, {
+        ...THURSDAY_7PM,
+        timezone: 'America/Los_Angeles',
+      })
+
+      expect(await runDailyJobOn('2027-01-04')).toEqual([])
+      expect(await runDailyJobOn('2027-01-05')).toEqual([
+        expect.objectContaining({ meetingDate: '2027-01-07' }),
+      ])
+    })
+
+    it.each([
+      ['a timezone that does not exist', { timezone: 'Mars/Olympus_Mons' }],
+      ['a recurrence that cannot be read', { rrule: 'every other Thursday' }],
+    ])('skips a schedule with %s without failing the job', async (_, bad) => {
+      const orgSlug = `eo-cron-unreadable-${Date.now()}`
+      await seedOnboardedOffice(orgSlug)
+      await seedScheduleForOrg(orgSlug, {
+        ...THURSDAY_7PM,
+        timezone: 'America/New_York',
+        ...bad,
+      })
+      vi.spyOn(
+        service.app.get(ExperimentRunsService),
+        'dispatchRun',
+      ).mockResolvedValue(undefined)
+
+      expect(await service.jobs.runSchedule('meetingBriefingsDaily')).toEqual({
+        deadLetters: [],
+      })
+      expect(
+        service.app.get(ExperimentRunsService).dispatchRun,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('briefs the first meeting the official stated, not the schedule’s', async () => {
+      const orgSlug = `eo-cron-stated-${Date.now()}`
+      const office = await seedOnboardedOffice(orgSlug)
+      await seedScheduleForOrg(orgSlug, {
+        ...THURSDAY_7PM,
+        timezone: 'America/New_York',
+      })
+      await service.prisma.statedFirstMeeting.create({
+        data: {
+          electedOfficeId: office.id,
+          meetingDate: new Date('2027-01-12'),
+          meetingTime: '18:30',
+        },
+      })
+
+      // Thursday the 7th is on the schedule, but it is not their meeting.
+      expect(await runDailyJobOn('2027-01-04')).toEqual([])
+      expect(await runDailyJobOn('2027-01-09')).toEqual([
+        expect.objectContaining({
+          meetingDate: '2027-01-12',
+          meetingTime: '18:30',
+          meetingTimezone: 'America/New_York',
+        }),
+      ])
+    })
+
+    it('goes back to the schedule once the stated meeting has been held', async () => {
+      const orgSlug = `eo-cron-after-stated-${Date.now()}`
+      const office = await seedOnboardedOffice(orgSlug)
+      await seedScheduleForOrg(orgSlug, {
+        ...THURSDAY_7PM,
+        timezone: 'America/New_York',
+      })
+      await service.prisma.statedFirstMeeting.create({
+        data: {
+          electedOfficeId: office.id,
+          meetingDate: new Date('2027-01-12'),
+          meetingTime: '18:30',
+        },
+      })
+
+      expect(await runDailyJobOn('2027-01-13')).toEqual([
+        expect.objectContaining({
+          meetingDate: '2027-01-14',
+          meetingTime: '19:00',
+        }),
+      ])
+    })
+
+    it('briefs a stated first meeting for an office with no schedule, in its state’s zone', async () => {
+      const orgSlug = `eo-cron-stated-only-${Date.now()}`
+      const office = await seedOnboardedOffice(orgSlug)
+      await service.prisma.statedFirstMeeting.create({
+        data: {
+          electedOfficeId: office.id,
+          meetingDate: new Date('2027-01-07'),
+          meetingTime: '19:00',
+        },
+      })
+
+      expect(await runDailyJobOn('2027-01-04')).toEqual([
+        expect.objectContaining({
+          meetingDate: '2027-01-07',
+          meetingTime: '19:00',
+          meetingTimezone: 'America/New_York',
+        }),
+      ])
+    })
   })
 
   it('dispatches for EOs regardless of when they were created', async () => {
@@ -1719,10 +1943,11 @@ describe('the meetingBriefingsDaily schedule', () => {
       none: { meetingDate: { gte: expect.any(Date) as Date } },
     })
     // Both engines' tables: a schedule that is a gp-api AgentRun satisfies the
-    // same precondition a published ExperimentRun does.
-    expect(cronQuery?.where?.organization).toEqual({
-      OR: [
-        {
+    // same precondition a published ExperimentRun does. A first meeting the
+    // official stated is a meeting to brief without either.
+    expect(cronQuery?.where?.OR).toEqual([
+      {
+        organization: {
           experimentRuns: {
             some: {
               experimentType: 'meeting_schedule',
@@ -1732,7 +1957,9 @@ describe('the meetingBriefingsDaily schedule', () => {
             },
           },
         },
-        {
+      },
+      {
+        organization: {
           agentRuns: {
             some: {
               agentName: 'meeting_schedule',
@@ -1741,8 +1968,9 @@ describe('the meetingBriefingsDaily schedule', () => {
             },
           },
         },
-      ],
-    })
+      },
+      { statedFirstMeeting: { isNot: null } },
+    ])
 
     // And the pre-filtered candidate set the query returned excludes B (no
     // schedule) and C (future briefing) while keeping A and D.

@@ -104,6 +104,7 @@ const campaignDefaults = {
   isPro: false,
   isDemo: false,
   didWin: null,
+  votesReceived: null,
   primaryResult: null,
   ballotStatus: null,
   signupGoal: null,

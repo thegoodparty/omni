@@ -1333,3 +1333,291 @@ describe('GET /v1/meetings/briefings/dispatch/preview', () => {
     }
   })
 })
+
+describe('the first meeting an official states', () => {
+  // Monday, January 4 2027. The schedule meets every Thursday at 7 pm.
+  const NOW = new Date('2027-01-04T15:00:00Z')
+  const weeklyThursday = { ...foundSchedule, rrule: 'FREQ=WEEKLY;BYDAY=TH' }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'], now: NOW })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const seedOfficeWithSchedule = async (orgSlug: string) => {
+    const office = await seedElectedOffice(orgSlug)
+    await seedScheduleRun(orgSlug)
+    mockS3({ 'schedule-key.json': JSON.stringify(weeklyThursday) })
+    return office
+  }
+
+  const request = (orgSlug: string) => ({
+    headers: { 'x-organization-slug': orgSlug },
+  })
+
+  const stateFirstMeeting = (
+    orgSlug: string,
+    meetingDate: string,
+    meetingTime: string,
+  ) =>
+    service.client.put(
+      '/v1/meetings/first-meeting',
+      { meetingDate, meetingTime },
+      request(orgSlug),
+    )
+
+  const listFor = async (orgSlug: string) => {
+    const result = await service.client.get('/v1/meetings', request(orgSlug))
+    expect(result.status).toBe(200)
+    return result.data as {
+      scheduleKnown: boolean
+      meetings: Array<Record<string, string | number | boolean | null>>
+    }
+  }
+
+  it('marks every row from the schedule as the schedule’s', async () => {
+    const orgSlug = 'eo-first-meeting-none'
+    await seedOfficeWithSchedule(orgSlug)
+
+    const { meetings } = await listFor(orgSlug)
+
+    expect(meetings.slice(0, 2)).toEqual([
+      expect.objectContaining({
+        meetingDate: '2027-01-07',
+        source: 'schedule',
+      }),
+      expect.objectContaining({
+        meetingDate: '2027-01-14',
+        source: 'schedule',
+      }),
+    ])
+  })
+
+  it('stands in for the schedule’s meeting that day and drops the ones before it', async () => {
+    const orgSlug = 'eo-first-meeting-same-day'
+    await seedOfficeWithSchedule(orgSlug)
+
+    const saved = await stateFirstMeeting(orgSlug, '2027-01-14', '18:30')
+    expect(saved.status).toBe(200)
+    expect(saved.data).toEqual({
+      meetingDate: '2027-01-14',
+      meetingTime: '18:30',
+    })
+
+    const { scheduleKnown, meetings } = await listFor(orgSlug)
+
+    expect(scheduleKnown).toBe(true)
+    expect(meetings.slice(0, 2)).toEqual([
+      {
+        meetingDate: '2027-01-14',
+        meetingTime: '18:30',
+        meetingTimezone: 'America/Denver',
+        durationMinutes: 180,
+        meetingName: 'City Council',
+        location: 'City Hall Council Chambers, 200 Main St',
+        hasBriefing: false,
+        userAgendaStatus: null,
+        userAgendaReason: null,
+        source: 'official',
+      },
+      expect.objectContaining({
+        meetingDate: '2027-01-21',
+        meetingTime: '19:00',
+        source: 'schedule',
+      }),
+    ])
+  })
+
+  it('adds a day the schedule does not have', async () => {
+    const orgSlug = 'eo-first-meeting-other-day'
+    await seedOfficeWithSchedule(orgSlug)
+    await stateFirstMeeting(orgSlug, '2027-01-12', '09:00')
+
+    const { meetings } = await listFor(orgSlug)
+
+    expect(meetings.slice(0, 2)).toEqual([
+      expect.objectContaining({
+        meetingDate: '2027-01-12',
+        meetingTime: '09:00',
+        source: 'official',
+      }),
+      expect.objectContaining({
+        meetingDate: '2027-01-14',
+        source: 'schedule',
+      }),
+    ])
+  })
+
+  it('keeps the latest answer, and goes back to the schedule when cleared', async () => {
+    const orgSlug = 'eo-first-meeting-clear'
+    const office = await seedOfficeWithSchedule(orgSlug)
+    await stateFirstMeeting(orgSlug, '2027-01-12', '09:00')
+    await stateFirstMeeting(orgSlug, '2027-01-19', '10:15')
+    expect(
+      await service.prisma.statedFirstMeeting.findMany({
+        where: { electedOfficeId: office.id },
+        select: { meetingDate: true, meetingTime: true },
+      }),
+    ).toEqual([{ meetingDate: new Date('2027-01-19'), meetingTime: '10:15' }])
+
+    const cleared = await service.client.delete(
+      '/v1/meetings/first-meeting',
+      request(orgSlug),
+    )
+    const clearedAgain = await service.client.delete(
+      '/v1/meetings/first-meeting',
+      request(orgSlug),
+    )
+    expect([cleared.status, clearedAgain.status]).toEqual([204, 204])
+
+    const { meetings } = await listFor(orgSlug)
+    expect(meetings[0]).toMatchObject({
+      meetingDate: '2027-01-07',
+      source: 'schedule',
+    })
+    expect(meetings.every((meeting) => meeting.source === 'schedule')).toBe(
+      true,
+    )
+  })
+
+  it('stops shaping the list once its day has passed', async () => {
+    const orgSlug = 'eo-first-meeting-past'
+    const office = await seedOfficeWithSchedule(orgSlug)
+    await service.prisma.statedFirstMeeting.create({
+      data: {
+        electedOfficeId: office.id,
+        meetingDate: new Date('2026-12-29'),
+        meetingTime: '18:30',
+      },
+    })
+
+    const { meetings } = await listFor(orgSlug)
+
+    expect(meetings[0]).toMatchObject({
+      meetingDate: '2027-01-07',
+      source: 'schedule',
+    })
+  })
+
+  it('is listed with defaults when no schedule was found', async () => {
+    const orgSlug = 'eo-first-meeting-no-schedule'
+    await seedElectedOffice(orgSlug)
+    await stateFirstMeeting(orgSlug, '2027-01-12', '18:30')
+
+    expect(await listFor(orgSlug)).toEqual({
+      scheduleKnown: false,
+      meetings: [
+        {
+          meetingDate: '2027-01-12',
+          meetingTime: '18:30',
+          // No position on this office, so no state: Eastern.
+          meetingTimezone: 'America/New_York',
+          durationMinutes: 120,
+          meetingName: '',
+          location: '',
+          hasBriefing: false,
+          userAgendaStatus: null,
+          userAgendaReason: null,
+          source: 'official',
+        },
+      ],
+    })
+  })
+
+  it('keeps the official’s time on its row once that day has a briefing', async () => {
+    const orgSlug = 'eo-first-meeting-briefed'
+    const office = await seedOfficeWithSchedule(orgSlug)
+    await stateFirstMeeting(orgSlug, '2027-01-12', '18:30')
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: office.id,
+        meetingDate: new Date('2027-01-12'),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: briefingRun.runId,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'briefing-key.json',
+      },
+    })
+
+    const { meetings } = await listFor(orgSlug)
+
+    expect(meetings[0]).toMatchObject({
+      meetingDate: '2027-01-12',
+      meetingTime: '18:30',
+      hasBriefing: true,
+      source: 'official',
+    })
+  })
+
+  it('gives the official’s time for that day while its briefing is awaited', async () => {
+    const orgSlug = 'eo-first-meeting-awaiting'
+    await seedOfficeWithSchedule(orgSlug)
+    await stateFirstMeeting(orgSlug, '2027-01-12', '18:30')
+
+    const stated = await service.client.get(
+      '/v1/meetings/2027-01-12/briefing',
+      request(orgSlug),
+    )
+    const scheduled = await service.client.get(
+      '/v1/meetings/2027-01-14/briefing',
+      request(orgSlug),
+    )
+
+    expect(stated.data).toMatchObject({
+      status: 'awaiting_agenda',
+      meetingTime: '18:30',
+      meetingTimezone: 'America/Denver',
+    })
+    expect(scheduled.data).toMatchObject({ meetingTime: '19:00' })
+  })
+
+  it.each([
+    ['a day that does not exist', '2027-02-31', '18:30'],
+    ['a date in another format', '01/12/2027', '18:30'],
+    ['a 12-hour time', '2027-01-12', '6:30 pm'],
+    ['an hour past 23', '2027-01-12', '24:00'],
+  ])('refuses %s', async (_, meetingDate, meetingTime) => {
+    const orgSlug = 'eo-first-meeting-invalid'
+    await seedElectedOffice(orgSlug)
+
+    const result = await stateFirstMeeting(orgSlug, meetingDate, meetingTime)
+
+    expect(result.status).toBe(400)
+  })
+
+  it('needs an office the caller holds', async () => {
+    const put = await stateFirstMeeting('eo-not-mine', '2027-01-12', '18:30')
+    const remove = await service.client.delete(
+      '/v1/meetings/first-meeting',
+      request('eo-not-mine'),
+    )
+
+    expect([put.status, remove.status]).toEqual([404, 404])
+  })
+
+  it('shows in the dispatch preview as the next meeting', async () => {
+    const orgSlug = `eo-first-meeting-preview-${Date.now()}`
+    const office = await seedBriefingTarget(orgSlug, 'FREQ=WEEKLY;BYDAY=TH')
+    await stateFirstMeeting(orgSlug, '2027-01-06', '18:30')
+
+    const result = await service.client.get(
+      `/v1/meetings/briefings/dispatch/preview?electedOfficeId=${office.id}`,
+    )
+
+    expect(result.data).toMatchObject({
+      imminentMeetingDate: '2027-01-06',
+      nextMeetingDate: '2027-01-06',
+      gateWouldDispatch: true,
+    })
+  })
+})

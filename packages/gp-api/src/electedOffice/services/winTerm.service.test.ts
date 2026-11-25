@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
+import type { ElectionsService } from '@/elections/services/elections.service'
 import type { PinoLogger } from 'nestjs-pino'
 import { WinTermService } from './winTerm.service'
 
@@ -21,12 +22,13 @@ const serviceWith = (holders: unknown[] | Error) => {
   const officeHolders = {
     model: { findMany },
   } as unknown as OfficeHoldersService
+  const elections = {} as unknown as ElectionsService
   const logger = {
     setContext: vi.fn(),
     error: vi.fn(),
   } as unknown as PinoLogger
   return {
-    service: new WinTermService(officeHolders, logger),
+    service: new WinTermService(officeHolders, elections, logger),
     findMany,
     logger,
   }

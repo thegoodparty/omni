@@ -54,12 +54,38 @@ import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
   campaignWasEverPro,
+  CurrentElectedOffice,
+  CurrentElectedOfficeSchema,
   MyElectedOffice,
   MyElectedOfficeSchema,
   SupportEstimate,
   SupportEstimateSchema,
 } from '@goodparty_org/contracts'
 import { z } from 'zod'
+import { addYears, format, parseISO } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
+import { DateFormats, parseIsoDateAsUTC } from '@/shared/util/date.util'
+
+// Term dates are date-only values held at UTC midnight. The years are added
+// to the calendar date, not the instant, so a server outside UTC cannot land
+// the result on the day before.
+const addYearsToDateOnly = (date: Date, years: number): Date =>
+  parseIsoDateAsUTC(
+    format(
+      addYears(
+        parseISO(formatInTimeZone(date, 'UTC', DateFormats.isoDate)),
+        years,
+      ),
+      DateFormats.isoDate,
+    ),
+  )
+
+// The holder's yes keeps the moment they first gave it; a no clears it.
+const briefingTextReminderAt = (
+  answer: boolean | undefined,
+  stored: Date | null,
+): Date | null | undefined =>
+  answer === undefined ? undefined : answer ? (stored ?? new Date()) : null
 
 @Controller('elected-office')
 @UsePipes(ZodValidationPipe)
@@ -86,8 +112,21 @@ export class ElectedOfficeController {
 
   @UseElectedOffice()
   @Get('current')
-  async getCurrent(@ReqElectedOffice() electedOffice: ElectedOffice) {
-    return this.toApi(electedOffice)
+  @ResponseSchema(CurrentElectedOfficeSchema)
+  async getCurrent(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+  ): Promise<CurrentElectedOffice> {
+    const campaign =
+      electedOffice.campaignId === null
+        ? null
+        : await this.electedOfficeService.client.campaign.findUnique({
+            where: { id: electedOffice.campaignId },
+            select: { votesReceived: true },
+          })
+    return {
+      ...this.toApi(electedOffice),
+      votesReceived: campaign?.votesReceived ?? null,
+    }
   }
 
   // The current user's elected offices, used by the serve onboarding flow to
@@ -118,13 +157,25 @@ export class ElectedOfficeController {
         ? []
         : await this.electedOfficeService.client.campaign.findMany({
             where: { id: { in: linkedCampaignIds } },
-            select: { id: true, isPro: true, details: true },
+            select: {
+              id: true,
+              isPro: true,
+              details: true,
+              votesReceived: true,
+            },
           })
     const everProCampaignIds = new Set(
       linkedCampaigns.filter(campaignWasEverPro).map((c) => c.id),
     )
+    const votesByCampaignId = new Map(
+      linkedCampaigns.map((c) => [c.id, c.votesReceived]),
+    )
     return offices.map((office) => ({
       ...this.toApi(office),
+      votesReceived:
+        office.campaignId === null
+          ? null
+          : (votesByCampaignId.get(office.campaignId) ?? null),
       hasWinIssues: withWinIssues.has(office.id),
       campaignWasEverPro:
         office.campaignId !== null && everProCampaignIds.has(office.campaignId),
@@ -312,6 +363,13 @@ export class ElectedOfficeController {
         'onboardingStep cannot be set via M2M; it is set by the authenticated onboarding flow',
       )
     }
+    // The text reminder is the holder's own consent to be texted, so only
+    // their session may give or withdraw it.
+    if (req.m2mToken && body.briefingTextReminder !== undefined) {
+      throw new ForbiddenException(
+        'briefingTextReminder cannot be set via M2M; it is set by the authenticated onboarding flow',
+      )
+    }
     // Monotonic, one-way marker: once set, downgrading it back to false would
     // silently reclassify a net-new record as a prefill on resume (misleading
     // "pulled from public records" confirm hub) and fire the BR snapshot against
@@ -331,8 +389,23 @@ export class ElectedOfficeController {
       body.termStartDate !== undefined
         ? body.termStartDate
         : existing.termStartDate
+    const completesWin =
+      body.onboardingCompletedAt != null && existing.campaignId !== null
+    // A winner finishing onboarding gives the day of their first meeting as
+    // the term's start and nothing else. The seat's term length turns that
+    // into an end date; with no length on file the term stays open and the
+    // dashboard asks for the end later.
+    const termFromStart =
+      completesWin &&
+      !!effectiveTermStart &&
+      !(body.termEndDate ?? existing.termEndDate)
+    const derivedTermEnd =
+      termFromStart && effectiveTermStart
+        ? await this.winTermEnd(existing.campaignId, effectiveTermStart)
+        : null
+    const termEndDate = derivedTermEnd ?? body.termEndDate
     const effectiveTermEnd =
-      body.termEndDate !== undefined ? body.termEndDate : existing.termEndDate
+      termEndDate !== undefined ? termEndDate : existing.termEndDate
     // The schema's refineTermDates only fires when BOTH bounds are in the body,
     // so a partial PUT could set one bound against the existing other and
     // invert the term (end on/before start). Re-check the effective bounds.
@@ -343,23 +416,28 @@ export class ElectedOfficeController {
     ) {
       throw new BadRequestException('termEndDate must be after termStartDate')
     }
-    if (effectiveTermStart || effectiveTermEnd) {
-      const siblings = await this.electedOfficeService.findMany({
-        where: { userId: existing.userId, id: { not: id } },
-      })
-      const overlapping = siblings.find((office) =>
-        dateRangesOverlap(
-          office.termStartDate,
-          office.termEndDate,
-          effectiveTermStart ?? null,
-          effectiveTermEnd ?? null,
-        ),
+    const siblings =
+      effectiveTermStart || effectiveTermEnd
+        ? await this.electedOfficeService.findMany({
+            where: { userId: existing.userId, id: { not: id } },
+          })
+        : []
+    const overlapsSibling = siblings.some((office) =>
+      dateRangesOverlap(
+        office.termStartDate,
+        office.termEndDate,
+        effectiveTermStart ?? null,
+        effectiveTermEnd ?? null,
+      ),
+    )
+    // A term worked out from a first meeting date that collides with an
+    // office they already hold (a re-elected incumbent's current term) must
+    // not cost a winner the finish: the term stays as stored and the
+    // dashboard asks for it.
+    if (overlapsSibling && !termFromStart) {
+      throw new ConflictException(
+        'Elected office term overlaps an existing elected office for this user',
       )
-      if (overlapping) {
-        throw new ConflictException(
-          'Elected office term overlaps an existing elected office for this user',
-        )
-      }
     }
 
     // Completing serve onboarding is the pledge: it makes the office live and
@@ -382,8 +460,13 @@ export class ElectedOfficeController {
     // effective termStartDate and termEndDate, matching the term-validity
     // invariant and the modal's Save gate. (This is independent of overlap
     // handling, where a null end still counts as an indefinite +Infinity term.)
+    //
+    // An office a win created is the exception: a new winner often does not
+    // know their term yet, so it finishes with whatever term it has, reads as
+    // held (deriveIsActive), and that same modal asks for the dates later.
     if (
       body.onboardingCompletedAt != null &&
+      existing.campaignId === null &&
       (!effectiveTermStart || !effectiveTermEnd)
     ) {
       throw new BadRequestException(
@@ -397,19 +480,37 @@ export class ElectedOfficeController {
     const data: Prisma.ElectedOfficeUpdateInput = {
       swornInDate: body.swornInDate,
       electedDate: body.electedDate,
-      termStartDate: body.termStartDate,
-      termEndDate: body.termEndDate,
+      termStartDate: overlapsSibling ? undefined : body.termStartDate,
+      termEndDate: overlapsSibling ? undefined : termEndDate,
       party: body.party,
       pledgedAt: body.pledgedAt,
       onboardingCompletedAt: body.onboardingCompletedAt,
       selfReported: body.selfReported,
       onboardingStep: body.onboardingStep,
+      briefingTextReminderAt: briefingTextReminderAt(
+        body.briefingTextReminder,
+        existing.briefingTextReminderAt,
+      ),
     }
     const updated = await this.electedOfficeService.update({
       where: { id },
       data,
     })
     return this.toApi(updated)
+  }
+
+  // The end of a term that starts on `termStartDate`, from the term length of
+  // the race the office's campaign won. Null when no length is on file.
+  private async winTermEnd(
+    campaignId: number | null,
+    termStartDate: Date,
+  ): Promise<Date | null> {
+    if (campaignId === null) return null
+    const campaign = await this.electedOfficeService.client.campaign.findUnique(
+      { where: { id: campaignId }, select: { details: true } },
+    )
+    const years = await this.winTerm.termYears(campaign?.details?.raceId)
+    return years === null ? null : addYearsToDateOnly(termStartDate, years)
   }
 
   @UseGuards(M2MOnly)

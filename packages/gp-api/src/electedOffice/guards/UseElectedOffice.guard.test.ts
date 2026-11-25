@@ -21,6 +21,8 @@ const mockEO: ElectedOffice = {
   onboardingCompletedAt: null,
   selfReported: false,
   onboardingStep: null,
+  briefingTextReminderAt: null,
+  briefingTextReminderSentAt: null,
   winSource: null,
   createdAt: new Date(),
   updatedAt: new Date(),

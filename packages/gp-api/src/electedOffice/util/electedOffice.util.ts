@@ -16,16 +16,26 @@ export const isPreparedOffice = (office: {
   office.onboardingCompletedAt === null
 
 /**
- * `isActive` is no longer stored — it is derived purely from the term end date.
+ * `isActive` is no longer stored — it is derived from the term end date.
  * Terms are half-open [start, end): the office is held while now < the exclusive
  * `termEndDate`. A null `termEndDate` means we don't yet have term data for the
  * office, so it is treated as inactive (the dashboard term-date modal prompts
  * the holder to supply dates, after which it becomes active again).
+ *
+ * The one exception is an office a win created whose holder finished Serve
+ * onboarding: a winner can finish without knowing their term, so with no end
+ * date on file it is held until one says otherwise.
  */
 export const deriveIsActive = (
-  termEndDate: Date | null,
+  office: Pick<
+    ElectedOffice,
+    'termEndDate' | 'campaignId' | 'onboardingCompletedAt'
+  >,
   now: Date = new Date(),
-): boolean => termEndDate !== null && termEndDate.getTime() > now.getTime()
+): boolean =>
+  office.termEndDate !== null
+    ? office.termEndDate.getTime() > now.getTime()
+    : office.campaignId !== null && office.onboardingCompletedAt !== null
 
 /**
  * `termLengthDays` is no longer stored — it is derived as the calendar-day span
@@ -58,12 +68,13 @@ export const electedOfficeToApi = (
     record.termStartDate,
     record.termEndDate,
   ),
-  isActive: deriveIsActive(record.termEndDate, now),
+  isActive: deriveIsActive(record, now),
   party: record.party,
   pledgedAt: record.pledgedAt?.toISOString() ?? null,
   onboardingCompletedAt: record.onboardingCompletedAt?.toISOString() ?? null,
   selfReported: record.selfReported,
   onboardingStep: record.onboardingStep,
+  briefingTextReminderAt: record.briefingTextReminderAt?.toISOString() ?? null,
   userId: record.userId,
   campaignId: record.campaignId ?? null,
   createdAt: record.createdAt.toISOString(),
