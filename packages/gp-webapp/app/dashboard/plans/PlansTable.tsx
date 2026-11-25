@@ -22,6 +22,8 @@ import {
 
 interface PlansTableProps {
   currentPlan: PlanKey
+  // What gp-api prices Team against; differs from currentPlan for a legacy subscriber.
+  heldPlan: PlanKey
   onSubscription?: boolean
   highlighted: PlanKey
   // The plan to caption "Best for your race"; null for a campaign that is not on Free.
@@ -33,6 +35,7 @@ interface PlansTableProps {
 // stacked cards.
 export const PlansTable = ({
   currentPlan,
+  heldPlan,
   onSubscription,
   highlighted,
   recommended,
@@ -59,7 +62,7 @@ export const PlansTable = ({
                 )}
               </div>
             </TableHead>
-            {planColumnsFor(currentPlan, onSubscription).map((column) => (
+            {planColumnsFor(heldPlan, onSubscription).map((column) => (
               <TableHead
                 key={column.plan}
                 className="relative text-center align-top"
@@ -103,7 +106,7 @@ export const PlansTable = ({
                   </div>
                 </div>
               </TableCell>
-              {planColumnsFor(currentPlan, onSubscription).map((column) => {
+              {planColumnsFor(heldPlan, onSubscription).map((column) => {
                 const included = planIncludes(column.plan, feature)
                 return (
                   <TableCell key={column.plan} className="text-center">

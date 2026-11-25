@@ -20,6 +20,11 @@ vi.mock('next/navigation', () => ({
   useSearchParams: vi.fn(),
 }))
 
+const { mockUseCampaign } = vi.hoisted(() => ({ mockUseCampaign: vi.fn() }))
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => mockUseCampaign(),
+}))
+
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: vi.fn(),
 }))
@@ -30,6 +35,7 @@ vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
 
 const PLAN = {
   plan: 'free',
+  heldPlan: 'free',
   isPaid: false,
   onSubscription: false,
   planEndsAt: null,
@@ -82,6 +88,7 @@ describe('ProUpgradeWizard', () => {
     vi.spyOn(window, 'scrollTo').mockImplementation(noop)
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
     vi.mocked(usePlan).mockReturnValue(PLAN)
+    mockUseCampaign.mockReturnValue([{ isPro: false }])
     mockUseSearchParams.mockReturnValue(
       new URLSearchParams() as ReadonlyURLSearchParams,
     )
@@ -90,6 +97,29 @@ describe('ProUpgradeWizard', () => {
       smsCutoffDate: null,
       generalElectionDate: null,
     })
+  })
+
+  it('routes a monthly subscriber off the Team checkout without rendering it', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(
+        'plan=team&back=%2Fdashboard%2Fteam',
+      ) as ReadonlyURLSearchParams,
+    )
+    vi.mocked(usePlan).mockReturnValue({
+      ...PLAN,
+      plan: 'pro',
+      onSubscription: true,
+    })
+
+    render(
+      <ProUpgradeWizard>
+        <div>step-content</div>
+      </ProUpgradeWizard>,
+    )
+
+    expect(screen.queryByText('step-content')).not.toBeInTheDocument()
+    expect(router.replace).toHaveBeenCalledWith('/dashboard/team')
   })
 
   it('renders the step children', () => {
@@ -203,7 +233,12 @@ describe('ProUpgradeWizard', () => {
         'plan=team&back=%2Fdashboard%2Fplans',
       ) as ReadonlyURLSearchParams,
     )
-    vi.mocked(usePlan).mockReturnValue({ ...PLAN, plan: 'pro' })
+    vi.mocked(usePlan).mockReturnValue({
+      ...PLAN,
+      plan: 'pro',
+      heldPlan: 'pro',
+      isPaid: true,
+    })
 
     render(
       <ProUpgradeWizard>
@@ -213,6 +248,58 @@ describe('ProUpgradeWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
 
     expect(router.push).toHaveBeenCalledWith('/dashboard/plans')
+  })
+
+  it('returns Back from the Team payment of a Pro campaign holding no plan to the page that carried it in', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(
+        'plan=team&back=%2Fdashboard%2Fplans',
+      ) as ReadonlyURLSearchParams,
+    )
+    mockUseCampaign.mockReturnValue([{ isPro: true }])
+    vi.mocked(usePlan).mockReturnValue({
+      ...PLAN,
+      plan: 'pro',
+      heldPlan: 'free',
+      isPaid: true,
+    })
+
+    render(
+      <ProUpgradeWizard>
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/plans')
+  })
+
+  it('steps Back through the wizard from the Team payment of a campaign that is not Pro, as the entry walks it in', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(
+        'plan=team&back=%2Fdashboard%2Fplans',
+      ) as ReadonlyURLSearchParams,
+    )
+    mockUseCampaign.mockReturnValue([{ isPro: false }])
+    vi.mocked(usePlan).mockReturnValue({
+      ...PLAN,
+      plan: 'pro',
+      heldPlan: 'free',
+      isPaid: true,
+    })
+
+    render(
+      <ProUpgradeWizard>
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+    expect(router.push).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/dashboard\/pro-upgrade\/[a-z-]+\?.*plan=team/),
+    )
   })
 
   it('places filing details between the EIN and payment', () => {
