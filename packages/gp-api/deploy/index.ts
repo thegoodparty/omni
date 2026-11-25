@@ -805,9 +805,9 @@ jwIDAQAB
         prod: 'robocall-free-offer-2026-11',
       }),
       // The nightly case scout (src/caseScout/AGENTS.md). On in dev and prod.
-      // The bucket belongs to gp-ai's case-scout module. The send switch is
-      // off everywhere, so each night's handoff is held in the bucket for a
-      // person to read and nothing goes to Delegate. Previews never run it.
+      // The bucket belongs to gp-ai's case-scout module. Dev and prod send
+      // each night's handoff to Delegate; previews never run it or send, and
+      // hold no webhook keys (deploy/gp-api-secret-keys.ts).
       CASE_SCOUT_ENABLED: select({
         preview: 'false',
         dev: 'true',
@@ -819,8 +819,8 @@ jwIDAQAB
       }),
       CASE_SCOUT_SEND_TO_DELEGATE: select({
         preview: 'false',
-        dev: 'false',
-        prod: 'false',
+        dev: 'true',
+        prod: 'true',
       }),
       CASE_SCOUT_BUCKET: caseScoutName,
       CASE_SCOUT_SPEND_CAP_USD: select({

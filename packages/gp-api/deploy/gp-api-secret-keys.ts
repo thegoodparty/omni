@@ -4,7 +4,10 @@
 // `secretsmanager:GetSecretValue`. `infra-cli.ts` checks the live secret
 // against this list on every dev and prod deploy. Previews use the dev list
 // minus the Grafana Cloud token, so a preview sends nothing to Grafana: each
-// PR stack otherwise exports its own copy of every series.
+// PR stack otherwise exports its own copy of every series. They also leave out
+// the case scout's Delegate webhook URL and signing secret: a preview runs any
+// open pull request's code and never sends, so it must not hold the key that
+// signs a handoff.
 const SHARED = [
   'AGENT_MCP_TOKEN_SECRET',
   'AI_CAMPAIGN_MANAGER_BASE',
@@ -17,6 +20,8 @@ const SHARED = [
   'BRAVE_API_KEY',
   'CALLHUB_API_KEY',
   'CAMPAIGN_PLAN_VERSION',
+  'CASE_SCOUT_DELEGATE_WEBHOOK_SECRET',
+  'CASE_SCOUT_DELEGATE_WEBHOOK_URL',
   'CLERK_PUBLISHABLE_KEY',
   'CLERK_SECRET_KEY',
   'CONTENTFUL_ACCESS_TOKEN',
@@ -99,6 +104,12 @@ const SHARED = [
   'WIN_DATABRICKS_SERVER_HOSTNAME',
 ] as const
 
+const NOT_ON_PREVIEW: readonly string[] = [
+  'CASE_SCOUT_DELEGATE_WEBHOOK_SECRET',
+  'CASE_SCOUT_DELEGATE_WEBHOOK_URL',
+  'OTEL_EXPORTER_OTLP_HEADERS',
+]
+
 const DEV = [
   ...SHARED,
   'CLERK_WEBHOOK_SECRET',
@@ -110,7 +121,7 @@ export const GP_API_SECRET_KEYS: Record<
   'preview' | 'dev' | 'prod',
   readonly string[]
 > = {
-  preview: DEV.filter((key) => key !== 'OTEL_EXPORTER_OTLP_HEADERS'),
+  preview: DEV.filter((key) => !NOT_ON_PREVIEW.includes(key)),
   dev: DEV,
   prod: [
     ...SHARED,
