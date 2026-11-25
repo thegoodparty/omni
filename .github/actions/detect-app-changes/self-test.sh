@@ -69,6 +69,44 @@ no_app packages/gp-admin/src/x.tsx
 no_app packages/prototypes/app/x.tsx
 expect false 'several no-app paths' docs/x.md .claude/settings.json README.md packages/gp-admin/package.json
 
+# Extra patterns widen the no-app list for one caller and nothing else. The
+# patterns below are the ones gp-webapp.yml passes.
+webapp_extra=(
+  'packages/gp-api/deploy/*.ts'
+  'packages/gp-api/deploy/*.md'
+  'packages/gp-api/deploy/Pulumi.yaml'
+  'packages/gp-api/deploy/components/*'
+)
+expect_extra() {
+  local want="$1" label="$2" got
+  shift 2
+  got="$(printf '%s\0' "$@" | bash "$classify" "${webapp_extra[@]}")"
+  if [ "$got" = "$want" ]; then
+    echo "ok   app=$got  extra: $label"
+  else
+    echo "FAIL app=$got (want $want)  extra: $label"
+    failures=$((failures + 1))
+  fi
+}
+
+expect_extra false 'deploy index.ts' packages/gp-api/deploy/index.ts
+expect_extra false 'deploy AGENTS.md' packages/gp-api/deploy/AGENTS.md
+expect_extra false 'deploy component and its policy json' \
+  packages/gp-api/deploy/components/alerting/route-alerts.ts \
+  packages/gp-api/deploy/components/alerting/alert-routing.policy.json
+expect_extra false 'deploy Pulumi.yaml' packages/gp-api/deploy/Pulumi.yaml
+expect_extra false 'deploy plus docs' packages/gp-api/deploy/index.ts docs/x.md
+expect_extra true 'deploy Dockerfile (the image the preview runs)' packages/gp-api/deploy/Dockerfile
+expect_extra true 'deploy docker-entrypoint.sh' packages/gp-api/deploy/docker-entrypoint.sh
+expect_extra true 'deploy plus gp-api src' packages/gp-api/deploy/index.ts packages/gp-api/src/x.ts
+expect_extra true 'deploy plus webapp' packages/gp-api/deploy/index.ts packages/gp-webapp/app/x.tsx
+expect_extra true 'sibling directory deploy-tools' packages/gp-api/deploy-tools/x.sh
+expect_extra true 'other package deploy dir' packages/gp-ai/deploy/index.ts
+expect_extra true 'empty list'
+# Without the patterns, the same paths still run the full pipeline.
+app packages/gp-api/deploy/index.ts
+app packages/gp-api/deploy/components/alerting/route-alerts.ts
+
 # changed-paths.sh against a scratch repository. Hermetic git config, so a
 # developer's signing or hook settings cannot change the result.
 repo="$(mktemp -d)"

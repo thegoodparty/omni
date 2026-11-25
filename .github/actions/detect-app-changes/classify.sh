@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
+# Usage: classify.sh [extra-pattern ...]
+#
 # Reads NUL-separated repo paths on stdin and prints `false` only when every
 # one of them is outside app code, otherwise `true`.
+#
+# Each extra pattern is a further `case` pattern for a path that is outside
+# app code for this caller only. gp-webapp.yml uses it to skip on gp-api's
+# Pulumi sources, which gp-api's own tests import and the webapp never reads.
+# The patterns are matched after the built-in list and cannot override it.
 #
 # This is the one list of "no app code" paths. Anything not matched below is an
 # app change, including paths that do not exist yet, so a new top-level
@@ -14,14 +21,30 @@
 # tests and generators inside its package.
 set -euo pipefail
 
+extra=("$@")
+
+# 0 when the path matches one of the caller's extra patterns.
+matches_extra() {
+  local pattern
+  for pattern in ${extra[@]+"${extra[@]}"}; do
+    # shellcheck disable=SC2254 # the pattern is meant to expand as a glob
+    case "$1" in
+      $pattern) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 seen=0
 while IFS= read -r -d '' path || [ -n "$path" ]; do
   seen=1
   case "$path" in
     docs/* | .claude/* | .mcp.json | packages/gp-admin/* | packages/prototypes/*) ;;
     */*)
-      echo true
-      exit 0
+      if ! matches_extra "$path"; then
+        echo true
+        exit 0
+      fi
       ;;
     *.md) ;;
     *)

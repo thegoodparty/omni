@@ -34,7 +34,8 @@ jobs:
   # .mcp.json, gp-admin, prototypes) skips checks, tests, the preview and the
   # E2E shards; Validate and E2E still report, and pass. The list and its
   # fixture self-test live in .github/actions/detect-app-changes, shared with
-  # gp-api.yml. PRs only: main always runs everything, because the release
+  # gp-api.yml. This workflow also skips on gp-api's Pulumi sources (see
+  # extra-skip-paths below). PRs only: main always runs everything, because the release
   # train gates on these main runs.
   changes:
     name: Detect changes
@@ -51,8 +52,19 @@ jobs:
           fetch-depth: 2
           sparse-checkout: .github/actions/detect-app-changes
 
+      # gp-api's Pulumi program is infrastructure: the webapp neither imports
+      # it nor runs from it, and gp-api.yml plus the infrastructure diff
+      # workflow already cover it. The Dockerfile and entrypoint are left out
+      # on purpose, since they change the gp-api image this workflow's E2E
+      # runs against. Keep these in step with the fixtures in self-test.sh.
       - uses: ./.github/actions/detect-app-changes
         id: detect
+        with:
+          extra-skip-paths: |
+            packages/gp-api/deploy/*.ts
+            packages/gp-api/deploy/*.md
+            packages/gp-api/deploy/Pulumi.yaml
+            packages/gp-api/deploy/components/*
 
   checks:
     name: Checks
