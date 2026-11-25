@@ -4,7 +4,10 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { noop } from '@shared/utils/noop'
+import { EMPTY_PRO_UPGRADE_CARRY } from '../proUpgradePlanParams'
 import FilingInstructionsStep from './FilingInstructionsStep'
+import { ProUpgradeCarryContext } from './proUpgradeCarryContext'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 vi.mock('./ProUpgradeWizard', () => ({
@@ -58,6 +61,25 @@ describe('FilingInstructionsStep', () => {
     })
     api.mock(CONTENT_ROUTE, { status: 200, data: fullContent })
     api.mock(EMAIL_ROUTE, { status: 200, data: { success: true } })
+  })
+
+  it('names Pro in the heading by default and Team for the Team plan', () => {
+    const { unmount } = render(<FilingInstructionsStep />)
+    expect(
+      screen.getByRole('heading', { name: /not eligible for Pro yet/ }),
+    ).toBeInTheDocument()
+    unmount()
+
+    render(
+      <ProUpgradeCarryContext.Provider
+        value={{ ...EMPTY_PRO_UPGRADE_CARRY, plan: 'team', markFromPro: noop }}
+      >
+        <FilingInstructionsStep />
+      </ProUpgradeCarryContext.Provider>,
+    )
+    expect(
+      screen.getByRole('heading', { name: /not eligible for Team yet/ }),
+    ).toBeInTheDocument()
   })
 
   it('fires the viewed analytics event on mount', () => {

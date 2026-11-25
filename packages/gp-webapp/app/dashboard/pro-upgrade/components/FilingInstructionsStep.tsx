@@ -15,6 +15,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { clientRequest } from 'gpApi/typed-request'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
+import { useProUpgradeCarry } from './proUpgradeCarryContext'
 
 const FILING_INSTRUCTIONS_QUERY_KEY = ['filing-instructions']
 
@@ -42,6 +43,8 @@ const InstructionRow = ({
 
 const FilingInstructionsStep = (): React.JSX.Element => {
   const { goToPreviousStep, exit } = useProUpgradeWizard()
+  const carry = useProUpgradeCarry()
+  const planName = carry.plan === 'team' ? 'Team' : 'Pro'
   const { errorSnackbar, successSnackbar } = useSnackbar()
   const [emailing, setEmailing] = useState(false)
 
@@ -121,8 +124,8 @@ const FilingInstructionsStep = (): React.JSX.Element => {
   return (
     <div>
       <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        You are not eligible for Pro yet, but here is how to file for this
-        election
+        You are not eligible for {planName} yet, but here is how to file for
+        this election
       </h1>
       <Body2 className="text-base-muted-foreground mb-6">
         Once done, you can come right back and we will have everything ready to

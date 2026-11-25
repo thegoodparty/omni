@@ -182,6 +182,26 @@ describe('GuidanceStep', () => {
       ).toBeInTheDocument()
     })
 
+    it('words the heading for Team', () => {
+      render(
+        <ProUpgradeCarryContext.Provider
+          value={{
+            ...EMPTY_PRO_UPGRADE_CARRY,
+            plan: 'team',
+            markFromPro: noop,
+          }}
+        >
+          <GuidanceStep />
+        </ProUpgradeCarryContext.Provider>,
+      )
+
+      expect(
+        screen.getByRole('heading', {
+          name: "Let's gather a few things to unlock Team",
+        }),
+      ).toBeInTheDocument()
+    })
+
     it('words the Payment row for Team', () => {
       render(
         <ProUpgradeCarryContext.Provider
