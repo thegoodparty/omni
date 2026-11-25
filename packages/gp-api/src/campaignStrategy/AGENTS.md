@@ -34,10 +34,10 @@ Engine's result consumer calls. `sectionRunFor` is public
 so the race-opponent page's discovery status reads the same table the dispatcher
 wrote to.
 
-Both sections run on gp-api's own agents in dev and on the PMF Engine in prod
-(`deploy/agentsOnGpApi.ts`); a preview runs both on gp-api's engine, because it
-is the judge's candidate arm. Dev is the only environment accumulating
-product traffic on the new engine before prod follows.
+Both sections run on gp-api's own agents in dev and prod, and a preview runs
+them on gp-api's engine too, because it is the judge's candidate arm
+(`deploy/agentsOnGpApi.ts`). The PMF Engine is the fallback for an agent the
+list leaves out.
 
 `superseded` is the one status the two engines disagree about, so a `SectionRun`
 carries its `engine` and `sectionRunIsInFlight` reads it. The PMF Engine's resume

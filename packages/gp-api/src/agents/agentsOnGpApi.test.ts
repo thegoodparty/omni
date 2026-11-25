@@ -10,7 +10,7 @@ describe('agentsOnGpApi', () => {
     expect(agentsOnGpApi('preview').split(',')).toEqual(Object.keys(AGENTS))
   })
 
-  it('names the judged agents in dev and leaves prod to trending_issues', () => {
+  it('names the judged agents in dev and prod', () => {
     expect(agentsOnGpApi('dev').split(',')).toEqual([
       'trending_issues',
       'top_community_issues',
@@ -18,6 +18,11 @@ describe('agentsOnGpApi', () => {
       'opportunities_and_challenges',
       'opposition_research',
     ])
-    expect(agentsOnGpApi('prod')).toBe('trending_issues')
+    expect(agentsOnGpApi('prod').split(',')).toEqual([
+      'trending_issues',
+      'meeting_schedule',
+      'opportunities_and_challenges',
+      'opposition_research',
+    ])
   })
 })
