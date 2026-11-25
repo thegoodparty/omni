@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   MERGE_TAGS,
@@ -47,6 +47,7 @@ import {
 } from 'app/dashboard/shared/dictation/useDictation'
 import { Intro } from '../social/Intro'
 import {
+  compressImageToSmsCap,
   IMAGE_ACCEPT,
   IMAGE_MAX_BYTES,
   inMemoryCopy,
@@ -90,6 +91,22 @@ const IMAGE_REQUIRED_ERROR = {
   win: 'Add your headshot or logo to continue.',
   serve: 'Add a header image to continue.',
 } as const
+
+// The drop zone takes a click and a drag alike, and says so: nothing else
+// on the page promises the drag.
+const IMAGE_DROPZONE_HINT =
+  'Click or drag an image here. Recipients see it in the message preview.'
+
+const IMAGE_READING_HINT = 'Getting your image ready…'
+
+const IMAGE_TYPE_ERROR = 'Use a JPG, PNG, or GIF image.'
+const IMAGE_UNREADABLE_ERROR =
+  "We couldn't open that image. Choose it again or pick another."
+const IMAGE_TOO_LARGE_ERROR =
+  'That image is too large for a text. Choose a smaller one.'
+// Redrawing an animated GIF would leave one frame, so a GIF over the cap is
+// the one image we ask for differently rather than shrink.
+const IMAGE_GIF_TOO_LARGE_ERROR = `That GIF is too large for a text. Choose one under ${IMAGE_MAX_BYTES / 1000} KB.`
 
 const MESSAGE_REQUIRED_ERROR = 'Write your message to continue.'
 
@@ -275,6 +292,11 @@ export const SmsComposeStep = ({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropzoneRef = useRef<HTMLButtonElement>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
+  const [isDragActive, setIsDragActive] = useState(false)
+  const [isReadingImage, setIsReadingImage] = useState(false)
+  // The state only paints: two drops can land in the same tick, so the guard
+  // against reading one file twice is a ref.
+  const readingImageRef = useRef(false)
   const attempted = continueAttempts > 0
   const imageMissing = attempted && !imagePreviewUrl && !managedInvite
   const messageMissing = attempted && !hasWrittenBody
@@ -323,30 +345,48 @@ export const SmsComposeStep = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs per press, not per edit
   }, [continueAttempts])
 
+  // One path for the picker and the drop zone: the same accept, the same
+  // shrink, the same error at the zone.
   const handleFile = async (file: File | null) => {
-    if (!file) return
+    if (!file || readingImageRef.current) return
     if (!IMAGE_ACCEPT.split(',').includes(file.type)) {
-      onImageError('Use a JPG, PNG, or GIF image.')
+      onImageError(IMAGE_TYPE_ERROR)
       return
     }
-    if (file.size > IMAGE_MAX_BYTES) {
-      onImageError(
-        `Image too large. Choose one under ${IMAGE_MAX_BYTES / 1000} KB.`,
-      )
-      return
-    }
-    let snapshot: File
-    try {
-      snapshot = await inMemoryCopy(file)
-    } catch {
-      onImageError(
-        "We couldn't open that image. Choose it again or pick another.",
-      )
+    const oversized = file.size > IMAGE_MAX_BYTES
+    if (oversized && file.type === 'image/gif') {
+      onImageError(IMAGE_GIF_TOO_LARGE_ERROR)
       return
     }
     onImageError(null)
-    onImageChange(snapshot)
+    readingImageRef.current = true
+    setIsReadingImage(true)
+    try {
+      // An image that already fits is attached as the bytes picked, so the
+      // crop step cuts from them; one that does not is redrawn to fit.
+      const snapshot = oversized
+        ? await compressImageToSmsCap(file)
+        : await inMemoryCopy(file)
+      if (!snapshot) {
+        onImageError(IMAGE_TOO_LARGE_ERROR)
+        return
+      }
+      onImageChange(snapshot)
+    } catch {
+      onImageError(IMAGE_UNREADABLE_ERROR)
+    } finally {
+      readingImageRef.current = false
+      setIsReadingImage(false)
+    }
   }
+
+  const imageDescribedBy =
+    [
+      imageMissing ? 'sms-image-required' : null,
+      imageError ? 'sms-image-error' : null,
+    ]
+      .filter(Boolean)
+      .join(' ') || undefined
 
   return (
     <div className="space-y-6">
@@ -425,30 +465,69 @@ export const SmsComposeStep = ({
                 type="button"
                 data-slot="sms-image-dropzone"
                 onClick={() => fileInputRef.current?.click()}
-                aria-invalid={imageMissing || undefined}
-                aria-describedby={
-                  imageMissing ? 'sms-image-required' : undefined
-                }
+                // Without preventDefault the browser navigates to the file.
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setIsDragActive(true)
+                }}
+                onDragLeave={(e) => {
+                  // Moving over the icon and the copy fires a leave too.
+                  if (e.currentTarget.contains(e.relatedTarget as Node | null))
+                    return
+                  setIsDragActive(false)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setIsDragActive(false)
+                  void handleFile(e.dataTransfer.files?.[0] ?? null)
+                }}
+                aria-invalid={imageMissing || imageError !== null || undefined}
+                aria-describedby={imageDescribedBy}
+                aria-busy={isReadingImage || undefined}
                 className={cn(
                   'flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-10 transition-colors hover:border-primary/50 hover:bg-muted',
                   imageMissing && 'border-destructive',
+                  imageError && 'border-destructive',
+                  isDragActive && 'border-primary bg-muted',
                 )}
               >
-                <ImageIcon className="size-6 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">
-                  {isServe
-                    ? IMAGE_DROPZONE_LABEL.serve
-                    : IMAGE_DROPZONE_LABEL.win}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  Recipients see this in the message preview
-                </span>
+                {isReadingImage ? (
+                  <>
+                    <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">
+                      {IMAGE_READING_HINT}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="size-6 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">
+                      {isServe
+                        ? IMAGE_DROPZONE_LABEL.serve
+                        : IMAGE_DROPZONE_LABEL.win}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {IMAGE_DROPZONE_HINT}
+                    </span>
+                  </>
+                )}
               </button>
               {imageMissing && (
                 <p id="sms-image-required" className="text-xs text-destructive">
                   {isServe
                     ? IMAGE_REQUIRED_ERROR.serve
                     : IMAGE_REQUIRED_ERROR.win}
+                </p>
+              )}
+              {/* At the zone, not at the bottom of the step: a rejected
+                  pick has to answer where the pick happened. */}
+              {imageError && (
+                <p
+                  id="sms-image-error"
+                  role="alert"
+                  className="text-xs text-destructive"
+                >
+                  {imageError}
                 </p>
               )}
             </div>
@@ -571,7 +650,6 @@ export const SmsComposeStep = ({
             microphone permission and try again.
           </p>
         )}
-        {imageError && <p className="text-xs text-destructive">{imageError}</p>}
         {hasWrittenBody &&
           standardsFailures
             .filter((rule) => rule !== 'length')
