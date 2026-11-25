@@ -344,6 +344,8 @@ describe('POST /v1/campaignStrategy/mine/strategic-landscape, engine switch', ()
     )
   })
 })
+
+// The bootstrap is the one step after a section's last persist that can fail
 // without failing the run, so the ready poll is the only path that retries it:
 // the bootstrap claims trackerBootstrapped atomically, which makes a repeat a
 // no-op.

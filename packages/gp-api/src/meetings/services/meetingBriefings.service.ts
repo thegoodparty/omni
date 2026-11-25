@@ -381,39 +381,15 @@ export class MeetingBriefingsService extends createPrismaBase(
     // retry spawns a duplicate live run. A FAILED-only run is
     // not blocking: the first attempt did not succeed and nothing else
     // re-dispatches it (a dead run is only marked FAILED by the gp-ai
-    // ECS task-reaper, which does not re-dispatch). The engine that will run
-    // it is the one whose runs answer "already ran": gp-api's own agents
-    // record an AgentRun, the PMF Engine an ExperimentRun.
-    const existingScheduleRun = runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)
-      ? await this.client.agentRun.findFirst({
-          where: {
-            organizationSlug: electedOffice.organizationSlug,
-            agentName: SCHEDULE_EXPERIMENT_TYPE,
-            status: {
-              in: [
-                AgentRunStatus.queued,
-                AgentRunStatus.running,
-                AgentRunStatus.completed,
-              ],
-            },
-          },
-          select: { id: true },
-        })
-      : await this.client.experimentRun.findFirst({
-          where: {
-            organizationSlug: electedOffice.organizationSlug,
-            experimentType: SCHEDULE_EXPERIMENT_TYPE,
-            status: {
-              in: [
-                ExperimentRunStatus.QUEUED,
-                ExperimentRunStatus.RUNNING,
-                ExperimentRunStatus.AWAITING_RESUME,
-                ExperimentRunStatus.COMPLETED,
-              ],
-            },
-          },
-          select: { runId: true },
-        })
+    // ECS task-reaper, which does not re-dispatch).
+    //
+    // Both engines' tables answer, not the switch's: an office whose schedule
+    // already ran on the PMF Engine has an `ExperimentRun`, and after the flip
+    // reads only `AgentRun` it would look like it never ran. A run dispatched
+    // before the flip is the same case an in-flight one is.
+    const existingScheduleRun = await this.existingScheduleRunForOrg(
+      electedOffice.organizationSlug,
+    )
     if (existingScheduleRun) {
       this.logger.info(
         { electedOfficeId: electedOffice.id },
@@ -430,6 +406,42 @@ export class MeetingBriefingsService extends createPrismaBase(
     // the briefing if a meeting falls inside the window. This guarantees
     // we never run a briefing without a fresh schedule.
     await this.dispatchSchedule(ctx)
+  }
+
+  private async existingScheduleRunForOrg(
+    organizationSlug: string,
+  ): Promise<{ id: string } | null> {
+    const onGpApi = await this.client.agentRun.findFirst({
+      where: {
+        organizationSlug,
+        agentName: SCHEDULE_EXPERIMENT_TYPE,
+        status: {
+          in: [
+            AgentRunStatus.queued,
+            AgentRunStatus.running,
+            AgentRunStatus.completed,
+          ],
+        },
+      },
+      select: { id: true },
+    })
+    if (onGpApi) return onGpApi
+    const onPmf = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug,
+        experimentType: SCHEDULE_EXPERIMENT_TYPE,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+            ExperimentRunStatus.COMPLETED,
+          ],
+        },
+      },
+      select: { runId: true },
+    })
+    return onPmf ? { id: onPmf.runId } : null
   }
 
   private async loadLocationHint(

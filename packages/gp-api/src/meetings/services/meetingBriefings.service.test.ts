@@ -7,6 +7,7 @@ import {
 import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { AgentsService } from '@/agents/agents.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -270,6 +271,40 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
       .get(MeetingBriefingsService)
       .onElectedOfficeCreated(electedOffice)
 
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  // The switch picks the engine for a new dispatch; it cannot change the fact
+  // that an office's schedule already ran on the other one. Reading only the
+  // switched-to table found no run and started a second paid schedule the
+  // office did not need.
+  it('skips schedule dispatch when the org’s schedule ran on the PMF Engine before the switch flipped', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    const suffix = Date.now()
+    const owner = await service.prisma.user.create({
+      data: { email: `dedup-flip-${suffix}@example.com` },
+    })
+    const orgSlug = `eo-dedup-flip-${suffix}`
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: owner.id },
+    })
+    const electedOffice = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: owner.id },
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+    const runSpy = vi
+      .spyOn(service.app.get(AgentsService), 'run')
+      .mockResolvedValue({ runId: 'agent-run' })
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onElectedOfficeCreated(electedOffice)
+
+    expect(runSpy).not.toHaveBeenCalled()
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
