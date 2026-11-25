@@ -34,6 +34,7 @@ import {
   ScoreParseError,
   type CaseScoutModelService,
 } from '@/caseScout/services/caseScoutModel.service'
+import { findDateDrift } from '@/caseScout/util/dateDrift.util'
 import {
   buildDraftedCase,
   buildDraftingPrompt,
@@ -563,6 +564,24 @@ export const runBench = async ({
     }
 
     const passedGate = gateSummary(gate)
+    const drift = findDateDrift({
+      userTurns:
+        draftedCase.turns ??
+        (draftedCase.question === undefined ? [] : [draftedCase.question]),
+      sourceTexts: sessionSourceTexts(session),
+      sessionStartedAt: session.startedAt,
+    })
+    if (drift) {
+      decide({
+        outcome: DraftOutcome.heldForDate,
+        case: draftedCase,
+        gate: passedGate,
+        draftResponse,
+        failureSummary: drift.reason,
+      })
+      proposedIds.add(draftedCase.caseId)
+      continue
+    }
     if (caseList.caseCount >= LIST_SOFT_CAP) {
       decide({
         outcome: DraftOutcome.listFull,

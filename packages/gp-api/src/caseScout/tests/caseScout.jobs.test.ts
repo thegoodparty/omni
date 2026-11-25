@@ -845,6 +845,59 @@ describe('caseScoutDraft', () => {
     expect(bundle().drafts).toEqual([])
   })
 
+  it('holds a draft that moves its chat into a later year for a person', async () => {
+    await seedSessions([3, 3])
+    draftFor = (sessionId) =>
+      sessionId.startsWith('conv-sev-0')
+        ? JSON.stringify({
+            outcome: 'newCase',
+            failureSummary: 'misreads a finished election',
+            case: {
+              caseId: 'moved-to-2028',
+              question: 'How did turnout in the 2028 general election go?',
+              condition: 'Results come with their source.',
+              handledWhen: 'The reply names where the result comes from.',
+            },
+          })
+        : newCase('turnout-figure-without-source', 'states turnout unsourced')
+    const reason = 'names 2028; the chat is from 2026'
+
+    await service.jobs.runSchedule('caseScoutNightly')
+
+    const handoff = CaseScoutHandoffSchema.parse(
+      JSON.parse(bucketJson(`runs/${RUN_ID}/handoff.json`) ?? '{}'),
+    )
+    expect(handoff.cases.map((c) => c.id)).toEqual([
+      'turnout-figure-without-source',
+    ])
+    expect(bundle().held).toEqual([
+      {
+        agentId: 'chief_of_staff',
+        severity: 3,
+        case: expect.objectContaining({
+          caseId: 'moved-to-2028',
+          question: 'How did turnout in the 2028 general election go?',
+        }),
+        failureSummary: 'misreads a finished election',
+        reason,
+      },
+    ])
+    expect(
+      ledgerLines().map((l) => [l.outcome, l.caseId, l.failureSummary]),
+    ).toEqual([
+      ['heldForDate', 'moved-to-2028', reason],
+      ['proposed', 'turnout-figure-without-source', 'states turnout unsourced'],
+    ])
+    expect(record().counts).toMatchObject({ proposed: 1, heldForDate: 1 })
+    expect(notes[0]?.text).toContain(
+      `Held for a person (dates), in ${BUCKET}/runs/${RUN_ID}/bundle.json:\n` +
+        '- `moved-to-2028` (chief_of_staff, severity 3), ' +
+        `conversation \`conv-sev-0-3\`: ${reason}`,
+    )
+    expect(notes[0]?.text).toContain('heldForDate=1')
+    expect(notes[0]?.text).toContain("('conv-sev-1-3', 'conv-sev-0-3')")
+  })
+
   it('gives the second read the real chat and writes nothing it flagged', async () => {
     await seedSessions([3])
     draftFor = () => newCase('thanks-a-volunteer', 'thanks a volunteer')

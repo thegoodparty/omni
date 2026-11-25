@@ -264,6 +264,20 @@ describe('the checks catch a regression', () => {
     expect(result.checks.drafted?.status).toBe('fail')
   })
 
+  it('holds a draft that names a year after its chat, as the job does', async () => {
+    const result = await resultFor(
+      withDraftQuestion(
+        'f02-modeled-party-as-registration',
+        'How many registered voters did each party have in 2029?',
+      ),
+      'f02-modeled-party-as-registration',
+    )
+    expect(result.outcome).toBe('heldForDate')
+    expect(result.gate?.passed).toBe(true)
+    expect(result.case).toBeNull()
+    expect(result.checks.drafted?.status).toBe('fail')
+  })
+
   it('hands the second read the session it was drafted from', async () => {
     const sources: string[] = []
     const result = await resultFor(
