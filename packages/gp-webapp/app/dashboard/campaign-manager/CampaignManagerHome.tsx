@@ -47,7 +47,7 @@ export default function CampaignManagerHome(): React.JSX.Element {
     // reserves 6rem below the page: pb-24 keeps the centering clear of it, and
     // -mb-24 pulls that reserved space under this background so the layout's
     // grey doesn't show through above it.
-    <div className="flex min-h-screen flex-col bg-muted lg:-mb-24 lg:min-h-[calc(100dvh-3.5rem)] lg:pb-24">
+    <div className="flex min-h-screen flex-col lg:-mb-24 lg:min-h-[calc(100dvh-3.5rem)] lg:pb-24">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6 lg:my-auto lg:py-6">
         <NextTaskCard surface="manager" firstLanding={firstLanding} />
       </div>
