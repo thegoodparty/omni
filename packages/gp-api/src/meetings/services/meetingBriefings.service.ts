@@ -274,18 +274,23 @@ export class MeetingBriefingsService extends createPrismaBase(
   async loadLatestScheduleForOrg(
     organizationSlug: string,
   ): Promise<MeetingSchedule | null> {
-    // Whichever engine the switch sends this agent's next run to is the one
-    // whose runs the schedule comes from: gp-api's own agents keep the
-    // artifact on the AgentRun row, the PMF Engine publishes it to S3.
+    // The switch picks the order, not the only table. A run dispatched before
+    // the switch flipped keeps its artifact where it was — gp-api's agents on
+    // the AgentRun row, the PMF Engine in S3 — so a reader that consulted one
+    // table would call an office with a real schedule scheduleless, emptying
+    // its meetings list, its imminence gate and its briefing dispatch. Nothing
+    // re-dispatches a schedule for an office that already exists, so that would
+    // not recover on its own.
+    //
+    // The switched-to engine answers first because it has the newer run; the
+    // other is the fallback that makes flipping the line — in either direction —
+    // a safe rollback. Removed at teardown.
     if (!runsOnGpApi(SCHEDULE_EXPERIMENT_TYPE)) {
-      return this.publishedScheduleForOrg(organizationSlug)
+      return (
+        (await this.publishedScheduleForOrg(organizationSlug)) ??
+        this.agentScheduleForOrg(organizationSlug)
+      )
     }
-    // Cutover: an office whose schedule last ran on the PMF Engine has no
-    // AgentRun yet, and dropping its published schedule would empty its
-    // meetings list, its briefing dispatch and its hint until a new run
-    // lands. The published artifact is the same shape and is the better
-    // answer until the first gp-api run exists; after that the AgentRun wins.
-    // Removed at teardown.
     return (
       (await this.agentScheduleForOrg(organizationSlug)) ??
       this.publishedScheduleForOrg(organizationSlug)
