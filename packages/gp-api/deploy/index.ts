@@ -368,11 +368,13 @@ export = async () => {
   // TOAST-bearing tables that take the most updates (campaign, website,
   // user). Only Aurora zero-ETL needs it, and the CDC connector does not.
   //
-  // The static parameters need a writer reboot to take effect, and changing
-  // any of the three aurora.* / rds.logical_replication settings invalidates
-  // every existing replication slot. Never change them while
-  // gp_replication_slots is not empty: the pipeline would have to re-snapshot
-  // every table. max_slot_wal_keep_size is dynamic, so it applies without a
+  // The four settings above the last one are static, so they need a writer
+  // reboot before they take effect. Settle them before any replication slot
+  // exists: AWS documents that changing aurora.enhanced_logical_replication
+  // invalidates all logical replication slots on the cluster, so a change made
+  // once the pipeline is live would force it to re-snapshot every table.
+  // Check pg_replication_slots first and drop the slot through the runbook if
+  // one is there. max_slot_wal_keep_size is dynamic, so it applies without a
   // reboot, and it is the cap that stops an abandoned slot from filling the
   // volume with WAL.
   const cdcParameterGroupName = select({
