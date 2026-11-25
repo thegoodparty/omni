@@ -95,6 +95,18 @@ describe('election-db reads during the nightly swap', () => {
     await admin?.end()
   })
 
+  // Postgres counts every cycle its 1s deadlock check had to break. A read that
+  // carries the give-up never creates one; a read that lost it does, and the
+  // retry extension then hides that from the row assertion — so this is the
+  // service client's evidence that it backed off first.
+  const deadlocks = async () => {
+    const { rows } = await admin.query(
+      'SELECT deadlocks FROM pg_stat_database WHERE datname = $1',
+      [DB_NAME],
+    )
+    return Number(rows[0]?.deadlocks)
+  }
+
   const swapAround = async (
     first: string,
     second: string,
@@ -118,11 +130,13 @@ describe('election-db reads during the nightly swap', () => {
   }
 
   it('backs a joined model read off so the swap commits', async () => {
+    const deadlocksBefore = await deadlocks()
     const retried = await swapAround('Place', 'Race', () =>
       service.instance.race.findMany({ include: { Place: true } }),
     )
     expect(retried.error).toBeUndefined()
     expect(retried.rows).toHaveLength(1)
+    expect(await deadlocks()).toBe(deadlocksBefore)
 
     const backedOff = await swapAround('Place', 'Race', () =>
       noRetryClient.race.findMany({ include: { Place: true } }),
@@ -131,6 +145,7 @@ describe('election-db reads during the nightly swap', () => {
   })
 
   it('backs a joined raw read off so the swap commits', async () => {
+    const deadlocksBefore = await deadlocks()
     const retried = await swapAround(
       'Race',
       'Place',
@@ -141,6 +156,7 @@ describe('election-db reads during the nightly swap', () => {
     )
     expect(retried.error).toBeUndefined()
     expect(retried.rows).toHaveLength(1)
+    expect(await deadlocks()).toBe(deadlocksBefore)
 
     const backedOff = await swapAround(
       'Race',
