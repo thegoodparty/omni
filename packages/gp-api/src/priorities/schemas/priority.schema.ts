@@ -1,5 +1,6 @@
 import {
   CreatePriorityInputSchema,
+  SetOnboardingFocusInputSchema,
   SetOnboardingPrioritiesInputSchema,
   UpdatePriorityInputSchema,
 } from '@goodparty_org/contracts'
@@ -28,4 +29,8 @@ export class PriorityThemeCommentsExportQueryDto extends createZodDto(
 
 export class SetOnboardingPrioritiesDto extends createZodDto(
   SetOnboardingPrioritiesInputSchema,
+) {}
+
+export class SetOnboardingFocusDto extends createZodDto(
+  SetOnboardingFocusInputSchema,
 ) {}

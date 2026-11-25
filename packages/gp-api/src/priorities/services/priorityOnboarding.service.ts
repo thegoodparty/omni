@@ -27,7 +27,7 @@ type OfficeRef = { id: string; organizationSlug: string }
 
 // Option cards carry a one-line byline. A full run's summary runs several
 // sentences (facts, then who can act), so the card shows only the first.
-const firstSentence = (text: string): string =>
+export const firstSentence = (text: string): string =>
   text.trim().split(/(?<=[.!?])\s+/)[0] ?? ''
 
 @Injectable()

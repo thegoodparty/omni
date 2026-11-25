@@ -1,11 +1,15 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
+import { ElectionsModule } from '@/elections/elections.module'
 import { LlmModule } from '@/llm/llm.module'
+import { OrganizationsModule } from '@/organizations/organizations.module'
 import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { CensusCompositionModule } from './censusComposition.module'
 import { PrioritiesController } from './priorities.controller'
 import { PrioritiesService } from './services/priorities.service'
 import { PriorityAnswerCodingService } from './services/priorityAnswerCoding.service'
+import { PriorityFocusService } from './services/priorityFocus.service'
+import { PriorityFocusRatingService } from './services/priorityFocusRating.service'
 import { PriorityOnboardingService } from './services/priorityOnboarding.service'
 import { PriorityReadService } from './services/priorityRead.service'
 import { PriorityResultsService } from './services/priorityResults.service'
@@ -17,7 +21,9 @@ import { PriorityThemeCommentsService } from './services/priorityThemeComments.s
   imports: [
     forwardRef(() => ElectedOfficeModule),
     CensusCompositionModule,
+    ElectionsModule,
     LlmModule,
+    OrganizationsModule,
     PersonProfilesModule,
   ],
   controllers: [PrioritiesController],
@@ -25,12 +31,19 @@ import { PriorityThemeCommentsService } from './services/priorityThemeComments.s
     PrioritiesService,
     PriorityStatusService,
     PriorityOnboardingService,
+    PriorityFocusService,
+    PriorityFocusRatingService,
     PriorityReadService,
     PriorityResultsService,
     PriorityAnswerCodingService,
     PriorityRoundTwoDrawService,
     PriorityThemeCommentsService,
   ],
-  exports: [PrioritiesService, PriorityStatusService, PriorityResultsService],
+  exports: [
+    PrioritiesService,
+    PriorityStatusService,
+    PriorityResultsService,
+    PriorityFocusService,
+  ],
 })
 export class PrioritiesModule {}

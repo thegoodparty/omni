@@ -20,6 +20,69 @@ from the claim that won: `answeredCount` (everyone who answered the
 priority), `themesShared` (its top themes, at most `MAX_THEMES`) and
 `channel` (`text`).
 
+## The welcome's one focus
+
+The warm welcome's Priorities step shows a few cards and the official picks
+one as their focus for the first 60 days. It has no feature flag. The rules
+are the design's (`cardsFor`, `pickCards`, `cardKind`), run here so every
+client sees the same cards. ADRs:
+`docs/adr/2026-11-25-welcome-card-facts-are-rated-by-the-onboarding-search.md`
+and
+`docs/adr/2026-11-25-first-focus-is-a-mark-on-the-priority-and-a-saved-choice.md`.
+
+- **What they ran on.** `PrioritiesService.seedFromWin` copies every picked
+  campaign position (oldest first), then every typed campaign issue (in the
+  order typed), as `win_import` rows. It adds only what is missing, under an
+  advisory lock, so it is safe to call from the read and the job at once. An
+  office seeded when typed issues hid the positions gets the positions on its
+  next call; a typed issue has no id, so typed issues are copied together,
+  once. An archived row counts as copied. An office that finished onboarding
+  is left as it is.
+- **The cards** (`GET /v1/priorities/onboarding/focus`,
+  `PriorityFocusService.forOnboarding`, rules in `util/focusCards.util.ts`).
+  Every live `win_import` and `user_stated` priority, never cut: positions,
+  then typed campaign issues, then ones typed in Serve. With fewer than
+  three, the top community issues by rank fill up to three. Of those, when no
+  ran-on card is already a quick win (resident interest high, first win in
+  weeks or months), the first one in weeks, else the first in months, takes
+  the last slot if it ranks below the ones shown. A placeholder first win
+  never counts as a quick win. `kind` is `ran_on`, `community` or `mixed` by
+  what the cards are, and `community` when there are none. `searchPending`
+  is the same job state `GET /v1/priorities/onboarding` reads.
+- **Both facts, never blank.** A community issue's resident interest is its
+  `priority`; its first win is `CommunityIssue.firstWin`. A ran-on card reads
+  `Priority.residentInterest` and `Priority.firstWin`. A value no search has
+  placed yet reads `medium` or `months`, and `recapLine` (the phrase that
+  completes "We'll help you make progress on ___.") falls back to the title.
+- **Rating what they ran on** (`PriorityFocusRatingService`, inside the
+  `communityIssueOnboarding` job, beside the starter search). Only for an
+  office with a `campaignId`, and only while something is unrated: its live
+  ran-on priorities, and any top community issue with no first win (a full
+  run's rows). One Gemini search over local sources of the last year, then
+  one structured call. The model rates every issue; where it found nothing it
+  estimates from the kind of issue, the place and the district issue labels
+  (`ElectionsService.getVoterIssues`, labels only, since the scores are leans
+  and not counts). `residentInterestSource` and `firstWinSource` record
+  `local_sources` or `estimate`, and a value is `local_sources` only when the
+  model named a source URL. **No route returns the two source columns.** A
+  failed search is logged at error and leaves the placeholders; the next
+  onboarding start tries again.
+- **Saving** (`PUT /v1/priorities/onboarding/focus`, `{ shownKeys, focusKey }`).
+  A picked community issue becomes a `community_issue` priority carrying the
+  card's facts; a ran-on card already is one. `Priority.focusedAt` marks it,
+  cleared on every other row of the office, and `listActive` returns it
+  first. Nothing else changes. Saving again moves the focus, and a priority
+  the earlier save made live is archived once it is no longer the pick. Every
+  shown key must be one of the office's ran-on priorities or top community
+  issues, else 400.
+- **What was shown** (`PriorityFocusChoice`, one per office, and
+  `PriorityFocusOption`, one per card: key, kind, title, both facts and their
+  sources as shown, picked or not). Nothing shows it yet. Other modules read
+  it through `PriorityFocusService.savedFor(electedOfficeId)`, exported from
+  `PrioritiesModule`. The GET returns it as `saved`, without the sources, and
+  once it exists the GET returns the cards that were shown rather than a
+  fresh list, so going back never loses the pick to a re-ranked list.
+
 ## A check's first round
 
 Behind `serve-citizen-panels`, the priority chat

@@ -6,10 +6,12 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { WrapperType } from '@/shared/types/utility.types'
 import { JobsService } from '@/jobs/jobs.service'
 import { CommunityIssueStarterService } from './communityIssueStarter.service'
+import { PriorityFocusRatingService } from '@/priorities/services/priorityFocusRating.service'
 import { isTestUser } from '@/users/util/users.util'
 import type { JobRun } from '@/jobs/jobs.registry'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { forwardRef, Inject, Injectable } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { differenceInCalendarDays } from 'date-fns'
 import {
   AgentRunStatus,
@@ -106,6 +108,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     @Inject(forwardRef(() => AnalyticsService))
     private readonly analytics: WrapperType<AnalyticsService>,
     private readonly starter: CommunityIssueStarterService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -127,7 +130,9 @@ export class CommunityIssueDispatchService extends createPrismaBase(
 
   // The communityIssueOnboarding job's worker: the work the onboarding request
   // used to await. Starter issues are written before the full runs dispatch so
-  // those runs read them back as the existing feed and build on them.
+  // those runs read them back as the existing feed and build on them. A
+  // winner's welcome cards are rated beside the starter search, not after it,
+  // so the step that waits on this job waits for one search, not two.
   async startOnboarding(
     job: JobRun<{ organizationSlug: string }>,
   ): Promise<void> {
@@ -142,7 +147,15 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       )
       return
     }
-    await this.starter.seed(organizationSlug)
+    // PrioritiesModule reaches this module through ElectedOfficeModule, so
+    // importing it here would close a cycle.
+    const focusRating = this.moduleRef.get(PriorityFocusRatingService, {
+      strict: false,
+    })
+    await Promise.all([
+      this.starter.seed(organizationSlug),
+      focusRating.rateForOnboarding(electedOffice),
+    ])
     await this.onElectedOfficeCreated(electedOffice)
   }
 

@@ -108,6 +108,52 @@ describe('PrioritiesService.seedFromWin', () => {
 
     expect(await priorities.listActive(officeId)).toHaveLength(1)
   })
+
+  it('seeds once when two callers seed at the same moment', async () => {
+    const campaignId = await createCampaign({
+      customIssues: [{ title: 'Parks', position: 'Expand green space' }],
+    })
+    const officeId = await createOffice(campaignId)
+
+    await Promise.all([
+      priorities.seedFromWin(officeId),
+      priorities.seedFromWin(officeId),
+      priorities.seedFromWin(officeId),
+    ])
+
+    expect(await priorities.listActive(officeId)).toHaveLength(1)
+  })
+
+  it('adds nothing to an office that has finished onboarding', async () => {
+    const campaignId = await createCampaign({
+      customIssues: [{ title: 'Parks', position: 'Expand green space' }],
+    })
+    const position = await service.prisma.position.create({
+      data: { name: `Education ${uuidv7()}` },
+    })
+    await service.prisma.campaignPosition.create({
+      data: { campaignId, positionId: position.id },
+    })
+    const officeId = await createOffice(campaignId)
+    await service.prisma.priority.create({
+      data: {
+        electedOfficeId: officeId,
+        title: 'Parks',
+        description: 'Expand green space',
+        source: PrioritySource.win_import,
+      },
+    })
+    await service.prisma.electedOffice.update({
+      where: { id: officeId },
+      data: { onboardingCompletedAt: new Date() },
+    })
+
+    await priorities.seedFromWin(officeId)
+
+    expect(
+      (await priorities.listActive(officeId)).map((row) => row.title),
+    ).toEqual(['Parks'])
+  })
 })
 
 describe('PrioritiesService CRUD', () => {

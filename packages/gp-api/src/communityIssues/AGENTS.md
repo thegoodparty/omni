@@ -33,6 +33,13 @@ renamed onto this clean name once the dead module was removed.
 `CommunityIssue` — accessed via `this.client.communityIssue` / `tx.communityIssue`.
 Enum types: `CommunityIssueList`, `CommunityIssueCategory`, `CommunityIssuePriority`.
 
+`firstWin` (`FirstWinHorizon`: weeks, months, year_or_more), `firstWinSource`
+and `recapLine` feed the welcome's Priorities cards
+(`priorities/AGENTS.md` § The welcome's one focus). The starter search writes
+them. A full run writes none and its upsert leaves them alone, so a starter
+row it carries keeps its values and a row it adds has none until the next
+onboarding start rates it.
+
 Related fields on other models:
 
 - `Priority.sourceCommunityIssueId` + `PrioritySource.community_issue`
@@ -68,9 +75,10 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
 
 - `POST /onboarding` — `@UseElectedOffice()`; called by Serve onboarding the
   moment the office is on the org (on load for a prefilled or resumed
-  official, right after the office PATCH for a net-new one), only while the
-  `serve-citizen-panels` flag is on (it feeds the onboarding priorities step
-  that flag gates). Each call costs about $1-2, so an official whose office
+  official, right after the office PATCH for a net-new one). The route has
+  no flag of its own: the stepper calls it only while `serve-citizen-panels`
+  is on (it feeds the priorities step that flag gates), and the warm welcome
+  calls it for every winner. Each call costs about $1-2, so an official whose office
   already has issues they ran on (`hasWinIssues` on
   `GET /v1/elected-office/mine`, from `PrioritiesService.officesWithWinIssues`:
   the same campaign source `seedFromWin` copies) is held back until they answer
@@ -79,8 +87,14 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   write nothing, so the client waits for the saved office, not the pick.
   **It queues `communityIssueOnboarding` and answers `{ queued: true }`**: the
   job writes up to 5 starter `top_community` issues from one Gemini Flash
-  search (skipped if the org already has a top list), then calls
-  `onElectedOfficeCreated` to dispatch the full runs. The work moved off the
+  search (skipped if the org already has a top list), each with a first win
+  and a recap phrase, then calls
+  `onElectedOfficeCreated` to dispatch the full runs. For an office that came
+  from a win it also runs `PriorityFocusRatingService.rateForOnboarding`
+  beside the starter search (resolved through `ModuleRef`, since importing
+  `PrioritiesModule` here would close a cycle through `ElectedOfficeModule`):
+  a second search that rates what the winner ran on, see
+  `priorities/AGENTS.md` § The welcome's one focus. The work moved off the
   request in ENG-11702 because the search took 25 to 55 seconds and a mobile
   browser gave up on the fetch first, then retried into the same handler; the
   priorities step's own poll of `GET /v1/priorities/onboarding` (two minutes)
