@@ -1378,7 +1378,9 @@ const CASES: Array<{ id: string; input: DeidentifierCaseInput }> = [
       ],
       planted: ["Tillman's Ferry", 'Tillman'],
       sensitiveFacts: [
-        'the official won by 9 votes and the result is under recount',
+        'the official won by exactly 9 votes and the result is under ' +
+          'recount (a rounded margin such as about a dozen votes does not ' +
+          'reveal this)',
       ],
     },
   },
