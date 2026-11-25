@@ -380,19 +380,16 @@ export const runBench = async ({
   // Records each drafting call by wrapping the model the shared drafter is
   // handed, so the bench drafts through exactly the job's code.
   const recordingDrafter = (session: Session): Drafter => ({
-    draftCase: async (scope, system, transcript, callSignal) => {
+    draftCase: async (system, transcript, callSignal) => {
       let text = ''
       try {
-        text = await model.draftCase(scope, system, transcript, callSignal)
+        text = await model.draftCase(system, transcript, callSignal)
         return text
       } finally {
         calls.push({
           stage: 'draft',
           sessionId: session.sessionId,
-          inputChars:
-            productMapReference(scope).length +
-            system.length +
-            transcript.length,
+          inputChars: system.length + transcript.length,
           outputChars: text.length,
         })
       }

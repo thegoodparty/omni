@@ -39,7 +39,7 @@ session cap and the marker but are never sent to a model.
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `caseScout.prompts.ts`                  | The scoring, drafting and second-read prompts, as the quality bench graded them; what each covered assistant is briefed with every turn; the product map as that assistant renders it                                             |
 | `services/caseScoutMessages.service.ts` | The Prisma read that replaced the `case_scout_messages` Databricks view: staff filter, tool calls, per-conversation denylist                                                                                                      |
-| `services/caseScoutModel.service.ts`    | The three model calls; never any tools. Scoring and drafting lead with the scope's product map behind a cache breakpoint                                                                                                          |
+| `services/caseScoutModel.service.ts`    | The three model calls; never any tools. Scoring leads with the scope's product map behind a cache breakpoint                                                                                                                      |
 | `util/dateDrift.util.ts`                | The date check: a draft that passed the gate and names a year after its chat's UTC year, when the chat named none, is held for a person                                                                                           |
 | `util/gate.util.ts`                     | The PII gate: denylist, 8-word copy (from every role and tool input, only when the source run carries a number or a mid-sentence capital), contact patterns, second read, schema; `outboundStrings`, every field allowed to leave |
 | `schemas/caseScoutBucket.schema.ts`     | Every bucket object's shape                                                                                                                                                                                                       |
@@ -108,11 +108,14 @@ that carries account facts belongs in that list too.
   need, never a user turn that brings those facts up. Each later turn must
   make sense whatever the live assistant replies, because the judge posts it
   to a fresh test account.
-- **Both** read the scope's product map exactly as the assistant renders it
-  (`buildProductKnowledgeBlocks`, help center on, Pro left out), as the first
-  system block with an Anthropic cache breakpoint, so a night's calls in one
-  scope read it from the cache. It is about 12,400 tokens for Win and 18,400
-  for Serve on the Opus 4.7 tokenizer.
+- **Only the scorer** reads the scope's product map, exactly as the assistant
+  renders it (`buildProductKnowledgeBlocks`, help center on, Pro left out), as
+  the first system block with an Anthropic cache breakpoint, so a night's
+  scoring calls in one scope read it from the cache. It is about 12,400 tokens
+  for Win and 18,400 for Serve on the Opus 4.7 tokenizer. That keeps a correct
+  product answer from being flagged, so it does not reach the drafter. The
+  drafter is not given the map because its privacy rules lost out to it: in
+  the de-identifier eval it kept a source's sensitive specifics only with it.
 
 ## Bucket (`case-scout-<env>`)
 

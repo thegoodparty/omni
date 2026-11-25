@@ -84,9 +84,9 @@ const scoutedAssistant = (scope: string): ScoutedAssistant => {
 const briefingLines = (scope: string): string[] =>
   scoutedAssistant(scope).briefing.map((line) => `- ${line}`)
 
-// The product map exactly as the scope's assistant renders it, so a scorer or
-// drafter never reads a step the map spells out as one the assistant made up.
-// It is the same for every call in a scope, so it goes first and is cached.
+// The product map exactly as the scope's assistant renders it, so the scorer
+// never reads a step the map spells out as one the assistant made up. It is
+// the same for every call in a scope, so it goes first and is cached.
 // Rendered with the help center search on; Pro status is per account.
 export const productMapReference = (scope: string): string => {
   const { name, mode } = scoutedAssistant(scope)
@@ -334,13 +334,11 @@ export const draftingSystemPrompt = (parts: DraftPromptParts): string =>
     `What the assistant (${scoutedAssistant(parts.agentId).name}) is ` +
       'handed every turn, which the session never shows:',
     ...briefingLines(parts.agentId),
-    'It also has the product knowledge given above, word for word, and ' +
-      'tool results are never shown either. Draft a case about something ' +
-      'wrong or invented only when the failure holds up given that ' +
-      'briefing, the product knowledge and the tool calls: a specific ' +
-      'number, opponent, local event, priority or product step the ' +
-      'assistant could have been handed is not a fabrication. Never write ' +
-      'a case that a correct answer from the product knowledge would fail. ' +
+    "It also has GoodParty's product knowledge, and tool results are " +
+      'never shown either. Draft a case about something wrong or invented ' +
+      'only when the failure holds up given that briefing and the tool ' +
+      'calls: a specific number, opponent, local event, priority or product ' +
+      'step the assistant could have been handed is not a fabrication. ' +
       'When the failure depends on facts only the real account was handed ' +
       "(its plan's opponents or local events, its priorities, its race " +
       'data), answer "needsSetup" naming what the test account would need, ' +

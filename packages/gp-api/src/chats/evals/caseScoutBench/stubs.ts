@@ -55,7 +55,7 @@ export const labelEchoModel = (fixtures: BenchFixture[]): BenchModel => {
         ],
       }
     },
-    draftCase: async (_scope, _system, transcript) => {
+    draftCase: async (_system, transcript) => {
       const fixture = fixtureFor(transcript, byId)
       if (fixture.expect.covered_by !== null) {
         return JSON.stringify({

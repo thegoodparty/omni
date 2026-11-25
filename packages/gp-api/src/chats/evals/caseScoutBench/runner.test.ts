@@ -192,12 +192,11 @@ describe('the checks catch a regression', () => {
 
   const withDraftQuestion = (fixtureId: string, question: string) => ({
     draftCase: async (
-      scope: string,
       system: string,
       transcript: string,
       signal: AbortSignal,
     ) => {
-      const text = await STUB.draftCase(scope, system, transcript, signal)
+      const text = await STUB.draftCase(system, transcript, signal)
       if (fixtureIdOf(transcript) !== fixtureId) return text
       const draft = JSON.parse(text) as { case: { question: string } }
       draft.case.question = question
@@ -285,7 +284,7 @@ describe('the checks catch a regression', () => {
   it('fails the duplicate when the scout drafts it', async () => {
     const result = await resultFor(
       {
-        draftCase: async (scope, system, transcript, signal) =>
+        draftCase: async (system, transcript, signal) =>
           fixtureIdOf(transcript) === 'd01-claims-meeting-booked'
             ? JSON.stringify({
                 outcome: 'newCase',
@@ -297,7 +296,7 @@ describe('the checks catch a regression', () => {
                   handledWhen: 'h',
                 },
               })
-            : STUB.draftCase(scope, system, transcript, signal),
+            : STUB.draftCase(system, transcript, signal),
       },
       'd01-claims-meeting-booked',
     )
@@ -308,14 +307,14 @@ describe('the checks catch a regression', () => {
   it('passes an accepted covered-by alternative', async () => {
     const result = await resultFor(
       {
-        draftCase: async (scope, system, transcript, signal) =>
+        draftCase: async (system, transcript, signal) =>
           fixtureIdOf(transcript) === 'f09-outside-canvassing-app'
             ? JSON.stringify({
                 outcome: 'coveredBy',
                 failureSummary: 'outside tool',
                 caseId: 'product-how-to-from-the-map',
               })
-            : STUB.draftCase(scope, system, transcript, signal),
+            : STUB.draftCase(system, transcript, signal),
       },
       'f09-outside-canvassing-app',
     )

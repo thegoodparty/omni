@@ -47,22 +47,15 @@ describe('CaseScoutModelService', () => {
     expect(lastCall()?.prompt).toBe('# session s')
   })
 
-  it('drafts behind the same cached product knowledge', async () => {
+  it('drafts from its instructions alone, without the product map', async () => {
     vi.mocked(generateText).mockResolvedValue({ text: '{}' } as never)
     await new CaseScoutModelService().draftCase(
-      'campaign_assistant',
       'the drafting instructions',
       '# session s',
       signal,
     )
-    expect(lastCall()?.system).toEqual([
-      {
-        role: 'system',
-        content: productMapReference('campaign_assistant'),
-        providerOptions: CACHED,
-      },
-      { role: 'system', content: 'the drafting instructions' },
-    ])
+    expect(lastCall()?.system).toBe('the drafting instructions')
+    expect(lastCall()?.prompt).toBe('# session s')
   })
 
   it('gives the second read the draft and the real chat', async () => {

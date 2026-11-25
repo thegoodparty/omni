@@ -363,13 +363,11 @@ beforeEach(() => {
       return result
     },
   )
-  vi.spyOn(model, 'draftCase').mockImplementation(
-    async (_scope, _system, text) => {
-      const result = draftFor(sessionIdIn(text))
-      if (result instanceof Error) throw result
-      return result
-    },
-  )
+  vi.spyOn(model, 'draftCase').mockImplementation(async (_system, text) => {
+    const result = draftFor(sessionIdIn(text))
+    if (result instanceof Error) throw result
+    return result
+  })
   vi.spyOn(model, 'secondRead').mockImplementation(() => secondReadAnswer())
 
   vi.spyOn(

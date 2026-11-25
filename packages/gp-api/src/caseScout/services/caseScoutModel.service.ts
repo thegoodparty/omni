@@ -48,21 +48,13 @@ const cached = (content: string): SystemModelMessage => ({
   providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
 })
 
-// The scope's product map leads both the scoring and the drafting system
-// prompt, so a night of calls in one scope reads it from the cache instead of
-// paying for it each time. Everything after the first breakpoint that varies
-// (the drafter's case list and proposals) comes after it.
+// The scope's product map leads the scoring system prompt, so a night of
+// scoring calls in one scope reads it from the cache instead of paying for it
+// each time. The drafter is never given it: its privacy rules lost out to the
+// map in the de-identifier eval.
 export const scoringSystem = (scope: string): SystemModelMessage[] => [
   cached(productMapReference(scope)),
   cached(SCORING_PROMPT),
-]
-
-export const draftingSystem = (
-  scope: string,
-  instructions: string,
-): SystemModelMessage[] => [
-  cached(productMapReference(scope)),
-  { role: 'system', content: instructions },
 ]
 
 // The scout's three model calls. None of them is ever given a tool: the model
@@ -110,14 +102,13 @@ export class CaseScoutModelService {
   }
 
   async draftCase(
-    scope: string,
     system: string,
     transcript: string,
     signal: AbortSignal,
   ): Promise<string> {
     const result = await generateText({
       model: this.model(),
-      system: draftingSystem(scope, system),
+      system,
       prompt: transcript,
       maxOutputTokens: DRAFT_MAX_TOKENS,
       maxRetries: 0,
