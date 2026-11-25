@@ -9,7 +9,7 @@ const RETRY_WINDOW_MS = 60_000
 export const recoverOrReportRouteError = (error: Error) => {
   if (!isChunkLoadError(error)) {
     reportClientError(error)
-    return
+    return undefined
   }
 
   const key = `chunk-reload:${window.location.pathname}`
@@ -20,11 +20,11 @@ export const recoverOrReportRouteError = (error: Error) => {
       Date.now() - Number(lastReload) < RETRY_WINDOW_MS
     ) {
       reportClientError(error)
-      return
+      return undefined
     }
   } catch {
     reportClientError(error)
-    return
+    return undefined
   }
 
   reportClientInterruption('Retrying after a chunk failed to load')
