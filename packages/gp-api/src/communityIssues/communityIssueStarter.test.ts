@@ -5,6 +5,8 @@ import {
   CommunityIssueCategory,
   CommunityIssueList,
   CommunityIssuePriority,
+  FirstWinHorizon,
+  FocusFactSource,
 } from '../generated/prisma'
 import { useTestService } from '@/test-service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -30,6 +32,8 @@ const STARTER_ISSUES = {
       summary: 'Residents packed a hearing over a 40-unit plan on Route 3.',
       category: CommunityIssueCategory.housing_and_development,
       priority: CommunityIssuePriority.high,
+      first_win: FirstWinHorizon.months,
+      recap_line: 'the Route 3 apartment proposal.',
       sources: [
         {
           name: 'Residents push back on Route 3 plan',
@@ -44,6 +48,8 @@ const STARTER_ISSUES = {
       summary: 'Nothing backs this up.',
       category: CommunityIssueCategory.other,
       priority: CommunityIssuePriority.low,
+      first_win: FirstWinHorizon.weeks,
+      recap_line: 'the rumor',
       sources: [{ name: 'No link', url: 'not a url' }],
     },
   ],
@@ -120,6 +126,9 @@ describe('community issues onboarding start', () => {
       title: 'Route 3 apartment proposal',
       rank: 1,
       lastRefreshedRunId: null,
+      firstWin: FirstWinHorizon.months,
+      firstWinSource: FocusFactSource.local_sources,
+      recapLine: 'the Route 3 apartment proposal',
     })
     expect(rows[0]?.detail).toMatchObject({
       sources: [{ id: 's1', url: 'https://news.example.com/route-3' }],

@@ -65,6 +65,7 @@ model ElectedOffice {
   meetingResourceLocations MeetingResourceLocation[]
   userAgendaUploads        UserAgendaUpload[]
   priorities               Priority[]
+  priorityFocusChoice      PriorityFocusChoice?
   dashboardCards           DashboardCard[]
   onboardingCardDismissals OnboardingCardDismissal[]
   onboardingCardCompletions OnboardingCardCompletion[]

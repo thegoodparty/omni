@@ -13,6 +13,20 @@ model Priority {
 
   archivedAt DateTime? @map("archived_at")
 
+  // The office's first focus, picked in the welcome. At most one live row per
+  // office carries it; the list returns that row first.
+  focusedAt DateTime? @map("focused_at")
+
+  // What a welcome card says about this priority. Null until the onboarding
+  // search has rated it; a reader shows the fallback meanwhile. The two
+  // source columns are for auditing estimates and are never returned.
+  residentInterest       ResidentInterest? @map("resident_interest")
+  residentInterestSource FocusFactSource?  @map("resident_interest_source")
+  firstWin               FirstWinHorizon?  @map("first_win")
+  firstWinSource         FocusFactSource?  @map("first_win_source")
+  // Completes "We'll help you make progress on ___."
+  recapLine              String?           @map("recap_line")
+
   // The agent's working status: the seven steps and what each settled.
   // Shape + parser live in @goodparty_org/contracts (PriorityStatus.schema.ts),
   // which is APPEND-ONLY so rows written by an older build keep parsing. Never
@@ -31,6 +45,7 @@ model Priority {
   profileIssues     PersonProfileIssue[]
   synthesisRuns     FeedbackSynthesisRun[]
   groupRead         PriorityRead?
+  focusChoices      PriorityFocusChoice[]
 
   @@index([electedOfficeId, archivedAt])
   @@map("priority")
@@ -40,4 +55,28 @@ enum PrioritySource {
   win_import
   user_stated
   community_issue
+}
+
+enum ResidentInterest {
+  low
+  medium
+  high
+}
+
+// How soon residents could see a first visible step, judged by who has to say
+// yes: the council inside one meeting cycle, a council process with stages,
+// or someone outside the council (or construction).
+enum FirstWinHorizon {
+  weeks
+  months
+  year_or_more
+}
+
+// Where a card's fact came from. `default` is the placeholder a card shows
+// before the onboarding search has rated it; it is recorded only on a shown
+// card (PriorityFocusOption), never on a priority or a community issue.
+enum FocusFactSource {
+  local_sources
+  estimate
+  default
 }

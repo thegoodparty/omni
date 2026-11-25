@@ -113,6 +113,15 @@ export {
   type PrioritySource,
   PRIORITY_SOURCE_VALUES,
   PrioritySourceSchema,
+  type ResidentInterest,
+  RESIDENT_INTEREST_VALUES,
+  ResidentInterestSchema,
+  type FirstWinHorizon,
+  FIRST_WIN_HORIZON_VALUES,
+  FirstWinHorizonSchema,
+  type PriorityFocusOptionKind,
+  PRIORITY_FOCUS_OPTION_KIND_VALUES,
+  PriorityFocusOptionKindSchema,
   type PriorityAnswerCode,
   PRIORITY_ANSWER_CODE_VALUES,
   PriorityAnswerCodeSchema,
@@ -1009,6 +1018,24 @@ export {
   SetOnboardingPrioritiesInputSchema,
   type SetOnboardingPrioritiesInput,
 } from './priorities/PriorityOnboarding.schema'
+
+export {
+  FocusOptionSchema,
+  type FocusOption,
+  ONBOARDING_FOCUS_KINDS,
+  OnboardingFocusKindSchema,
+  type OnboardingFocusKind,
+  SavedFocusOptionSchema,
+  type SavedFocusOption,
+  SavedFocusSchema,
+  type SavedFocus,
+  OnboardingFocusSchema,
+  type OnboardingFocus,
+  SetOnboardingFocusInputSchema,
+  type SetOnboardingFocusInput,
+  SetOnboardingFocusResultSchema,
+  type SetOnboardingFocusResult,
+} from './priorities/PriorityFocus.schema'
 
 export {
   PRIORITY_RESULTS_CHANNELS,

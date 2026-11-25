@@ -1,0 +1,29 @@
+/// The one focus an official picked on the welcome's Priorities step, and
+/// (in PriorityFocusOption) every card they were shown when they picked it.
+/// One row per office: saving again with another pick rewrites it. Nothing
+/// shows it yet; a later Serve feature reads it through PriorityFocusService.
+model PriorityFocusChoice {
+  id              String        @id @default(cuid())
+  electedOfficeId String        @unique @map("elected_office_id")
+  electedOffice   ElectedOffice @relation(fields: [electedOfficeId], references: [id], onDelete: Cascade)
+
+  priorityId        String   @map("priority_id")
+  priority          Priority @relation(fields: [priorityId], references: [id], onDelete: Cascade)
+  // True when this save made the priority live (created it from a community
+  // issue, or brought an archived one back), so moving the pick elsewhere
+  // archives it again and leaves any other priority alone.
+  priorityActivated Boolean  @map("priority_activated")
+
+  pickedAt  DateTime @map("picked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  options PriorityFocusOption[]
+
+  @@map("priority_focus_choice")
+}
+
+enum PriorityFocusOptionKind {
+  ran_on
+  community
+}
