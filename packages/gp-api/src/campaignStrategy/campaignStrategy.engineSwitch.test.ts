@@ -3,7 +3,11 @@ import { subMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { AgentRunStatus, OrganizationRole } from '@/generated/prisma'
+import {
+  AgentRunStatus,
+  ExperimentRunStatus,
+  OrganizationRole,
+} from '@/generated/prisma'
 import { useTestService } from '@/test-service'
 import { StrategicLandscapeParamsService } from './services/strategicLandscapeParams.service'
 
@@ -282,9 +286,64 @@ describe('POST /v1/campaignStrategy/mine/strategic-landscape, engine switch', ()
       }),
     ).toBe(1)
   })
-})
 
-// The bootstrap is the one step after a section's last persist that can fail
+  // A section dispatched before the switch flipped keeps its run id in the
+  // other engine's table. Reading only the switched-to table saw no run, called
+  // the section idle and started a second paid run whose predecessor landed
+  // nowhere the plan points at. The id is in exactly one table, so the run that
+  // answers is whichever holds it.
+  it('reads the PMF Engine section run the plan still names after the switch flips', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
+    const campaign = await seedCampaign()
+    const inflight = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: SLUG,
+        experimentType: 'opposition_research',
+        status: ExperimentRunStatus.RUNNING,
+      },
+    })
+    await seedPlan(campaign.id, { oppositionRunId: inflight.runId })
+    stubParams(builtParams())
+    stubPmfDispatch()
+
+    const res = await poll()
+
+    expect(res.data).toEqual({ status: 'generating' })
+    expect((await planOf(campaign.id)).oppositionRunId).toBe(inflight.runId)
+    expect(
+      await service.prisma.agentRun.count({
+        where: { organizationSlug: SLUG, agentName: 'opposition_research' },
+      }),
+    ).toBe(0)
+  })
+
+  // The same gap in reverse: a gp-api run in flight when the switch flips back
+  // keeps its run id in `AgentRun`, so the PMF-table-first read has to fall back.
+  it('reads the gp-api section run the plan still names after the switch flips back', async () => {
+    const campaign = await seedCampaign()
+    const inflight = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'opposition_research',
+        organizationSlug: SLUG,
+        status: AgentRunStatus.running,
+        manifest: {},
+        shapeHash: 'a-shape-hash',
+        input: {},
+      },
+    })
+    await seedPlan(campaign.id, { oppositionRunId: inflight.id })
+    stubParams(builtParams())
+    const pmf = stubPmfDispatch()
+
+    const res = await poll()
+
+    expect(res.data).toEqual({ status: 'generating' })
+    expect((await planOf(campaign.id)).oppositionRunId).toBe(inflight.id)
+    expect(pmf).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'opposition_research' }),
+    )
+  })
+})
 // without failing the run, so the ready poll is the only path that retries it:
 // the bootstrap claims trackerBootstrapped atomically, which makes a repeat a
 // no-op.

@@ -34,6 +34,15 @@ Engine's result consumer calls. `sectionRunFor` is public
 so the race-opponent page's discovery status reads the same table the dispatcher
 wrote to.
 
+The switch picks the table for a new dispatch; it cannot pick one for a run that
+was already in flight when it flipped. A plan's section or a race-opponent
+discovery dispatched before the flip keeps its run id in the other engine's
+table, and the id is in exactly one of them, so `sectionRunFrom` falls back to
+the other table and returns the run that actually holds it, `engine` and all.
+Without that, the section read as idle, the endpoint started a second paid run,
+and the first landed nowhere the plan points at — and reverting a line as a
+rollback had the same problem in reverse.
+
 Both sections run on gp-api's own agents in dev and prod, and a preview runs
 them on gp-api's engine too, because it is the judge's candidate arm
 (`deploy/agentsOnGpApi.ts`). The PMF Engine is the fallback for an agent the
