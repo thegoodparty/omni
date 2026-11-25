@@ -5,9 +5,13 @@ import DashboardError from './error'
 
 vi.mock('@shared/observability/reportClientError', () => ({
   reportClientError: vi.fn(),
+  reportClientInterruption: vi.fn(),
 }))
 
-import { reportClientError } from '@shared/observability/reportClientError'
+import {
+  reportClientError,
+  reportClientInterruption,
+} from '@shared/observability/reportClientError'
 
 const mockReportClientError = vi.mocked(reportClientError)
 
@@ -21,6 +25,7 @@ const chunkLoadErrors = [
 ]
 
 beforeEach(() => {
+  window.sessionStorage.clear()
   vi.clearAllMocks()
 })
 
@@ -45,7 +50,7 @@ describe('DashboardError', () => {
   })
 
   it.each(chunkLoadErrors)(
-    'reports %s, then reloads once Faro has had time to send it',
+    'logs a retry for %s without reporting an exception, then reloads',
     async (error) => {
       const reloadSpy = vi.fn()
       const originalLocation = window.location
@@ -56,7 +61,8 @@ describe('DashboardError', () => {
 
       render(<DashboardError error={error} reset={vi.fn()} />)
 
-      expect(mockReportClientError).toHaveBeenCalledWith(error)
+      expect(reportClientInterruption).toHaveBeenCalledOnce()
+      expect(mockReportClientError).not.toHaveBeenCalled()
       expect(reloadSpy).not.toHaveBeenCalled()
 
       await waitFor(() => {

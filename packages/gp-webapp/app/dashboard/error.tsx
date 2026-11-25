@@ -4,8 +4,7 @@ import Body1 from '@shared/typography/Body1'
 import H2 from '@shared/typography/H2'
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { reportClientError } from '@shared/observability/reportClientError'
-import { isChunkLoadError } from '@shared/observability/isChunkLoadError'
+import { recoverOrReportRouteError } from '@shared/observability/recoverOrReportRouteError'
 
 interface DashboardErrorProps {
   error: Error
@@ -16,14 +15,7 @@ export default function DashboardError({
   error,
   reset,
 }: DashboardErrorProps): React.JSX.Element {
-  useEffect(() => {
-    reportClientError(error)
-    if (!isChunkLoadError(error)) return undefined
-    // Faro sends what it has batched every 250ms. Reloading on the spot could
-    // tear the page down before the batch holding this error goes out.
-    const reload = setTimeout(() => window.location.reload(), 500)
-    return () => clearTimeout(reload)
-  }, [error])
+  useEffect(() => recoverOrReportRouteError(error), [error])
 
   return (
     <div className="flex flex-col items-center justify-center px-3 py-16 lg:px-5">
