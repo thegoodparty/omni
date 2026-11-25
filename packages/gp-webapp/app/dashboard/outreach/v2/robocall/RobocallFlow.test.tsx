@@ -2762,12 +2762,16 @@ describe('RobocallFlow', () => {
       await user.click(screen.getByRole('button', { name: 'Stop recording' }))
       await user.click(screen.getByRole('button', { name: 'Save' }))
       await waitFor(() =>
-        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+        expect(
+          screen.getByRole('button', { name: /^(Continue|Join Pro to send)$/ }),
+        ).toBeEnabled(),
       )
     }
 
     const saveDraft = () =>
-      user.click(screen.getByRole('button', { name: 'Continue' }))
+      user.click(
+        screen.getByRole('button', { name: /^(Continue|Join Pro to send)$/ }),
+      )
 
     // The banner rides every build-mode step, so its explainer can open the
     // gate long before there is a draft. Finishing there must hand the
@@ -2897,13 +2901,15 @@ describe('RobocallFlow', () => {
       ])
     })
 
-    it('with per-campaign pricing on, opens the pitch as a dialog over the compose step', async () => {
+    it('with per-campaign pricing on, no banner: the compose button opens the pitch as a dialog over the compose step', async () => {
       planFlagRef.enabled = true
       gateRef.set(FREE_GATE)
       mockSaveDraft()
 
       await buildToCompose()
-      await saveDraft()
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+      expect(screen.queryByText('Pro is needed', { exact: false })).toBeNull()
+      await user.click(screen.getByRole('button', { name: 'Join Pro to send' }))
 
       const dialog = await screen.findByRole('dialog', {
         name: 'Join Pro to send this campaign',
@@ -2913,6 +2919,7 @@ describe('RobocallFlow', () => {
       ).toBeInTheDocument()
       expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
       expect(document.querySelector('.lucide-lock')).toBeNull()
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
 
       await user.click(
         within(dialog).getByRole('button', { name: 'Join Pro for $299' }),
