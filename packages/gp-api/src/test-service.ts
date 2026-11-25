@@ -22,6 +22,7 @@ import {
   withDatabase,
 } from './test-postgres'
 import { ElectionsService } from './elections/services/elections.service'
+import { ElectionReadCacheInterceptor } from './elections/interceptors/electionReadCache.interceptor'
 import { PositionsService } from './electionDb/positions/positions.service'
 import { District } from './elections/types/elections.types'
 import { JobsService } from './jobs/jobs.service'
@@ -358,6 +359,10 @@ export const useTestService = ({
   }, HOOK_TIMEOUT_MS)
 
   beforeEach(async () => {
+    // The election read cache is keyed by URL alone, so a 200 the previous test
+    // warmed would answer this test's identical URL from the previous test's
+    // rows — a page read is asserted against rows this test just wrote.
+    ElectionReadCacheInterceptor.clear()
     const reset = pendingReset
       .catch(() => undefined)
       .then(() => resetDatabase(app.get(PrismaService), tables))

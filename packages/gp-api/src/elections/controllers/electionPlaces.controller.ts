@@ -16,6 +16,7 @@ import {
 } from '@/electionDb/places/places.schema'
 import { PlacesService } from '@/electionDb/places/places.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ElectionReadCacheInterceptor } from '@/elections/interceptors/electionReadCache.interceptor'
 import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
@@ -114,7 +115,11 @@ export const mostElectionsResponseSchema = z.array(
 
 @Controller('elections/places')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
+@UseInterceptors(
+  ElectionReadCacheInterceptor,
+  ServiceReadConcurrencyInterceptor,
+  ZodResponseInterceptor,
+)
 export class ElectionPlacesController {
   constructor(private readonly placesService: PlacesService) {}
 
