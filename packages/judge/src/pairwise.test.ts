@@ -148,17 +148,20 @@ describe('definePairwiseAgentEvalSuite', () => {
         generateObject.mockImplementation(
           async ({ prompt }: { prompt: string }) => ({
             object: {
-              winner:
-                winner === 'tie'
-                  ? 'tie'
-                  : prompt.includes(`OUTPUT A\n${winner}.invalid`)
-                    ? 'A'
-                    : 'B',
               reasoning,
-              dimensions: Object.keys(DEFAULT_DIMENSIONS).map((name) => ({
-                name,
-                A: 4,
-                B: 4,
+              // Slot A names whichever arm's host is in prompt A. A candidate
+              // reaching the same arm in both orders is a confirmed change; a
+              // model that always prefers slot A is a disagreement, and a
+              // `tie` row reads no change at all.
+              changes: Object.keys(DEFAULT_DIMENSIONS).map((criterion) => ({
+                criterion,
+                better:
+                  winner === 'tie'
+                    ? 'none'
+                    : prompt.includes(`OUTPUT A\n${winner}.invalid`)
+                      ? 'A'
+                      : 'B',
+                evidence: `${criterion}: A said one thing, B another`,
               })),
             },
             usage: { inputTokens: 1, outputTokens: 1 },

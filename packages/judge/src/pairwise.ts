@@ -13,7 +13,7 @@ import { createArmContext, probeArm, type ArmName, type ArmUser } from './arm'
 import { vitestGlobals, type VitestGlobals } from './expectedResult'
 import { createGrader, DEFAULT_DIMENSIONS, type GradedPair } from './grade'
 import { resolveJudgeModel } from './model'
-import { handledRegressionP, readVerdict } from './stats'
+import { readCaseVerdict, readVerdict, type CaseTally } from './stats'
 import {
   createPairwiseAgentEvalSuite,
   type AgentRunResult,
@@ -134,7 +134,7 @@ export const registerPairwiseSuite = <Input>(
 
   vitest.describe(suite.name, () => {
     let grader: ReturnType<typeof createGrader>
-    const pairs: GradedPair[] = []
+    const cases: CaseTally[] = []
     const notJudged: NotJudgedAttempt[] = []
     let attempted = 0
     vitest.beforeAll(async () => {
@@ -160,6 +160,7 @@ export const registerPairwiseSuite = <Input>(
           const annotate = annotateWith(context)
           const annotateJson = annotateRedacted(context)
           attempted += ATTEMPTS
+          const pairs: GradedPair[] = []
           const grading = theCase.grading ?? {}
           const dimensions = Object.entries({
             ...DEFAULT_DIMENSIONS,
@@ -177,7 +178,7 @@ export const registerPairwiseSuite = <Input>(
                 ['base', base!],
                 ['candidate', candidate!],
               ] as const) {
-                if (arm.output === undefined)
+                if (arm.output === undefined) {
                   notJudged.push({
                     caseId: theCase.id,
                     attempt,
@@ -188,6 +189,7 @@ export const registerPairwiseSuite = <Input>(
                     })),
                     error: arm.error ?? 'no output',
                   })
+                }
               }
               const baseOutput = base!.output
               const candidateOutput = candidate!.output
@@ -205,19 +207,17 @@ export const registerPairwiseSuite = <Input>(
                 })
                 for (const {
                   aArm,
-                  winner,
                   reasoning,
                   handled,
-                  scores,
+                  changes,
                 } of pair.orders) {
                   await annotateJson(
                     redactedJson({
                       attempt,
                       aArm,
-                      winner,
                       reasoning,
                       handledWhen: handled,
-                      scores,
+                      changes,
                     }),
                     'pairwise-order',
                   )
@@ -225,9 +225,8 @@ export const registerPairwiseSuite = <Input>(
                 await annotateJson(
                   redactedJson({
                     attempt,
-                    winner: pair.winner,
-                    ordersAgree:
-                      pair.orders[0]?.winner === pair.orders[1]?.winner,
+                    changes: pair.changes,
+                    disagreements: pair.disagreements,
                   }),
                   'pairwise-decision',
                 )
@@ -251,6 +250,15 @@ export const registerPairwiseSuite = <Input>(
               }
             }),
           )
+          cases.push(
+            readCaseVerdict({
+              caseId: theCase.id,
+              readings: pairs,
+              notJudged: ATTEMPTS - pairs.length,
+            }),
+          )
+          // The tally goes in first, so a case that judged nothing is in the
+          // report and in the suite's coverage, and then fails on its own.
           if (!results.some(Boolean))
             throw new Error(`No pairs could be judged for ${theCase.id}`)
         },
@@ -259,26 +267,10 @@ export const registerPairwiseSuite = <Input>(
     }
 
     vitest.afterAll(({}, task) => {
-      const handled = pairs.flatMap((pair) =>
-        pair.handled ? [pair.handled] : [],
-      )
-      const basePass = handled.filter((pair) => pair.base).length
-      const candidatePass = handled.filter((pair) => pair.candidate).length
       const verdict = readVerdict({
-        votes: pairs.map((pair) => pair.winner),
-        notJudged: attempted - pairs.length,
-        handled: {
-          basePass,
-          candidatePass,
-          baseTotal: handled.length,
-          candidateTotal: handled.length,
-          pWorse: handledRegressionP(
-            candidatePass,
-            handled.length - candidatePass,
-            basePass,
-            handled.length - basePass,
-          ),
-        },
+        cases,
+        notJudged:
+          attempted - cases.reduce((total, tally) => total + tally.judged, 0),
       })
       Object.assign(task.meta, {
         pairwiseVerdict: suiteVerdictAnnotation(verdict),

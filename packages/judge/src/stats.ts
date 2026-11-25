@@ -1,97 +1,128 @@
-// The two exact tests the verdict is made of. Both are exact rather than
-// approximate on purpose: a suite has one pair per attempt, so three to thirty
-// observations, where a normal approximation reads far tighter than the
-// evidence.
+// The verdict, read case by case rather than pooled. A suite compares two
+// builds of one agent, so the evidence for a change is a case whose behavior
+// moved the same way more than once. Nothing here is a significance test: two
+// attempts of one case agreeing on one criterion is the bar, and the bar is
+// about repetition of an observed behavior, not about a p-value.
 
-export const choose = (n: number, k: number): number => {
-  if (k < 0 || k > n) return 0
-  let result = 1
-  for (let i = 1; i <= k; i += 1) result = (result * (n - k + i)) / i
-  return result
+export type ChangeDirection = 'better' | 'worse'
+
+// One attempt's reading of one criterion, already oriented to the arms: the
+// direction is about the candidate, and it is only present when both grading
+// orders read the same change.
+export type PairChange = {
+  criterion: string
+  direction: ChangeDirection
+  // One line per grading order, naming what each saw.
+  evidence: readonly string[]
 }
 
-// P(X >= k) for X ~ Binomial(n, 0.5): the chance a coin tosses at least this
-// many of the n pairs one way when the two arms make no difference.
-export const binomialUpperTail = (k: number, n: number): number => {
-  if (n === 0) return 1
-  let sum = 0
-  for (let i = Math.max(0, k); i <= n; i += 1) sum += choose(n, i)
-  return Math.min(1, sum / 2 ** n)
+// The part of a pair the verdict reads. Kept structural so this module never
+// depends on `grade.ts`: a test builds them directly.
+export type PairReading = {
+  attempt: number
+  changes: readonly PairChange[]
+  // Criteria the two orders read in opposite directions, or one order read a
+  // change and the other read none. Not a change, and not a tie either.
+  disagreements: readonly string[]
 }
 
-export type SignTest = {
-  forCandidate: number
-  forBase: number
+// A change two or more attempts of one case agreed on.
+export type ConfirmedChange = {
+  caseId: string
+  criterion: string
+  direction: ChangeDirection
+  // One entry per attempt that read it, with both orders' evidence for it.
+  attempts: { attempt: number; evidence: string[] }[]
+}
+
+// The fewest attempts of one case that confirm a change. Two of three: a single
+// attempt cannot tell a repeated behavior from one reading that happened to
+// move, and requiring all three would let one flaky attempt bury a defect.
+export const CONFIRMING_ATTEMPTS = 2
+
+export type CaseVerdictLabel = 'BETTER' | 'WORSE' | 'NO DIFFERENCE FOUND'
+
+export type CaseTally = {
+  caseId: string
+  verdict: CaseVerdictLabel
+  // Pairs that reached the grader, and attempts of this case that did not.
+  judged: number
+  notJudged: number
+  confirmed: ConfirmedChange[]
+  // Both orders read no material change on any criterion.
   ties: number
-  // One-sided tails, one in each direction.
-  pBetter: number
-  pWorse: number
+  // Attempts where the two orders disagreed, by criterion.
+  disagreements: { attempt: number; criteria: string[] }[]
 }
 
-// An exact sign test over the non-tied pairs: each is a vote for one arm or the
-// other, and a tie is not a vote. Direction is read off the tails separately so
-// the verdict never has to call a two-sided p significant in the losing
-// direction.
-export const signTest = (
-  votes: readonly ('base' | 'candidate' | 'tie')[],
-): SignTest => {
-  const forCandidate = votes.filter((vote) => vote === 'candidate').length
-  const forBase = votes.filter((vote) => vote === 'base').length
-  const ties = votes.filter((vote) => vote === 'tie').length
-  const decided = forCandidate + forBase
-  return {
-    forCandidate,
-    forBase,
-    ties,
-    pBetter: binomialUpperTail(forCandidate, decided),
-    pWorse: binomialUpperTail(forBase, decided),
-  }
+const changeKey = (criterion: string, direction: ChangeDirection) =>
+  `${direction}\u0000${criterion}`
+
+const tallyOf = (
+  caseId: string,
+  readings: readonly PairReading[],
+): Map<string, ConfirmedChange> => {
+  const byKey = new Map<string, ConfirmedChange>()
+  for (const reading of readings)
+    for (const { criterion, direction, evidence } of reading.changes) {
+      const key = changeKey(criterion, direction)
+      const confirmed = byKey.get(key) ?? {
+        caseId,
+        criterion,
+        direction,
+        attempts: [],
+      }
+      if (confirmed.attempts.some(({ attempt }) => attempt === reading.attempt))
+        continue
+      confirmed.attempts.push({
+        attempt: reading.attempt,
+        evidence: [...evidence],
+      })
+      byKey.set(key, confirmed)
+    }
+  return byKey
 }
 
-const hypergeometric = (
-  x: number,
-  population: number,
-  successes: number,
-  draws: number,
-): number => {
-  if (x < 0 || x > draws) return 0
-  return (
-    (choose(successes, x) * choose(population - successes, draws - x)) /
-    choose(population, draws)
+// A case's verdict, from the changes its own attempts agreed on. A confirmed
+// regression wins outright: an improvement in the same case, or in any other,
+// does not cancel it.
+export const readCaseVerdict = ({
+  caseId,
+  readings,
+  notJudged = 0,
+}: {
+  caseId: string
+  readings: readonly PairReading[]
+  notJudged?: number
+}): CaseTally => {
+  const tally = tallyOf(caseId, readings)
+  const confirmed = [...tally.values()]
+    .filter(({ attempts }) => attempts.length >= CONFIRMING_ATTEMPTS)
+    .sort((left, right) => left.criterion.localeCompare(right.criterion))
+  const verdict: CaseVerdictLabel = confirmed.some(
+    ({ direction }) => direction === 'worse',
   )
-}
-
-// One-sided Fisher exact test on a 2x2 table, in the direction "the candidate
-// passed less often than the base". The small counts a suite produces are
-// exactly where a chi-square would mislead, and both margins are fixed by the
-// run, so the hypergeometric tail is the right null.
-//
-//            pass  fail
-// candidate    a     b
-// base         c     d
-export const handledRegressionP = (
-  candidatePass: number,
-  candidateFail: number,
-  basePass: number,
-  baseFail: number,
-): number => {
-  const population = candidatePass + candidateFail + basePass + baseFail
-  const draws = candidatePass + candidateFail
-  const successes = candidatePass + basePass
-  let tail = 0
-  for (let x = 0; x <= candidatePass; x += 1) {
-    tail += hypergeometric(x, population, successes, draws)
+    ? 'WORSE'
+    : confirmed.some(({ direction }) => direction === 'better')
+      ? 'BETTER'
+      : 'NO DIFFERENCE FOUND'
+  return {
+    caseId,
+    verdict,
+    judged: readings.length,
+    notJudged,
+    confirmed,
+    ties: readings.filter(
+      (reading) =>
+        reading.changes.length === 0 && reading.disagreements.length === 0,
+    ).length,
+    disagreements: readings
+      .filter((reading) => reading.disagreements.length > 0)
+      .map((reading) => ({
+        attempt: reading.attempt,
+        criteria: [...reading.disagreements],
+      })),
   }
-  return Math.min(1, tail)
-}
-
-export type HandledCounts = {
-  basePass: number
-  baseTotal: number
-  candidatePass: number
-  candidateTotal: number
-  // One-sided: are the candidate's passes significantly fewer?
-  pWorse: number
 }
 
 export type SuiteVerdictLabel =
@@ -102,50 +133,59 @@ export type SuiteVerdictLabel =
 
 export type SuiteVerdict = {
   label: SuiteVerdictLabel
-  sign: SignTest
-  handled: HandledCounts
-  // Pairs a failed run kept from the grader: never a vote, and enough of them
-  // decide the verdict on their own.
+  // Every confirmed change the run found, regressions first: this is the
+  // evidence a reader acts on, and it names the case and criterion.
+  confirmed: ConfirmedChange[]
+  cases: CaseTally[]
+  judged: number
+  // Pairs a failed run kept from the grader. Never a vote, and enough of them
+  // can decide that nothing was measured.
   notJudged: number
-  // The gate the verdict is read against.
-  alpha: number
 }
 
-export type VerdictInput = {
-  votes: readonly ('base' | 'candidate' | 'tie')[]
-  handled: HandledCounts
-  notJudged?: number
-  alpha?: number
-}
-
-// A suite whose pairs mostly never reached the grader has measured nothing:
-// its votes are the minority of its attempts, and reading them as a verdict
-// claims more than the run saw. Zero judged pairs cannot even reach NO
-// DIFFERENCE FOUND, which would say the arms looked alike.
+// A suite whose pairs mostly never reached the grader has measured nothing: its
+// readings are the minority of its attempts, and calling it BETTER or NO
+// DIFFERENCE FOUND claims more than the run saw. Zero judged pairs cannot even
+// reach NO DIFFERENCE FOUND, which would say the arms looked alike.
 export const cannotJudge = (judged: number, notJudged: number): boolean =>
   judged === 0 || notJudged > judged
 
-// BETTER or WORSE at p < alpha over the non-tied pairs; otherwise NO DIFFERENCE
-// FOUND. WORSE also when the candidate's handledWhen pass rate drops
-// significantly, because a failure both arms share reads as a tie in the
-// pairwise comparison — that is the exact blind spot the pass counts cover.
-// CAN'T JUDGE overrides both: a suite that mostly did not run has no direction.
+const bySeverity = (left: ConfirmedChange, right: ConfirmedChange) =>
+  left.direction === right.direction
+    ? `${left.caseId} ${left.criterion}`.localeCompare(
+        `${right.caseId} ${right.criterion}`,
+      )
+    : left.direction === 'worse'
+      ? -1
+      : 1
+
+// WORSE if any case confirmed a regression, whatever else the run found and
+// however much of it did not run.
+//
+// Otherwise inadequate coverage is a CAN'T JUDGE, not a quiet pass: a suite that
+// mostly did not run cannot say the candidate is better or that it is the same.
+// That is an execution status about the run, never a statement about quality.
+//
+// Otherwise BETTER if some case confirmed an improvement — no confirmed
+// regression exists by this point — and NO DIFFERENCE FOUND when nothing was
+// confirmed. Neither direction pools votes across cases.
 export const readVerdict = ({
-  votes,
-  handled,
-  notJudged = 0,
-  alpha = 0.05,
-}: VerdictInput): SuiteVerdict => {
-  const sign = signTest(votes)
-  if (cannotJudge(votes.length, notJudged)) {
-    return { label: "CAN'T JUDGE", sign, handled, notJudged, alpha }
-  }
-  const worse = sign.pWorse < alpha || handled.pWorse < alpha
-  const better = sign.pBetter < alpha
-  const label: SuiteVerdictLabel = worse
+  cases,
+  notJudged,
+}: {
+  cases: readonly CaseTally[]
+  notJudged: number
+}): SuiteVerdict => {
+  const judged = cases.reduce((total, tally) => total + tally.judged, 0)
+  const confirmed = cases.flatMap((tally) => tally.confirmed).sort(bySeverity)
+  const label: SuiteVerdictLabel = confirmed.some(
+    ({ direction }) => direction === 'worse',
+  )
     ? 'WORSE'
-    : better
-      ? 'BETTER'
-      : 'NO DIFFERENCE FOUND'
-  return { label, sign, handled, notJudged, alpha }
+    : cases.some((tally) => tally.judged === 0) || cannotJudge(judged, notJudged)
+      ? "CAN'T JUDGE"
+      : confirmed.some(({ direction }) => direction === 'better')
+        ? 'BETTER'
+        : 'NO DIFFERENCE FOUND'
+  return { label, confirmed, cases: [...cases], judged, notJudged }
 }

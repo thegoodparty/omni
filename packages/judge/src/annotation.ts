@@ -94,5 +94,5 @@ export const annotateRedacted =
 
 export const suiteVerdictAnnotation = <Verdict>(verdict: Verdict) => ({
   type: 'pairwise-verdict',
-  message: redactSecrets(renderValue(verdict)),
+  message: redactedJson(verdict),
 })
