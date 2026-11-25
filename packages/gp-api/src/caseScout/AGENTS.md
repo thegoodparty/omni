@@ -72,9 +72,12 @@ session cap and the marker but are never sent to a model.
   from the chat that points back to one of its people or places unnamed (the
   only, first or youngest holder of a role, a distinctive town detail, the
   exact result of a past election, recount or petition, an exact age, a
-  child described past "a child"). Invented names and places, real places the
-  chat never mentions and the test account's own town never count, nor do
-  roles, states, office titles, round numbers and relative dates. The chat
+  child described past "a child"), or a claim the chat makes about one of its
+  people kept in its specifics (the same act, place or fund under a new role).
+  Invented names and places, real places the chat never mentions and the test
+  account's own town (`TEST_ACCOUNT_TOWN`, pinned to the judge's seed) never
+  count, nor do roles, states, office titles, round numbers and relative
+  dates. The chat
   comes last in the message as material, never instructions, so text in it
   addressed to a checker changes nothing. It fails closed: a call error, or
   an answer still unreadable after one retry, blocks. What it flagged may be

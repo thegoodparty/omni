@@ -3,7 +3,7 @@ title: The case scout's second read compares each draft with its real chat and b
 status: active
 decided_by: [dealvz]
 date: 2026-11-25
-code: []
+code: ['#4070']
 scope:
   - packages/gp-api/src/caseScout/util/gate.util.ts
   - packages/gp-api/src/caseScout/caseScout.prompts.ts

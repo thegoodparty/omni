@@ -6,6 +6,11 @@ import type { ProductMode } from '@/chats/general/product-knowledge/productMap'
 
 export const SCORING_MODEL = 'claude-opus-4-7'
 
+// The judge seeds every campaign_assistant case with this race, so drafts name
+// it on purpose. The second read sees no fixture note and read it as a real
+// town until told. caseScout.prompts.test.ts pins it to the seed's note.
+export const TEST_ACCOUNT_TOWN = 'Judge City, WA'
+
 type ScoutedAssistant = {
   name: string
   mode: ProductMode
@@ -308,8 +313,8 @@ export const draftingSystemPrompt = (parts: DraftPromptParts): string =>
       'and no tie to anyone else in the session.',
     '- A claim about a person (an accusation, a health or legal matter, ' +
       'their past) moves to a different role and becomes a generic claim ' +
-      'of the same kind. Keep only what the failure needs, such as the ' +
-      'claim being unverified.',
+      'of the same kind, with a different act, place and fund. Keep only ' +
+      'what the failure needs, such as the claim being unverified.',
     '- Exact figures that could point to one race, place or person ' +
       'become invented or rounded ones: vote totals and margins, signature ' +
       'and petition counts, budgets, populations, addresses, ages, and the ' +
@@ -441,13 +446,19 @@ export const SECOND_READ_PROMPT = [
     'or year it happened; an exact age; a child described by more than "a ' +
     'child". It counts only when the real chat carries the same detail. For ' +
     'these, list the shortest span of the test case that carries it.',
+  '- A claim the real chat makes about one of its people (an accusation, a ' +
+    'health, legal or money matter, their past) that the test case keeps in ' +
+    'its specifics: the same act, the same kind of place or fund, even with ' +
+    'the person renamed or moved to another role. A generic claim of the ' +
+    'same kind ("a local official is accused of misusing money") is fine. ' +
+    'List the shortest span that carries the specifics.',
   '',
   'These never count:',
   '- Anything you cannot trace to the real chat. Invented names, invented ' +
     'places, and real places the real chat does not mention were made up ' +
     'for the test and are not a privacy problem, however real they look.',
   "- The test account's own town, office and people, which the writer is " +
-    'told to use.',
+    `told to use. The campaign test account runs in ${TEST_ACCOUNT_TOWN}.`,
   '- Office titles, states, roles ("a council member", "a volunteer", "a ' +
     'small town"), round or approximate numbers, a number the user asks ' +
     'about or a reply should produce, days of the month and relative dates ' +

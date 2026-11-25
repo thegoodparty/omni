@@ -193,7 +193,7 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
         draft: draft({
           turns: [
             'A reporter emailed me about the race.',
-            'I wrote back from ada.featherstone@example.com. What next?',
+            'I wrote back from ada.featherstone@lakemoor-ledger.test. What next?',
           ],
           condition: 'The user asks how to follow up with a reporter.',
           handledWhen:
@@ -203,6 +203,23 @@ export default defineExpectedResultEvalSuite('case_scout_gate', {
         sourceTexts: ['a reporter emailed me about the race'],
       },
       expected: { blocked: true, rule: 'contactPattern' },
+    },
+    {
+      id: 'example-domain-email',
+      input: {
+        draft: draft({
+          turns: [
+            'A reporter emailed me about the race.',
+            'I wrote back from ada.featherstone@example.com. What next?',
+          ],
+          condition: 'The user asks how to follow up with a reporter.',
+          handledWhen:
+            'The reply suggests a concrete next step with the reporter.',
+        }),
+        denylist: [],
+        sourceTexts: ['a reporter emailed me about the race'],
+      },
+      expected: { blocked: false, rule: null },
     },
     {
       id: 'phone-ten-digit',

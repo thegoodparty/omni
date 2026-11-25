@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { buildProductKnowledgeBlocks } from '@/chats/general/product-knowledge/productKnowledgePrompt'
 import { COVERED_SCOPES } from './caseScout.config'
 import {
@@ -9,6 +12,7 @@ import {
   SCOUTED_SCOPES,
   SECOND_READ_PROMPT,
   secondReadMessage,
+  TEST_ACCOUNT_TOWN,
   type DraftPromptParts,
 } from './caseScout.prompts'
 
@@ -113,6 +117,26 @@ describe('the second read', () => {
     expect(SECOND_READ_PROMPT).toContain('Invented names, invented')
     expect(SECOND_READ_PROMPT).toContain("The test account's own town")
     expect(SECOND_READ_PROMPT).not.toContain('looks like a real')
+  })
+
+  it('names the town the judge seeds the campaign test account with', () => {
+    const note = z
+      .object({ note: z.string() })
+      .parse(
+        JSON.parse(
+          readFileSync(
+            path.resolve(
+              __dirname,
+              '../chats/evals/judge/cases/campaign_assistant.json',
+            ),
+            'utf8',
+          ),
+        ),
+      ).note
+    const [city, state] = TEST_ACCOUNT_TOWN.split(', ')
+    expect(note).toContain(`city '${city}'`)
+    expect(note).toContain(`state ${state}`)
+    expect(SECOND_READ_PROMPT).toContain(TEST_ACCOUNT_TOWN)
   })
 
   it('treats the real chat as material, never instructions', () => {
