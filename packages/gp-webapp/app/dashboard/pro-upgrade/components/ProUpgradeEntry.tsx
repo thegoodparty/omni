@@ -68,7 +68,7 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
   const { ready: flagReady, enabled: planPricing } =
     useWinPerCampaignPricingFlag(false)
   const carry = useProUpgradeCarry()
-  const { plan: heldPlan } = usePlan()
+  const { heldPlan } = usePlan()
   const upgradeToTeam =
     planPricing && carry.plan === 'team' && heldPlan === 'pro'
 

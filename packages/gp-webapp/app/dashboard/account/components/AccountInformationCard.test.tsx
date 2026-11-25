@@ -157,6 +157,17 @@ describe('AccountInformationCard plans', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows no Team upgrade to a one-time Pro plan that has ended', () => {
+    mockCampaign.mockReturnValue({
+      isPro: true,
+      plan: 'pro',
+      planPricingModel: 'one_time',
+      planEndedAt: '2026-11-01T00:00:00.000Z',
+    })
+    renderCard(true)
+    expect(screen.queryByText(/Upgrade for/)).not.toBeInTheDocument()
+  })
+
   it('hides the Team upgrade from non-owners', () => {
     mockRole.mockReturnValue('campaignAdmin')
     mockCampaign.mockReturnValue({

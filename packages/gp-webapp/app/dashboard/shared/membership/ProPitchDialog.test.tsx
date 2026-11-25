@@ -312,10 +312,19 @@ describe('ProPitchDialog', () => {
     })
 
     describe('Invite', () => {
-      const renderInvite = (plan: 'free' | 'pro') =>
+      const renderInvite = (
+        plan: 'free' | 'pro',
+        campaign: Partial<Campaign> = {},
+      ) =>
         render(
           <CampaignContext.Provider
-            value={[{ plan, isPro: plan === 'pro' } as unknown as Campaign]}
+            value={[
+              {
+                plan,
+                isPro: plan === 'pro',
+                ...campaign,
+              } as unknown as Campaign,
+            ]}
           >
             <ProPitchDialog
               source="account_settings"
@@ -400,6 +409,30 @@ describe('ProPitchDialog', () => {
         expect(
           screen.getByRole('button', { name: 'Upgrade to Team for $100' }),
         ).toBeInTheDocument()
+      })
+
+      it('pitches a legacy subscriber the full Team price, not the Pro cross-sell', () => {
+        renderInvite('free', { isPro: true })
+
+        expect(
+          screen.getByText(
+            'Pay $399 once for your plan, good for your whole race',
+          ),
+        ).toBeInTheDocument()
+        expect(
+          screen.getByRole('button', { name: 'Join Team for $399' }),
+        ).toBeInTheDocument()
+        expect(screen.queryByText(/\$100/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/upgrade, good for/)).not.toBeInTheDocument()
+      })
+
+      it('pitches the full Team price once a one-time Pro plan has ended', () => {
+        renderInvite('pro', { planEndedAt: new Date('2026-11-01') })
+
+        expect(
+          screen.getByRole('button', { name: 'Join Team for $399' }),
+        ).toBeInTheDocument()
+        expect(screen.queryByText(/\$100/)).not.toBeInTheDocument()
       })
 
       it('sends the Pro cross-sell to the Team checkout as an upgrade', async () => {

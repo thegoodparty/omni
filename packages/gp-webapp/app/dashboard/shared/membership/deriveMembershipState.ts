@@ -85,6 +85,11 @@ export const deriveMembershipState = ({
 
 export interface PlanState {
   plan: CampaignPlanName
+  // The plan the campaign holds on its plan columns, the signal gp-api prices
+  // a Team purchase on (heldPlan in campaignPlanPurchase.service): a legacy
+  // $10/month subscriber reads free here even though `plan` reads pro. Only
+  // 'pro' here earns the Team upgrade price.
+  heldPlan: CampaignPlanName
   isPaid: boolean
   // The $10/month Stripe subscription: never offered a plan purchase.
   onSubscription: boolean
@@ -111,6 +116,7 @@ export const usePlan = (): PlanState => {
   const voters = campaign?.raceTargetMetrics?.registeredVoters
   return {
     plan,
+    heldPlan: campaign?.planEndedAt ? 'free' : (campaign?.plan ?? 'free'),
     isPaid: plan !== 'free',
     // A cancelled subscription keeps its pricing model but has ended.
     onSubscription:

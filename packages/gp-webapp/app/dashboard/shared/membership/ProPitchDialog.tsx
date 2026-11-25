@@ -102,16 +102,16 @@ export const ProPitchDialog = ({
   // Every caller is a contextual gate, so the dialog always pitches Pro. The
   // banner and chip pitch by race size on the plan page instead.
   const flagPitch = useContextualPlanPitch()
-  const { plan } = usePlan()
+  const { plan, heldPlan } = usePlan()
   const planPitch = invite
     ? buildPlanPitch(flagPitch.ready, flagPitch.enabled, true)
     : flagPitch
   // Flag on, Invite is its own pitch: the Team pitch from Free, the Team
   // cross-sell from Pro. Flag off keeps the legacy Team copy and tiles.
   const invitePitch =
-    invite && planPitch.enabled ? teamInvitePitchCopy(plan === 'pro') : null
+    invite && planPitch.enabled ? teamInvitePitchCopy(heldPlan === 'pro') : null
   const copy = invite
-    ? membershipInviteCopy(plan === 'pro')
+    ? membershipInviteCopy(heldPlan === 'pro')
     : planPitch.enabled
       ? membershipPlanCopy(planPitch)
       : {

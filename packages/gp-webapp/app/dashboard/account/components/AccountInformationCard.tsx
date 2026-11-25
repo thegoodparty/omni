@@ -65,7 +65,7 @@ export const AccountInformationCard = ({
 }: AccountInformationCardProps): React.JSX.Element => {
   const userType = isElectedOffice ? 'Elected official' : 'Candidate'
   const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
-  const { plan, planEndsAt } = usePlan()
+  const { plan, heldPlan, planEndsAt } = usePlan()
   const [teamPitchOpen, setTeamPitchOpen] = useState(false)
   const [campaign] = useCampaign()
   const role = useOrganizationRole()
@@ -78,7 +78,7 @@ export const AccountInformationCard = ({
     !isElectedOffice &&
     campaign?.planPricingModel === 'one_time'
   const freePlan = planPricingEnabled && !isPro && !isElectedOffice
-  const canUpgradeToTeam = oneTimePlan && plan === 'pro' && role === 'owner'
+  const canUpgradeToTeam = oneTimePlan && heldPlan === 'pro' && role === 'owner'
   const planLabel = oneTimePlan
     ? `GoodParty.org ${paidPlan.name} Plan`
     : isPro

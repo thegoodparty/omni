@@ -13,7 +13,7 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 42 }],
 }))
 vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
-  usePlan: () => ({ plan: 'free' }),
+  usePlan: () => ({ plan: 'free', heldPlan: 'free' }),
 }))
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => ({ smsCompliance: 'open' }),

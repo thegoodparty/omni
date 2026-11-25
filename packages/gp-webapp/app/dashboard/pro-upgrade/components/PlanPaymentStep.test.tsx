@@ -77,9 +77,13 @@ const markFromPro = vi.fn()
 const setup = ({
   plan,
   held,
+  legacyPro = false,
 }: {
   plan: 'pro' | 'team' | null
   held: 'free' | 'pro'
+  // A $10/month subscriber from before the plan columns: usePlan reads them as
+  // pro, but the plan columns, which gp-api prices on, still say free.
+  legacyPro?: boolean
 }): void => {
   vi.mocked(useProUpgradeWizard).mockReturnValue({
     currentStep: 'payment',
@@ -98,8 +102,9 @@ const setup = ({
     markFromPro,
   })
   vi.mocked(usePlan).mockReturnValue({
-    plan: held,
-    isPaid: held !== 'free',
+    plan: legacyPro ? 'pro' : held,
+    heldPlan: held,
+    isPaid: legacyPro || held !== 'free',
     onSubscription: false,
     planEndsAt: null,
     creditCents: 0,
@@ -195,6 +200,26 @@ describe('PaymentStep with per-campaign pricing on', () => {
     expect(screen.getByText('$100.00')).toBeInTheDocument()
     // Verification already started when they bought Pro.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('charges a legacy subscriber the full Team price with no Pro credit', async () => {
+    setup({ plan: 'team', held: 'free', legacyPro: true })
+    checkoutValue.total.total.minorUnitsAmount = 39900
+    mswServer.use(
+      http.post(CREATE_URL, () =>
+        HttpResponse.json({ id: 'cs_3', clientSecret: 'cs_3_secret_x' }),
+      ),
+    )
+
+    render(<PaymentStep />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Pay $399' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Pro, already paid')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('You only pay the difference from Pro.'),
+    ).not.toBeInTheDocument()
   })
 
   it('keeps the texting-closing warning instead of the info Alert near the cutoff', async () => {

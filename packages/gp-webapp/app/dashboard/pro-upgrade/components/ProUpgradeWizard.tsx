@@ -74,7 +74,7 @@ const ProUpgradeWizard = ({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { plan: heldPlan } = usePlan()
+  const { heldPlan } = usePlan()
   // Read once: later step URLs carry the same values back, but state is what
   // survives a step that was pushed without them.
   const [carry, setCarry] = useState<ProUpgradeCarry>(() =>

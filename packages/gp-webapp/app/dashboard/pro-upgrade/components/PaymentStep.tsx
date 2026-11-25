@@ -411,7 +411,7 @@ const SubscriptionPayment = (): React.JSX.Element => {
 const PlanPayment = (): React.JSX.Element => {
   const { goToStep, goToPreviousStep } = useProUpgradeWizard()
   const carry = useProUpgradeCarry()
-  const { plan: heldPlan } = usePlan()
+  const { heldPlan } = usePlan()
   const [campaign] = useCampaign()
   const campaignId = campaign?.id
 

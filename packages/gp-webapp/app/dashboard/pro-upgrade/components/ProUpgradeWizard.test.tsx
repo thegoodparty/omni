@@ -30,6 +30,7 @@ vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
 
 const PLAN = {
   plan: 'free',
+  heldPlan: 'free',
   isPaid: false,
   onSubscription: false,
   planEndsAt: null,
@@ -203,7 +204,11 @@ describe('ProUpgradeWizard', () => {
         'plan=team&back=%2Fdashboard%2Fplans',
       ) as ReadonlyURLSearchParams,
     )
-    vi.mocked(usePlan).mockReturnValue({ ...PLAN, plan: 'pro' })
+    vi.mocked(usePlan).mockReturnValue({
+      ...PLAN,
+      plan: 'pro',
+      heldPlan: 'pro',
+    })
 
     render(
       <ProUpgradeWizard>
