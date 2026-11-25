@@ -392,3 +392,110 @@ describe('the gp-api completion hooks persist where the PMF consumer does', () =
     expect(exceptRunId).toBe(run.id)
   })
 })
+
+// The shared persist bodies' edge cases: each one decides whether a run is a
+// success or a failure, and both engines' completion paths run them.
+describe('the shared persist bodies separate no-data from a bad artifact', () => {
+  let campaign: { id: number }
+
+  beforeEach(async () => {
+    campaign = await seedCampaign()
+  })
+
+  const seedAgentRun = async (agentName: string) =>
+    service.prisma.agentRun.create({
+      data: {
+        agentName,
+        organizationSlug: SLUG,
+        status: 'running',
+        manifest: {},
+        shapeHash: 'test',
+        input: { organizationSlug: SLUG },
+      },
+    })
+
+  // An empty items array is the expected down-ballot case, not a failure: the
+  // run stays completed and any prior collected rows are preserved.
+  it('completes a collection with no items without clearing prior rows', async () => {
+    await service.prisma.raceOpponent.create({
+      data: {
+        campaignId: campaign.id,
+        runId: 'prior-run',
+        opponentName: 'Prior Rival',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://ballotpedia.org/Prior_Rival',
+        content: { text: 'prior bio' },
+      },
+    })
+    const run = await seedAgentRun(RACE_OPPONENT_COLLECTION)
+
+    await persist().onCollectionArtifact({
+      runId: run.id,
+      artifact: { generated_at: '2026-11-25T00:00:00Z', items: [] },
+    })
+
+    const persisted = await service.prisma.raceOpponent.findMany({
+      where: { campaignId: campaign.id },
+    })
+    expect(persisted).toHaveLength(1)
+    expect(persisted[0]).toMatchObject({ opponentName: 'Prior Rival' })
+  })
+
+  // Items but every one unsalvageable is an agent/contract defect, not a
+  // no-data race, so it must fail the run rather than silently clearing rows.
+  it('fails a collection whose every item is invalid', async () => {
+    const run = await seedAgentRun(RACE_OPPONENT_COLLECTION)
+
+    await expect(
+      persist().onCollectionArtifact({
+        runId: run.id,
+        artifact: {
+          generated_at: '2026-11-25T00:00:00Z',
+          // Deliberately short of the item schema: this is the artifact an
+          // agent/contract defect produces, which the run must fail on.
+          items: [{ opponent_name: 'Jane Rival' }] as never,
+        },
+      }),
+    ).rejects.toThrow('every artifact item failed per-item validation')
+  })
+
+  // A validly-empty actions artifact is the agent's answer "no grounded
+  // angles", so it clears the prior cards and the run stays completed.
+  it('clears prior cards for a validly-empty actions artifact', async () => {
+    const run = await seedAgentRun(RACE_OPPONENT_ACTIONS)
+    await persist().onActionsArtifact({
+      runId: run.id,
+      artifact: actionsArtifact(),
+    })
+    expect(await rows(campaign.id)).toHaveLength(1)
+
+    await persist().onActionsArtifact({
+      runId: run.id,
+      artifact: {
+        generated_at: '2026-11-25T00:00:00Z',
+        haystaq_status: 'no_district',
+        actions: [],
+      },
+    })
+
+    expect(await rows(campaign.id)).toHaveLength(0)
+  })
+
+  // Cards but every one unsalvageable is malformed, not "no cards": fail the
+  // run and leave the prior cards untouched.
+  it('fails an actions artifact whose every card is invalid', async () => {
+    const run = await seedAgentRun(RACE_OPPONENT_ACTIONS)
+
+    await expect(
+      persist().onActionsArtifact({
+        runId: run.id,
+        artifact: {
+          generated_at: '2026-11-25T00:00:00Z',
+          haystaq_status: 'no_district',
+          // Deliberately short of the card schema, for the same reason.
+          actions: [{ title: '' }] as never,
+        },
+      }),
+    ).rejects.toThrow('every artifact action failed per-card validation')
+  })
+})
