@@ -426,6 +426,23 @@ describe('ProPitchDialog', () => {
         expect(screen.queryByText(/upgrade, good for/)).not.toBeInTheDocument()
       })
 
+      it('tells a legacy monthly subscriber Team is unavailable, with no buy button', () => {
+        renderInvite('free', {
+          isPro: true,
+          details: { subscriptionId: 'sub_1' },
+        })
+
+        expect(
+          screen.getByText(
+            "You're on the monthly Pro plan. Team plans aren't available on it yet.",
+          ),
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: /Team for/ }),
+        ).not.toBeInTheDocument()
+        expect(screen.queryByText(/\$/)).not.toBeInTheDocument()
+      })
+
       it('pitches the full Team price once a one-time Pro plan has ended', () => {
         renderInvite('pro', { planEndedAt: new Date('2026-11-01') })
 

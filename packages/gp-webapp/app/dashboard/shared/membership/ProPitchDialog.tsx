@@ -7,6 +7,7 @@ import {
   Button,
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -102,7 +103,7 @@ export const ProPitchDialog = ({
   // Every caller is a contextual gate, so the dialog always pitches Pro. The
   // banner and chip pitch by race size on the plan page instead.
   const flagPitch = useContextualPlanPitch()
-  const { plan, heldPlan } = usePlan()
+  const { plan, heldPlan, onSubscription } = usePlan()
   const planPitch = invite
     ? buildPlanPitch(flagPitch.ready, flagPitch.enabled, true)
     : flagPitch
@@ -183,6 +184,24 @@ export const ProPitchDialog = ({
       })
     }
     onOpenChange(next)
+  }
+
+  // gp-api refuses a plan purchase on a monthly subscription, so Invite has
+  // nothing to sell them.
+  if (invite && onSubscription) {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Team isn&apos;t available yet</DialogTitle>
+            <DialogDescription>
+              You&apos;re on the monthly Pro plan. Team plans aren&apos;t
+              available on it yet.
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    )
   }
 
   return (

@@ -53,7 +53,8 @@ charged through the other.
   allowlist (`proUpgradePlanParams.ts`); anything else is dropped.
 - **Pro to Team.** "Pro holder" means `usePlan().heldPlan === 'pro'`, the plan
   columns gp-api prices on; a legacy $10/month subscriber (plan free, `isPro`)
-  is not one and sees Team at full price. A Pro holder with `plan=team` derives to `payment` alone
+  is not one. `usePlan().onSubscription` mirrors gp-api's `onLiveSubscription`; when it is true the
+  wizard routes `plan=team` visits away and no surface offers Team. A Pro holder with `plan=team` derives to `payment` alone
   (no stepper, one line item for the difference). `from=pro` rides the
   success return URL so the success step knows only the difference was paid.
 - **Copy and navigation (Nov 23 boards).** Guidance's Payment row reads

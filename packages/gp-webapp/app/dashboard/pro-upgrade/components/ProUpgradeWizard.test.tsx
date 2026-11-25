@@ -93,6 +93,29 @@ describe('ProUpgradeWizard', () => {
     })
   })
 
+  it('routes a monthly subscriber off the Team checkout without rendering it', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/payment')
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(
+        'plan=team&back=%2Fdashboard%2Fteam',
+      ) as ReadonlyURLSearchParams,
+    )
+    vi.mocked(usePlan).mockReturnValue({
+      ...PLAN,
+      plan: 'pro',
+      onSubscription: true,
+    })
+
+    render(
+      <ProUpgradeWizard>
+        <div>step-content</div>
+      </ProUpgradeWizard>,
+    )
+
+    expect(screen.queryByText('step-content')).not.toBeInTheDocument()
+    expect(router.replace).toHaveBeenCalledWith('/dashboard/team')
+  })
+
   it('renders the step children', () => {
     render(
       <ProUpgradeWizard>

@@ -168,6 +168,18 @@ describe('AccountInformationCard plans', () => {
     expect(screen.queryByText(/Upgrade for/)).not.toBeInTheDocument()
   })
 
+  it('shows a legacy monthly subscriber no Team upgrade', () => {
+    mockCampaign.mockReturnValue({
+      isPro: true,
+      plan: 'free',
+      planPricingModel: null,
+      details: { subscriptionId: 'sub_1' },
+    })
+    renderCard(true, 'sub_1')
+    expect(screen.queryByText(/Upgrade for/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Need team logins/)).not.toBeInTheDocument()
+  })
+
   it('hides the Team upgrade from non-owners', () => {
     mockRole.mockReturnValue('campaignAdmin')
     mockCampaign.mockReturnValue({

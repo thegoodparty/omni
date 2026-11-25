@@ -74,7 +74,7 @@ const ProUpgradeWizard = ({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { heldPlan } = usePlan()
+  const { heldPlan, onSubscription } = usePlan()
   // Read once: later step URLs carry the same values back, but state is what
   // survives a step that was pushed without them.
   const [carry, setCarry] = useState<ProUpgradeCarry>(() =>
@@ -150,6 +150,13 @@ const ProUpgradeWizard = ({
     [smsClosed, router],
   )
 
+  // gp-api refuses a plan purchase on a monthly subscription, so a direct visit
+  // to the Team checkout goes back instead of rendering it.
+  const blockedTeam = carry.plan === 'team' && onSubscription
+  useEffect(() => {
+    if (blockedTeam) router.replace(carry.backTo ?? '/dashboard')
+  }, [blockedTeam, router, carry.backTo])
+
   const contextValue = useMemo<ProUpgradeWizardContextValue>(
     () => ({
       currentStep,
@@ -167,6 +174,8 @@ const ProUpgradeWizard = ({
     () => ({ ...carry, markFromPro }),
     [carry, markFromPro],
   )
+
+  if (blockedTeam) return <></>
 
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
