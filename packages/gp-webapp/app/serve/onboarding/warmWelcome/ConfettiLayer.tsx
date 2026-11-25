@@ -85,11 +85,7 @@ export const ConfettiLayer = ({
   return (
     <ConfettiContext.Provider value={controls}>
       {children}
-      <canvas
-        ref={canvasRef}
-        aria-hidden
-        className="ww-confetti pointer-events-none fixed inset-0 z-20 size-full"
-      />
+      <canvas ref={canvasRef} aria-hidden className="confetti" />
     </ConfettiContext.Provider>
   )
 }

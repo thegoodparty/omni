@@ -1,152 +1,143 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   CalendarIcon,
-  FileTextIcon,
+  ChevronRightIcon,
+  EarIcon,
+  FileIcon,
+  FlagIcon,
   SparklesIcon,
 } from '@styleguide/components/ui/icons'
-import { cn } from '@styleguide/lib/utils'
 import { useConfetti } from './ConfettiLayer'
-import type { FirstMeeting } from './firstMeeting'
+import { cx, Tap, vars } from './parts'
 import {
   countWords,
   prefersReducedMotion,
-  Rise,
   useEntranceOffset,
+  useRise,
   Words,
 } from './Reveal'
 import { useDock } from './WarmWelcomeShell'
 import { WARM_WELCOME_COPY, type RecapLine } from './warmWelcomeConfig'
 
-const NEXT_AT_MS = 1900
-const CARD_AT_MS = 3000
-const FIRST_ROW_AT_MS = 3600
-const ROW_EVERY_MS = 1800
-const BURST_AFTER_MS = 550
-const BURST_PIECES = 44
+// The rows land a beat apart; each icon bursts a moment after its row.
+const FIRST_ROW_MS = 3600
+const ROW_GAP_MS = 1800
+const BOOM_AFTER_MS = 550
 
-// One thing that happens next. Its icon bursts as the row lands.
-const RecapRow = ({
-  icon,
-  line,
-  delay,
-}: {
-  icon: ReactNode
+export interface RecapRow {
+  key: 'meeting' | 'focus' | 'panel'
+  icon: 'file' | 'calendar' | 'flag' | 'spark' | 'ear'
   line: RecapLine
-  delay: number
-}): React.JSX.Element => {
+  // The Civic Panel row, while it is still an offer: a chevron back to it.
+  onOpen?: () => void
+}
+
+const ICONS = {
+  file: FileIcon,
+  calendar: CalendarIcon,
+  flag: FlagIcon,
+  spark: SparklesIcon,
+  ear: EarIcon,
+}
+
+const Row = ({ row, at }: { row: RecapRow; at: number }): React.JSX.Element => {
   const offset = useEntranceOffset()
   const confetti = useConfetti()
   const iconRef = useRef<HTMLSpanElement>(null)
-  const [landed, setLanded] = useState(false)
+  const [boom, setBoom] = useState(false)
+  const delay = FIRST_ROW_MS + ROW_GAP_MS * at
+  const Icon = ICONS[row.icon]
 
   useEffect(() => {
     if (prefersReducedMotion()) return
     const timer = setTimeout(
       () => {
-        setLanded(true)
-        if (iconRef.current) confetti.burst(iconRef.current, BURST_PIECES)
+        setBoom(true)
+        if (iconRef.current) confetti.burst(iconRef.current, 44)
       },
-      offset + delay + BURST_AFTER_MS,
+      offset + delay + BOOM_AFTER_MS,
     )
     return () => clearTimeout(timer)
   }, [offset, delay, confetti])
 
   return (
-    <Rise
-      delay={delay}
-      className="flex items-center gap-3.5 border-t border-base-border px-4 py-3.5 text-left first:border-t-0"
-    >
-      <span
-        ref={iconRef}
-        className={cn(
-          'flex size-10 flex-none items-center justify-center rounded-lg bg-primary/10 text-primary',
-          landed && 'ww-boom',
-        )}
-      >
-        {icon}
+    <div className="rline ui" style={vars({ '--d': `${offset + delay}ms` })}>
+      <span className={cx('ic', boom && 'boom')} ref={iconRef}>
+        <Icon className="i" aria-hidden />
       </span>
-      <p className="ww-lede flex-1">
-        {line.lead}
-        {line.oneSentence ? ' ' : <br />}
-        <b className="font-semibold">{line.strong}</b>
+      <p>
+        {row.line.lead}
+        {row.line.oneSentence ? ' ' : <br />}
+        <b>{row.line.strong}</b>
+        {row.line.end}
       </p>
-    </Rise>
+      {row.key === 'panel' && (
+        <Tap
+          className={cx('mbtn go', !row.onOpen && 'out')}
+          aria-label={WARM_WELCOME_COPY.recap.panelOpen}
+          tabIndex={row.onOpen ? undefined : -1}
+          aria-hidden={row.onOpen ? undefined : true}
+          onClick={row.onOpen}
+        >
+          <ChevronRightIcon className="i" aria-hidden />
+        </Tap>
+      )}
+    </div>
   )
 }
 
-// The last step: what happens next, then Done.
+// Step 6: what happens next, then Done. One white card fades in and its
+// rows land in it a beat apart.
 export const RecapStep = ({
   firstName,
-  meeting,
-  readyDay,
+  rows,
   saving,
   onDone,
 }: {
   firstName: string | null
-  meeting: FirstMeeting | null
-  // The day the first briefing is promised for, when there is one.
-  readyDay: Date | null
+  rows: RecapRow[]
   saving: boolean
   onDone: () => void
 }): React.JSX.Element => {
   const copy = WARM_WELCOME_COPY.recap
+  const offset = useEntranceOffset()
   const title = copy.title(firstName)
-  const confetti = useConfetti()
+  const cardRise = useRise(3000)
+  // The offer row gets a longer look before Done arrives.
+  const offering = rows.some((row) => row.onOpen)
 
-  // The pops pile up on the footer and fade when the step is left.
-  useEffect(() => () => confetti.clear(), [confetti])
-  const rows: { key: string; icon: ReactNode; line: RecapLine }[] = [
-    meeting && readyDay
-      ? {
-          key: 'briefing',
-          icon: <FileTextIcon className="size-[18px]" aria-hidden />,
-          line: copy.briefing(meeting, readyDay),
-        }
-      : {
-          key: 'meeting',
-          icon: <CalendarIcon className="size-[18px]" aria-hidden />,
-          line: meeting ? copy.meeting(meeting) : copy.noMeeting,
-        },
-    {
-      key: 'serve',
-      icon: <SparklesIcon className="size-[18px]" aria-hidden />,
-      line: copy.serve,
-    },
-  ]
-
-  useDock('recap', FIRST_ROW_AT_MS + ROW_EVERY_MS * rows.length, [
-    {
-      key: 'done',
-      label: copy.done,
-      kind: 'primary',
-      onClick: onDone,
-      loading: saving,
-    },
-  ])
+  useDock(
+    'recap',
+    offset +
+      FIRST_ROW_MS +
+      ROW_GAP_MS * rows.length +
+      (offering ? ROW_GAP_MS : 0),
+    [
+      {
+        key: 'done',
+        label: copy.done,
+        kind: 'primary',
+        disabled: saving,
+        onClick: onDone,
+      },
+    ],
+  )
 
   return (
-    <div className="flex w-full max-w-[960px] flex-col items-center gap-6 text-center">
-      <h1 className="ww-title">
+    <div className="wrap center" style={{ gap: 24 }}>
+      <h1>
         <Words>{title}</Words>
       </h1>
-      <p className="ww-title">
-        <Words delay={NEXT_AT_MS} index={countWords(title)}>
+      <p className="lede big">
+        <Words delay={1900} index={countWords(title)}>
           {copy.next}
         </Words>
       </p>
-      <Rise
-        delay={CARD_AT_MS}
-        className="flex w-full max-w-[540px] flex-col rounded-[14px] bg-card px-1 py-1.5 shadow-lg"
-      >
-        {rows.map((row, index) => (
-          <RecapRow
-            key={row.key}
-            icon={row.icon}
-            line={row.line}
-            delay={FIRST_ROW_AT_MS + ROW_EVERY_MS * index}
-          />
+      <div className="recap ui" style={cardRise}>
+        {rows.map((row, at) => (
+          <Row key={row.key} row={row} at={at} />
         ))}
-      </Rise>
+      </div>
     </div>
   )
 }

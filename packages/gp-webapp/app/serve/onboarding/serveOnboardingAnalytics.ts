@@ -108,6 +108,14 @@ export const WARM_WELCOME_EVENTS: Record<
     viewed: EVENTS.ServeOnboarding.MeetingBriefingViewed,
     completed: EVENTS.ServeOnboarding.MeetingBriefingCompleted,
   },
+  'warm-residents': {
+    viewed: EVENTS.ServeOnboarding.ResidentsViewed,
+    completed: EVENTS.ServeOnboarding.ResidentsCompleted,
+  },
+  'warm-priorities': {
+    viewed: EVENTS.ServeOnboarding.FirstFocusViewed,
+    completed: EVENTS.ServeOnboarding.FirstFocusCompleted,
+  },
   'warm-recap': {
     viewed: EVENTS.ServeOnboarding.RecapViewed,
     completed: EVENTS.ServeOnboarding.RecapCompleted,

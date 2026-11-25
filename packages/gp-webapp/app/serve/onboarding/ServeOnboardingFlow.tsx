@@ -32,7 +32,6 @@ import OnboardingTopBar from 'app/onboarding/shared/OnboardingTopBar'
 import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
 import { PRIORITY_FORM_COPY } from 'app/dashboard/priorities/priorityFormCopy'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
-import { useServeWarmWelcomeFlag } from '@shared/experiments/serveWarmWelcomeFlag'
 import { servePlaceOf } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import ServeOfficePicker, { type OfficePick } from './ServeOfficePicker'
 import { WarmWelcomeGate } from './warmWelcome/WarmWelcomeFlow'
@@ -114,19 +113,10 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
   'story-grow': SERVE_STORY_EVENTS['story-grow'].viewed,
 }
 
-// The warm welcome replaces this flow for an office that came from a win,
-// while serve-warm-welcome is on. The flag is read first, so the stepper
-// never flashes ahead of it.
+// Someone who just won gets the warm welcome; every other office gets the
+// stepper below. The gate decides before either shows, so the stepper never
+// flashes ahead of the welcome.
 export default function ServeOnboardingFlow(): React.JSX.Element {
-  const { ready, enabled } = useServeWarmWelcomeFlag()
-  if (!ready) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <LoaderCircle className="animate-spin" />
-      </div>
-    )
-  }
-  if (!enabled) return <StepperOnboardingFlow />
   return <WarmWelcomeGate fallback={<StepperOnboardingFlow />} />
 }
 

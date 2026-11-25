@@ -1,16 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import type { MeetingsListItemDto } from 'gpApi/api-endpoints'
 import {
-  briefingDay,
   calendarLinks,
+  clockParts,
   clockRange,
   clockTime,
+  daysInMonth,
   firstMeetingFrom,
-  longDay,
+  MEETING_TIMES,
   meetingIcs,
+  meetingPlace,
   meetingTitle,
+  ordinal,
   parseDay,
   pickedMeeting,
+  toDayString,
+  toTimeString,
+  upcomingMonths,
   type FirstMeeting,
 } from './firstMeeting'
 
@@ -37,6 +43,7 @@ const meeting = (overrides: Partial<FirstMeeting> = {}): FirstMeeting => ({
   location: 'City Hall, 210 Main Street',
   timeZone: 'America/New_York',
   source: 'found',
+  point: null,
   ...overrides,
 })
 
@@ -138,41 +145,6 @@ describe('meeting dates and times', () => {
 
 // gp-api's daily job runs at 07:00 UTC and picks up a meeting that starts
 // within three days, reading the meeting's own clock as UTC.
-describe('briefingDay', () => {
-  const NOW = new Date('2026-11-24T15:00:00.000Z')
-  const ready = (overrides: Partial<FirstMeeting> = {}, now = NOW) => {
-    const day = briefingDay(meeting(overrides), now)
-    return day ? longDay(day) : null
-  }
-
-  it('is two days before an evening meeting, when the daily run first sees it', () => {
-    expect(ready()).toBe('Tuesday, January 5')
-  })
-
-  it('is three days before a meeting that starts by the time the run does', () => {
-    expect(ready({ startMinutes: 6 * 60 + 30 })).toBe('Monday, January 4')
-    expect(ready({ startMinutes: 7 * 60 })).toBe('Monday, January 4')
-    expect(ready({ startMinutes: 7 * 60 + 1 })).toBe('Tuesday, January 5')
-  })
-
-  it('promises the day right up until that run, and no day after it', () => {
-    expect(ready({}, new Date('2027-01-05T06:59:00.000Z'))).toBe(
-      'Tuesday, January 5',
-    )
-    expect(ready({}, new Date('2027-01-05T07:00:00.000Z'))).toBeNull()
-  })
-
-  it('promises no day for a meeting too close for the run to be ahead', () => {
-    expect(ready({}, new Date('2027-01-06T12:00:00.000Z'))).toBeNull()
-    expect(ready({}, new Date('2027-01-07T12:00:00.000Z'))).toBeNull()
-  })
-
-  // gp-api still follows the schedule it holds, not the official's date.
-  it('promises no day for a date the official gave', () => {
-    expect(ready({ source: 'picked' })).toBeNull()
-  })
-})
-
 describe('meetingTitle', () => {
   it('names the body that meets', () => {
     expect(meetingTitle(meeting())).toBe('City Council meeting')
@@ -189,9 +161,11 @@ describe('meetingTitle', () => {
   })
 })
 
+const DETAILS = 'Your first City Council meeting. Added from Serve.'
+
 describe('calendarLinks', () => {
   const NOW = new Date('2026-11-24T15:00:00.000Z')
-  const links = calendarLinks(meeting(), NOW)
+  const links = calendarLinks(meeting(), DETAILS, NOW)
   const byId = Object.fromEntries(links.map((link) => [link.id, link]))
 
   it('offers the six ways to add it, in the order the card shows them', () => {
@@ -235,6 +209,15 @@ describe('calendarLinks', () => {
     expect(url.searchParams.get('title')).toBe('City Council meeting')
   })
 
+  it('says where the entry came from, in every link and in the file', () => {
+    expect(new URL(byId.google!.href).searchParams.get('details')).toBe(DETAILS)
+    expect(new URL(byId.outlook!.href).searchParams.get('body')).toBe(DETAILS)
+    expect(new URL(byId.yahoo!.href).searchParams.get('desc')).toBe(DETAILS)
+    expect(meetingIcs(meeting(), NOW, DETAILS)).toContain(
+      'DESCRIPTION:Your first City Council meeting. Added from Serve.',
+    )
+  })
+
   it('gives Apple Calendar and every other app the same file to save', () => {
     expect(byId.apple!.download).toBe(true)
     expect(byId.ics!.download).toBe(true)
@@ -244,7 +227,7 @@ describe('calendarLinks', () => {
       decodeURIComponent(
         byId.ics!.href.replace('data:text/calendar;charset=utf-8,', ''),
       ),
-    ).toBe(meetingIcs(meeting(), NOW))
+    ).toBe(meetingIcs(meeting(), NOW, DETAILS))
   })
 })
 
@@ -281,5 +264,90 @@ describe('meetingIcs', () => {
     const ics = meetingIcs(meeting({ timeZone: null, location: '' }), NOW)
     expect(ics).toContain('DTSTART:20270107T190000')
     expect(ics).not.toContain('LOCATION')
+  })
+})
+
+describe('meetingPlace', () => {
+  it('splits one line into the place and the street and city', () => {
+    expect(
+      meetingPlace('City Hall, 210 Main Street, Northampton, MA 01060'),
+    ).toEqual({
+      place: 'City Hall',
+      address: '210 Main Street, Northampton',
+      room: '',
+    })
+  })
+
+  it('uses the parts the schedule holds, room included', () => {
+    expect(
+      meetingPlace('City Hall', {
+        name: 'City Hall',
+        address: '210 Main Street, Northampton, MA',
+        room: 'Council chambers, second floor',
+      }),
+    ).toEqual({
+      place: 'City Hall',
+      address: '210 Main Street, Northampton',
+      room: 'Council chambers, second floor',
+    })
+  })
+
+  it('is just the place when that is all there is', () => {
+    expect(meetingPlace('Town Hall')).toEqual({
+      place: 'Town Hall',
+      address: '',
+      room: '',
+    })
+  })
+
+  it('has nothing to show for an empty location', () => {
+    expect(meetingPlace('  ')).toBeNull()
+  })
+})
+
+describe('the date sentence', () => {
+  it('ends each day the way it is said', () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31].map(ordinal)).toEqual([
+      'st',
+      'nd',
+      'rd',
+      'th',
+      'th',
+      'th',
+      'th',
+      'st',
+      'nd',
+      'rd',
+      'st',
+    ])
+  })
+
+  it('splits a time into its clock and its half of the day', () => {
+    expect(clockParts(19 * 60)).toEqual(['7:00', 'pm'])
+    expect(clockParts(8 * 60 + 30)).toEqual(['8:30', 'am'])
+  })
+
+  it('offers every half hour from 8:00 am to 9:30 pm', () => {
+    expect(MEETING_TIMES[0]).toBe(8 * 60)
+    expect(MEETING_TIMES.at(-1)).toBe(21 * 60 + 30)
+    expect(MEETING_TIMES).toHaveLength(28)
+  })
+
+  it('offers the twelve months starting with this one', () => {
+    const months = upcomingMonths(TODAY)
+    expect(months).toHaveLength(12)
+    expect(months[0]).toEqual(new Date(2026, 10, 1))
+    expect(months[11]).toEqual(new Date(2027, 9, 1))
+  })
+
+  it('knows how long each month is', () => {
+    expect(daysInMonth(new Date(2027, 1, 1))).toBe(28)
+    expect(daysInMonth(new Date(2028, 1, 1))).toBe(29)
+  })
+
+  it('writes the day and time the way gp-api takes them', () => {
+    expect(toDayString(new Date(2027, 0, 7))).toBe('2027-01-07')
+    expect(toTimeString(19 * 60)).toBe('19:00')
+    expect(toTimeString(8 * 60 + 30)).toBe('08:30')
   })
 })

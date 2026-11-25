@@ -30,10 +30,10 @@ vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
   SERVE_CITIZEN_PANELS_FLAG_KEY: 'serve-citizen-panels',
   useServeCitizenPanelsFlag: () => ({ ready: true, enabled: false }),
 }))
-
-vi.mock('@shared/experiments/serveWarmWelcomeFlag', () => ({
-  SERVE_WARM_WELCOME_FLAG_KEY: 'serve-warm-welcome',
-  useServeWarmWelcomeFlag: () => ({ ready: true, enabled: false }),
+// The warm welcome has its own tests (warmWelcome/WarmWelcomeFlow.test.tsx);
+// everything here is the stepper onboarding, so the gate hands straight to it.
+vi.mock('./warmWelcome/WarmWelcomeFlow', () => ({
+  WarmWelcomeGate: ({ fallback }: { fallback: React.ReactNode }) => fallback,
 }))
 
 const mockClientRequest = vi.mocked(clientRequest)

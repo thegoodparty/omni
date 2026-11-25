@@ -1,8 +1,4 @@
 import { addDays, format, isBefore } from 'date-fns'
-import {
-  BRIEFING_DAILY_DISPATCH_HOUR_UTC,
-  BRIEFING_IMMINENCE_WINDOW_DAYS,
-} from '@goodparty_org/contracts'
 import type { MeetingsListItemDto } from 'gpApi/api-endpoints'
 
 const DEFAULT_MEETING_MINUTES = 120
@@ -22,6 +18,56 @@ export interface FirstMeeting {
   // IANA zone of the meeting's clock, when the schedule gave one.
   timeZone: string | null
   source: 'found' | 'picked'
+  // The location in parts, when the schedule holds them.
+  place?: {
+    name?: string | null
+    address?: string | null
+    room?: string | null
+  }
+  // Where it is on the map, when gp-api already knows.
+  point: { lat: number; lon: number } | null
+}
+
+// Where the meeting is, as the card shows it: the place in bold, the street
+// and city under it, and the room on its own line when the schedule has one.
+export interface MeetingPlace {
+  place: string
+  address: string
+  room: string
+}
+
+const STATE_AND_ZIP = /,\s*[A-Z]{2}(\s+\d{5}(-\d{4})?)?\s*$/
+
+export const meetingPlace = (
+  location: string,
+  parts?: {
+    name?: string | null
+    address?: string | null
+    room?: string | null
+  },
+): MeetingPlace | null => {
+  const named = parts?.name?.trim()
+  if (named) {
+    return {
+      place: named,
+      address: (parts?.address ?? '').trim().replace(STATE_AND_ZIP, ''),
+      room: (parts?.room ?? '').trim(),
+    }
+  }
+  const text = location.trim()
+  if (!text) return null
+  const comma = text.indexOf(',')
+  return {
+    place: comma > 0 ? text.slice(0, comma).trim() : text,
+    address:
+      comma > 0
+        ? text
+            .slice(comma + 1)
+            .trim()
+            .replace(STATE_AND_ZIP, '')
+        : '',
+    room: (parts?.room ?? '').trim(),
+  }
 }
 
 const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -68,6 +114,7 @@ export const firstMeetingFrom = (
     location: first.meeting.location.trim(),
     timeZone: first.meeting.meetingTimezone || null,
     source: 'found',
+    point: null,
   }
 }
 
@@ -78,44 +125,6 @@ export const pickedMeeting = (
   day: Date,
   startMinutes: number,
 ): FirstMeeting => ({ ...found, day, startMinutes, source: 'picked' })
-
-const DAY_MS = 24 * 60 * 60 * 1000
-
-// The day a first briefing can be promised for, or null when none can.
-//
-// gp-api's daily job starts a briefing on its first run that finds the
-// meeting inside the imminence window, and it reads the meeting's own clock
-// as UTC (projectMeetingDates in meetingBriefings.service.ts). So a 7 pm
-// meeting is picked up two days before it, not three. The day returned is
-// that run's UTC date, which is never earlier than the same moment anywhere
-// in the US.
-//
-// No day is promised when that run is not still ahead (the meeting is too
-// close), or when the date came from the official: gp-api still follows the
-// schedule it holds, so a briefing for their date is not something it does.
-export const briefingDay = (meeting: FirstMeeting, now: Date): Date | null => {
-  if (meeting.source !== 'found') return null
-  const windowOpens =
-    Date.UTC(
-      meeting.day.getFullYear(),
-      meeting.day.getMonth(),
-      meeting.day.getDate(),
-      0,
-      meeting.startMinutes,
-    ) -
-    BRIEFING_IMMINENCE_WINDOW_DAYS * DAY_MS
-  const opens = new Date(windowOpens)
-  const sameDayRun = Date.UTC(
-    opens.getUTCFullYear(),
-    opens.getUTCMonth(),
-    opens.getUTCDate(),
-    BRIEFING_DAILY_DISPATCH_HOUR_UTC,
-  )
-  const run = sameDayRun >= windowOpens ? sameDayRun : sameDayRun + DAY_MS
-  if (run <= now.getTime()) return null
-  const at = new Date(run)
-  return new Date(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate())
-}
 
 // "Thursday, January 7"
 export const longDay = (day: Date): string => format(day, 'EEEE, MMMM d')
@@ -200,7 +209,11 @@ const icsText = (value: string): string =>
     .replace(/,/g, '\\,')
     .replace(/\r?\n/g, '\\n')
 
-export const meetingIcs = (meeting: FirstMeeting, now: Date): string => {
+export const meetingIcs = (
+  meeting: FirstMeeting,
+  now: Date,
+  details = '',
+): string => {
   const start = meeting.startMinutes
   const end = start + meeting.durationMinutes
   const zone = meeting.timeZone ? `;TZID=${meeting.timeZone}` : ''
@@ -219,6 +232,7 @@ export const meetingIcs = (meeting: FirstMeeting, now: Date): string => {
     `DTEND${zone}:${stamp(meeting.day, end)}`,
     `SUMMARY:${icsText(meetingTitle(meeting))}`,
     ...(meeting.location ? [`LOCATION:${icsText(meeting.location)}`] : []),
+    ...(details ? [`DESCRIPTION:${icsText(details)}`] : []),
     'END:VEVENT',
     'END:VCALENDAR',
   ].join('\r\n')
@@ -228,6 +242,7 @@ export const meetingIcs = (meeting: FirstMeeting, now: Date): string => {
 // and every desktop app take the .ics file, since Apple has no web link.
 export const calendarLinks = (
   meeting: FirstMeeting,
+  details = '',
   now: Date = new Date(),
 ): CalendarLink[] => {
   const title = meetingTitle(meeting)
@@ -235,18 +250,19 @@ export const calendarLinks = (
   const end = start + meeting.durationMinutes
   const text = encodeURIComponent(title)
   const location = encodeURIComponent(meeting.location)
+  const body = encodeURIComponent(details)
   const zone = meeting.timeZone
     ? `&ctz=${encodeURIComponent(meeting.timeZone)}`
     : ''
   const outlook = (host: string): string =>
-    `https://${host}/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${text}&startdt=${dashedStamp(meeting.day, start)}&enddt=${dashedStamp(meeting.day, end)}&location=${location}`
-  const file = `data:text/calendar;charset=utf-8,${encodeURIComponent(meetingIcs(meeting, now))}`
+    `https://${host}/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${text}&startdt=${dashedStamp(meeting.day, start)}&enddt=${dashedStamp(meeting.day, end)}&body=${body}&location=${location}`
+  const file = `data:text/calendar;charset=utf-8,${encodeURIComponent(meetingIcs(meeting, now, details))}`
   return [
     {
       id: 'google',
       label: 'Google',
       calendarName: 'Google Calendar',
-      href: `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${stamp(meeting.day, start)}/${stamp(meeting.day, end)}${zone}&location=${location}`,
+      href: `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${stamp(meeting.day, start)}/${stamp(meeting.day, end)}${zone}&details=${body}&location=${location}`,
       download: false,
     },
     {
@@ -274,7 +290,7 @@ export const calendarLinks = (
       id: 'yahoo',
       label: 'Yahoo',
       calendarName: 'Yahoo Calendar',
-      href: `https://calendar.yahoo.com/?v=60&title=${text}&st=${stamp(meeting.day, start)}&et=${stamp(meeting.day, end)}&in_loc=${location}`,
+      href: `https://calendar.yahoo.com/?v=60&title=${text}&st=${stamp(meeting.day, start)}&et=${stamp(meeting.day, end)}&desc=${body}&in_loc=${location}`,
       download: false,
     },
     {
@@ -286,3 +302,37 @@ export const calendarLinks = (
     },
   ]
 }
+
+// "th" for 7, "st" for 21
+export const ordinal = (day: number): string => {
+  const rest = day % 100
+  if (rest >= 11 && rest <= 13) return 'th'
+  return ['th', 'st', 'nd', 'rd'][Math.min(day % 10, 4)] ?? 'th'
+}
+
+// "7:00" and "pm", for the date sentence's time word.
+export const clockParts = (minutes: number): [string, 'am' | 'pm'] => [
+  hour12(minutes),
+  meridiem(minutes),
+]
+
+// Every half hour from 8:00 am to 9:30 pm, as minutes past midnight.
+export const MEETING_TIMES = Array.from(
+  { length: (21 * 60 + 30 - 8 * 60) / 30 + 1 },
+  (_, index) => 8 * 60 + index * 30,
+)
+
+// The twelve months a first meeting can fall in, starting with this one.
+export const upcomingMonths = (today: Date): Date[] =>
+  Array.from(
+    { length: 12 },
+    (_, index) => new Date(today.getFullYear(), today.getMonth() + index, 1),
+  )
+
+export const daysInMonth = (month: Date): number =>
+  new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate()
+
+export const toDayString = (day: Date): string => format(day, 'yyyy-MM-dd')
+
+export const toTimeString = (minutes: number): string =>
+  `${pad(Math.floor(minutes / 60) % 24)}:${pad(minutes % 60)}`

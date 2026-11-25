@@ -5,10 +5,9 @@ import {
   useContext,
   useEffect,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from 'react'
-import { cn } from '@styleguide/lib/utils'
+import { cx, vars } from './parts'
 
 // How long a step's entrances wait: the slide between steps takes a moment,
 // so a step reached from another one starts its own motion after it.
@@ -19,9 +18,6 @@ export const STEP_ENTRANCE_OFFSET_MS = 260
 export const EntranceOffset = EntranceOffsetContext.Provider
 
 export const useEntranceOffset = (): number => useContext(EntranceOffsetContext)
-
-const vars = (values: Record<string, string | number>): CSSProperties =>
-  values as CSSProperties
 
 export const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length
@@ -36,6 +32,7 @@ export const Words = ({
   stagger,
   duration,
   ripple = false,
+  wordDelay,
 }: {
   children: ReactNode
   delay?: number
@@ -43,6 +40,8 @@ export const Words = ({
   stagger?: number
   duration?: number
   ripple?: boolean
+  // A later start for single words, by their place in this run.
+  wordDelay?: (at: number) => number
 }): React.JSX.Element => {
   const offset = useContext(EntranceOffsetContext)
   const [rippleRun, setRippleRun] = useState(0)
@@ -56,20 +55,21 @@ export const Words = ({
   let position = index
   const word = (content: ReactNode, key: string): React.JSX.Element => {
     const at = position++
+    const own = wordDelay ? wordDelay(at - index) : 0
     return (
       <span
         key={key}
-        className="ww-word"
+        className="w"
         style={vars({
           '--i': at,
-          '--d': `${delay + offset}ms`,
-          ...(stagger ? { '--ww-word-stagger': `${stagger}ms` } : {}),
-          ...(duration ? { '--ww-word-dur': `${duration}ms` } : {}),
+          '--d': `${delay + offset + own}ms`,
+          ...(stagger ? { '--w-stagger': `${stagger}ms` } : {}),
+          ...(duration ? { '--w-dur': `${duration}ms` } : {}),
         })}
       >
         <span
           key={rippleRun}
-          className={cn(rippleRun > 0 && 'ww-ripple')}
+          className={cx('wi', rippleRun > 0 && 'rip')}
           style={vars({ '--i': at - index })}
         >
           {content}
@@ -97,6 +97,13 @@ export const Words = ({
   )
 }
 
+// The delay everything that is not a headline arrives with: `delay` after
+// its step starts. Spread onto an element that carries the `ui` class.
+export const useRise = (delay: number): React.CSSProperties => {
+  const offset = useContext(EntranceOffsetContext)
+  return vars({ '--d': `${delay + offset}ms` })
+}
+
 // Everything that is not a headline: it fades and rises in once, `delay`
 // after its step starts.
 export const Rise = ({
@@ -107,17 +114,11 @@ export const Rise = ({
   delay: number
   className?: string
   children: ReactNode
-}): React.JSX.Element => {
-  const offset = useContext(EntranceOffsetContext)
-  return (
-    <div
-      className={cn('ww-rise', className)}
-      style={vars({ '--d': `${delay + offset}ms` })}
-    >
-      {children}
-    </div>
-  )
-}
+}): React.JSX.Element => (
+  <div className={cx('ui', className)} style={useRise(delay)}>
+    {children}
+  </div>
+)
 
 export const prefersReducedMotion = (): boolean =>
   typeof window !== 'undefined' &&
@@ -149,3 +150,10 @@ export const useHandoff = <T extends string>(
 
   return { shown, leaving: state !== shown, entered }
 }
+
+// The class a step's state carries while it hands off to the next one.
+export const handoffClass = (handoff: {
+  leaving: boolean
+  entered: boolean
+}): string | false =>
+  handoff.leaving ? 'sub-out' : handoff.entered && 'sub-in'

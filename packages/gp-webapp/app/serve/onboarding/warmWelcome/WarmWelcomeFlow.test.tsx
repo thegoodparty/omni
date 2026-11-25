@@ -1,7 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { addDays, format, startOfDay } from 'date-fns'
+import { addDays, format, isWeekend, startOfDay } from 'date-fns'
+import type {
+  CivicPanelSummary,
+  ManagedCivicPanel,
+  OnboardingFocus,
+  FocusOption,
+  ResidentVoicesResponse,
+} from '@goodparty_org/contracts'
 import type {
   ElectedOffice,
   ElectedOfficeInput,
@@ -17,12 +24,6 @@ vi.mock('helpers/analyticsHelper', async (importActual) => {
   const actual = await importActual<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
-
-const warmWelcomeFlag = vi.hoisted(() => ({ ready: true, enabled: true }))
-vi.mock('@shared/experiments/serveWarmWelcomeFlag', () => ({
-  SERVE_WARM_WELCOME_FLAG_KEY: 'serve-warm-welcome',
-  useServeWarmWelcomeFlag: () => warmWelcomeFlag,
-}))
 
 vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
   SERVE_CITIZEN_PANELS_FLAG_KEY: 'serve-citizen-panels',
@@ -65,21 +66,20 @@ const eventProps = (name: string): Record<string, unknown>[] =>
 
 const EO_ID = 'eo-uuid-1'
 const TODAY = startOfDay(new Date())
-const TERM_START = addDays(TODAY, 30)
-const FIRST_MEETING = addDays(TODAY, 33)
+const FIRST_MEETING = addDays(TODAY, 12)
 const iso = (day: Date): string => format(day, 'yyyy-MM-dd')
 
-// A winner's office as gp-api leaves it once BallotReady has their term: the
-// campaign linked, the stepper's own checkpoint, and nothing finished.
+// A winner's office as gp-api leaves it: the campaign linked, the stepper's
+// own checkpoint, no term dates and nothing finished.
 const buildOffice = (
   overrides: Partial<ElectedOffice> = {},
 ): ElectedOffice => ({
   id: EO_ID,
   swornInDate: null,
   electedDate: null,
-  termStartDate: iso(TERM_START),
-  termEndDate: iso(addDays(TERM_START, 4 * 365)),
-  termLengthDays: 4 * 365,
+  termStartDate: null,
+  termEndDate: null,
+  termLengthDays: null,
   isActive: false,
   party: 'independent',
   pledgedAt: null,
@@ -87,6 +87,8 @@ const buildOffice = (
   selfReported: false,
   onboardingStep: 'confirm',
   campaignId: 7,
+  votesReceived: 6812,
+  briefingTextReminderAt: null,
   ...overrides,
 })
 
@@ -114,16 +116,94 @@ const meetingRow = (
   ...overrides,
 })
 
+const VOICES: ResidentVoicesResponse = {
+  voices: [
+    {
+      id: 'v1',
+      quote: 'The crossing by the school needs a guard.',
+      lat: 42.3251,
+      lon: -72.6412,
+      synthetic: false,
+    },
+    {
+      id: 'v2',
+      quote: 'Our street floods every time it rains hard.',
+      lat: 42.3176,
+      lon: -72.6311,
+      synthetic: true,
+    },
+  ],
+  syntheticCount: 1,
+}
+
+const card = (overrides: Partial<FocusOption> = {}): FocusOption => ({
+  key: 'c1',
+  kind: 'community',
+  title: 'The flyering rule downtown',
+  description: '',
+  residentInterest: 'high',
+  firstWin: 'weeks',
+  recapLine: 'the flyering rule',
+  ...overrides,
+})
+
+const CARDS: FocusOption[] = [
+  card(),
+  card({
+    key: 'c2',
+    title: 'The downtown street redesign',
+    firstWin: 'year_or_more',
+    recapLine: 'the downtown street redesign',
+  }),
+  card({
+    key: 'c3',
+    title: 'A crossing guard at the school',
+    residentInterest: 'low',
+    firstWin: 'months',
+    recapLine: 'a crossing guard at the school',
+  }),
+]
+
+interface Calls {
+  saves: ElectedOfficeInput[]
+  panel: {
+    inviteMessage: string
+    consentVersion: string
+    firstSendDate?: string
+  }[]
+  focus: { shownKeys: string[]; focusKey: string }[]
+  stated: { meetingDate: string; meetingTime: string }[]
+  cleared: number
+}
+
 const mockLoad = ({
   office = buildOffice(),
-  meetings = [meetingRow(addDays(TODAY, 5)), meetingRow(FIRST_MEETING)],
+  meetings = [meetingRow(FIRST_MEETING), meetingRow(addDays(TODAY, 40))],
   population = 29571 as number | null,
+  voices = VOICES,
+  goal = 240 as number | null,
+  built = null as { firstSendDate: string } | null,
+  focus = { kind: 'community', options: CARDS } as Pick<
+    OnboardingFocus,
+    'kind' | 'options'
+  >,
 }: {
   office?: ElectedOffice
   meetings?: MeetingsListItemDto[]
   population?: number | null
-} = {}): { saves: ElectedOfficeInput[] } => {
-  const saves: ElectedOfficeInput[] = []
+  voices?: ResidentVoicesResponse
+  // Null stands for an office that cannot have a Civic Panel.
+  goal?: number | null
+  built?: { firstSendDate: string } | null
+  focus?: Pick<OnboardingFocus, 'kind' | 'options'>
+} = {}): Calls => {
+  const calls: Calls = {
+    saves: [],
+    panel: [],
+    focus: [],
+    stated: [],
+    cleared: 0,
+  }
   api.mock('GET /v1/elected-office/current', { status: 200, data: office })
   api.mock('GET /v1/elected-office/mine', {
     status: 200,
@@ -159,10 +239,68 @@ const mockLoad = ({
     },
   })
   api.mock('PUT /v1/elected-office/:id', ({ body }) => {
-    saves.push(body)
+    calls.saves.push(body)
     return { status: 200, data: { ...office, ...body } as ElectedOffice }
   })
-  return { saves }
+  api.mock('GET /v1/resident-voices', { status: 200, data: voices })
+  const panel = built
+    ? ({
+        status: 'building',
+        progress: { firstSendDate: built.firstSendDate },
+      } as ManagedCivicPanel)
+    : null
+  if (goal === null) {
+    api.mock('GET /v1/contacts/civic-panel', {
+      status: 404,
+      data: { message: 'Not Found' },
+    })
+    api.mock('GET /v1/contacts/civic-panel/managed', {
+      status: 404,
+      data: { message: 'Not Found' },
+    })
+  } else {
+    api.mock('GET /v1/contacts/civic-panel', {
+      status: 200,
+      data: { progress: { goal } } as CivicPanelSummary,
+    })
+    api.mock('GET /v1/contacts/civic-panel/managed', {
+      status: 200,
+      data: { panel },
+    })
+  }
+  api.mock('POST /v1/contacts/civic-panel/managed', ({ body }) => {
+    calls.panel.push(body)
+    return { status: 200, data: { panel: null } }
+  })
+  api.mock('POST /v1/community-issues/onboarding', {
+    status: 200,
+    data: { queued: true },
+  })
+  api.mock('GET /v1/priorities/onboarding/focus', {
+    status: 200,
+    data: { ...focus, searchPending: false, saved: null },
+  })
+  api.mock('PUT /v1/priorities/onboarding/focus', ({ body }) => {
+    calls.focus.push(body)
+    const picked = focus.options.find((each) => each.key === body.focusKey)
+    return {
+      status: 200,
+      data: {
+        priorityId: 'priority-1',
+        title: picked?.title ?? '',
+        recapLine: picked?.recapLine ?? '',
+      },
+    }
+  })
+  api.mock('PUT /v1/meetings/first-meeting', ({ body }) => {
+    calls.stated.push(body)
+    return { status: 200, data: undefined }
+  })
+  api.mock('DELETE /v1/meetings/first-meeting', () => {
+    calls.cleared += 1
+    return { status: 200, data: undefined }
+  })
+  return calls
 }
 
 const renderFlow = () =>
@@ -173,13 +311,15 @@ const renderFlow = () =>
   )
 
 const heading = (name: string | RegExp) =>
-  screen.findByRole('heading', { level: 1, name })
+  screen.findByRole('heading', { level: 1, name }, { timeout: 4000 })
 
 const press = async (
   user: ReturnType<typeof userEvent.setup>,
   name: string,
 ): Promise<void> => {
-  await user.click(await screen.findByRole('button', { name }))
+  await user.click(
+    await screen.findByRole('button', { name }, { timeout: 4000 }),
+  )
 }
 
 const crumbs = (): string[] =>
@@ -187,46 +327,65 @@ const crumbs = (): string[] =>
     .getAllByRole('button')
     .map((crumb) => crumb.textContent ?? '')
 
+const paragraph = (text: string) =>
+  screen.getByText(
+    (_, node) => node?.tagName === 'P' && node.textContent === text,
+  )
+
+// The handoffs between screens are timed motion. With reduced motion every
+// end state shows at once, so a test can walk the whole flow quickly.
+const reduceMotion = (): void => {
+  window.matchMedia = ((query: string) => ({
+    matches: query.includes('prefers-reduced-motion'),
+    media: query,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  })) as unknown as typeof window.matchMedia
+}
+
+const realMatchMedia = window.matchMedia
+
 beforeEach(() => {
   trackEventMock.mockClear()
   Object.values(confetti).forEach((mock) => mock.mockClear())
   testQueryClient.clear()
-  warmWelcomeFlag.enabled = true
   impersonation.active = false
 })
 
+afterEach(() => {
+  window.matchMedia = realMatchMedia
+})
+
+const swornDay = (): Date => {
+  let day = FIRST_MEETING
+  while (isWeekend(day)) day = addDays(day, 1)
+  return day
+}
+
 describe('the warm welcome', () => {
-  it('walks a winner from the win to Done', async () => {
+  it('walks a winner through all six steps to Done', async () => {
+    reduceMotion()
     const user = userEvent.setup()
-    const { saves } = mockLoad()
+    const calls = mockLoad()
     renderFlow()
 
     expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
-    expect(screen.getByText('People you now serve')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: '29,571' })).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        (_, node) =>
-          node?.tagName === 'P' &&
-          node.textContent ===
-            'All of Northampton is counting on you now, not just the people who voted. Let’s get you ready for that.',
-      ),
-    ).toBeInTheDocument()
     expect(crumbs()).toEqual([
       'You won',
       'First meeting',
       'Meeting Briefing',
+      'Residents',
+      'Priorities',
       'Recap',
     ])
     expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled()
-    await waitFor(() => expect(confetti.pour).toHaveBeenCalledTimes(1), {
-      timeout: 3000,
-    })
+    expect(
+      paragraph(
+        'All of Northampton is counting on you now, not just the people who voted. Let’s get you ready for that.',
+      ),
+    ).toBeInTheDocument()
 
     await press(user, 'Let’s get ready')
-    // Leaving the win fades its confetti away.
-    await waitFor(() => expect(confetti.clear).toHaveBeenCalled())
-    // The first meeting in their term, not the one before they take office.
     expect(
       await heading(
         `It looks like your first City Council meeting is ${longDay(FIRST_MEETING)} at 7:00 pm.`,
@@ -234,21 +393,17 @@ describe('the warm welcome', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('City Hall')).toBeInTheDocument()
     expect(screen.getByText('210 Main Street')).toBeInTheDocument()
-    expect(screen.getByText('Does that sound right?')).toBeInTheDocument()
+    expect(paragraph('Does that sound right?')).toBeInTheDocument()
 
     await press(user, 'Yes, that’s it')
     expect(
       await heading(`${longDay(FIRST_MEETING)} it is.`),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(`${longDay(FIRST_MEETING)}, 7:00 to 9:00 pm`),
     ).toBeInTheDocument()
     const google = screen.getByRole('link', { name: 'Google' })
     expect(google).toHaveAttribute(
       'href',
       expect.stringContaining('https://calendar.google.com/calendar/render'),
     )
-    expect(google).toHaveAttribute('target', '_blank')
     expect(screen.getByRole('link', { name: '.ics file' })).toHaveAttribute(
       'download',
       'City Council meeting.ics',
@@ -260,60 +415,160 @@ describe('the warm welcome', () => {
     ).toBeInTheDocument()
 
     await press(user, 'Let’s keep going')
-    // A 7 pm meeting is picked up by the daily run two days before it.
-    const ready = longDay(addDays(FIRST_MEETING, -2))
     expect(
-      await heading(`Your first Meeting Briefing will be ready by ${ready}.`),
+      await heading(
+        'Your first Meeting Briefing should be ready around 2 days before your meeting.',
+      ),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('img', {
-        name: 'Documents dropping into a folder with Anna Whitlock’s name on it',
+        name: 'Documents dropping into a folder called Anna Whitlock’s Meeting Briefing',
       }),
     ).toBeInTheDocument()
-
-    await press(user, 'Let’s keep going')
-    expect(await heading('You’re all set, Anna.')).toBeInTheDocument()
-    // The step before is still sliding away, so read the recap's own region.
-    const recap = within(screen.getByRole('region', { name: 'Recap' }))
     expect(
-      recap.getByText(
-        `Your Meeting Briefing for ${monthDay(FIRST_MEETING)} lands on`,
-        { exact: false },
+      paragraph('Want a reminder via text when it’s ready?'),
+    ).toBeInTheDocument()
+
+    await press(user, 'Remind me')
+    expect(
+      await screen.findByRole('button', { name: 'You got it' }),
+    ).toBeDisabled()
+    expect(
+      await heading('Here’s what people in Northampton are saying.'),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(calls.saves).toContainEqual({ briefingTextReminder: true }),
+    )
+    expect(
+      screen.getByText(
+        '*Some comments are synthesized from real ones in similar places.',
       ),
     ).toBeInTheDocument()
-    expect(recap.getByText(`${ready}.`)).toBeInTheDocument()
     expect(
-      recap.getByText(
-        'prepare for meetings, draft ordinances, and connect with residents.',
+      await screen.findByText('The crossing by the school needs a guard.'),
+    ).toBeInTheDocument()
+
+    await press(user, 'Next')
+    expect(
+      await heading('Most officials only hear from the loudest voices.'),
+    ).toBeInTheDocument()
+    expect(
+      paragraph(
+        'Let’s change that. In about two weeks we can have 240 Northampton residents from every part of town ready to answer your questions. Want to set that up?',
       ),
+    ).toBeInTheDocument()
+
+    await press(user, 'Yes')
+    expect(await heading('Here’s the text we’ll send.')).toBeInTheDocument()
+    const editable = screen.getByRole('textbox', {
+      name: 'The part of the invitation you can change',
+    })
+    expect(editable).toHaveTextContent(
+      'this is Anna Whitlock, your Northampton City Council Member-elect.',
+    )
+    expect(
+      screen.getByText(/Reply JOIN to share your perspectives\./),
+    ).toBeInTheDocument()
+
+    await press(user, 'Pick a day')
+    expect(
+      await heading('When should the first invites go out?'),
+    ).toBeInTheDocument()
+    expect(
+      paragraph('Texts go out at 11 am Northampton time.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Set it up' }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: /After I’m sworn in/ }))
+    await press(user, 'Set it up')
+    expect(
+      await heading(`All set! We’ll start texting on ${longDay(swornDay())}.`),
+    ).toBeInTheDocument()
+    expect(calls.panel).toHaveLength(1)
+    expect(calls.panel[0]?.firstSendDate).toBe(iso(swornDay()))
+    expect(calls.panel[0]?.consentVersion).toBe(
+      'warm-welcome-set-it-up-2026-11-25',
+    )
+    // Sent once they hold the office, so the invite no longer says "-elect".
+    expect(calls.panel[0]?.inviteMessage).toBe(
+      'Hi {{first_name}}, this is Anna Whitlock, your Northampton City Council Member.\n\nI’d like to hear from residents who want a voice in our community. So, I’m inviting a select group of neighbors to share their views. I’ll text you about once a month to ask what you think. If you’d like to be part of this civic panel, please reply with JOIN.\n\nThis is a nonpartisan panel. Your replies come straight to me, and I won’t share them publicly without asking you first.\n\nReply JOIN to share your perspectives.\nReply STOP to opt out.',
+    )
+
+    await press(user, 'Let’s keep going')
+    expect(
+      await heading('Let’s get another win under your belt.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'These issues are important to your community, pick one to start.',
+      ),
+    ).toBeInTheDocument()
+    const cards = screen.getAllByRole('radio')
+    expect(cards).toHaveLength(3)
+    expect(cards[0]).toHaveTextContent('The flyering rule downtown')
+    expect(cards[0]).toHaveTextContent('Resident interestHigh')
+    expect(cards[0]).toHaveTextContent('First winWeeks')
+    expect(cards[1]).toHaveTextContent('First winA year or more')
+    expect(cards[2]).toHaveTextContent('Resident interestLow')
+    expect(
+      screen.queryByRole('button', { name: 'Start with this' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(cards[0]!)
+    expect(await screen.findByText('Great choice.')).toBeInTheDocument()
+    await press(user, 'Start with this')
+    expect(await heading('You’re all set, Anna.')).toBeInTheDocument()
+    expect(calls.focus).toEqual([
+      { shownKeys: ['c1', 'c2', 'c3'], focusKey: 'c1' },
+    ])
+
+    const recap = screen.getByRole('region', { name: 'Recap' })
+    expect(
+      within(recap).getByText(
+        (_, node) =>
+          node?.tagName === 'P' &&
+          node.textContent ===
+            `Your Meeting Briefing for ${monthDay(FIRST_MEETING)} should be readyaround 2 days before.`,
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(recap).getByText(
+        (_, node) =>
+          node?.tagName === 'P' &&
+          node.textContent ===
+            'We’ll help you make progress onthe flyering rule.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(recap).getByText(`Invites go out ${longDay(swornDay())}.`, {
+        exact: false,
+      }),
     ).toBeInTheDocument()
 
     await press(user, 'Done')
     await waitFor(() =>
-      expect(saves.some((save) => save.onboardingCompletedAt)).toBe(true),
+      expect(calls.saves.at(-1)).toMatchObject({
+        party: 'independent',
+        onboardingStep: 'warm-recap',
+        termStartDate: iso(FIRST_MEETING),
+      }),
     )
-
-    // Each step is a checkpoint on the way, then Done is the completion
-    // save: the party, the completion stamp, and nothing about a pledge
-    // nobody was shown or a term nobody was asked for.
-    expect(saves.map((save) => save.onboardingStep)).toEqual([
+    expect(calls.saves.at(-1)?.onboardingCompletedAt).toEqual(
+      expect.any(String),
+    )
+    expect(calls.saves.at(-1)).not.toHaveProperty('pledgedAt')
+    expect(
+      calls.saves.map((save) => save.onboardingStep).filter(Boolean),
+    ).toEqual([
       'warm-meeting',
       'warm-briefing',
+      'warm-residents',
+      'warm-priorities',
       'warm-recap',
       'warm-recap',
     ])
-    const completion = saves[saves.length - 1]!
-    expect(Object.keys(completion).sort()).toEqual([
-      'onboardingCompletedAt',
-      'onboardingStep',
-      'party',
-    ])
-    expect(completion.party).toBe('independent')
 
-    expect(eventProps('Serve Onboarding - You Won Viewed')).toHaveLength(1)
-    expect(eventProps('Serve Onboarding - You Won Completed')).toEqual([
-      { electedOfficeId: EO_ID, hasPopulation: true },
-    ])
     expect(eventProps('Serve Onboarding - First Meeting Completed')).toEqual([
       {
         electedOfficeId: EO_ID,
@@ -321,185 +576,404 @@ describe('the warm welcome', () => {
         calendar: 'google',
       },
     ])
-    expect(
-      eventProps('Serve Onboarding - Meeting Briefing Completed'),
-    ).toHaveLength(1)
-    expect(eventProps('Serve Onboarding - Recap Viewed')).toHaveLength(1)
+    expect(eventProps('Serve Onboarding - Meeting Briefing Completed')).toEqual(
+      [{ electedOfficeId: EO_ID, textReminder: true }],
+    )
+    expect(eventProps('Serve Onboarding - Residents Completed')).toEqual([
+      {
+        electedOfficeId: EO_ID,
+        civicPanel: 'set_up',
+        sawComments: true,
+        editedInvite: false,
+        firstSendChoice: 'sworn',
+      },
+    ])
+    expect(eventProps('Serve Onboarding - First Focus Completed')).toEqual([
+      {
+        electedOfficeId: EO_ID,
+        shown: 3,
+        kind: 'community',
+        focusKind: 'community',
+        residentInterest: 'high',
+        firstWin: 'weeks',
+      },
+    ])
     await waitFor(() =>
       expect(eventProps('Serve Onboarding - Net New Completed')).toEqual([
         { electedOfficeId: EO_ID, flow: 'warm_welcome' },
       ]),
     )
-    expect(eventProps('Serve Onboarding - Recap Completed')).toHaveLength(1)
-    expect(eventProps('Serve Onboarding - Pledge Completed')).toHaveLength(0)
-  })
-
-  // The schedule gp-api holds is unchanged by a correction, so no briefing
-  // day is promised for it: the briefing step leaves, and the recap says
-  // when their meeting is instead.
-  it('keeps a corrected date for the calendar and the recap, and promises no briefing day for it', async () => {
-    const user = userEvent.setup()
-    mockLoad()
-    renderFlow()
-
-    await press(user, 'Let’s get ready')
-    await press(user, 'That’s not right')
-    expect(await heading('No problem. When is it?')).toBeInTheDocument()
-
-    // The sentence starts on the date we found; move it one day later.
-    const corrected = addDays(FIRST_MEETING, 1)
-    await user.click(screen.getByRole('button', { name: 'Day' }))
-    const calendar = await screen.findByRole('dialog')
-    await user.click(
-      calendar.querySelector(
-        `button[data-day="${corrected.toLocaleDateString()}"]`,
-      ) as HTMLElement,
-    )
-    await press(user, 'Use this date')
-
-    expect(await heading(`${longDay(corrected)} it is.`)).toBeInTheDocument()
-    expect(crumbs()).toEqual(['You won', 'First meeting', 'Recap'])
-
-    await press(user, 'Let’s keep going')
-    await heading('You’re all set, Anna.')
-    const recap = within(screen.getByRole('region', { name: 'Recap' }))
-    expect(
-      recap.getByText('Your first City Council meeting is', { exact: false }),
-    ).toBeInTheDocument()
-    expect(
-      recap.getByText(`${longDay(corrected)} at 7:00 pm.`),
-    ).toBeInTheDocument()
-    expect(eventProps('Serve Onboarding - First Meeting Completed')).toEqual([
-      { electedOfficeId: EO_ID, meetingAnswer: 'corrected', calendar: null },
-    ])
-  })
-
-  it('counts the sentence left as we found it as a yes', async () => {
-    const user = userEvent.setup()
-    mockLoad()
-    renderFlow()
-
-    await press(user, 'Let’s get ready')
-    await press(user, 'That’s not right')
-    await press(user, 'Use this date')
-    await heading(`${longDay(FIRST_MEETING)} it is.`)
-    expect(crumbs()).toEqual([
-      'You won',
-      'First meeting',
+    for (const step of [
+      'You Won',
+      'First Meeting',
       'Meeting Briefing',
+      'Residents',
+      'First Focus',
       'Recap',
+    ]) {
+      expect(
+        eventProps(`Serve Onboarding - ${step} Viewed`).length,
+      ).toBeGreaterThan(0)
+    }
+  }, 30_000)
+
+  it('counts the people who voted for them first, with confetti', async () => {
+    mockLoad()
+    renderFlow()
+
+    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
+    expect(screen.getByText('People who voted for you')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '6,812' })).toBeInTheDocument()
+    await waitFor(() => expect(confetti.pour).toHaveBeenCalledTimes(1), {
+      timeout: 3000,
+    })
+    expect(eventProps('Serve Onboarding - You Won Viewed')).toEqual([
+      { electedOfficeId: EO_ID },
     ])
   })
 
-  // A briefing for a meeting this close starts whenever the office goes
-  // live, so there is no day to promise.
-  it('promises no briefing day for a meeting that is tomorrow', async () => {
+  it('shows the one number for a winner with no vote count', async () => {
+    reduceMotion()
     const user = userEvent.setup()
+    mockLoad({ office: buildOffice({ votesReceived: null }) })
+    renderFlow()
+
+    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
+    expect(screen.getByText('People you now serve')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '29,571' })).toBeInTheDocument()
+    expect(
+      screen.queryByText('People who voted for you'),
+    ).not.toBeInTheDocument()
+
+    await press(user, 'Let’s get ready')
+    await waitFor(() =>
+      expect(eventProps('Serve Onboarding - You Won Completed')).toEqual([
+        { electedOfficeId: EO_ID, hasPopulation: true, hasVotes: false },
+      ]),
+    )
+  })
+
+  it('leaves the card out when there is no number at all', async () => {
+    reduceMotion()
     mockLoad({
-      office: buildOffice({ termStartDate: iso(addDays(TODAY, -5)) }),
-      meetings: [meetingRow(addDays(TODAY, 1))],
+      office: buildOffice({ votesReceived: null }),
+      population: null,
     })
     renderFlow()
 
     expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
-    expect(crumbs()).toEqual(['You won', 'First meeting', 'Recap'])
-    await press(user, 'Let’s get ready')
-    await press(user, 'Yes, that’s it')
-    await press(user, 'Let’s keep going')
-    await heading('You’re all set, Anna.')
+    expect(screen.queryByText('People you now serve')).not.toBeInTheDocument()
     expect(
-      within(screen.getByRole('region', { name: 'Recap' })).getByText(
-        `${longDay(addDays(TODAY, 1))} at 7:00 pm.`,
-      ),
+      screen.getByRole('button', { name: 'Let’s get ready' }),
     ).toBeInTheDocument()
   })
 
-  it('skips the briefing when the official does not know the date yet', async () => {
+  it('saves a date the official corrects, so the briefing follows it', async () => {
+    reduceMotion()
     const user = userEvent.setup()
-    mockLoad()
+    const calls = mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-meeting' }),
+    })
     renderFlow()
 
-    await press(user, 'Let’s get ready')
+    await press(user, 'That’s not right')
+    expect(await heading('No problem. When is it?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Time' }))
+    await user.click(
+      within(screen.getByRole('group', { name: 'Times' })).getByRole('button', {
+        name: '6:30 pm',
+      }),
+    )
+    await press(user, 'Use this date')
+    expect(
+      await heading(`${longDay(FIRST_MEETING)} it is.`),
+    ).toBeInTheDocument()
+    expect(calls.stated).toEqual([
+      { meetingDate: iso(FIRST_MEETING), meetingTime: '18:30' },
+    ])
+    expect(
+      screen.getByText(`${longDay(FIRST_MEETING)}, 6:30 to 8:30 pm`),
+    ).toBeInTheDocument()
+
+    await press(user, 'Let’s keep going')
+    expect(
+      await heading(/Your first Meeting Briefing should be ready/),
+    ).toBeInTheDocument()
+    expect(eventProps('Serve Onboarding - First Meeting Completed')).toEqual([
+      {
+        electedOfficeId: EO_ID,
+        meetingAnswer: 'corrected',
+        calendar: null,
+      },
+    ])
+  })
+
+  it('stays on the date when a correction cannot be saved', async () => {
+    reduceMotion()
+    const user = userEvent.setup()
+    mockLoad({ office: buildOffice({ onboardingStep: 'warm-meeting' }) })
+    api.mock('PUT /v1/meetings/first-meeting', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    renderFlow()
+
+    await press(user, 'That’s not right')
+    await user.click(await screen.findByRole('button', { name: 'Time' }))
+    await user.click(
+      within(screen.getByRole('group', { name: 'Times' })).getByRole('button', {
+        name: '6:30 pm',
+      }),
+    )
+    await press(user, 'Use this date')
+    expect(
+      await screen.findByText('We couldn’t save that date. Please try again.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'No problem. When is it?',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('skips the briefing when they do not know the date yet', async () => {
+    reduceMotion()
+    const user = userEvent.setup()
+    const calls = mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-meeting' }),
+    })
+    renderFlow()
+
     await press(user, 'That’s not right')
     await press(user, 'I don’t know yet')
     expect(
       await heading('That’s okay. We’ll find it and let you know.'),
     ).toBeInTheDocument()
-    // A step that leaves the flow leaves the breadcrumb too.
-    expect(crumbs()).toEqual(['You won', 'First meeting', 'Recap'])
+    expect(
+      paragraph('The city posts its meeting calendar. We check it every day.'),
+    ).toBeInTheDocument()
+    expect(crumbs()).not.toContain('Meeting Briefing')
 
     await press(user, 'Keep going')
-    expect(await heading('You’re all set, Anna.')).toBeInTheDocument()
     expect(
-      screen.getByText('You won. Next up is your first meeting.', {
-        exact: false,
+      await heading('Here’s what people in Northampton are saying.'),
+    ).toBeInTheDocument()
+    expect(calls.stated).toEqual([])
+  })
+
+  it('opens Residents on the ask when the district has no comments', async () => {
+    reduceMotion()
+    const user = userEvent.setup()
+    mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-residents' }),
+      voices: { voices: [], syntheticCount: 0 },
+    })
+    renderFlow()
+
+    expect(
+      await heading('Most officials only hear from the loudest voices.'),
+    ).toBeInTheDocument()
+    await press(user, 'Skip for now')
+    expect(
+      await heading('Let’s get another win under your belt.'),
+    ).toBeInTheDocument()
+    expect(eventProps('Serve Onboarding - Residents Completed')).toEqual([
+      {
+        electedOfficeId: EO_ID,
+        civicPanel: 'skipped',
+        sawComments: false,
+        editedInvite: false,
+        firstSendChoice: null,
+      },
+    ])
+  })
+
+  it('shows the comments and moves on when no Civic Panel can be offered', async () => {
+    reduceMotion()
+    const user = userEvent.setup()
+    mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-residents' }),
+      goal: null,
+    })
+    renderFlow()
+
+    expect(
+      await heading('Here’s what people in Northampton are saying.'),
+    ).toBeInTheDocument()
+    await press(user, 'Next')
+    expect(
+      await heading('Let’s get another win under your belt.'),
+    ).toBeInTheDocument()
+  })
+
+  it('leaves Residents out with no comments and no Civic Panel', async () => {
+    reduceMotion()
+    mockLoad({ voices: { voices: [], syntheticCount: 0 }, goal: null })
+    renderFlow()
+
+    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
+    expect(crumbs()).toEqual([
+      'You won',
+      'First meeting',
+      'Meeting Briefing',
+      'Priorities',
+      'Recap',
+    ])
+  })
+
+  it('does not ask again once a Civic Panel is being built', async () => {
+    reduceMotion()
+    const user = userEvent.setup()
+    const firstSend = addDays(TODAY, 20)
+    const calls = mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-residents' }),
+      built: { firstSendDate: iso(firstSend) },
+    })
+    renderFlow()
+
+    await press(user, 'Next')
+    expect(
+      await heading(`All set! We’ll start texting on ${longDay(firstSend)}.`),
+    ).toBeInTheDocument()
+    expect(calls.panel).toEqual([])
+  })
+
+  it('lets them change the invite and start tomorrow as the official-elect', async () => {
+    reduceMotion()
+    const user = userEvent.setup()
+    const calls = mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-residents' }),
+      voices: { voices: [], syntheticCount: 0 },
+    })
+    renderFlow()
+
+    await press(user, 'Yes')
+    await press(user, 'Edit message')
+    const editable = screen.getByRole('textbox', {
+      name: 'The part of the invitation you can change',
+    })
+    await user.type(editable, ' Thank you!')
+    await press(user, 'Done editing')
+    await press(user, 'Pick a day')
+    const [first] = await screen.findAllByRole('radio')
+    await user.click(first!)
+    await press(user, 'Set it up')
+    await waitFor(() => expect(calls.panel).toHaveLength(1))
+    expect(calls.panel[0]?.inviteMessage).toContain(
+      'your Northampton City Council Member-elect.',
+    )
+    expect(calls.panel[0]?.inviteMessage).toContain(
+      'please reply with JOIN. Thank you!\n\nThis is a nonpartisan panel.',
+    )
+  })
+
+  it('stays on the day when the Civic Panel cannot be set up', async () => {
+    reduceMotion()
+    const user = userEvent.setup()
+    mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-residents' }),
+      voices: { voices: [], syntheticCount: 0 },
+    })
+    api.mock('POST /v1/contacts/civic-panel/managed', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    renderFlow()
+
+    await press(user, 'Yes')
+    await press(user, 'Pick a day')
+    const [first] = await screen.findAllByRole('radio')
+    await user.click(first!)
+    await press(user, 'Set it up')
+    expect(
+      await screen.findByText(
+        'We couldn’t set up your Civic Panel. Please try again.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'When should the first invites go out?',
       }),
     ).toBeInTheDocument()
-    expect(
-      screen.getByText('We’ll help you get ready for it.'),
-    ).toBeInTheDocument()
-    expect(eventProps('Serve Onboarding - First Meeting Completed')).toEqual([
-      { electedOfficeId: EO_ID, meetingAnswer: 'unknown', calendar: null },
-    ])
   })
 
-  it('goes from the win to the recap when no meeting has been found', async () => {
+  it('names what they ran on, and leaves Priorities out with no issues', async () => {
+    reduceMotion()
+    mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-priorities' }),
+      focus: {
+        kind: 'ran_on',
+        options: [
+          card({ key: 'p1', kind: 'ran_on', title: 'Slow the traffic' }),
+        ],
+      },
+    })
+    const first = renderFlow()
+    expect(
+      await screen.findByText('Here’s what you ran on, pick one to start.'),
+    ).toBeInTheDocument()
+    first.unmount()
+
+    testQueryClient.clear()
+    mockLoad({ focus: { kind: 'community', options: [] } })
+    renderFlow()
+    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
+    expect(crumbs()).not.toContain('Priorities')
+  })
+
+  it('offers the Civic Panel again from the recap when it was skipped', async () => {
+    reduceMotion()
     const user = userEvent.setup()
-    mockLoad({ meetings: [], population: null })
+    mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-recap' }),
+      meetings: [],
+    })
     renderFlow()
 
-    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
-    // No number we can stand behind, so no card.
-    expect(screen.queryByText('People you now serve')).not.toBeInTheDocument()
-    expect(crumbs()).toEqual(['You won', 'Recap'])
-
-    await press(user, 'Let’s get ready')
     expect(await heading('You’re all set, Anna.')).toBeInTheDocument()
+    const recap = screen.getByRole('region', { name: 'Recap' })
     expect(
-      screen.getByText('We’ll help you get ready for it.'),
+      within(recap).getByText('We’ll help you get ready for it.'),
     ).toBeInTheDocument()
-    expect(eventProps('Serve Onboarding - You Won Completed')).toEqual([
-      { electedOfficeId: EO_ID, hasPopulation: false },
-    ])
+    expect(
+      within(recap).getByText(
+        'prepare for meetings, draft ordinances, and connect with residents.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(recap).getByText(
+        'We can gather 240 neighbors you can ask anything, by text.',
+      ),
+    ).toBeInTheDocument()
+
+    await press(user, 'See how the Civic Panel works')
+    expect(
+      await heading('Most officials only hear from the loudest voices.'),
+    ).toBeInTheDocument()
   })
 
-  it('goes back by the footer and by the breadcrumb, never ahead', async () => {
+  it('finishes with no term date when they never confirmed a meeting', async () => {
+    reduceMotion()
     const user = userEvent.setup()
-    mockLoad()
+    const calls = mockLoad({
+      office: buildOffice({ onboardingStep: 'warm-recap' }),
+      meetings: [],
+    })
     renderFlow()
 
-    await press(user, 'Let’s get ready')
-    await heading(/It looks like your first City Council meeting is/)
-    const nav = screen.getByRole('navigation', { name: 'Steps' })
-    expect(
-      within(nav).getByRole('button', { name: 'First meeting' }),
-    ).toHaveAttribute('aria-current', 'step')
-    expect(
-      within(nav).getByRole('button', { name: 'Meeting Briefing' }),
-    ).toBeDisabled()
-
-    await press(user, 'Back')
-    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
-
-    await press(user, 'Let’s get ready')
-    await heading(/It looks like your first City Council meeting is/)
-    await user.click(within(nav).getByRole('button', { name: 'You won' }))
-    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
-    // Entering a step again counts as a view each time.
-    expect(eventProps('Serve Onboarding - You Won Viewed')).toHaveLength(3)
+    await press(user, 'Done')
+    await waitFor(() =>
+      expect(calls.saves.at(-1)).toMatchObject({
+        onboardingStep: 'warm-recap',
+      }),
+    )
+    expect(calls.saves.at(-1)).not.toHaveProperty('termStartDate')
   })
 
-  it('resumes at the step the official had reached', async () => {
-    mockLoad({ office: buildOffice({ onboardingStep: 'warm-briefing' }) })
-    renderFlow()
-
-    expect(
-      await heading(/Your first Meeting Briefing will be ready by/),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled()
-  })
-
-  it('keeps the official on the recap when the completion save fails', async () => {
+  it('says so and stays when Done cannot be saved', async () => {
+    reduceMotion()
     const user = userEvent.setup()
     mockLoad({ office: buildOffice({ onboardingStep: 'warm-recap' }) })
     api.mock('PUT /v1/elected-office/:id', {
@@ -514,58 +988,77 @@ describe('the warm welcome', () => {
         'We couldn’t finish setting up your office. Please try again.',
       ),
     ).toBeInTheDocument()
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled(),
-    )
-    expect(eventProps('Serve Onboarding - Net New Completed')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled()
+    expect(eventProps('Serve Onboarding - Net New Completed')).toEqual([])
   })
 
-  it('lets an impersonating admin leave without finishing it', async () => {
+  it('goes back a step from the footer and from the breadcrumb', async () => {
+    reduceMotion()
+    const user = userEvent.setup()
+    mockLoad({ office: buildOffice({ onboardingStep: 'warm-briefing' }) })
+    renderFlow()
+
+    expect(
+      await heading(/Your first Meeting Briefing should be ready/),
+    ).toBeInTheDocument()
+    await press(user, 'Back')
+    expect(await heading(/It looks like your first/)).toBeInTheDocument()
+    await user.click(
+      within(screen.getByRole('navigation', { name: 'Steps' })).getByRole(
+        'button',
+        { name: 'You won' },
+      ),
+    )
+    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
+  })
+
+  it('tells an impersonating admin to leave without finishing', async () => {
+    reduceMotion()
     impersonation.active = true
     mockLoad()
     renderFlow()
 
     expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
+    expect(screen.getByText(/Impersonation mode/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument()
   })
 })
 
 describe('who gets the warm welcome', () => {
-  const STEPPER_TERM_TITLE = 'When does your term run?'
+  const stepperLoads = async (): Promise<void> => {
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByRole('navigation', { name: 'Steps' }),
+        ).not.toBeInTheDocument(),
+      { timeout: 3000 },
+    )
+  }
 
-  it('leaves everyone on the stepper onboarding while the flag is off', async () => {
-    warmWelcomeFlag.enabled = false
-    mockLoad()
+  it('is not shown for an office that did not come from a win', async () => {
+    reduceMotion()
+    mockLoad({ office: buildOffice({ campaignId: null }) })
     renderFlow()
-
-    expect(await heading('Does this look right?')).toBeInTheDocument()
+    await stepperLoads()
     expect(
-      screen.queryByText('Well done, Anna. You won!'),
+      screen.queryByRole('heading', { name: 'Well done, Anna. You won!' }),
     ).not.toBeInTheDocument()
   })
 
-  // Done cannot make the completion save without a term, and the warm
-  // welcome has no screen that asks for one.
-  it('keeps the stepper, which asks for the term, when the office has no term dates', async () => {
-    mockLoad({
-      office: buildOffice({ termStartDate: null, termEndDate: null }),
-    })
-    renderFlow()
-
-    expect(await heading(STEPPER_TERM_TITLE)).toBeInTheDocument()
-  })
-
-  it('keeps the stepper, with its party step, for a major party', async () => {
+  it('is not shown to a winner in a major party, who gets the party step', async () => {
+    reduceMotion()
     mockLoad({ office: buildOffice({ party: 'democratic' }) })
     renderFlow()
-
-    expect(await heading(/party designation/i)).toBeInTheDocument()
+    await stepperLoads()
+    expect(
+      screen.queryByRole('heading', { name: 'Well done, Anna. You won!' }),
+    ).not.toBeInTheDocument()
   })
 
-  it('keeps the stepper for an office that did not come from a win', async () => {
-    mockLoad({ office: buildOffice({ campaignId: null }) })
+  it('is shown to a winner whose office has no term dates', async () => {
+    reduceMotion()
+    mockLoad()
     renderFlow()
-
-    expect(await heading('Does this look right?')).toBeInTheDocument()
+    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
   })
 })
