@@ -1,6 +1,6 @@
 # Case scout quality bench
 
-A fixed yardstick for the cases the scout drafts. Twenty fictional chats with
+A fixed yardstick for the cases the scout drafts. Twenty-six fictional chats with
 known right answers go through the scout's own scoring, drafting and PII-gate
 code (`src/caseScout`: `caseScout.prompts.ts`, `CaseScoutModelService`,
 `util/gate.util.ts`), then automatic checks run on each one and you grade
@@ -39,9 +39,9 @@ the report's shape; it says nothing about quality.
 ## What it costs
 
 The CLI prints an estimate before anything runs. With the current fixtures and
-`claude-opus-4-7` at $5 / $25 per million tokens: about $2.75 for a run that
-goes the way the labels say (19 scoring calls, 12 drafting calls, 11 gate
-reads), and at most about $6.25 if every covered chat is drafted and every call
+`claude-opus-4-7` at $5 / $25 per million tokens: about $3.40 for a run that
+goes the way the labels say (25 scoring calls, 13 drafting calls, 12 gate
+reads), and at most about $8.10 if every covered chat is drafted and every call
 needs its one retry. The estimate is from character counts, since the model
 service returns only text, and it prices every scoring call's product map at
 the full input rate, so it overstates a run whose calls read that map from the
@@ -63,6 +63,16 @@ returns, so fixtures reach session splitting the way stored chats do.
 | `planted_pii`     | 2     | Draft without any planted PII, or drop the draft                                      |
 | `duplicate`       | 1     | Skip it as covered by the case already on main                                        |
 | `uncovered_agent` | 1     | Ignore it: never scored, no ledger line                                               |
+| `hidden_context`  | 6     | Judge by what the assistant had (see below)                                           |
+
+The `hidden_context` fixtures pin what the scorer cannot see: tool results,
+the per-turn briefing and the product map. Five are right answers that only
+look invented without them (a win number and cell-phone count from the
+briefing, texting verification told as the map tells it, a count right after
+`count_contacts`, opponents from the plan, a detail the map does not mention
+after `search_help_center`): not drafted, severity 1 at most. One is a
+positive control, a texting deadline that contradicts the map: drafted.
+Each fixture's `notes` say why.
 
 Everything in a fixture is invented: names, towns, offices, phone numbers
 (555-01xx) and emails (example.com). They are the yardstick, so a change to one
@@ -74,6 +84,10 @@ Per fixture, in `results.json` and the report:
 
 - `scored` or `ignored`: a covered agent's chat got a score; an uncovered one was never touched.
 - `drafted`: a case reached the bundle exactly when the label says.
+- `severity`: the score is no higher than the label's `max_severity`, when it
+  sets one. It checks the score itself, because a chat flagged at 2 or 3 that
+  the drafter sends to `needsSetup` never reaches the bundle, so `drafted`
+  alone would pass it.
 - `skipped_as_covered`: the duplicate came back as covered.
 - `pattern`: the expected known pattern is among the scout's severity 2+ requests.
 - `no_planted_pii`: no planted PII string from any fixture appears in a draft.

@@ -100,13 +100,20 @@ that carries account facts belongs in that list too.
 - **The scorer** is told a specific number, opponent, local event, priority or
   product step that could have come from the briefing, the product map or a
   tool result is not evidence of fabrication; only the transcript showing it
-  wrong (a correction, a contradiction, an impossibility) is.
+  wrong (a correction, a contradiction, an impossibility) is. Nor is a
+  product detail the map does not mention, since a help center search or
+  another tool can supply it: a product statement is wrong only when it
+  contradicts the map or the transcript. The quality bench's
+  `hidden_context` fixtures pin both directions.
 - **The drafter** drafts a fabrication case only when the failure holds up
   given the briefing and tool calls. A failure that rests on facts only the
   real account had becomes `needsSetup`, naming what the test account would
   need, never a user turn that brings those facts up. Each later turn must
   make sense whatever the live assistant replies, because the judge posts it
-  to a fresh test account.
+  to a fresh test account. It sees each existing condition and recent
+  proposal as `caseId: text` and answers `coveredBy` with that id. An id it
+  was not shown is still recorded as covered, raw, in the ledger: the session
+  is skipped either way, and nothing about it leaves the bucket.
 - **Only the scorer** reads the scope's product map, exactly as the assistant
   renders it (`buildProductKnowledgeBlocks`, help center on, Pro left out), as
   the first system block with an Anthropic cache breakpoint, so a night's

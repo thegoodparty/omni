@@ -377,7 +377,12 @@ beforeEach(() => {
     agentId,
     caseCount: 11,
     caseIds: new Set(['existing-case']),
-    conditions: ['An existing condition the judge already checks.'],
+    conditions: [
+      {
+        caseId: 'existing-case',
+        condition: 'An existing condition the judge already checks.',
+      },
+    ],
     fixtureDescription: 'The fixture account.',
   }))
 

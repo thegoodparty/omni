@@ -202,7 +202,9 @@ export const readLocalCaseList = (
     agentId,
     caseCount: list.cases.length,
     caseIds: new Set(list.cases.map((c) => c.caseId)),
-    conditions: list.cases.flatMap((c) => (c.condition ? [c.condition] : [])),
+    conditions: list.cases.flatMap((c) =>
+      c.condition ? [{ caseId: c.caseId, condition: c.condition }] : [],
+    ),
     fixtureDescription: list.note ?? '',
   }
 }
@@ -708,6 +710,17 @@ const fixtureResult = ({
           (flagged.length > 0 ? flagged.join(', ') : 'nothing at severity 2+'),
       )
     }
+  }
+
+  if (expect.max_severity !== null) {
+    checks.severity =
+      score === null
+        ? check(FAIL, 'not scored')
+        : check(
+            score.severity <= expect.max_severity ? PASS : FAIL,
+            `expected at most ${expect.max_severity}, scout gave ` +
+              `${score.severity}`,
+          )
   }
 
   if (finalCase) {

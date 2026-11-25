@@ -10,11 +10,13 @@ const FETCH_TIMEOUT_MS = 15_000
 // About 25 cases per chat agent's list (Implementation Notes 2.8).
 export const LIST_SOFT_CAP = 25
 
+export type CaseCondition = { caseId: string; condition: string }
+
 export type CaseListInfo = {
   agentId: string
   caseCount: number
   caseIds: Set<string>
-  conditions: string[]
+  conditions: CaseCondition[]
   fixtureDescription: string
 }
 
@@ -57,7 +59,11 @@ export class CaseScoutCaseListsService {
       agentId,
       caseCount: file.cases.length,
       caseIds: new Set(file.cases.flatMap((c) => (c.caseId ? [c.caseId] : []))),
-      conditions: file.cases.flatMap((c) => (c.condition ? [c.condition] : [])),
+      conditions: file.cases.flatMap((c) =>
+        c.caseId && c.condition
+          ? [{ caseId: c.caseId, condition: c.condition }]
+          : [],
+      ),
       fixtureDescription: file.note ?? '',
     }
   }
