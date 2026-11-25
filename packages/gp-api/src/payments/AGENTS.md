@@ -46,11 +46,28 @@ Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suff
 
 ## Pro subscription lifecycle
 
-Where Pro state lives (all of it — there is no subscription table):
+`invoice.paid` grants or confirms Pro for an active or trialing subscription to
+our Pro Stripe product. A trial invoice can be paid at zero dollars. Checkout
+stamps `userId` and `campaignId` on both the session
+and its subscription. The handler dispatches to that exact owned campaign,
+never the buyer’s currently active campaign. For older subscriptions without
+campaign metadata, it requires one existing `details.subscriptionId` match;
+ambiguous or missing links must be investigated, not inferred from email.
+`setIsPro` commits the link, entitlement, plan columns and upgrade timestamp
+under the campaign row lock. Replays don’t create another upgrade.
+
+**Cutover:** Stripe’s test and live endpoints must deliver `invoice.paid` to
+`POST /v1/payments/events`. Verify a test checkout and a renewal before setting
+`stripeProInvoiceOnly=true` in the respective gp-api Pulumi stack. Until then,
+legacy Checkout/Subscription handlers still grant as a compatibility fallback.
+Once enabled, only `invoice.paid` grants subscription-backed Pro; one-time and
+staff grants are unaffected. Revert the stack setting if delivery breaks.
+
+Where Pro state lives (there is no subscription table):
 
 - `campaign.details.subscriptionId` / `subscriptionCanceledAt` — set by the
-  `checkout.session.completed` / `customer.subscription.*` webhooks in
-  `paymentEventsService.ts`. All of these go through
+  `invoice.paid` and `customer.subscription.*` webhooks in
+  `paymentEventsService.ts`. Lifecycle patches outside the grant go through
   `CampaignsService.patchCampaignDetails`, which merges the key server-side in
   one `UPDATE ... details || $1::jsonb`. That is not a style preference: these
   handlers patch DIFFERENT keys of the SAME blob milliseconds apart (Stripe
@@ -66,15 +83,12 @@ Where Pro state lives (all of it — there is no subscription table):
   derived from the **prior** `isPro`, so a flip that commits without its stamp
   cannot be repaired by a redelivery — the redelivery sees `isPro=true` and
   skips it. See `src/campaigns/AGENTS.md` § Patterns before touching either
-  write path. Two events fulfil Pro, not one: `checkout.session.completed` and
-  `customer.subscription.created` (from the subscription's own metadata), so a
-  completion that is lost no longer strands a paying account on the free plan
-  (ENG-11182, ENG-11672). Both arms stamp `plan = pro`,
-  `planPricingModel = subscription` and clear `planEndedAt` in the same commit
-  as the flip, and run the one-time effects (opponent research, the agentic
+  write path. The grant stamps `plan = pro`,
+  `planPricingModel = subscription` and clears `planEndedAt` in the same commit
+  as the flip, and runs the one-time effects (opponent research, the agentic
   10DLC kickoff, the Pro Slack and voter-file alerts) through
   `PaymentEventsService.onBecamePro` only when `becamePro` is true, so they
-  fire once from whichever arm wins. `customer.subscription.deleted` writes
+  fire once. `customer.subscription.deleted` writes
   `plan = free` and stamps `planEndedAt`. A campaign holding a live one-time
   plan (`holdsOneTimePlan`, `src/campaigns/plans/planState.util.ts`) keeps it
   through both, decided under `setIsPro`'s row lock: its `data` may be a
@@ -87,9 +101,9 @@ Where Pro state lives (all of it — there is no subscription table):
   `PurchaseController.recoverCustomerIdFromSubscription` when the boot-time
   backfill missed the user because they had no stored `checkoutSessionId`).
 - `user.metaData.checkoutSessionId` — the ONE open Pro checkout session per
-  user. Written only by `createProCheckoutSession`, cleared by the completion
-  webhook, by `customer.subscription.created` when the stored session created
-  that subscription, and by the expiry webhook.
+  user. Written only by `createProCheckoutSession`. The paid-invoice handler
+  clears it only if that session created the subscription. The expiry webhook
+  also clears it, and the legacy grant handlers can clear it during cutover.
 
 **Failed renewals reach the candidate through Segment, not email code.**
 `customer.subscription.updated` fires `Account - Pro Subscription Past Due`

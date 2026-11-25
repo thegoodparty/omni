@@ -224,7 +224,7 @@ describe('PaymentEventsService', () => {
       )
     })
 
-    it('error-logs a differing stored subscriptionId without blocking fulfillment', async () => {
+    it('error-logs a differing stored subscriptionId without overwriting it', async () => {
       campaignsService.findActiveByUserId.mockResolvedValue({
         ...mockCampaign,
         details: { ...mockCampaign.details, subscriptionId: 'sub_previous' },
@@ -241,14 +241,8 @@ describe('PaymentEventsService', () => {
         },
         expect.stringContaining('possible duplicate Pro subscription'),
       )
-      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
-        mockCampaign.id,
-        { subscriptionId: 'sub_test' },
-      )
-      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
-        mockCampaign.id,
-        ...subscriptionProArgs,
-      )
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
     })
 
     it('does not log a duplicate alert when the stored subscriptionId matches (webhook replay)', async () => {
@@ -298,7 +292,7 @@ describe('PaymentEventsService', () => {
       ).resolves.not.toThrow()
 
       expect(logger.error).toHaveBeenCalledWith(
-        expect.objectContaining({ error: trackError }),
+        expect.objectContaining({ err: trackError }),
         expect.stringContaining('pro_upgrade_complete'),
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
@@ -540,10 +534,7 @@ describe('PaymentEventsService', () => {
       expect(campaignsService.findActiveByUserId).toHaveBeenCalledWith(
         mockUser.id,
       )
-      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
-        activeCampaign.id,
-        expect.objectContaining({ subscriptionId: 'sub_test' }),
-      )
+      expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
       expect(campaignsService.setIsPro).toHaveBeenCalledWith(
         activeCampaign.id,
         ...subscriptionProArgs,
@@ -581,7 +572,7 @@ describe('PaymentEventsService', () => {
       expect(campaignsService.setIsPro).not.toHaveBeenCalled()
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ userId: mockUser.id }),
-        expect.stringContaining('active campaign'),
+        expect.stringContaining('matching campaign'),
       )
     })
   })
@@ -748,7 +739,7 @@ describe('PaymentEventsService', () => {
       expect(campaignsService.patchCampaignDetails).not.toHaveBeenCalled()
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ userId: mockUser.id }),
-        expect.stringContaining('active campaign'),
+        expect.stringContaining('matching campaign'),
       )
     })
   })
