@@ -612,6 +612,8 @@ export { PLAN_PRICING } from './payments/PlanPricing.const'
 export { planEndsAt, planLastDay } from './payments/PlanEndsAt'
 export {
   PlanReceiptSchema,
+  PlanReceiptPaymentMethodSchema,
+  type PlanReceiptPaymentMethod,
   type PlanReceipt,
 } from './payments/PlanReceipt.schema'
 export {
