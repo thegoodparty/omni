@@ -89,7 +89,8 @@ The five `cases/<agent>.json` files those lists were are still in
 case scout reads case ids and conditions from the `campaign_assistant` and
 `chief_of_staff` suites themselves, by parsing their source off main, and
 reads the JSON only for its fixture note and as a fallback; the scout's bench
-reads the JSON back. A change to one changes no verdict. A case in those two
+reads both the same way from its own checkout. A change to one changes no
+verdict. A case in those two
 suites keeps its `id` and `grading.condition` as string literals (several
 joined by `+` is fine), or the scout's reader test fails: see
 `packages/gp-api/src/caseScout/AGENTS.md`.

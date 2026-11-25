@@ -35,8 +35,10 @@ reads the agent's file off main for its `note` (the drafter's fixture
 description) and as a fallback: ids are the union of both, and a condition in
 both reads the suite's. A failed or unreadable source is a line in the run
 record; only when neither reads does the night draft against an empty list.
-The scout's bench reads the files to check that a draft parses once appended.
-No judge runs them, so a change to one has no effect on any gate.
+The quality bench builds its lists the same way (`mergeCaseLists`) from its
+own checkout, and throws on a suite it cannot read in full, since it has no
+run record; it also appends each draft to the local JSON to check that it
+parses. No judge runs them, so a change to one has no effect on any gate.
 
 ## Flow
 

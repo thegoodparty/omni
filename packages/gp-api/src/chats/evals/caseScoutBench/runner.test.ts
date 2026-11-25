@@ -430,6 +430,16 @@ describe('readLocalCaseList', () => {
       expect(list.caseIds.has(caseId)).toBe(true)
     }
   })
+
+  it('reads the judged suite from this checkout', () => {
+    const list = readLocalCaseList(
+      'chief_of_staff',
+      path.join(CASES_DIR, 'no-such-dir'),
+    )
+    expect(list.caseIds.has('individual-record-refusal')).toBe(true)
+    expect(list.caseCount).toBe(list.caseIds.size)
+    expect(list.fixtureDescription).toBe('')
+  })
 })
 
 describe('draftLoaderIssue', () => {

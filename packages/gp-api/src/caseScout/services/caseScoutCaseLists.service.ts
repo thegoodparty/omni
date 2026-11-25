@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { readSuiteCases, type SuiteCases } from '../util/suiteCases.util'
+import {
+  readSuiteCases,
+  type SuiteCase,
+  type SuiteCases,
+} from '../util/suiteCases.util'
 
 const MAIN_URL = 'https://raw.githubusercontent.com/thegoodparty/omni/main/'
 const CASE_LIST_DIR = 'packages/gp-api/src/chats/evals/judge/cases'
@@ -49,6 +53,40 @@ const CaseListFileSchema = z.object({
 })
 
 type CaseListFile = z.infer<typeof CaseListFileSchema>
+
+// The job and the quality bench both build an agent's list this way, so the
+// bench drafts against what the job would see: ids from both sources, the
+// suite's condition where both have one, the note from the JSON.
+export const mergeCaseLists = (
+  agentId: string,
+  suiteCases: SuiteCase[],
+  list: CaseListFile | undefined,
+): CaseListInfo => {
+  const listCases = list?.cases ?? []
+  const caseIds = new Set([
+    ...suiteCases.map((c) => c.caseId),
+    ...listCases.flatMap((c) => (c.caseId ? [c.caseId] : [])),
+  ])
+  const conditions = new Map<string, string>()
+  for (const c of suiteCases) {
+    if (c.condition) conditions.set(c.caseId, c.condition)
+  }
+  for (const c of listCases) {
+    if (c.caseId && c.condition && !conditions.has(c.caseId)) {
+      conditions.set(c.caseId, c.condition)
+    }
+  }
+  return {
+    agentId,
+    caseCount: caseIds.size,
+    caseIds,
+    conditions: [...conditions].map(([caseId, condition]) => ({
+      caseId,
+      condition,
+    })),
+    fixtureDescription: list?.note ?? '',
+  }
+}
 
 const fetchText = async (path: string): Promise<string> => {
   const response = await fetch(`${MAIN_URL}${path}`, {
@@ -129,30 +167,7 @@ export class CaseScoutCaseListsService {
       throw new Error(`no case list for ${agentId} could be read`)
     }
 
-    const listCases = list?.cases ?? []
-    const caseIds = new Set([
-      ...suiteCases.map((c) => c.caseId),
-      ...listCases.flatMap((c) => (c.caseId ? [c.caseId] : [])),
-    ])
-    const conditions = new Map<string, string>()
-    for (const c of suiteCases) {
-      if (c.condition) conditions.set(c.caseId, c.condition)
-    }
-    for (const c of listCases) {
-      if (c.caseId && c.condition && !conditions.has(c.caseId)) {
-        conditions.set(c.caseId, c.condition)
-      }
-    }
-    return {
-      agentId,
-      caseCount: caseIds.size,
-      caseIds,
-      conditions: [...conditions].map(([caseId, condition]) => ({
-        caseId,
-        condition,
-      })),
-      fixtureDescription: list?.note ?? '',
-    }
+    return mergeCaseLists(agentId, suiteCases, list)
   }
 
   // A GitHub hiccup costs tonight's drafts their view of the existing
