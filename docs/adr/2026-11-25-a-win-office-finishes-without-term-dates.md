@@ -3,7 +3,7 @@ title: A win office finishes Serve onboarding without term dates, and its term s
 status: active
 decided_by: [agent]
 date: 2026-11-25
-code: []
+code: ['#4066']
 scope:
   - packages/gp-api/src/electedOffice/electedOffice.controller.ts
   - packages/gp-api/src/electedOffice/util/electedOffice.util.ts

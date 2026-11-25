@@ -76,12 +76,11 @@ const Place = ({
   town: string | null
   delay: number
 }): React.JSX.Element | null => {
-  const at = meetingPlace(meeting.location, meeting.place)
+  const at = meetingPlace(meeting.location)
   const point = useMeetingPoint(
     town && !meeting.location.includes(town)
       ? `${meeting.location}, ${town}`
       : meeting.location,
-    meeting.point,
   )
   const rise = useRise(delay)
   if (!at) return null
@@ -94,7 +93,6 @@ const Place = ({
           <span>{at.place}</span>
         </b>
         {at.address && <span>{at.address}</span>}
-        {at.room && <span>{at.room}</span>}
       </div>
     </div>
   )
@@ -116,7 +114,7 @@ const CalendarCard = ({
     calendarLinks(meeting, copy.calendarDetails(meeting)),
   )
   const rise = useRise(delay)
-  const at = meetingPlace(meeting.location, meeting.place)
+  const at = meetingPlace(meeting.location)
   const street = at?.address.split(',')[0]?.trim()
   return (
     <div className="gcard calcard ui" style={rise}>

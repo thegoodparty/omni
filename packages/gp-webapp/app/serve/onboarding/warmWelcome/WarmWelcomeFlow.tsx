@@ -255,11 +255,17 @@ const WarmWelcomeFlow = ({
   )
   const [answer, setAnswer] = useState<MeetingAnswer | null>(null)
   const meeting: FirstMeeting | null = answer ? answer.meeting : found
+  // A meeting the official stated on an earlier visit comes back from gp-api
+  // as theirs, so it still counts as confirmed.
+  const statedEarlier = found?.source === 'picked'
   // Their first day in office: the term on file, else the first meeting
   // they confirmed here.
-  const swornIn =
-    parseDay(office.termStartDate) ??
-    (answer && answer.kind !== 'unknown' ? answer.meeting.day : null)
+  const confirmedDay = answer
+    ? (answer.meeting?.day ?? null)
+    : statedEarlier
+      ? found.day
+      : null
+  const swornIn = parseDay(office.termStartDate) ?? confirmedDay
 
   const voices = voicesQuery.data?.voices ?? []
   const syntheticCount = voicesQuery.data?.syntheticCount ?? 0
@@ -371,7 +377,8 @@ const WarmWelcomeFlow = ({
   // A date the official corrects is saved, so their Meeting Briefing follows
   // it. Confirming the date we found, or not knowing yet, clears one saved
   // earlier.
-  const [stated, setStated] = useState(false)
+  const [statedNow, setStated] = useState<boolean | null>(null)
+  const stated = statedNow ?? statedEarlier
   const answerMeeting = async (next: MeetingAnswer): Promise<boolean> => {
     setSaving(true)
     try {

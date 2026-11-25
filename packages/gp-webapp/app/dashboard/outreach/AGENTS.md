@@ -170,7 +170,7 @@ SMS segments, since the invite goes out as MMS. It posts
 `/v1/contacts/civic-panel/managed` with contracts'
 `MANAGED_CIVIC_PANEL_CONSENT_VERSION` and the picked day as `firstSendDate`,
 and calls `onSetUp`. The first wave goes out that day (gp-api
-`docs/adr/2026-11-17-managed-panel-first-wave-on-the-chosen-day.md`).
+`docs/adr/2026-11-25-managed-panel-first-wave-up-to-90-days-out.md`).
 
 A text to civic panel members alone carries no LEAVE line either: STOP
 already takes a member off the civic panel, so it ends like any other text.

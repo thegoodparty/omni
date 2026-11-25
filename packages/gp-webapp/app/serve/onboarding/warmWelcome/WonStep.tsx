@@ -47,7 +47,6 @@ type Phase = 'wait' | 'zeros' | 'counting' | 'landed'
 // Each number's zeros arrive one by one, it counts up, and it pops as it
 // lands with a small burst of confetti.
 const Tallies = ({ tallies }: { tallies: Tally[] }): React.JSX.Element => {
-  const offset = useEntranceOffset()
   const confetti = useConfetti()
   const slotRef = useRef<HTMLDivElement>(null)
   const numberRef = useRef<HTMLSpanElement>(null)
@@ -63,8 +62,10 @@ const Tallies = ({ tallies }: { tallies: Tally[] }): React.JSX.Element => {
     if (reduced) return
     const timers: ReturnType<typeof setTimeout>[] = []
     let frame = 0
+    // The card's own sequence runs from the moment the step starts; only the
+    // words and the button wait for the slide between steps.
     const later = (ms: number, run: () => void): void => {
-      timers.push(setTimeout(run, offset + ms))
+      timers.push(setTimeout(run, ms))
     }
     const count = (target: number): void => {
       setPhase('counting')
@@ -105,7 +106,7 @@ const Tallies = ({ tallies }: { tallies: Tally[] }): React.JSX.Element => {
       timers.forEach(clearTimeout)
       cancelAnimationFrame(frame)
     }
-  }, [reduced, offset, tallies, confetti])
+  }, [reduced, tallies, confetti])
 
   const tally = tallies[at]
   if (!tally) return <></>

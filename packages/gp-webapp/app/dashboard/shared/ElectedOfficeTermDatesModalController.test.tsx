@@ -133,6 +133,38 @@ describe('ElectedOfficeTermDatesModalController', () => {
     expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
   })
 
+  it('does not prompt a winner the day they finish the welcome', async () => {
+    mockMine([
+      office({
+        id: 'eo-1',
+        campaignId: 7,
+        onboardingCompletedAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+    ])
+
+    render(<ElectedOfficeTermDatesModalController />)
+
+    await waitFor(() => expect(mockClientRequest).toHaveBeenCalled())
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+  })
+
+  it('prompts a winner still missing a term date from the next day on', async () => {
+    mockMine([
+      office({
+        id: 'eo-1',
+        campaignId: 7,
+        termStartDate: '2027-01-04',
+        onboardingCompletedAt: new Date(
+          Date.now() - 25 * 60 * 60 * 1000,
+        ).toISOString(),
+      }),
+    ])
+
+    render(<ElectedOfficeTermDatesModalController />)
+
+    expect(await screen.findByText(TITLE)).toBeInTheDocument()
+  })
+
   it('does not prompt when a settled office already has both term dates', async () => {
     mockMine([
       office({

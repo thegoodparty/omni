@@ -17,43 +17,20 @@ export interface FirstMeeting {
   location: string
   // IANA zone of the meeting's clock, when the schedule gave one.
   timeZone: string | null
+  // From the office's meeting schedule, or stated by the official.
   source: 'found' | 'picked'
-  // The location in parts, when the schedule holds them.
-  place?: {
-    name?: string | null
-    address?: string | null
-    room?: string | null
-  }
-  // Where it is on the map, when gp-api already knows.
-  point: { lat: number; lon: number } | null
 }
 
-// Where the meeting is, as the card shows it: the place in bold, the street
-// and city under it, and the room on its own line when the schedule has one.
+// Where the meeting is, as the card shows it: the place in bold and the
+// street and city under it. The schedule holds one line for both.
 export interface MeetingPlace {
   place: string
   address: string
-  room: string
 }
 
 const STATE_AND_ZIP = /,\s*[A-Z]{2}(\s+\d{5}(-\d{4})?)?\s*$/
 
-export const meetingPlace = (
-  location: string,
-  parts?: {
-    name?: string | null
-    address?: string | null
-    room?: string | null
-  },
-): MeetingPlace | null => {
-  const named = parts?.name?.trim()
-  if (named) {
-    return {
-      place: named,
-      address: (parts?.address ?? '').trim().replace(STATE_AND_ZIP, ''),
-      room: (parts?.room ?? '').trim(),
-    }
-  }
+export const meetingPlace = (location: string): MeetingPlace | null => {
   const text = location.trim()
   if (!text) return null
   const comma = text.indexOf(',')
@@ -66,7 +43,6 @@ export const meetingPlace = (
             .trim()
             .replace(STATE_AND_ZIP, '')
         : '',
-    room: (parts?.room ?? '').trim(),
   }
 }
 
@@ -113,8 +89,7 @@ export const firstMeetingFrom = (
     name: first.meeting.meetingName.trim(),
     location: first.meeting.location.trim(),
     timeZone: first.meeting.meetingTimezone || null,
-    source: 'found',
-    point: null,
+    source: first.meeting.source === 'official' ? 'picked' : 'found',
   }
 }
 

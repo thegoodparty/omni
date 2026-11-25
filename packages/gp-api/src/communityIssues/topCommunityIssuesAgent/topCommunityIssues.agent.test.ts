@@ -307,7 +307,9 @@ describe('top_community_issues on gp-api agents', () => {
         organizationSlug: orgSlug,
         list: CommunityIssueList.top_community,
       },
-      orderBy: { createdAt: 'asc' },
+      // The two seeded rows can share a millisecond; their ids are in
+      // creation order, so they break the tie.
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
     expect(
       rows.map((row) => ({

@@ -3,7 +3,7 @@ title: The Meeting Briefing text reminder is a property on the briefing-ready ev
 status: active
 decided_by: [agent]
 date: 2026-11-25
-code: []
+code: ['#4066']
 scope:
   - packages/gp-api/src/meetings/services/meetingBriefings.service.ts
   - packages/gp-api/src/electedOffice/electedOffice.controller.ts

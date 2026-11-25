@@ -116,21 +116,16 @@ const geocode = async (address: string): Promise<TourPlace | null> => {
 }
 
 // Where a meeting place is on the map, when it can be found.
-export const useMeetingPoint = (
-  address: string,
-  known: TourPlace | null,
-): TourPlace | null => {
+export const useMeetingPoint = (address: string): TourPlace | null => {
   const query = useQuery({
     queryKey: ['serve-warm-welcome-meeting-point', address] as const,
     enabled:
-      known === null &&
-      address.trim().length > 0 &&
-      NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0,
+      address.trim().length > 0 && NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0,
     staleTime: Infinity,
     retry: false,
     queryFn: () => geocode(address).catch(() => null),
   })
-  return known ?? query.data ?? null
+  return query.data ?? null
 }
 
 const THUMB_ZOOM = 16

@@ -43,7 +43,6 @@ const meeting = (overrides: Partial<FirstMeeting> = {}): FirstMeeting => ({
   location: 'City Hall, 210 Main Street',
   timeZone: 'America/New_York',
   source: 'found',
-  point: null,
   ...overrides,
 })
 
@@ -274,21 +273,6 @@ describe('meetingPlace', () => {
     ).toEqual({
       place: 'City Hall',
       address: '210 Main Street, Northampton',
-      room: '',
-    })
-  })
-
-  it('uses the parts the schedule holds, room included', () => {
-    expect(
-      meetingPlace('City Hall', {
-        name: 'City Hall',
-        address: '210 Main Street, Northampton, MA',
-        room: 'Council chambers, second floor',
-      }),
-    ).toEqual({
-      place: 'City Hall',
-      address: '210 Main Street, Northampton',
-      room: 'Council chambers, second floor',
     })
   })
 
@@ -296,7 +280,6 @@ describe('meetingPlace', () => {
     expect(meetingPlace('Town Hall')).toEqual({
       place: 'Town Hall',
       address: '',
-      room: '',
     })
   })
 
@@ -349,5 +332,20 @@ describe('the date sentence', () => {
     expect(toDayString(new Date(2027, 0, 7))).toBe('2027-01-07')
     expect(toTimeString(19 * 60)).toBe('19:00')
     expect(toTimeString(8 * 60 + 30)).toBe('08:30')
+  })
+})
+
+describe('a first meeting the official stated earlier', () => {
+  it('comes back as theirs', () => {
+    expect(
+      firstMeetingFrom(
+        [row({ source: 'official' }), row({ meetingDate: '2027-01-21' })],
+        null,
+        TODAY,
+      )?.source,
+    ).toBe('picked')
+    expect(
+      firstMeetingFrom([row({ source: 'schedule' })], null, TODAY)?.source,
+    ).toBe('found')
   })
 })

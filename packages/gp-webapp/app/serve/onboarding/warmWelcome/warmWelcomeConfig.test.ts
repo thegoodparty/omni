@@ -20,7 +20,6 @@ const meeting: FirstMeeting = {
   location: 'City Hall, 210 Main Street',
   timeZone: 'America/New_York',
   source: 'found',
-  point: null,
 }
 
 const everything = {

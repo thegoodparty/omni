@@ -294,7 +294,7 @@ const mockLoad = ({
   })
   api.mock('PUT /v1/meetings/first-meeting', ({ body }) => {
     calls.stated.push(body)
-    return { status: 200, data: undefined }
+    return { status: 200, data: body }
   })
   api.mock('DELETE /v1/meetings/first-meeting', () => {
     calls.cleared += 1

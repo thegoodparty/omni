@@ -80,6 +80,7 @@ import type {
   ResidentVoicesResponse,
   SetOnboardingFocusInput,
   SetOnboardingFocusResult,
+  StatedFirstMeeting,
   SetOnboardingPrioritiesInput,
   UpdatePriorityInput,
   PriorityStatus,
@@ -249,6 +250,11 @@ export interface MeetingsListItemDto {
   meetingName: string
   location: string
   hasBriefing: boolean
+  /**
+   * Where the row's date and time came from: the office's meeting schedule,
+   * or the official, who stated their first meeting in the warm welcome.
+   */
+  source?: 'schedule' | 'official'
   /**
    * Status of an in-progress "user-uploaded agenda" briefing run for this
    * meeting. `null` when the user has never submitted an agenda. Mirrors
@@ -2254,8 +2260,8 @@ export type APIEndpoints = {
   // The first meeting as the official states it, when the schedule's is
   // wrong. DELETE goes back to the schedule.
   'PUT /v1/meetings/first-meeting': {
-    Request: { meetingDate: string; meetingTime: string }
-    Response: void
+    Request: StatedFirstMeeting
+    Response: StatedFirstMeeting
   }
 
   'DELETE /v1/meetings/first-meeting': {
