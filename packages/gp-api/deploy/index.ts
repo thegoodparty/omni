@@ -357,6 +357,50 @@ export = async () => {
         },
       })
 
+  // Logical replication for the Databricks Lakeflow Connect CDC pipeline that
+  // mirrors gpdb.public into Databricks. Dev only for now; prod joins in a
+  // later PR, and every other environment keeps the engine default so its plan
+  // shows no change.
+  //
+  // aurora.enhanced_logical_replication stays off on purpose. When it is on,
+  // Aurora writes every column to WAL for every UPDATE and DELETE on every
+  // table, the same cost as REPLICA IDENTITY FULL, which is heavy on the
+  // TOAST-bearing tables that take the most updates (campaign, website,
+  // user). Only Aurora zero-ETL needs it, and the CDC connector does not.
+  //
+  // The static parameters need a writer reboot to take effect, and changing
+  // any of the three aurora.* / rds.logical_replication settings invalidates
+  // every existing replication slot. Never change them while
+  // gp_replication_slots is not empty: the pipeline would have to re-snapshot
+  // every table. max_slot_wal_keep_size is dynamic, so it applies without a
+  // reboot, and it is the cap that stops an abandoned slot from filling the
+  // volume with WAL.
+  const cdcParameterGroupName = select({
+    preview: undefined,
+    dev: 'gp-api-db-cdc',
+    prod: undefined,
+  })
+
+  const cdcParameterGroup = cdcParameterGroupName
+    ? new aws.rds.ClusterParameterGroup('cdcParameterGroup', {
+        name: cdcParameterGroupName,
+        family: 'aurora-postgresql16',
+        description:
+          'Logical replication for the Databricks Lakeflow Connect CDC pipeline',
+        parameters: [
+          { name: 'rds.logical_replication', value: '1' },
+          { name: 'aurora.enhanced_logical_replication', value: '0' },
+          { name: 'aurora.logical_replication_backup', value: '1' },
+          { name: 'aurora.logical_replication_globaldb', value: '1' },
+          {
+            name: 'max_slot_wal_keep_size',
+            value: '10240',
+            applyMethod: 'immediate',
+          },
+        ],
+      })
+    : undefined
+
   // The master password is not managed here, so no preview reads it and no
   // state holds it. The cluster keeps the one it has, and tasks read
   // DB_PASSWORD from the secret.
@@ -376,6 +420,8 @@ export = async () => {
           databaseName: 'gpdb',
           masterUsername: 'gpuser',
           dbSubnetGroupName: subnetGroup!.name,
+          dbClusterParameterGroupName:
+            cdcParameterGroup?.name ?? 'default.aurora-postgresql16',
           vpcSecurityGroupIds: [rdsSecurityGroup!.id],
           storageEncrypted: true,
           serverlessv2ScalingConfiguration: {
