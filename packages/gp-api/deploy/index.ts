@@ -357,67 +357,47 @@ export = async () => {
         },
       })
 
-  // Logical replication for the Databricks Lakeflow Connect CDC pipeline that
-  // mirrors gpdb.public into Databricks. Dev only for now; prod joins in a
-  // later PR, and every other environment keeps the engine default so its plan
-  // shows no change.
-  //
-  // aurora.enhanced_logical_replication stays off on purpose. When it is on,
-  // Aurora writes every column to WAL for every UPDATE and DELETE on every
-  // table, the same cost as REPLICA IDENTITY FULL, which is heavy on the
-  // TOAST-bearing tables that take the most updates (campaign, website,
-  // user). Only Aurora zero-ETL needs it, and the CDC connector does not.
-  //
-  // The four settings above the last one are static, so they need a writer
-  // reboot before they take effect. Settle them before any replication slot
-  // exists: AWS documents that changing aurora.enhanced_logical_replication
-  // invalidates all logical replication slots on the cluster, so a change made
-  // once the pipeline is live would force it to re-snapshot every table.
-  // Check pg_replication_slots first and drop the slot through the runbook if
-  // one is there. max_slot_wal_keep_size is dynamic, so it applies without a
-  // reboot, and it is the cap that stops an abandoned slot from filling the
-  // volume with WAL.
-  const cdcParameterGroupName = select({
-    preview: undefined,
-    dev: 'gp-api-db-cdc',
-    prod: undefined,
-  })
-
-  const cdcParameterGroup = cdcParameterGroupName
-    ? new aws.rds.ClusterParameterGroup('cdcParameterGroup', {
-        name: cdcParameterGroupName,
-        family: 'aurora-postgresql16',
-        description:
-          'Logical replication for the Databricks Lakeflow Connect CDC pipeline',
-        parameters: [
-          {
-            name: 'rds.logical_replication',
-            value: '1',
-            applyMethod: 'pending-reboot',
-          },
-          {
-            name: 'aurora.enhanced_logical_replication',
-            value: '0',
-            applyMethod: 'pending-reboot',
-          },
-          {
-            name: 'aurora.logical_replication_backup',
-            value: '1',
-            applyMethod: 'pending-reboot',
-          },
-          {
-            name: 'aurora.logical_replication_globaldb',
-            value: '1',
-            applyMethod: 'pending-reboot',
-          },
-          {
-            name: 'max_slot_wal_keep_size',
-            value: '10240',
-            applyMethod: 'immediate',
-          },
-        ],
-      })
-    : undefined
+  // Logical replication for the Databricks Lakeflow Connect CDC pipeline.
+  // Dev only for now; other environments keep the engine default. The static
+  // parameters need a writer reboot, and aurora.enhanced_logical_replication
+  // stays off on purpose. See "Aurora parameters for Databricks CDC" in
+  // deploy/AGENTS.md before changing any of them.
+  const cdcParameterGroup =
+    environment === 'dev'
+      ? new aws.rds.ClusterParameterGroup('cdcParameterGroup', {
+          name: 'gp-api-db-cdc',
+          family: 'aurora-postgresql16',
+          description:
+            'Logical replication for the Databricks Lakeflow Connect CDC pipeline',
+          parameters: [
+            {
+              name: 'rds.logical_replication',
+              value: '1',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'aurora.enhanced_logical_replication',
+              value: '0',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'aurora.logical_replication_backup',
+              value: '1',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'aurora.logical_replication_globaldb',
+              value: '1',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'max_slot_wal_keep_size',
+              value: '10240',
+              applyMethod: 'immediate',
+            },
+          ],
+        })
+      : undefined
 
   // The master password is not managed here, so no preview reads it and no
   // state holds it. The cluster keeps the one it has, and tasks read

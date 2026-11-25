@@ -49,16 +49,15 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 
 ## Aurora parameters for Databricks CDC (`rdsCluster` in `index.ts`)
 
-A cluster parameter group `gp-api-db-cdc` (`cdcParameterGroup`) turns on logical replication for the Lakeflow Connect CDC pipeline that mirrors `gpdb.public` into Databricks. It is gated to dev by `select()`; prod joins in a later PR, and preview still runs the shared preview cluster.
+A cluster parameter group `gp-api-db-cdc` (`cdcParameterGroup`) turns on logical replication for the Lakeflow Connect CDC pipeline that mirrors `gpdb.public` into Databricks. It is dev only; prod joins in a later PR, and preview still runs the shared preview cluster.
 
 - **The static parameters need a writer reboot.** `rds.logical_replication`, `aurora.enhanced_logical_replication`, `aurora.logical_replication_backup` and `aurora.logical_replication_globaldb` are static, so the cluster reports `pending-reboot` until the instance restarts. `Infra` shows as `in-sync` in the meantime. `max_slot_wal_keep_size` is dynamic and applies without one.
 - **Never change `aurora.enhanced_logical_replication` while a replication slot exists.** AWS documents that changing it invalidates all logical replication slots on the cluster. The parameter is also static, so the change only takes effect at reboot, which means a slot can exist and then be invalidated by the restart. Check `SELECT * FROM pg_replication_slots` first (expect no rows), drop the slot through the runbook if one is there, then change the parameter. The same rule applies to a major engine upgrade.
 - **`aurora.logical_replication_backup` and `aurora.logical_replication_globaldb` only move in the same request as the enhanced flag.** Both are 1 when enhanced replication is off and must be 0 to turn it on. AWS rejects changing either on its own, so a future change to enhanced replication sets all three together.
 - **Enhanced logical replication stays off on purpose.** Turning it on makes Aurora write every column to WAL on every UPDATE and DELETE, the same cost as `REPLICA IDENTITY FULL`, which is expensive on `campaign`, `website` and `user`. Only Aurora zero-ETL needs it.
-- **`max_slot_wal_keep_size` is the safety cap.** If a slot's WAL exceeds it, Aurora invalidates the slot and the pipeline needs a full refresh. The size is per environment, and Phase 6 of the plan re-checks the prod value against the measured WAL rate.
-- Dev's earlier hand-made group `gp-api-db-dev-logical-repl` is replaced by this one, not imported, because its values have to change. It is deleted once nothing is attached to it.
+- **`max_slot_wal_keep_size` is the safety cap.** If a slot's WAL exceeds it, Aurora invalidates the slot and the pipeline needs a full refresh. The size is per environment, so re-check the prod value against the measured WAL rate before prod joins.
 
-Runbook, architecture and recovery steps live in `databricks/lakeflow/README.md`, which lands with the pipeline itself in a later PR. Until then, the plan in the gp-data-parent workspace is the reference.
+Runbook, architecture and recovery steps will live in `databricks/lakeflow/README.md`, which lands with the pipeline in a later PR.
 
 ## Shared preview ALB (`components/preview-shared-alb.ts`)
 
