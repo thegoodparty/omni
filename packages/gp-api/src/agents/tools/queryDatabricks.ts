@@ -13,6 +13,7 @@ import {
   type ScrubResult,
   scrubResults,
   SqlRejected,
+  sumCountsPeople,
 } from '@/llm/tools/constituentSql.validator'
 import { isRecord } from '@/llm/tools/util/isRecord.util'
 import { parseSingleSelect } from '@/llm/tools/util/sqlAst.util'
@@ -254,6 +255,41 @@ const qualifiedElsewhere = (
 // bare COUNT(*) for the cell-size floor. A derived table is its own SELECT, so
 // each one that reads the table is checked: an aggregate in a branch would land
 // in the COUNT(*) column the floor reads.
+
+// A modeled score column: the hs_* predictions the constituent-data tools read,
+// which stand for a stance rather than name a person.
+const MODELED_SCORE = /^hs_[a-z0-9_]+$/
+
+// Every column a SUM's CASE filters on. The results are checked by
+// sumCountsPeople; a filter is the differencing attack the floor cannot see, so
+// its columns are held to the WHERE's rule.
+//
+// A CASE names a filtering column in two places, and both are needed: the
+// searched form (`CASE WHEN <cond> THEN …`) puts it in each branch's `cond`, and
+// the simple form (`CASE <subject> WHEN … THEN …`) puts it in the CASE's own
+// `expr`. Reading only `cond` would let `SUM(CASE LALVOTERID WHEN 'v1' THEN 1
+// ELSE 0 END)` through, which is the same differencing probe as the searched
+// form. A CASE's results only ever hold a literal, so there is no third place.
+const collectCaseFilterColumns = (
+  expr: Record<string, unknown>,
+  acc: Set<string>,
+): void => {
+  const args = isRecord(expr.args) ? expr.args : null
+  const argument: unknown =
+    expr.type === 'aggr_func'
+      ? args?.expr
+      : Array.isArray(args?.value) && args.value.length === 1
+        ? args.value[0]
+        : null
+  if (!isRecord(argument)) return
+  collectAllColumns(argument.expr, acc)
+  const branches = argument.args
+  if (!Array.isArray(branches)) return
+  for (const branch of branches) {
+    if (isRecord(branch)) collectAllColumns(branch.cond, acc)
+  }
+}
+
 const assertAggregateOnly = (
   select: Record<string, unknown>,
   readsTable: boolean,
@@ -267,9 +303,14 @@ const assertAggregateOnly = (
   assertAggregateSelectShape(select, { allowedGroupBy: new Set(named) })
 
   // MIN and MAX return one row's own value, so MAX(LALVOTERID) is a voter ID
-  // and MIN(hs_x) is one person's score. AVG, SUM and COUNT blend the cell, as
-  // long as their argument is a plain column: a CASE or comparison inside one
-  // (AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)) is a filter of its own.
+  // and MIN(hs_x) is one person's score. AVG and COUNT blend the cell, as long
+  // as their argument is a plain column: a CASE or comparison inside one
+  // (AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)) is a filter of its own. SUM
+  // has no such shape: the only SUM whose value is a number of people is
+  // SUM(CASE WHEN <condition> THEN 1 ELSE 0 END), which the constituent-data
+  // tools' own validator decides, so SUM(hs_x) is refused by this tool the way
+  // it is refused there.
+  const scored = new Set<string>()
   for (const column of Array.isArray(select.columns) ? select.columns : []) {
     const expr = isRecord(column) ? column.expr : null
     const name = isRecord(expr) ? aggregateFunctionName(expr) : null
@@ -279,6 +320,23 @@ const assertAggregateOnly = (
         `${name} returns one row's own value; use AVG, SUM or COUNT instead`,
       )
     }
+    // Every result of the count form is 0, 1 or NULL, so the value is a number
+    // of rows and the floor holds it exactly as it holds COUNT(*).
+    if (name === 'SUM') {
+      if (!sumCountsPeople(expr)) {
+        throw new SqlRejected(
+          'SUM may only count people: SUM(CASE WHEN <condition> THEN 1 ELSE 0 END). Use AVG for an average',
+        )
+      }
+      // A CASE is a filter, and the differencing control the floor cannot be is
+      // on what a filter may name: `... AND LALVOTERID <> 'x'` leaves both
+      // counts far above the floor and their difference is one person's answer.
+      // So the same columns a WHERE may name may appear here, plus a modeled
+      // score (hs_*), which is not an identifier: it can split the district's
+      // own distribution but can never name a row.
+      collectCaseFilterColumns(expr, scored)
+      continue
+    }
     const args = isRecord(expr.args) ? expr.args : null
     const argList = Array.isArray(args?.value) ? args.value : [args?.expr]
     for (const arg of argList) {
@@ -287,7 +345,7 @@ const assertAggregateOnly = (
         (arg.type !== 'column_ref' && arg.type !== 'star')
       ) {
         throw new SqlRejected(
-          `${name} takes one plain column or *, never an expression, CASE or comparison`,
+          `${name} takes one plain column or *: a CASE or comparison inside it is a filter of its own`,
         )
       }
     }
@@ -308,6 +366,20 @@ const assertAggregateOnly = (
     if (!allowed.has(normalizeColumn(column))) {
       throw new SqlRejected(
         `a WHERE or HAVING may only name one of the allowed dimensions (${named.join(', ') || '(none)'}): ${column}`,
+      )
+    }
+  }
+
+  // A SUM's CASE condition is a filter too, so it is held to the same rule as a
+  // WHERE with one addition: a modeled score (hs_*), which no predicate could
+  // otherwise name, because a threshold on it is exactly what the count counts.
+  // A score is not an identifier, so it can split the district's distribution
+  // but can never isolate a row.
+  for (const column of scored) {
+    const normalized = normalizeColumn(column)
+    if (!allowed.has(normalized) && !MODELED_SCORE.test(normalized)) {
+      throw new SqlRejected(
+        `a SUM(CASE WHEN ...) condition may name only an allowed dimension (${named.join(', ') || '(none)'}) or a modeled score (hs_*): ${column}`,
       )
     }
   }
@@ -476,7 +548,7 @@ export const databricksTool = (options: DatabricksToolOptions) => {
       ? 'the table this organization reads'
       : options.tables.join(', ')
   return defineTool({
-    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One flat statement only: no subquery, UNION, MIN or MAX, an aggregate takes a plain column or *, no DDL, no writes.`,
+    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One flat statement only: no subquery, UNION, MIN or MAX, an aggregate takes a plain column or * (or SUM(CASE WHEN <condition> THEN 1 ELSE 0 END), which counts the people matching the condition), no DDL, no writes.`,
     input: queryInput,
     readsWarehouse: true,
     execute: async ({ sql }, ctx) => {

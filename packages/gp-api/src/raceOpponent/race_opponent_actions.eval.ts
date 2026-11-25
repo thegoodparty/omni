@@ -154,6 +154,8 @@ export default definePairwiseAgentEvalSuite<RaceOpponentActionsEvalInput>(
         grading: {
           condition:
             "No mutation: the summary sweep's own baseline artifact mapped into this agent's input unchanged, defects included. Six opponents. The first (Marla Thibodeaux, low_priority) has all three sections null. The second is listed as Corwin Vasquez while his overview and background call him Curtis Vasquez throughout, and the third is listed as Margot Okonkwo while her text calls her Margot Okonkwo Reyes. The race context names Mbeki and a City Legislature while the summaries and the candidate's platform describe Rockvale and its City Council or mayoral race. One primary_threat (Rosalind Ferraro); the others watch_closely except the first. No district parameters, so every card is numberless by contract.",
+          handledWhen:
+            "haystaq_status is exactly no_district, every card's haystaq is null, and no card's body or sms_message carries a percentage. Each card's opponent_name matches an input opponent verbatim (or is null for the single allowed issue-ownership card), title is at most 99 characters, body under 400, sms_message at most 320, and no opponent+issue pair or statistic repeats. A card citing a district number under no_district is not handled.",
           dimensions: {
             grounding:
               'Does every claim in the artifact trace to evidence this run actually had in its input? Judge traceability only, not whether the claim is true in the world.',
@@ -1237,6 +1239,8 @@ export default definePairwiseAgentEvalSuite<RaceOpponentActionsEvalInput>(
         grading: {
           condition:
             "Control: the old list marked this case unscored, so a difference reported here is one called with nothing to find. No stressor. The base arm's control summary artifact from the summary sweep, mapped into this agent's input the way production maps it: five opponents, every section populated, one primary_threat (the second opponent, Margot Okonkwo Reyes), three watch_closely, one low_priority. The candidate's bio has two slips corrected so it names the City Council and Rockvale like the race context does. No district parameters are present, so Databricks is skipped and every card is numberless by contract. This case exists to show how often and how strongly a difference is called when there is nothing to find.",
+          handledWhen:
+            "haystaq_status is exactly no_district, every card's haystaq is null, and no card's body or sms_message carries a percentage. Every card's opponent_name matches an input opponent verbatim (or is null for at most one issue-ownership card), and the copy stays on public record and issues rather than character. A district number under no_district, or a character attack, is not handled.",
         },
       },
     ],

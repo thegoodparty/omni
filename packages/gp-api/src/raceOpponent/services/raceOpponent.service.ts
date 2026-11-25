@@ -3,7 +3,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common'
-import { isAfter } from 'date-fns'
+import { format, isAfter } from 'date-fns'
 import { z } from 'zod'
 import {
   RaceOpponent,
@@ -19,14 +19,16 @@ import {
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
-  ExperimentRunStatus,
   Prisma,
   RaceOpponent as RaceOpponentRow,
   RaceOpponentSourceType,
 } from '@/generated/prisma'
+import { runsOnGpApi } from '@/agents/agents.registry'
+import { AgentsService } from '@/agents/agents.service'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
+import { isTestUser } from '@/users/util/users.util'
 import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { sectionRunIsInFlight } from '@/campaignStrategy/services/sectionRun'
@@ -37,12 +39,31 @@ import {
   RACE_OPPONENT_COLLECTION,
   RACE_OPPONENT_SUMMARY,
 } from '../raceOpponent.constants'
+import type { RaceOpponentActionsInput } from '../raceOpponentActionsAgent/race_opponent_actions.schema'
+import type {
+  RaceContext,
+  RaceOpponentCollectionInput,
+} from '../raceOpponentCollectionAgent/race_opponent_collection.schema'
+import type { RaceOpponentSummaryInput } from '../raceOpponentSummaryAgent/race_opponent_summary.schema'
+import {
+  findInFlightChainRun,
+  latestChainRun,
+  type ChainLink,
+} from './raceOpponentRun'
 import { RaceOpponentCollectResponse } from '../schemas/raceOpponentCollect.schema'
 import { ManualOpponentsRequest } from '../schemas/manualOpponents.schema'
 
 type CollectionInput = AgentJobContracts['race_opponent_collection']['Input']
 type SummaryInput = AgentJobContracts['race_opponent_summary']['Input']
 type ActionsInput = AgentJobContracts['race_opponent_actions']['Input']
+
+// The chain's gp-api inputs, keyed by link. Every link's Zod schema names the
+// same fields the manifest does, in camelCase, plus the run's owner.
+type ChainAgentInput = {
+  race_opponent_collection: RaceOpponentCollectionInput
+  race_opponent_summary: RaceOpponentSummaryInput
+  race_opponent_actions: RaceOpponentActionsInput
+}
 
 // Producer-side bound on the summary section text forwarded to the actions
 // dispatch — every dispatchRun caller with variable-length text bounds it
@@ -78,6 +99,7 @@ const THREAT_TIER_RANK: Record<RaceOpponentThreatTier | 'none', number> = {
 export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
+    private readonly agents: AgentsService,
     private readonly raceContextService: RaceContextService,
     private readonly campaignStrategy: CampaignStrategyService,
     private readonly districtResolver: DistrictResolverService,
@@ -275,6 +297,70 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     })
   }
 
+  // A chain link's dispatch, on whichever engine the switch sends it to: gp-api's
+  // own agent, or the PMF Engine's dispatchRun. `agentInput` is the same fields
+  // the PMF Engine's params carry, in gp-api's camelCase, plus the run's owner;
+  // the PMF Engine's `params` is its own snake_case payload. Every caller has
+  // already consulted the same in-flight dedup, so this only picks the engine.
+  private async dispatchChain(
+    link: ChainLink,
+    organizationSlug: string,
+    clerkUserId: string,
+    agentInput: ChainAgentInput[ChainLink],
+    pmfParams: () => Promise<AgentJobContracts[ChainLink]['Input']>,
+  ): Promise<{ runId: string } | null> {
+    if (runsOnGpApi(link)) {
+      // The PMF Engine's dispatchRun makes this check and `run` does not: a
+      // synthetic org must not spend a paid run on either engine.
+      const organization = await this.client.organization.findUnique({
+        where: { slug: organizationSlug },
+        select: { owner: { select: { email: true } }, testModeCreatedAt: true },
+      })
+      if (
+        isTestUser({ email: organization?.owner.email ?? '' }) ||
+        organization?.testModeCreatedAt
+      ) {
+        this.logger.info(
+          { organizationSlug, link },
+          'Skipping agent run for test-user org',
+        )
+        return null
+      }
+      return this.agents.run(link, agentInput)
+    }
+
+    const dispatched = await this.experimentRuns.dispatchRun({
+      type: link,
+      organizationSlug,
+      clerkUserId,
+      params: await pmfParams(),
+    })
+    return dispatched ?? null
+  }
+
+  // The in-flight dedup every link shares: a second dispatch while a run of this
+  // link is live would produce a duplicate paid run whose persist races the
+  // first's. Reads BOTH engines' tables (`findInFlightChainRun` in
+  // raceOpponentRun.ts), not the table `runsOnGpApi` picks, so a revert that
+  // flips the switch back still sees the runs the other engine wrote.
+  // `exceptRunId` is the run whose completion is doing the asking. On gp-api
+  // the engine calls `onArtifact`/`onFailure` BEFORE it marks the run terminal,
+  // so this row is still `running` and would match itself: the deferred
+  // re-chain would find "something in flight" and return without dispatching
+  // the link it exists to dispatch.
+  private findInFlightChainRun(
+    link: ChainLink,
+    organizationSlug: string,
+    exceptRunId?: string,
+  ): Promise<string | null> {
+    return findInFlightChainRun(
+      this.client,
+      link,
+      organizationSlug,
+      exceptRunId,
+    )
+  }
+
   // The in-flight dedup + race_opponent_collection dispatch. Reached from
   // collect() once opponent names exist (from the plan, or from a discovery run
   // the page re-fired collect after), and from collectManual() with candidate-
@@ -288,43 +374,42 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     opponents: CollectionInput['opponents'][number][],
   ): Promise<RaceOpponentCollectResponse> {
     // Reuse an already-in-flight run instead of dispatching a duplicate: a
-    // double-click or client retry would otherwise spawn a second paid Fargate
-    // run whose persist would later wipe the first's rows on completion. Mirrors
-    // CampaignStrategyService.sectionState (QUEUED/RUNNING/AWAITING_RESUME =
-    // in flight). Not a hard claim — a tight concurrent race can still slip a
-    // second through — but it closes the common retry/double-submit case.
-    const inFlight = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug: campaign.organizationSlug,
-        experimentType: RACE_OPPONENT_COLLECTION,
-        status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-            ExperimentRunStatus.SUPERSEDED,
-          ],
-        },
-      },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { runId: true },
-    })
+    // double-click or client retry would otherwise spawn a second paid run
+    // whose persist would later wipe the first's rows on completion. Not a hard
+    // claim — a tight concurrent race can still slip a second through — but it
+    // closes the common retry/double-submit case.
+    const inFlight = await this.findInFlightChainRun(
+      RACE_OPPONENT_COLLECTION,
+      campaign.organizationSlug,
+    )
     if (inFlight) {
-      return { runId: inFlight.runId, status: 'running' }
+      return { runId: inFlight, status: 'running' }
     }
 
-    const run = await this.experimentRuns.dispatchRun({
-      type: RACE_OPPONENT_COLLECTION,
-      organizationSlug: campaign.organizationSlug,
+    const raceContext = await this.buildRaceContext(campaign)
+    const run = await this.dispatchChain(
+      RACE_OPPONENT_COLLECTION,
+      campaign.organizationSlug,
       clerkUserId,
-      params: {
+      {
+        organizationSlug: campaign.organizationSlug,
+        opponents: opponents.map((opponent) => ({
+          fullName: opponent.full_name,
+          ...(opponent.ballotpedia_url
+            ? { ballotpediaUrl: opponent.ballotpedia_url }
+            : {}),
+          ...(opponent.website_url ? { websiteUrl: opponent.website_url } : {}),
+        })),
+        raceContext: toGpApiRaceContext(raceContext),
+      },
+      async () => ({
         // The contract types opponents as a non-empty tuple; the caller only
         // passes non-empty arrays, but the type can't prove it.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         opponents: opponents as CollectionInput['opponents'],
         race_context: await this.buildRaceContext(campaign),
-      },
-    })
+      }),
+    )
     if (!run) {
       throw new BadRequestException(
         'Opponent collection is not available in this environment.',
@@ -340,7 +425,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   // dispatches race_opponent_summary. No external call — the input is our own
   // collected text. Skips dispatch when nothing was collected: a summary over
   // zero sources has nothing to structure.
-  async dispatchSummary(campaign: CampaignWith<'user'>): Promise<void> {
+  async dispatchSummary(
+    campaign: CampaignWith<'user'>,
+    exceptRunId?: string,
+  ): Promise<void> {
     const clerkUserId = campaign.user?.clerkId
     if (!clerkUserId) return
 
@@ -355,40 +443,46 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     // Reuse an already-in-flight summary run instead of dispatching a second:
     // a collection that completes while a prior summary run is still going
     // would otherwise spawn a duplicate whose replaceSummaries (delete-then-
-    // insert) races the first's, leaving a non-deterministic final state.
-    // Mirrors dispatchCollection's in-flight dedup; not a hard claim, but it
-    // closes the common chained-retry case.
-    const inFlight = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug: campaign.organizationSlug,
-        experimentType: RACE_OPPONENT_SUMMARY,
-        status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-            ExperimentRunStatus.SUPERSEDED,
-          ],
-        },
-      },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { runId: true },
-    })
+    // insert) races the first's, leaving a non-deterministic final state. Not a
+    // hard claim, but it closes the common chained-retry case.
+    const inFlight = await this.findInFlightChainRun(
+      RACE_OPPONENT_SUMMARY,
+      campaign.organizationSlug,
+      exceptRunId,
+    )
     if (inFlight) return
 
-    await this.experimentRuns.dispatchRun({
-      type: RACE_OPPONENT_SUMMARY,
-      organizationSlug: campaign.organizationSlug,
+    const candidatePlatform = await this.buildCandidatePlatform(campaign.id)
+    const raceContext = await this.buildRaceContext(campaign)
+    await this.dispatchChain(
+      RACE_OPPONENT_SUMMARY,
+      campaign.organizationSlug,
       clerkUserId,
-      params: {
+      {
+        organizationSlug: campaign.organizationSlug,
+        opponents: opponents.map((opponent) => ({
+          opponentName: opponent.opponent_name,
+          sources: opponent.sources.map((source) => ({
+            sourceType: source.source_type,
+            sourceUrl: source.source_url,
+            text: source.text,
+          })),
+        })),
+        ...(candidatePlatform ? { candidatePlatform } : {}),
+        raceContext: toGpApiRaceContext(raceContext),
+        // The PMF Engine's runner stamped `generated_at` itself; the model
+        // writes the artifact here, so the run states its own date.
+        today: format(new Date(), 'yyyy-MM-dd'),
+      },
+      async () => ({
         // The contract types opponents as a non-empty tuple; the
         // empty-array case is filtered out above, but the type can't prove it.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         opponents: opponents as SummaryInput['opponents'],
         candidate_platform: await this.buildCandidatePlatform(campaign.id),
         race_context: await this.buildRaceContext(campaign),
-      },
-    })
+      }),
+    )
   }
 
   // Re-chain a summary when a collection newer than the just-finished summary
@@ -404,21 +498,19 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   async rechainSummaryForNewerCollection(
     campaign: CampaignWith<'user'>,
     summaryRunCreatedAt: Date,
+    summaryRunId?: string,
   ): Promise<void> {
-    const latestCollection = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug: campaign.organizationSlug,
-        experimentType: RACE_OPPONENT_COLLECTION,
-        status: ExperimentRunStatus.COMPLETED,
-      },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { createdAt: true },
-    })
+    const latestCollection = await latestChainRun(
+      this.client,
+      RACE_OPPONENT_COLLECTION,
+      campaign.organizationSlug,
+      { onlyCompleted: true },
+    )
     if (
       latestCollection &&
       isAfter(latestCollection.createdAt, summaryRunCreatedAt)
     ) {
-      await this.dispatchSummary(campaign)
+      await this.dispatchSummary(campaign, summaryRunId)
     }
   }
 
@@ -428,7 +520,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   // summaries back, flattens each into the plain-text actions input, and
   // dispatches race_opponent_actions. Skips dispatch when no summaries
   // persisted: there is nothing to build cards from.
-  async dispatchActions(campaign: CampaignWith<'user'>): Promise<void> {
+  async dispatchActions(
+    campaign: CampaignWith<'user'>,
+    exceptRunId?: string,
+  ): Promise<void> {
     const clerkUserId = campaign.user?.clerkId
     if (!clerkUserId) return
 
@@ -437,36 +532,52 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 
     // Reuse an already-in-flight actions run instead of dispatching a second:
     // a summary that completes while a prior actions run is still going would
-    // otherwise spawn a duplicate paid run. Mirrors dispatchSummary's in-flight
-    // dedup; not a hard claim, but it closes the common chained-retry case.
-    const inFlight = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug: campaign.organizationSlug,
-        experimentType: RACE_OPPONENT_ACTIONS,
-        status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-            ExperimentRunStatus.SUPERSEDED,
-          ],
-        },
-      },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { runId: true },
-    })
+    // otherwise spawn a duplicate paid run. Not a hard claim, but it closes the
+    // common chained-retry case.
+    const inFlight = await this.findInFlightChainRun(
+      RACE_OPPONENT_ACTIONS,
+      campaign.organizationSlug,
+      exceptRunId,
+    )
     if (inFlight) return
 
     const candidatePlatform = await this.buildCandidatePlatform(campaign.id)
     const district = await this.districtResolver.resolveByOrgSlug(
       campaign.organizationSlug,
     )
+    const raceContext = await this.buildRaceContext(campaign)
 
-    await this.experimentRuns.dispatchRun({
-      type: RACE_OPPONENT_ACTIONS,
-      organizationSlug: campaign.organizationSlug,
+    await this.dispatchChain(
+      RACE_OPPONENT_ACTIONS,
+      campaign.organizationSlug,
       clerkUserId,
-      params: {
+      {
+        organizationSlug: campaign.organizationSlug,
+        opponents: opponents.map((opponent) => ({
+          opponentName: opponent.opponent_name,
+          threatTier: opponent.threat_tier,
+          overviewText: opponent.overview_text,
+          backgroundText: opponent.background_text,
+          issuesThatMatter: opponent.issues_that_matter,
+        })),
+        ...(candidatePlatform ? { candidatePlatform } : {}),
+        // The flat district trio, all-or-nothing: no resolution means no
+        // district params, and the agent skips Databricks entirely
+        // (haystaq_status: no_district).
+        ...(district
+          ? {
+              state: district.state,
+              l2DistrictType: district.l2DistrictType,
+              l2DistrictName: district.l2DistrictName,
+            }
+          : {}),
+        raceContext: toGpApiRaceContext(raceContext),
+        // The PMF Engine's runner stamped `generated_at` itself; here the model
+        // writes the artifact, so the run states its own date. Same reason the
+        // opportunities dispatcher passes one.
+        today: format(new Date(), 'yyyy-MM-dd'),
+      },
+      async () => ({
         // The contract types opponents as a non-empty tuple; the
         // empty-array case is filtered out above, but the type can't prove it.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -474,8 +585,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         ...(candidatePlatform ? { candidate_platform: candidatePlatform } : {}),
         // FLAT district params, all-or-nothing: the dispatch Lambda's scope
         // derivation reads params.state top-level and reserves a nested
-        // 'district' object (it would fail dispatch). No resolution = omit all
-        // three so the agent skips Databricks (haystaq_status: no_district).
+        // 'district' object (it would fail dispatch).
         ...(district
           ? {
               state: district.state,
@@ -483,9 +593,9 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
               l2_district_name: district.l2DistrictName,
             }
           : {}),
-        race_context: await this.buildRaceContext(campaign),
-      },
-    })
+        race_context: raceContext,
+      }),
+    )
   }
 
   // Re-chain an actions run when a summary newer than the just-finished
@@ -497,21 +607,19 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   async rechainActionsForNewerSummary(
     campaign: CampaignWith<'user'>,
     actionsRunCreatedAt: Date,
+    actionsRunId?: string,
   ): Promise<void> {
-    const latestSummary = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug: campaign.organizationSlug,
-        experimentType: RACE_OPPONENT_SUMMARY,
-        status: ExperimentRunStatus.COMPLETED,
-      },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { createdAt: true },
-    })
+    const latestSummary = await latestChainRun(
+      this.client,
+      RACE_OPPONENT_SUMMARY,
+      campaign.organizationSlug,
+      { onlyCompleted: true },
+    )
     if (
       latestSummary &&
       isAfter(latestSummary.createdAt, actionsRunCreatedAt)
     ) {
-      await this.dispatchActions(campaign)
+      await this.dispatchActions(campaign, actionsRunId)
     }
   }
 
@@ -601,14 +709,40 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       }
       if (!row.sourceUrl) continue
 
+      // The summary agent's input schema is strict: a source needs an http(s)
+      // URL and non-empty text. `ArtifactItemSchema` accepts any string for
+      // both and `CollectedContentSchema`'s catch turns malformed content into
+      // '' , so a persisted row can fail the contract. `AgentsService.run`
+      // parses the whole input, so one such source would fail the entire
+      // dispatch and leave every other opponent unstructurable. Drop the
+      // unstructurable source instead, and say so: a dropped source is a real
+      // piece of the opponent's evidence that never reached the summary, and
+      // silence would make that look like the page was thin.
+      const sourceUrl = row.sourceUrl
+      if (!SUMMARY_SOURCE_URL.test(sourceUrl)) {
+        this.logger.warn(
+          { rowId: row.id, opponentName: row.opponentName },
+          'collected source has no http(s) URL; not dispatching it to summary',
+        )
+        continue
+      }
+      const text = CollectedContentSchema.parse(row.content).text?.trim() ?? ''
+      if (text.length === 0) {
+        this.logger.warn(
+          { rowId: row.id, opponentName: row.opponentName },
+          'collected source has no text; not dispatching it to summary',
+        )
+        continue
+      }
+
       const entry = byName.get(row.opponentName) ?? {
         opponent_name: row.opponentName,
         sources: [],
       }
       entry.sources.push({
         source_type: row.sourceType,
-        source_url: row.sourceUrl,
-        text: CollectedContentSchema.parse(row.content).text ?? '',
+        source_url: sourceUrl,
+        text,
       })
       byName.set(row.opponentName, entry)
     }
@@ -800,6 +934,9 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   // race_context is a discovery hint only (state/city/office/cycle). A missing
   // race row or an election-api outage degrades it to nulls rather than
   // blocking the run — the agent can still discover sources from names alone.
+  //
+  // Built in the PMF Engine's snake_case because that is the shape its params
+  // take; `toGpApiRaceContext` is what a gp-api dispatch calls to translate it.
   private async buildRaceContext(
     campaign: CampaignWith<'user'>,
   ): Promise<CollectionInput['race_context']> {
@@ -948,28 +1085,27 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     campaignId: number,
     organizationSlug: string,
   ): Promise<RaceOpponentCollectionStatus> {
-    const run = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug,
-        experimentType: RACE_OPPONENT_COLLECTION,
-      },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { runId: true, status: true, createdAt: true },
-    })
+    // The latest collection run from EITHER engine, so a revert that flips the
+    // dispatch switch back still sees the runs the other engine wrote.
+    const run = await latestChainRun(
+      this.client,
+      RACE_OPPONENT_COLLECTION,
+      organizationSlug,
+    )
     if (run) {
-      switch (run.status) {
-        case ExperimentRunStatus.COMPLETED:
-          return this.postCollectionStatus(
-            campaignId,
-            organizationSlug,
-            run.runId,
-            run.createdAt,
-          )
-        case ExperimentRunStatus.FAILED:
-          return 'failed'
-        default:
-          return 'running'
+      if (run.status === 'completed') {
+        return this.postCollectionStatus(
+          campaignId,
+          organizationSlug,
+          run.runId,
+          run.createdAt,
+        )
       }
+      // The PMF Engine's `awaiting_resume` is still live work; gp-api's
+      // `superseded` is not, and can never land, so re-dispatching is what
+      // recovers it. Neither one is 'completed', so both fall to the default
+      // unless they settled as failed.
+      return run.status === 'failed' ? 'failed' : 'running'
     }
 
     const plan = await this.client.campaignStrategy.findUnique({
@@ -1010,14 +1146,11 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     collectionRunId: string,
     collectionRunCreatedAt: Date,
   ): Promise<RaceOpponentCollectionStatus> {
-    const summary = await this.client.experimentRun.findFirst({
-      where: {
-        organizationSlug,
-        experimentType: RACE_OPPONENT_SUMMARY,
-      },
-      orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { status: true, createdAt: true },
-    })
+    const summary = await latestChainRun(
+      this.client,
+      RACE_OPPONENT_SUMMARY,
+      organizationSlug,
+    )
 
     // Only a summary dispatched AFTER this collection run belongs to its cycle
     // (dispatchSummary fires once the collection COMPLETES, so its run is always
@@ -1026,8 +1159,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     // summary as 'completed'.
     if (summary && isAfter(summary.createdAt, collectionRunCreatedAt)) {
       const settled =
-        summary.status === ExperimentRunStatus.COMPLETED ||
-        summary.status === ExperimentRunStatus.FAILED
+        summary.status === 'completed' || summary.status === 'failed'
       return settled ? 'completed' : 'running'
     }
 
@@ -1059,3 +1191,22 @@ const apexDomain = (url: string): string =>
 
 const capActionsText = (text: string): string =>
   text.slice(0, MAX_ACTIONS_TEXT_CHARS)
+
+// The summary agent's input contract, checked before dispatch: one persisted
+// row that cannot meet it would fail the whole run.
+const SUMMARY_SOURCE_URL = /^https?:\/\//
+
+// `buildRaceContext` speaks the PMF Engine's snake_case, which is what its
+// `params` take. A gp-api agent takes the same three hints in camelCase, and its
+// input schema is `.loose()`, so a snake_case key is not rejected: it is simply
+// not one of the named fields, and every hint the agents use to disambiguate an
+// opponent silently reads as absent. Translate rather than retype, so a fourth
+// hint cannot be added on one side only.
+const toGpApiRaceContext = (
+  raceContext: CollectionInput['race_context'],
+): RaceContext => ({
+  officeName: raceContext.office_name ?? null,
+  state: raceContext.state ?? null,
+  city: raceContext.city ?? null,
+  electionDate: raceContext.election_date ?? null,
+})

@@ -165,6 +165,24 @@ export class AgentsService extends createPrismaBase(MODELS.AgentRun) {
       if (lastAttempt && !shuttingDown && !(err instanceof RunStoppedError)) {
         const message = err instanceof Error ? err.message : String(err)
         await this.finish(run, AgentRunStatus.failed, message)
+        // After the row says failed, so a hook that re-reads the run sees it.
+        // A hook failure must not change the outcome the row already records:
+        // the run is failed either way, and the job's error is the real one.
+        try {
+          await definitionOf(run.agentName).onFailure?.(
+            {
+              runId: run.id,
+              input: definitionOf(run.agentName).input.parse(run.input),
+              error: message,
+            },
+            context,
+          )
+        } catch (hookError) {
+          this.logger.error(
+            { err: hookError, runId: run.id, agent: run.agentName },
+            'agent onFailure hook threw',
+          )
+        }
       }
       throw err
     }

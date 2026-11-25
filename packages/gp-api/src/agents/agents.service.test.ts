@@ -34,6 +34,7 @@ const InputSchema = z.object({
 
 let lookUps: string[] = []
 let artifacts: { runId: string; topic: string; artifact: unknown }[] = []
+let failures: { runId: string; topic: string; error: string | null }[] = []
 
 const testAgent = defineAgent({
   input: InputSchema,
@@ -52,6 +53,13 @@ const testAgent = defineAgent({
   },
   onArtifact: async (artifact, run) => {
     artifacts.push({ runId: run.runId, topic: run.input.topic, artifact })
+  },
+  onFailure: async (run) => {
+    failures.push({
+      runId: run.runId,
+      topic: run.input.topic,
+      error: run.error,
+    })
   },
 })
 
@@ -636,6 +644,72 @@ describe('AgentsService', () => {
       artifact: null,
     })
     expect(artifacts).toEqual([])
+  })
+
+  // A link whose product chains off its completion needs this: without it a
+  // failed run leaves the next one waiting on a run that never lands.
+  it('calls the definition onFailure hook with the error, once', async () => {
+    failures = []
+    vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+      model: new MockLanguageModelV3({
+        doStream: async () => {
+          throw new Error('provider down')
+        },
+      }),
+      modelId: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    })
+
+    const { runId } = await service.app
+      .get(AgentsService)
+      .run('testAgent', await seedOrg('agents-hook'))
+    await service.jobs.settle({ allowDeadLetters: true })
+
+    expect(failures).toEqual([
+      { runId, topic: 'zoning', error: 'provider down' },
+    ])
+    expect(artifacts).toEqual([])
+  })
+
+  // The run is failed either way, so a throwing hook must not change what the
+  // row records or stop the job's own error from reaching the dead letter.
+  it('keeps the recorded failure when the onFailure hook throws', async () => {
+    const throwing = defineAgent({
+      input: InputSchema,
+      output: OutputSchema,
+      model: 'claude-sonnet-4-6',
+      prompt: 'Never mind.',
+      tools: {},
+      onArtifact: async () => undefined,
+      onFailure: async () => {
+        throw new Error('hook exploded')
+      },
+    })
+    AGENTS.testThrowingFailure = throwing
+    vi.spyOn(service.app.get(AgentModels), 'resolve').mockReturnValue({
+      model: new MockLanguageModelV3({
+        doStream: async () => {
+          throw new Error('provider down')
+        },
+      }),
+      modelId: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    })
+
+    try {
+      const { runId } = await service.app
+        .get(AgentsService)
+        .run('testThrowingFailure', await seedOrg('agents-hook-throws'))
+      await service.jobs.settle({ allowDeadLetters: true })
+
+      expect(
+        await service.prisma.agentRun.findUniqueOrThrow({
+          where: { id: runId },
+        }),
+      ).toMatchObject({ status: AgentRunStatus.failed, error: 'provider down' })
+    } finally {
+      delete AGENTS.testThrowingFailure
+    }
   })
 
   it('fails a queued run whose agent is no longer registered', async () => {

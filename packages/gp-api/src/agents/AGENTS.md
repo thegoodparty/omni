@@ -72,7 +72,15 @@ await agentsService.run('myAgent', { organizationSlug, topic })
   `scope.data_required_unless` does.
 - `onArtifact` saves the validated output where the product reads it. It
   can run twice for one run (a crash after it, before the run is marked
-  complete), so make it an upsert.
+  complete), so make it an upsert. It also runs BEFORE the run is marked
+  complete, so a re-chain it triggers still sees its own row as `running`: an
+  in-flight dedup has to exclude `run.runId`.
+- `onFailure` is optional and runs only when the run ends `failed` — the last
+  attempt threw and it was not a deploy shutdown — after the row says so. An
+  agent whose product chains off its completion needs it, or a failed link
+  leaves the next one waiting on a run that never lands. It gets
+  `{ runId, input, error }`, and a hook that throws is logged without changing
+  the failed row.
 - A tool's `execute` gets `ToolContext`: `runId`, `stepKey` (stable across a
   resume of the same step, so key a write on `runId + stepKey`),
   `organizationSlug`, `signal` and `get` (any provider, as in a job worker).
@@ -167,7 +175,14 @@ pass, because then one caller that forgets starts runs no query can serve.
   person's score. An aggregate's own argument (`AVG(hs_x)`) is unrestricted,
   because that is what the aggregate is for and the floor holds its result, but
   it must be one plain column or `*`: a CASE or comparison inside an aggregate
-  (`AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)`) is a filter of its own. An
+  (`AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)`) is a filter of its own. The
+  one exception is `SUM(CASE WHEN <condition> THEN 1 ELSE 0 END)`, which is a
+  count of people rather than a way around the floor: the constituent-data
+  tools' own `sumCountsPeople` decides it, and only a `CASE` whose every branch
+  yields `1`, `0` or `NULL` passes. `SUM(hs_x)`, `SUM(CASE WHEN … THEN hs_x
+  END)` and `COUNT_IF` are refused. A `SUM` that passes is held to the floor as
+  a count of people, because `findPeopleCountColumns` names its column and
+  `scrubResults` masks it below `minCellSize` exactly as it masks a `COUNT`. An
   agent lists the coarse dimensions it reasons about — `Active` and the like —
   and nothing row-level. The scope's own jurisdiction columns (the state, and the
   office's L2 district column) are sliceable without being declared, because

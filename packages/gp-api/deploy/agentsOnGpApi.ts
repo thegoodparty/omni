@@ -17,6 +17,9 @@ export const PREVIEW_AGENTS_ON_GP_API = [
   'meeting_schedule',
   'opportunities_and_challenges',
   'opposition_research',
+  'race_opponent_actions',
+  'race_opponent_collection',
+  'race_opponent_summary',
   'top_community_issues',
   'trending_issues',
 ]
@@ -32,6 +35,14 @@ export const agentsOnGpApi = (
       'meeting_schedule',
       'opportunities_and_challenges',
       'opposition_research',
+      'race_opponent_actions',
+      'race_opponent_collection',
+      'race_opponent_summary',
     ].join(',')
-  return 'trending_issues'
+  return [
+    'trending_issues',
+    'race_opponent_actions',
+    'race_opponent_collection',
+    'race_opponent_summary',
+  ].join(',')
 }
