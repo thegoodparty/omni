@@ -11,6 +11,7 @@ import {
   MAX_HANDLED_WHEN_CHARS,
   type DraftedCase,
 } from '../schemas/draftedCase.schema'
+import type { CaseCondition } from '../services/caseScoutCaseLists.service'
 import type { CaseScoutModelService } from '../services/caseScoutModel.service'
 import { extractJsonObject } from './extractJson.util'
 import type { LedgerEntry } from './ledger.util'
@@ -27,7 +28,7 @@ export const assignSplit = (caseId: string): 'tune' | 'holdout' =>
 export type DraftContext = {
   agentId: string
   fixtureDescription: string
-  currentConditions: string[]
+  currentConditions: CaseCondition[]
   recentProposals: LedgerEntry[]
 }
 
@@ -41,7 +42,7 @@ export const buildDraftingPrompt = (context: DraftContext): string =>
       context.currentConditions.length === 0
         ? '(none yet)'
         : context.currentConditions
-            .map((condition) => `- ${condition}`)
+            .map((c) => `- ${c.caseId}: ${c.condition}`)
             .join('\n'),
     recentProposals:
       context.recentProposals.length === 0

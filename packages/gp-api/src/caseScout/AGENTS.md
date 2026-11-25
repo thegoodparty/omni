@@ -18,10 +18,27 @@ a person to read, and the Slack note still posts.
 the one thing that leaves it is the handoff: gated, de-identified strings and
 nothing that points back at a conversation.
 
-**The five `cases/<agent>.json` files are read, never written.** The job reads
-them off main for case-id collisions and existing conditions, and the scout's
-bench reads them to check that a draft parses once appended. No judge runs
-them, so a change to one has no effect on any gate.
+**The job reads existing cases from the judged suites.** For case-id
+collisions, `coveredBy` and the list cap it reads each covered agent's
+pairwise suite (`campaign_assistant.eval.ts`, `chief_of_staff.eval.ts`) off
+main, because that is where Delegate appends the scout's cases and what the
+judge runs. A suite cannot be imported here (the build leaves out `*.eval.ts`,
+and it imports a dev-only package), so `util/suiteCases.util.ts` reads each
+case's `id` and `grading.condition` from the raw source: string literals, or
+several joined by `+`, nothing computed. `suiteCases.util.test.ts` checks that
+reader against the TypeScript AST of both suites, so a case it would misread
+fails CI in the PR that adds it. Decision record:
+`docs/adr/2026-11-25-case-scout-reads-the-judged-suites.md`.
+
+**The five `cases/<agent>.json` files are read, never written.** The job still
+reads the agent's file off main for its `note` (the drafter's fixture
+description) and as a fallback: ids are the union of both, and a condition in
+both reads the suite's. A failed or unreadable source is a line in the run
+record; only when neither reads does the night draft against an empty list.
+The quality bench builds its lists the same way (`mergeCaseLists`) from its
+own checkout, and throws on a suite it cannot read in full, since it has no
+run record; it also appends each draft to the local JSON to check that it
+parses. No judge runs them, so a change to one has no effect on any gate.
 
 ## Flow
 
@@ -100,13 +117,20 @@ that carries account facts belongs in that list too.
 - **The scorer** is told a specific number, opponent, local event, priority or
   product step that could have come from the briefing, the product map or a
   tool result is not evidence of fabrication; only the transcript showing it
-  wrong (a correction, a contradiction, an impossibility) is.
+  wrong (a correction, a contradiction, an impossibility) is. Nor is a
+  product detail the map does not mention, since a help center search or
+  another tool can supply it: a product statement is wrong only when it
+  contradicts the map or the transcript. The quality bench's
+  `hidden_context` fixtures pin both directions.
 - **The drafter** drafts a fabrication case only when the failure holds up
   given the briefing and tool calls. A failure that rests on facts only the
   real account had becomes `needsSetup`, naming what the test account would
   need, never a user turn that brings those facts up. Each later turn must
   make sense whatever the live assistant replies, because the judge posts it
-  to a fresh test account.
+  to a fresh test account. It sees each existing condition and recent
+  proposal as `caseId: text` and answers `coveredBy` with that id. An id it
+  was not shown is still recorded as covered, raw, in the ledger: the session
+  is skipped either way, and nothing about it leaves the bucket.
 - **Only the scorer** reads the scope's product map, exactly as the assistant
   renders it (`buildProductKnowledgeBlocks`, help center on, Pro left out), as
   the first system block with an Anthropic cache breakpoint, so a night's

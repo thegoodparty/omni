@@ -85,9 +85,15 @@ list marked `scored: false` is a normal case whose `condition` starts with
 `Control:`. Run one with `/judge-eval <file stem>`.
 
 The five `cases/<agent>.json` files those lists were are still in
-`packages/gp-api/src/chats/evals/judge/cases/`, but nothing judges them: the
-case scout reads them for case-id collisions and existing conditions, and the
-scout's bench reads them back. A change to one changes no verdict.
+`packages/gp-api/src/chats/evals/judge/cases/`, but nothing judges them. The
+case scout reads case ids and conditions from the `campaign_assistant` and
+`chief_of_staff` suites themselves, by parsing their source off main, and
+reads the JSON only for its fixture note and as a fallback; the scout's bench
+reads both the same way from its own checkout. A change to one changes no
+verdict. A case in those two
+suites keeps its `id` and `grading.condition` as string literals (several
+joined by `+` is fine), or the scout's reader test fails: see
+`packages/gp-api/src/caseScout/AGENTS.md`.
 
 ## Agents with no suite
 
