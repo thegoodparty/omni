@@ -11,6 +11,7 @@
     "case-scout:bench": "tsx src/chats/evals/caseScoutBench/cli.ts",
     "check:env-contract": "tsx scripts/check-env-contract.ts",
     "check:legacy-background-work": "tsx scripts/check-legacy-background-work.ts",
+    "check:databricks-lakeflow": "tsx scripts/check-databricks-lakeflow.ts",
     "codegen": "graphql-codegen",
     "eval": "vitest run --config vitest.evals.config.ts",
     "generate": "npx prisma generate && npx prisma generate --schema prisma-election/schema && tsx scripts/generate-route-types.ts",
