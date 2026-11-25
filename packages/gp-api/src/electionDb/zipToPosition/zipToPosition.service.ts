@@ -25,7 +25,9 @@ type SearchParams = {
   name?: string
   officeType?: string[]
   displayOfficeLevels?: string[]
-  timeframe?: 'future' | 'past'
+  // 'all' applies no date bound: the seat list for a zip is every position
+  // with a race on file, not only those with a race inside the future window.
+  timeframe?: 'future' | 'past' | 'all'
 }
 
 @Injectable()
@@ -82,12 +84,17 @@ export class ZipToPositionService extends createElectionDbBase(
       horizonUtc.getUTCFullYear() + FUTURE_SEARCH_HORIZON_YEARS,
     )
     const electionDate =
-      params.timeframe === 'past'
-        ? { lt: todayUtc }
-        : { gte: todayUtc, lte: horizonUtc }
+      params.timeframe === 'all'
+        ? undefined
+        : params.timeframe === 'past'
+          ? { lt: todayUtc }
+          : { gte: todayUtc, lte: horizonUtc }
 
     const races = await this.client.race.findMany({
-      where: { positionId: { in: [...metaByPositionId.keys()] }, electionDate },
+      where: {
+        positionId: { in: [...metaByPositionId.keys()] },
+        ...(electionDate && { electionDate }),
+      },
       select: {
         id: true,
         positionId: true,

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { parseISO } from 'date-fns'
 import { z } from 'zod'
 import { ChatMessageRole } from '@/generated/prisma'
+import { CANDIDATE_MIN_SEVERITY } from '@/caseScout/caseScout.config'
 import { KNOWN_PATTERNS } from '@/caseScout/caseScout.prompts'
 import type { Message } from '@/caseScout/util/sessions.util'
 
@@ -17,6 +18,7 @@ export const CATEGORIES = [
   'planted_pii',
   'duplicate',
   'uncovered_agent',
+  'hidden_context',
 ] as const
 
 const FixtureToolCallSchema = z.strictObject({
@@ -39,6 +41,10 @@ const ExpectationSchema = z.strictObject({
   covered_by: z.string().nullable().default(null),
   also_pass_if_covered_by: z.array(z.string()).default([]),
   scored: z.boolean().default(true),
+  // The highest severity the scorer may give, so "not flagged" is checked
+  // on the score itself: a flagged chat the drafter then sends to
+  // needsSetup never reaches the bundle, and `drafted` alone would pass it.
+  max_severity: z.number().int().min(0).max(3).nullable().default(null),
 })
 export type Expectation = z.infer<typeof ExpectationSchema>
 
@@ -70,6 +76,16 @@ export const BenchFixtureSchema = z
     }
     if (fixture.expect.covered_by !== null && fixture.expect.should_draft) {
       issue('a fixture with covered_by must not also expect a draft')
+    }
+    if (
+      fixture.expect.should_draft &&
+      fixture.expect.max_severity !== null &&
+      fixture.expect.max_severity < CANDIDATE_MIN_SEVERITY
+    ) {
+      issue(
+        `a fixture that expects a draft needs max_severity of at least ` +
+          `${CANDIDATE_MIN_SEVERITY}`,
+      )
     }
     if (fixture.messages[0]?.role !== 'user') {
       issue('a fixture opens on a user turn')

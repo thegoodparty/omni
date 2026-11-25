@@ -15,7 +15,12 @@ import {
   FIXTURES_DIR,
   loadFixtures,
 } from './fixtures'
-import { draftLoaderIssue, runBench, type BenchModel } from './runner'
+import {
+  draftLoaderIssue,
+  readLocalCaseList,
+  runBench,
+  type BenchModel,
+} from './runner'
 import { fixtureIdOf, labelEchoModel } from './stubs'
 
 // Every model call here is a stand-in; nothing reaches Anthropic.
@@ -48,6 +53,7 @@ describe('the bench fixtures', () => {
     expect(count('planted_pii')).toBe(2)
     expect(count('duplicate')).toBe(1)
     expect(count('uncovered_agent')).toBe(1)
+    expect(count('hidden_context')).toBe(6)
   })
 
   it('carry one known-pattern fixture per pattern', () => {
@@ -126,6 +132,19 @@ describe('the bench fixtures', () => {
     expect(parsed.success).toBe(false)
     expect(parsed.error?.issues[0]?.message).toContain('drop_ok')
   })
+
+  it('refuse a draft expected below the drafting severity', () => {
+    const raw = JSON.parse(
+      readFileSync(
+        path.join(FIXTURES_DIR, 'h05-texting-deadline-contradicts-map.json'),
+        'utf8',
+      ),
+    ) as { expect: { max_severity: number } }
+    raw.expect.max_severity = 1
+    const parsed = BenchFixtureSchema.safeParse(raw)
+    expect(parsed.success).toBe(false)
+    expect(parsed.error?.issues[0]?.message).toContain('max_severity')
+  })
 })
 
 describe('runBench with label-echo stubs', () => {
@@ -134,7 +153,7 @@ describe('runBench with label-echo stubs', () => {
     expect(
       bench.results.filter((r) => !r.passed).map((r) => [r.id, r.checks]),
     ).toEqual([])
-    expect(bench.results.filter((r) => r.case).length).toBe(11)
+    expect(bench.results.filter((r) => r.case).length).toBe(12)
   })
 
   it('never scores the uncovered scope', async () => {
@@ -163,6 +182,8 @@ describe('the checks catch a regression', () => {
     for (const result of bench.results) {
       if (result.expect.should_draft && !result.expect.drop_ok) {
         expect(result.checks.drafted?.status).toBe('fail')
+      }
+      if (result.expect.pattern !== null) {
         expect(result.checks.pattern?.status).toBe('fail')
       }
     }
@@ -240,6 +261,20 @@ describe('the checks catch a regression', () => {
       rule: 'secondRead',
       flagged: ['Somewhere Real'],
     })
+    expect(result.checks.drafted?.status).toBe('fail')
+  })
+
+  it('holds a draft that names a year after its chat, as the job does', async () => {
+    const result = await resultFor(
+      withDraftQuestion(
+        'f02-modeled-party-as-registration',
+        'How many registered voters did each party have in 2029?',
+      ),
+      'f02-modeled-party-as-registration',
+    )
+    expect(result.outcome).toBe('heldForDate')
+    expect(result.gate?.passed).toBe(true)
+    expect(result.case).toBeNull()
     expect(result.checks.drafted?.status).toBe('fail')
   })
 
@@ -330,16 +365,94 @@ describe('the checks catch a regression', () => {
     expect(result.checks.drafted?.status).toBe('fail')
   })
 
+  const withSeverity = (fixtureId: string, severity: 0 | 1 | 2 | 3) => ({
+    scoreTranscript: async (
+      scope: string,
+      transcript: string,
+      signal: AbortSignal,
+    ) => {
+      const response = await STUB.scoreTranscript(scope, transcript, signal)
+      return fixtureIdOf(transcript) === fixtureId
+        ? {
+            ...response,
+            requests: response.requests.map((r) => ({ ...r, severity })),
+          }
+        : response
+    },
+  })
+
+  it('fails the severity check on a flag the drafter sends to setup', async () => {
+    const result = await resultFor(
+      {
+        ...withSeverity('h01-win-number-and-cells-from-briefing', 3),
+        draftCase: async (system, transcript, signal) =>
+          fixtureIdOf(transcript) === 'h01-win-number-and-cells-from-briefing'
+            ? JSON.stringify({
+                outcome: 'needsSetup',
+                failureSummary: 'win number with no source',
+                what: 'A race record with a win number.',
+              })
+            : STUB.draftCase(system, transcript, signal),
+      },
+      'h01-win-number-and-cells-from-briefing',
+    )
+    expect(result.outcome).toBe('needsSetup')
+    expect(result.checks.drafted?.status).toBe('pass')
+    expect(result.checks.severity).toEqual({
+      status: 'fail',
+      detail: 'expected at most 1, scout gave 3',
+    })
+    expect(result.passed).toBe(false)
+  })
+
+  it('passes a severity at the cap and fails one above it', async () => {
+    const atCap = await resultFor(
+      withSeverity('h03-voter-count-after-tool', 1),
+      'h03-voter-count-after-tool',
+    )
+    expect(atCap.checks.severity?.status).toBe('pass')
+    const above = await resultFor(
+      withSeverity('h03-voter-count-after-tool', 2),
+      'h03-voter-count-after-tool',
+    )
+    expect(above.checks.severity?.status).toBe('fail')
+  })
+
+  it('leaves the severity check off a fixture with no cap', async () => {
+    const result = await resultFor({}, 'h05-texting-deadline-contradicts-map')
+    expect(result.checks.severity).toBeUndefined()
+  })
+
   it('records a scoring call that failed and moves on', async () => {
     const bench = await run({
       scoreTranscript: async () => {
         throw new Error('down')
       },
     })
-    expect(bench.scoringErrors).toHaveLength(19)
+    expect(bench.scoringErrors).toHaveLength(25)
     expect(bench.results.find((r) => r.id.startsWith('g01-'))?.passed).toBe(
       false,
     )
+  })
+})
+
+describe('readLocalCaseList', () => {
+  it('keeps each condition with its caseId', () => {
+    const list = readLocalCaseList('campaign_assistant')
+    expect(list.conditions.length).toBeGreaterThan(0)
+    for (const { caseId } of list.conditions) {
+      expect(list.caseIds.has(caseId)).toBe(true)
+    }
+  })
+
+  it('reads the judged suite from this checkout', () => {
+    const list = readLocalCaseList(
+      'chief_of_staff',
+      path.join(CASES_DIR, 'no-such-dir'),
+    )
+    expect(list.caseIds.has('individual-record-refusal')).toBe(true)
+    expect(list.caseCount).toBe(list.caseIds.size)
+    expect(list.fixtureDescription).toBe('')
   })
 })
 
@@ -367,7 +480,7 @@ describe('draftLoaderIssue', () => {
 describe('estimateBefore', () => {
   it('covers only scored scopes and bounds itself', () => {
     const estimate = estimateBefore(FIXTURES)
-    expect(estimate.expectedCalls).toEqual({ score: 19, draft: 12, gate: 11 })
+    expect(estimate.expectedCalls).toEqual({ score: 25, draft: 13, gate: 12 })
     expect(estimate.expectedUsd).toBeGreaterThan(0)
     expect(estimate.expectedUsd).toBeLessThan(estimate.worstUsd)
   })

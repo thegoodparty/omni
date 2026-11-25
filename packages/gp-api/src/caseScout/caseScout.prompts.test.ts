@@ -80,6 +80,16 @@ describe('SCORING_PROMPT', () => {
       'A statement that matches the product knowledge is never invented.',
     )
   })
+
+  it('does not read silence in the product knowledge as invention', () => {
+    expect(SCORING_PROMPT).toContain(
+      'A product detail the product knowledge does not mention is not ' +
+        'evidence',
+    )
+    expect(SCORING_PROMPT).toContain(
+      'only when it contradicts the product knowledge or the transcript.',
+    )
+  })
 })
 
 describe('draftingSystemPrompt', () => {

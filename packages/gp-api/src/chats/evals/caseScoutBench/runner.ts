@@ -25,14 +25,16 @@ import {
 } from '@/caseScout/schemas/caseScoutModel.schema'
 import type { DraftedCase } from '@/caseScout/schemas/draftedCase.schema'
 import {
-  emptyCaseList,
   LIST_SOFT_CAP,
+  mergeCaseLists,
+  SUITE_PATHS,
   type CaseListInfo,
 } from '@/caseScout/services/caseScoutCaseLists.service'
 import {
   ScoreParseError,
   type CaseScoutModelService,
 } from '@/caseScout/services/caseScoutModel.service'
+import { findDateDrift } from '@/caseScout/util/dateDrift.util'
 import {
   buildDraftedCase,
   buildDraftingPrompt,
@@ -59,6 +61,7 @@ import {
   segmentIntoSessions,
   type Session,
 } from '@/caseScout/util/sessions.util'
+import { readSuiteCases } from '@/caseScout/util/suiteCases.util'
 import {
   renderSessionTranscript,
   sessionDenylist,
@@ -184,27 +187,39 @@ const DRAFTED_OUTCOMES: ReadonlySet<DraftOutcomeValue> = new Set([
 
 const SCORE_PARSE_ATTEMPTS = 2
 
-// Reads the judge's case list from this checkout rather than GitHub main, so
-// a run sees the conditions on the branch under test and makes no network
-// call for them. Same fields CaseScoutCaseListsService.read takes.
+const REPO_ROOT = path.resolve(__dirname, '../../../../../..')
+
+// Reads the judged suite and the judge's case list from this checkout rather
+// than GitHub main, so a run sees the cases on the branch under test and
+// makes no network call for them. Merged as CaseScoutCaseListsService.read
+// merges them. The bench has no run record to note a miss in, so a suite it
+// cannot read in full is a bug in the checkout and throws.
 export const readLocalCaseList = (
   agentId: string,
   casesDir: string = CASES_DIR,
 ): CaseListInfo => {
-  let text: string
+  const suitePath = SUITE_PATHS[agentId]
+  const suite =
+    suitePath === undefined
+      ? undefined
+      : readSuiteCases(readFileSync(path.join(REPO_ROOT, suitePath), 'utf8'))
+  if (suite && suite.cases.length === 0) {
+    throw new Error(`${suitePath} has no readable cases`)
+  }
+  if (suite && suite.unreadConditions > 0) {
+    throw new Error(
+      `${suite.unreadConditions} conditions in ${suitePath} could not be read`,
+    )
+  }
+  let text: string | undefined
   try {
     text = readFileSync(path.join(casesDir, `${agentId}.json`), 'utf8')
   } catch {
-    return emptyCaseList(agentId)
+    text = undefined
   }
-  const list = parseCaseList(agentId, text, { agentId })
-  return {
-    agentId,
-    caseCount: list.cases.length,
-    caseIds: new Set(list.cases.map((c) => c.caseId)),
-    conditions: list.cases.flatMap((c) => (c.condition ? [c.condition] : [])),
-    fixtureDescription: list.note ?? '',
-  }
+  const list =
+    text === undefined ? undefined : parseCaseList(agentId, text, { agentId })
+  return mergeCaseLists(agentId, suite?.cases ?? [], list)
 }
 
 const CaseListFileSchema = z
@@ -549,6 +564,24 @@ export const runBench = async ({
     }
 
     const passedGate = gateSummary(gate)
+    const drift = findDateDrift({
+      userTurns:
+        draftedCase.turns ??
+        (draftedCase.question === undefined ? [] : [draftedCase.question]),
+      sourceTexts: sessionSourceTexts(session),
+      sessionStartedAt: session.startedAt,
+    })
+    if (drift) {
+      decide({
+        outcome: DraftOutcome.heldForDate,
+        case: draftedCase,
+        gate: passedGate,
+        draftResponse,
+        failureSummary: drift.reason,
+      })
+      proposedIds.add(draftedCase.caseId)
+      continue
+    }
     if (caseList.caseCount >= LIST_SOFT_CAP) {
       decide({
         outcome: DraftOutcome.listFull,
@@ -708,6 +741,17 @@ const fixtureResult = ({
           (flagged.length > 0 ? flagged.join(', ') : 'nothing at severity 2+'),
       )
     }
+  }
+
+  if (expect.max_severity !== null) {
+    checks.severity =
+      score === null
+        ? check(FAIL, 'not scored')
+        : check(
+            score.severity <= expect.max_severity ? PASS : FAIL,
+            `expected at most ${expect.max_severity}, scout gave ` +
+              `${score.severity}`,
+          )
   }
 
   if (finalCase) {

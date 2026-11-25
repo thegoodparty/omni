@@ -21,10 +21,12 @@ import { reportClientError } from '@shared/observability/reportClientError'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
-// An elected official already holds the office, so this is a position picker,
-// not a race picker. The list comes from upcoming races, which every covered
-// position has. Past races only supply each row's "Last elected" date, the
-// signal that tells apart cohort twins sharing an identical name.
+// An elected official already holds the office, so this is a seat picker, not a
+// race picker. The list comes from every race on file for the zip (no date
+// bound): a seat is still held when its next race is further out than the
+// future window, or when it only has past races. Past races also supply each
+// row's "Last elected" date, the signal that tells apart cohort twins sharing
+// an identical name.
 const isZipValid = (value: string): boolean => /^\d{5}$/.test(value.trim())
 
 interface PositionRow {
@@ -59,13 +61,12 @@ const KNOWN_PILLS = [
 ] as const
 const OTHER_PILL = 'Other'
 
-const fetchRaces = async (
-  zip: string,
-  timeframe: 'future' | 'past',
-): Promise<Race[]> => {
+// Every race on file for the zip: one lookup, so a seat is listed whether its
+// next race is imminent, years out, or none is scheduled yet.
+const fetchRaces = async (zip: string): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip, timeframe },
+    { zipcode: zip, timeframe: 'all' },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -76,54 +77,50 @@ const fetchRaces = async (
   return Array.isArray(resp.data) ? resp.data : []
 }
 
-interface PositionRaces {
-  upcoming: Race[]
-  past: Race[]
-}
+const todayIso = (): string => new Date().toISOString().slice(0, 10)
 
-// A failed past lookup only costs the dates, so it never fails the picker.
-const fetchPositions = async (zip: string): Promise<PositionRaces> => {
-  const [upcoming, past] = await Promise.all([
-    fetchRaces(zip, 'future'),
-    fetchRaces(zip, 'past').catch((error: Error) => {
-      reportClientError(error, {
-        context: 'serveOnboarding.officePicker.fetchPastRaces',
-        zip,
-      })
-      return []
-    }),
-  ])
-  return { upcoming, past }
-}
+// A race with no day on it cannot be dated; count it as upcoming so the seat
+// is still listed.
+const isUpcoming = (race: Race, today: string): boolean =>
+  (race.election?.electionDay ?? today) >= today
 
 const racePositionId = (race: Race): string | undefined =>
   race.brPositionId ?? race.position?.id
 
 // The latest past general per position. Primaries and runoffs are not when
-// an official was elected.
-const lastElectedByPosition = (past: Race[]): Map<string, string> => {
+// an official was elected, and a race still ahead of us has elected nobody.
+const lastElectedByPosition = (
+  races: Race[],
+  today: string,
+): Map<string, string> => {
   const byId = new Map<string, string>()
-  for (const race of past) {
+  for (const race of races) {
     if (race.isPrimary || race.isRunoff) continue
     const positionId = racePositionId(race)
     const day = race.election?.electionDay
-    if (!positionId || !day) continue
+    if (!positionId || !day || day >= today) continue
     const current = byId.get(positionId)
     if (!current || day > current) byId.set(positionId, day)
   }
   return byId
 }
 
-// Collapse the upcoming race rows (one per position+election) into one row
-// per position.
-const dedupeToPositions = ({
-  upcoming,
-  past,
-}: PositionRaces): PositionRow[] => {
-  const lastElected = lastElectedByPosition(past)
+// Collapse the race rows (one per position+election) into one row per position.
+// An upcoming race supplies the row's place details when the seat has one; a
+// seat with only past races takes them from its most recent past race.
+const dedupeToPositions = (races: Race[]): PositionRow[] => {
+  const today = todayIso()
+  const lastElected = lastElectedByPosition(races, today)
   const byId = new Map<string, PositionRow>()
 
-  for (const race of upcoming) {
+  // Races arrive oldest first, so reversing the past half leaves each seat's
+  // most recent past race first.
+  const ordered = [
+    ...races.filter((race) => isUpcoming(race, today)),
+    ...races.filter((race) => !isUpcoming(race, today)).reverse(),
+  ]
+
+  for (const race of ordered) {
     const positionId = racePositionId(race)
     if (!positionId || byId.has(positionId)) continue
     byId.set(positionId, {
@@ -201,7 +198,7 @@ export default function ServeOfficePicker({
 
   const query = useQuery({
     queryKey: ['serve-onboarding-positions', submittedZip],
-    queryFn: () => fetchPositions(submittedZip as string),
+    queryFn: () => fetchRaces(submittedZip as string),
     enabled: Boolean(submittedZip && isZipValid(submittedZip)),
   })
 
@@ -214,7 +211,7 @@ export default function ServeOfficePicker({
   }, [query.error, submittedZip])
 
   const positions = useMemo(
-    () => dedupeToPositions(query.data ?? { upcoming: [], past: [] }),
+    () => dedupeToPositions(query.data ?? []),
     [query.data],
   )
 

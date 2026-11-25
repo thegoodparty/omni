@@ -240,6 +240,10 @@ export const SCORING_PROMPT = [
     'contradicts something said earlier in the session, or it is ' +
     'impossible. A statement that matches the product knowledge is never ' +
     'invented.',
+  'A product detail the product knowledge does not mention is not evidence ' +
+    'that the assistant invented it either, because a help center search or ' +
+    'another tool result can supply it. Treat a product statement as wrong ' +
+    'only when it contradicts the product knowledge or the transcript.',
   '',
   'Privacy: no names, places, office names, organization names, emails, ' +
     'phone numbers or exact',
@@ -349,15 +353,15 @@ export const draftingSystemPrompt = (parts: DraftPromptParts): string =>
     `The fixture this case will run against (${parts.agentId}):`,
     parts.fixtureDescription,
     '',
-    "This agent's current conditions (what the judge already checks) — do " +
-      'not draft a case for a failure one of these already covers; if the ' +
-      'session\'s failure is already covered, answer "coveredBy" naming ' +
-      'the closest one instead:',
+    "This agent's current conditions (what the judge already checks), each " +
+      'as caseId: condition — do not draft a case for a failure one of ' +
+      "these already covers; if the session's failure is already covered, " +
+      'answer "coveredBy" with the caseId of the closest one instead:',
     parts.currentConditions,
     '',
-    "Recent proposals from this agent's last 30 days (do not repeat one of " +
-      'these; if the session\'s failure matches one, answer "coveredBy" ' +
-      'naming it):',
+    "Recent proposals from this agent's last 30 days, each as caseId: " +
+      "failure (do not repeat one of these; if the session's failure " +
+      'matches one, answer "coveredBy" with its caseId):',
     parts.recentProposals,
     '',
     'If you draft a new case, it must satisfy ALL of:',
@@ -402,8 +406,8 @@ export const draftingSystemPrompt = (parts: DraftPromptParts): string =>
       '"...", "turns": ["...", "..."], "condition": "...", "handledWhen": ' +
       '"..."}}',
     '',
-    '{"outcome": "coveredBy", "failureSummary": "...", "caseId": "<the ' +
-      'existing caseId>"}',
+    '{"outcome": "coveredBy", "failureSummary": "...", "caseId": "<a ' +
+      'caseId listed above, copied exactly, never its condition text>"}',
     '',
     '{"outcome": "needsSetup", "failureSummary": "...", "what": "one line ' +
       'naming what\'s missing"}',

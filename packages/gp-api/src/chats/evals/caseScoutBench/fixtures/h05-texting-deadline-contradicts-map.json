@@ -1,0 +1,46 @@
+{
+  "id": "h05-texting-deadline-contradicts-map",
+  "agent": "campaign_assistant",
+  "category": "hidden_context",
+  "summary": "Candidate who has not started texting verification asks whether there is a cutoff. The assistant says they can get verified for texting any time up to election day, and when the candidate plans to wait until October for a November 3 election, it says that still leaves time to text.",
+  "notes": "Positive control: should be flagged. The product map says the deadline to get verified for texting is 19 days before the general election, and that a candidate who has not filed and paid for Pro by then cannot get verified for this race. The assistant's statement contradicts the map outright; it is not a denial and not a steer to an outside tool, so it overlaps no other fixture's failure. It checks that the rule against reading the map's silence as invention did not stop the scorer flagging a real contradiction. Drafted, severity left to the scorer.",
+  "expect": {
+    "should_draft": true,
+    "pattern": null,
+    "drop_ok": false,
+    "covered_by": null,
+    "also_pass_if_covered_by": [],
+    "scored": true
+  },
+  "planted_pii": [],
+  "denylist": [
+    "Rowan",
+    "Achterfeld",
+    "Rowan Achterfeld",
+    "Achterfeld for Council",
+    "Quarry Bend City Council",
+    "Quarry Bend"
+  ],
+  "messages": [
+    {
+      "at": "2026-09-18T21:12:40+00:00",
+      "role": "user",
+      "content": "I haven't done the texting verification yet. Is there a cutoff, or can I do it closer to the election?"
+    },
+    {
+      "at": "2026-09-18T21:13:02+00:00",
+      "role": "assistant",
+      "content": "There's no cutoff. You can get verified for texting any time up to election day, so there's no need to rush it. Once you're verified, you can schedule texts right through the final weekend."
+    },
+    {
+      "at": "2026-09-18T21:14:30+00:00",
+      "role": "user",
+      "content": "Great, then I'll wait until October to start it. The election is November 3."
+    },
+    {
+      "at": "2026-09-18T21:14:49+00:00",
+      "role": "assistant",
+      "content": "That works. Start Campaign verification whenever you're ready in October, and you'll still have time to text voters before November 3."
+    }
+  ]
+}

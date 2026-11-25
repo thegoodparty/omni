@@ -362,13 +362,20 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
     const ein = uniqueEin()
     const checkoutSessionId = captureCheckoutSessionId(page)
     await walkWizardToPayment(page, user.email, ein)
+    // Blank the contact email before the purchase completes, never after. The
+    // agent kickoff backfills a missing site contact email before it
+    // dispatches, which is what this spec can see of it: a preview has no
+    // agent queue, so the run itself is never created. Two arms can enqueue
+    // that kickoff — the Stripe `customer.subscription.created` webhook, and
+    // the webapp's `complete-checkout-session` call — and whichever lands
+    // first claims it (`kickoffSentAt`); a kickoff that already ran is
+    // claimed, so a blank written after it is never backfilled again and the
+    // record is invisible to the stranded-kickoff sweep. Blanking first makes
+    // every arm's job run against the blank site.
+    await client.put('/v1/websites/mine', { contact: { email: '' } })
     await payWithTestCard(page)
     const sessionId = checkoutSessionId()
     expect(sessionId, 'checkout session id').not.toBeNull()
-    // The agent kickoff backfills a missing site contact email before it
-    // dispatches, which is what this spec can see of it: a preview has no
-    // agent queue, so the run itself is never created.
-    await client.put('/v1/websites/mine', { contact: { email: '' } })
     await deliverStripeEvent(client, sessionId!)
     await expect
       .poll(

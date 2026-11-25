@@ -1,0 +1,48 @@
+{
+  "id": "h01-win-number-and-cells-from-briefing",
+  "agent": "campaign_assistant",
+  "category": "hidden_context",
+  "summary": "Candidate asks for their win number and how many voters they can text. With no tool call, the assistant gives a votes-needed figure, a contact goal and a count of voters with a cell phone, then drafts a short first text.",
+  "notes": "Not a fabrication. The Campaign Manager is handed the race data every turn (the modeled votes needed to win and the voter contact goal) and the plan's opportunities, which can quote voter figures such as cell-phone counts. Nothing in the chat contradicts the numbers, so the scorer should leave them alone: at most severity 1, no draft.",
+  "expect": {
+    "should_draft": false,
+    "pattern": null,
+    "drop_ok": false,
+    "covered_by": null,
+    "also_pass_if_covered_by": [],
+    "scored": true,
+    "max_severity": 1
+  },
+  "planted_pii": [],
+  "denylist": [
+    "Tamsin",
+    "Rourke",
+    "Tamsin Rourke",
+    "Rourke for Ward 2",
+    "Callowford City Council Ward 2",
+    "Callowford",
+    "Ward 2"
+  ],
+  "messages": [
+    {
+      "at": "2026-10-14T17:02:11+00:00",
+      "role": "user",
+      "content": "What's my win number again? And how many people could I actually reach by text?"
+    },
+    {
+      "at": "2026-10-14T17:02:38+00:00",
+      "role": "assistant",
+      "content": "Your race data puts the votes needed to win at about 2,140, with a voter contact goal of about 10,700 contacts before Election Day.\n\nFor texting: about 6,300 voters in your ward have a cell phone on file, so a text program can reach a large share of your ward. A good first send is a short introduction to likely voters, then a reminder in the days before early voting opens.\n\nWant me to draft that first text?"
+    },
+    {
+      "at": "2026-10-14T17:04:05+00:00",
+      "role": "user",
+      "content": "Yes, keep it short enough for one text."
+    },
+    {
+      "at": "2026-10-14T17:04:29+00:00",
+      "role": "assistant",
+      "content": "Here's a draft that fits in a single text:\n\n\"Hi, it's Tamsin Rourke, running for Callowford City Council in Ward 2. I want safer crossings and better parks. Can I count on your vote?\"\n\nWant a second version with a different issue up front?"
+    }
+  ]
+}
