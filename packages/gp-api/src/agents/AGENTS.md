@@ -167,7 +167,14 @@ pass, because then one caller that forgets starts runs no query can serve.
   person's score. An aggregate's own argument (`AVG(hs_x)`) is unrestricted,
   because that is what the aggregate is for and the floor holds its result, but
   it must be one plain column or `*`: a CASE or comparison inside an aggregate
-  (`AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)`) is a filter of its own. An
+  (`AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)`) is a filter of its own. The
+  one exception is `SUM(CASE WHEN <condition> THEN 1 ELSE 0 END)`, which is a
+  count of people rather than a way around the floor: the constituent-data
+  tools' own `sumCountsPeople` decides it, and only a `CASE` whose every branch
+  yields `1`, `0` or `NULL` passes. `SUM(hs_x)`, `SUM(CASE WHEN … THEN hs_x
+  END)` and `COUNT_IF` are refused. A `SUM` that passes is held to the floor as
+  a count of people, because `findPeopleCountColumns` names its column and
+  `scrubResults` masks it below `minCellSize` exactly as it masks a `COUNT`. An
   agent lists the coarse dimensions it reasons about — `Active` and the like —
   and nothing row-level. The scope's own jurisdiction columns (the state, and the
   office's L2 district column) are sliceable without being declared, because

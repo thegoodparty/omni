@@ -102,6 +102,13 @@ are web-tools-only. Actions reads the district's `hs_*` sentiment off
 `queryDatabricks`, scoped by the flat `state`/`l2_district_*` params from
 `DistrictResolverService` (omitted all-or-nothing), and declares the manifest's
 `data_required_unless` so a run that read no data cannot claim district numbers.
+Its grant is one table, the row cap, and `dimensions: ['Active']` alone: the
+`hs_*` columns are never filtered or grouped, only read inside an aggregate's own
+`CASE`, so declaring them would widen the slicing allowlist for nothing. The
+`>= 50`/`>= 70` counts are `SUM(CASE WHEN CAST(hs_x AS DOUBLE) >= 50 THEN 1 ELSE
+0 END)`, the people-count form the tool shares with the constituent-data tools:
+`SUM(hs_x)` and `COUNT_IF` stay refused, and a passing `SUM(CASE ...)` is held to
+the cell-size floor as a count of people.
 
 ## Sourced-or-silent + fair-line (the strict engine's invariants)
 

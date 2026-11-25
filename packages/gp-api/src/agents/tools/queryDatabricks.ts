@@ -13,6 +13,7 @@ import {
   type ScrubResult,
   scrubResults,
   SqlRejected,
+  sumCountsPeople,
 } from '@/llm/tools/constituentSql.validator'
 import { isRecord } from '@/llm/tools/util/isRecord.util'
 import { parseSingleSelect } from '@/llm/tools/util/sqlAst.util'
@@ -267,9 +268,13 @@ const assertAggregateOnly = (
   assertAggregateSelectShape(select, { allowedGroupBy: new Set(named) })
 
   // MIN and MAX return one row's own value, so MAX(LALVOTERID) is a voter ID
-  // and MIN(hs_x) is one person's score. AVG, SUM and COUNT blend the cell, as
-  // long as their argument is a plain column: a CASE or comparison inside one
-  // (AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)) is a filter of its own.
+  // and MIN(hs_x) is one person's score. AVG and COUNT blend the cell, as long
+  // as their argument is a plain column: a CASE or comparison inside one
+  // (AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)) is a filter of its own. SUM
+  // has no such shape: the only SUM whose value is a number of people is
+  // SUM(CASE WHEN <condition> THEN 1 ELSE 0 END), which the constituent-data
+  // tools' own validator decides, so SUM(hs_x) is refused by this tool the way
+  // it is refused there.
   for (const column of Array.isArray(select.columns) ? select.columns : []) {
     const expr = isRecord(column) ? column.expr : null
     const name = isRecord(expr) ? aggregateFunctionName(expr) : null
@@ -279,6 +284,16 @@ const assertAggregateOnly = (
         `${name} returns one row's own value; use AVG, SUM or COUNT instead`,
       )
     }
+    // Every result of the count form is 0, 1 or NULL, so the value is a number
+    // of rows and the floor holds it exactly as it holds COUNT(*).
+    if (name === 'SUM') {
+      if (!sumCountsPeople(expr)) {
+        throw new SqlRejected(
+          'SUM may only count people: SUM(CASE WHEN <condition> THEN 1 ELSE 0 END). Use AVG for an average',
+        )
+      }
+      continue
+    }
     const args = isRecord(expr.args) ? expr.args : null
     const argList = Array.isArray(args?.value) ? args.value : [args?.expr]
     for (const arg of argList) {
@@ -287,7 +302,7 @@ const assertAggregateOnly = (
         (arg.type !== 'column_ref' && arg.type !== 'star')
       ) {
         throw new SqlRejected(
-          `${name} takes one plain column or *, never an expression, CASE or comparison`,
+          `${name} takes one plain column or *: a CASE or comparison inside it is a filter of its own`,
         )
       }
     }
@@ -476,7 +491,7 @@ export const databricksTool = (options: DatabricksToolOptions) => {
       ? 'the table this organization reads'
       : options.tables.join(', ')
   return defineTool({
-    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One flat statement only: no subquery, UNION, MIN or MAX, an aggregate takes a plain column or *, no DDL, no writes.`,
+    description: `Run one aggregate SELECT over internal modeled constituent data (${tablePhrase}) and get back its columns and at most ${options.maxRows} rows. It returns counts, sums and averages only, never a list of people: every select item must be an aggregate (COUNT, SUM, AVG, APPROX_COUNT_DISTINCT) or a column named in GROUP BY, every query must include COUNT(*) AS n with a name of its own, and a GROUP BY, WHERE or HAVING may name only these columns: ${groupable}. Cells smaller than ${minCellSize} are dropped, and any other count below ${minCellSize} comes back null. Every SELECT that reads the table must itself guarantee the office jurisdiction filter in its WHERE, e.g. ${STATE_COLUMN} = 'NC'; a query that does not is rejected with the clause to add. Write values as literals, never as bind parameters. One flat statement only: no subquery, UNION, MIN or MAX, an aggregate takes a plain column or * (or SUM(CASE WHEN <condition> THEN 1 ELSE 0 END), which counts the people matching the condition), no DDL, no writes.`,
     input: queryInput,
     readsWarehouse: true,
     execute: async ({ sql }, ctx) => {
