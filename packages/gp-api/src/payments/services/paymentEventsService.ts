@@ -2,6 +2,7 @@ import { holdsOneTimePlan } from '@/campaigns/plans/planState.util'
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   forwardRef,
   Inject,
   Injectable,
@@ -10,6 +11,7 @@ import {
 import { resolveEnvVar } from '../../shared/env/env'
 import { ModuleRef } from '@nestjs/core'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
+import { fromUnixTime, isAfter } from 'date-fns'
 import Stripe from 'stripe'
 import { CampaignsService } from '../../campaigns/services/campaigns.service'
 import { UsersService } from '../../users/services/users.service'
@@ -127,6 +129,8 @@ export class PaymentEventsService {
       throw new BadRequestException(STRIPE_WEBHOOKS_NOT_CONFIGURED_MESSAGE)
     }
     switch (event.type) {
+      case WebhookEventType.InvoicePaid:
+        return await this.invoicePaidHandler(event)
       case WebhookEventType.CustomerSubscriptionCreated:
         return await this.customerSubscriptionCreatedHandler(event)
       case WebhookEventType.CheckoutSessionCompleted:
@@ -228,9 +232,86 @@ export class PaymentEventsService {
     await this.paymentHoldsService().markDisputedByIntent(intentId)
   }
 
+  private async invoicePaidHandler(event: Stripe.InvoicePaidEvent) {
+    const invoice = event.data.object
+    const subscriptionRef =
+      invoice.parent?.subscription_details?.subscription ??
+      ('subscription' in invoice ? invoice.subscription : null)
+    const subscriptionId =
+      typeof subscriptionRef === 'string'
+        ? subscriptionRef
+        : subscriptionRef instanceof Object &&
+            'id' in subscriptionRef &&
+            typeof subscriptionRef.id === 'string'
+          ? subscriptionRef.id
+          : null
+    if (!subscriptionId || invoice.status !== 'paid') return
+
+    const subscription =
+      await this.stripeService.retrieveSubscription(subscriptionId)
+    if (
+      subscription.status !== 'active' ||
+      !this.stripeService.isProSubscription(subscription)
+    ) {
+      return
+    }
+
+    const campaign = await this.resolveSubscriptionCampaign(
+      subscriptionId,
+      subscription.metadata,
+    )
+    if (!campaign?.userId) {
+      this.logger.error(
+        { subscriptionId, invoiceId: invoice.id },
+        '[WEBHOOK] Paid Pro subscription has no verified campaign',
+      )
+      return
+    }
+    const user = await this.usersService.findUser({ id: campaign.userId })
+    if (!user || user.metaData?.isDeleted) return
+
+    const { becamePro } = await this.setProFromSubscription(
+      campaign.id,
+      subscriptionId,
+      { userId: user.id, paidAt: fromUnixTime(event.created) },
+    )
+    if (becamePro) {
+      await this.onBecamePro(campaign, user)
+      if (process.env.STRIPE_PRO_INVOICE_ONLY === 'true') {
+        await this.trackProUpgradeComplete(user.id, invoice.id)
+      }
+    }
+    await this.clearCheckoutSessionForSubscription(user, subscriptionId)
+  }
+
+  private async resolveSubscriptionCampaign(
+    subscriptionId: string,
+    metadata: Stripe.Metadata | null,
+  ) {
+    const [linked, duplicate] =
+      await this.campaignsService.findSubscriptionCampaigns(subscriptionId)
+    if (duplicate) return null
+
+    const campaignId = Number(metadata?.campaignId)
+    const userId = Number(metadata?.userId)
+    if (metadata?.campaignId || metadata?.userId) {
+      if (!Number.isSafeInteger(userId) || userId <= 0) return null
+      if (metadata.campaignId) {
+        if (!Number.isSafeInteger(campaignId) || campaignId <= 0) return null
+        if (linked && linked.id !== campaignId) return null
+        return this.campaignsService.findFirst({
+          where: { id: campaignId, userId },
+        })
+      }
+    }
+    return metadata?.userId && linked?.userId !== userId ? null : linked
+  }
+
   async customerSubscriptionCreatedHandler(
     event: Stripe.CustomerSubscriptionCreatedEvent,
   ) {
+    if (process.env.STRIPE_PRO_INVOICE_ONLY === 'true') return
+
     const {
       id: subscriptionId,
       customer: customerId,
@@ -253,11 +334,13 @@ export class PaymentEventsService {
         'No user found with given subscription customerId',
       )
     }
-    const campaign = await this.campaignsService.findActiveByUserId(user.id)
+    const campaign = metadata?.campaignId
+      ? await this.resolveSubscriptionCampaign(subscriptionId, metadata)
+      : await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
       this.logger.warn(
-        { userId: user.id },
-        '[WEBHOOK] No active campaign on subscription.created; skipping',
+        { userId: user.id, subscriptionId },
+        '[WEBHOOK] No matching campaign on subscription.created; skipping',
       )
       return
     }
@@ -281,15 +364,14 @@ export class PaymentEventsService {
       return
     }
 
-    await this.campaignsService.patchCampaignDetails(campaignId, {
-      subscriptionId,
-    })
-
     // Only a subscription we stamped at checkout names its campaign itself,
     // and only one that is billing right now fulfils Pro: an `incomplete` or
     // `past_due` subscription is linked above (so its later events resolve)
     // but must not hand out Pro before it has been paid for.
     if (!metadataUserId || !PRO_FULFILL_STATUSES.has(status)) {
+      await this.campaignsService.patchCampaignDetails(campaignId, {
+        subscriptionId,
+      })
       return
     }
 
@@ -334,7 +416,7 @@ export class PaymentEventsService {
     } catch (error) {
       this.logger.error(
         { error, userId: user.id, subscriptionId },
-        '[WEBHOOK] Failed to clear checkoutSessionId after customer.subscription.created',
+        '[WEBHOOK] Failed to clear checkoutSessionId after subscription fulfillment',
       )
     }
   }
@@ -342,6 +424,8 @@ export class PaymentEventsService {
   async customerSubscriptionResumedHandler(
     event: Stripe.CustomerSubscriptionResumedEvent,
   ) {
+    if (process.env.STRIPE_PRO_INVOICE_ONLY === 'true') return
+
     const subscription = event.data.object
     const { customer: customerId, id: subscriptionId } = subscription
     if (!customerId) {
@@ -709,11 +793,19 @@ export class PaymentEventsService {
         'No user found with given checkout session userId',
       )
     }
-    const campaign = await this.campaignsService.findActiveByUserId(user.id)
+    const incomingSubscriptionId =
+      typeof subscriptionId === 'string' ? subscriptionId : subscriptionId?.id
+    if (!incomingSubscriptionId || session.payment_status === 'unpaid') return
+    const campaign = session.metadata?.campaignId
+      ? await this.resolveSubscriptionCampaign(
+          incomingSubscriptionId,
+          session.metadata,
+        )
+      : await this.campaignsService.findActiveByUserId(user.id)
     if (!campaign) {
       this.logger.warn(
-        { userId: user.id },
-        '[WEBHOOK] No active campaign on subscription checkout; skipping',
+        { userId: user.id, subscriptionId: incomingSubscriptionId },
+        '[WEBHOOK] No matching campaign on subscription checkout; skipping',
       )
       return
     }
@@ -725,17 +817,13 @@ export class PaymentEventsService {
     // date here would duplicate the shared predicate.
     const { id: campaignId } = campaign
 
-    // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const incomingSubscriptionId = subscriptionId as string
     const previousSubscriptionId = campaign.details?.subscriptionId
     if (
       previousSubscriptionId &&
       previousSubscriptionId !== incomingSubscriptionId
     ) {
-      // Overwriting a different stored sub id is the signature of a duplicate
-      // Pro subscription: the previous sub keeps billing invisibly once we
-      // stop tracking it (ENG-11084). Alert loudly, don't block fulfillment.
+      // Overwriting the link leaves the first subscription billing invisibly
+      // (ENG-11084). Neither webhook should replace it.
       this.logger.error(
         {
           campaignId,
@@ -743,26 +831,21 @@ export class PaymentEventsService {
           previousSubscriptionId,
           incomingSubscriptionId,
         },
-        '[WEBHOOK] Subscription checkout is replacing a different stored ' +
+        '[WEBHOOK] Subscription checkout found a different stored ' +
           'subscriptionId — possible duplicate Pro subscription',
       )
+      return
     }
 
-    // Still serial, but no longer to stop the two from clobbering each other's
-    // `details` keys — patchCampaignDetails merges in one atomic statement now.
-    // The order is what matters: subscriptionId has to be stored before the Pro
-    // flip, because findBySubscriptionId is how later subscription events for
-    // this campaign find it.
-    await this.campaignsService.patchCampaignDetails(campaignId, {
-      subscriptionId: incomingSubscriptionId,
-    })
-    const { becamePro } = await this.setProFromSubscription(
-      campaignId,
-      incomingSubscriptionId,
-    )
-
-    if (becamePro) {
-      await this.onBecamePro(campaign, user)
+    // The subscription link must commit with the entitlement: later billing
+    // events use that link to resolve the same campaign.
+    const invoiceOnly = process.env.STRIPE_PRO_INVOICE_ONLY === 'true'
+    if (!invoiceOnly) {
+      const { becamePro } = await this.setProFromSubscription(
+        campaignId,
+        incomingSubscriptionId,
+      )
+      if (becamePro) await this.onBecamePro(campaign, user)
     }
 
     // Track analytics with proper error handling
@@ -776,20 +859,9 @@ export class PaymentEventsService {
       // Don't throw - we don't want to fail the webhook for analytics issues
     }
 
-    try {
-      await this.analytics.track(user.id, EVENTS.Account.ProUpgradeComplete, {
-        pro: true,
-        plan: 'pro',
-        pricingModel: 'subscription',
-        paymentMethod: 'card',
-        upgradeFrom: 'free',
-      })
-    } catch (error) {
-      this.logger.error(
-        { error },
-        `[WEBHOOK] Failed to track pro_upgrade_complete - User: ${user.id}, Session: ${session.id}`,
-      )
-    }
+    if (invoiceOnly) return
+
+    await this.trackProUpgradeComplete(user.id, session.id)
 
     // Critical: Update user metadata with customerId - must succeed
     await this.usersService.patchUserMetaData(user.id, {
@@ -808,6 +880,23 @@ export class PaymentEventsService {
     )
   }
 
+  private async trackProUpgradeComplete(userId: number, paymentId: string) {
+    try {
+      await this.analytics.track(userId, EVENTS.Account.ProUpgradeComplete, {
+        pro: true,
+        plan: 'pro',
+        pricingModel: 'subscription',
+        paymentMethod: 'card',
+        upgradeFrom: 'free',
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, userId, paymentId },
+        '[WEBHOOK] Failed to track pro_upgrade_complete',
+      )
+    }
+  }
+
   // The one-time side effects of a campaign first becoming Pro, shared by both
   // subscription fulfilment arms and the one-time PLAN purchase
   // (CampaignPlanPurchaseService). Callers run it only when setIsPro reports
@@ -819,6 +908,7 @@ export class PaymentEventsService {
   private async setProFromSubscription(
     campaignId: number,
     subscriptionId: string,
+    invoice?: { userId: number; paidAt: Date },
   ) {
     let keptPlan: CampaignPlanLevel | undefined
     const result = await this.campaignsService.setIsPro(
@@ -826,9 +916,27 @@ export class PaymentEventsService {
       true,
       true,
       (locked) => {
-        if (!holdsOneTimePlan(locked)) return SUBSCRIPTION_PLAN_COLUMNS
+        const existingId = locked.details?.subscriptionId
+        if (invoice && locked.userId !== invoice.userId) return null
+        if (
+          invoice &&
+          !existingId &&
+          locked.planEndedAt &&
+          !isAfter(invoice.paidAt, locked.planEndedAt)
+        ) {
+          return null
+        }
+        if (existingId && existingId !== subscriptionId) {
+          throw new ConflictException(
+            'Campaign is already linked to another Stripe subscription',
+          )
+        }
+        const details = { ...locked.details, subscriptionId }
+        if (!holdsOneTimePlan(locked)) {
+          return { ...SUBSCRIPTION_PLAN_COLUMNS, details }
+        }
         keptPlan = locked.plan
-        return {}
+        return { details }
       },
     )
     if (keptPlan) {

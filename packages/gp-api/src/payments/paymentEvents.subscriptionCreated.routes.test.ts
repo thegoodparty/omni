@@ -5,7 +5,7 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { addDays, format } from 'date-fns'
 import Stripe from 'stripe'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CampaignPlanLevel, PlanPricingModel } from '../generated/prisma'
 import { CheckoutSessionMode, WebhookEventType } from './payments.types'
 
@@ -99,10 +99,12 @@ const checkoutCompletedEvent = ({
   subscriptionId,
   customerId,
   userId,
+  campaignId,
 }: {
   subscriptionId: string
   customerId: string
   userId: number
+  campaignId?: number
 }) =>
   eventEnvelope(WebhookEventType.CheckoutSessionCompleted, {
     id: 'cs_test_pro',
@@ -111,7 +113,10 @@ const checkoutCompletedEvent = ({
     customer: customerId,
     subscription: subscriptionId,
     payment_status: 'paid',
-    metadata: { userId: String(userId) },
+    metadata: {
+      userId: String(userId),
+      ...(campaignId ? { campaignId: String(campaignId) } : {}),
+    },
   })
 
 let campaignSeq = 0
@@ -394,6 +399,138 @@ describe('POST /v1/payments/events — customer.subscription.created', () => {
     const updated = await readCampaign(campaign.id)
     expect(updated.details.subscriptionId).toBe('sub_unstamped')
     expect(updated.isPro).toBe(false)
+  })
+})
+
+describe('POST /v1/payments/events — invoice.paid', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  const paidInvoice = (subscriptionId: string, legacy = false) =>
+    eventEnvelope(WebhookEventType.InvoicePaid, {
+      id: 'in_pro_paid',
+      object: 'invoice',
+      status: 'paid',
+      ...(legacy
+        ? { subscription: subscriptionId }
+        : {
+            parent: { subscription_details: { subscription: subscriptionId } },
+          }),
+    })
+
+  const mockSubscription = (
+    id: string,
+    metadata: Stripe.Metadata,
+    status: Stripe.Subscription.Status = 'active',
+  ) =>
+    vi
+      .spyOn(service.app.get(StripeService), 'retrieveSubscription')
+      .mockResolvedValue({
+        id,
+        status,
+        metadata,
+        items: { data: [{ price: { product: 'prod_QAR4xrqUhyHHqX' } }] },
+        lastResponse: { headers: {}, requestId: 'req_test', statusCode: 200 },
+      } as Stripe.Response<Stripe.Subscription>)
+
+  it('grants Pro only on payment and only to the campaign named at checkout', async () => {
+    vi.stubEnv('STRIPE_PRO_INVOICE_ONLY', 'true')
+    const campaign = await seedCampaign({ electionDate: '2025-01-01' })
+    const other = await seedCampaign()
+    const opponentCollection = spyOnOpponentCollection()
+    const subscriptionId = 'sub_invoice_paid'
+    const metadata = {
+      userId: String(service.user.id),
+      campaignId: String(campaign.id),
+    }
+    mockSubscription(subscriptionId, metadata)
+
+    const created = await deliverStripeEvent(
+      subscriptionCreatedEvent({
+        subscriptionId,
+        customerId: 'cus_invoice_paid',
+        status: 'active',
+        metadata,
+      }),
+    )
+    expect(created.status).toBe(200)
+    expect((await readCampaign(campaign.id)).isPro).toBe(false)
+    expect((await readCampaign(campaign.id)).details.subscriptionId).toBeFalsy()
+
+    const checkout = await deliverStripeEvent(
+      checkoutCompletedEvent({
+        subscriptionId,
+        customerId: 'cus_invoice_paid',
+        userId: service.user.id,
+        campaignId: campaign.id,
+      }),
+    )
+    expect(checkout.status).toBe(200)
+    expect((await readCampaign(campaign.id)).isPro).toBe(false)
+    expect((await readCampaign(campaign.id)).details.subscriptionId).toBeFalsy()
+
+    const invoice = paidInvoice(subscriptionId)
+    expect((await deliverStripeEvent(invoice)).status).toBe(200)
+    expect((await deliverStripeEvent(invoice)).status).toBe(200)
+
+    const updated = await readCampaign(campaign.id)
+    expect(updated).toMatchObject({
+      isPro: true,
+      plan: CampaignPlanLevel.pro,
+      planPricingModel: PlanPricingModel.subscription,
+      details: { subscriptionId, electionDate: '2025-01-01' },
+    })
+    expect(updated.details.isProUpdatedAt).toBeDefined()
+    expect((await readCampaign(other.id)).isPro).toBe(false)
+    expect(opponentCollection).toHaveBeenCalledExactlyOnceWith(campaign.id)
+  })
+
+  it('repairs a legacy subscription only if it has an existing campaign link', async () => {
+    const subscriptionId = 'sub_legacy_invoice_paid'
+    const campaign = await seedCampaign({ subscriptionId })
+    const other = await seedCampaign()
+    mockSubscription(subscriptionId, {})
+
+    expect(
+      (await deliverStripeEvent(paidInvoice(subscriptionId, true))).status,
+    ).toBe(200)
+    expect((await readCampaign(campaign.id)).isPro).toBe(true)
+    expect((await readCampaign(other.id)).isPro).toBe(false)
+  })
+
+  it('does not fall back when the metadata names a campaign owned by someone else', async () => {
+    const campaign = await seedCampaign()
+    const subscriptionId = 'sub_mismatched_invoice'
+    mockSubscription(subscriptionId, {
+      userId: String(service.user.id + 1),
+      campaignId: String(campaign.id),
+    })
+
+    expect((await deliverStripeEvent(paidInvoice(subscriptionId))).status).toBe(
+      200,
+    )
+    const updated = await readCampaign(campaign.id)
+    expect(updated.isPro).toBe(false)
+    expect(updated.details.subscriptionId).toBeFalsy()
+  })
+
+  it('does not reactivate a canceled subscription on an old paid invoice', async () => {
+    const campaign = await seedCampaign()
+    const subscriptionId = 'sub_canceled_invoice'
+    mockSubscription(
+      subscriptionId,
+      {
+        userId: String(service.user.id),
+        campaignId: String(campaign.id),
+      },
+      'canceled',
+    )
+
+    expect((await deliverStripeEvent(paidInvoice(subscriptionId))).status).toBe(
+      200,
+    )
+    const updated = await readCampaign(campaign.id)
+    expect(updated.isPro).toBe(false)
+    expect(updated.details.subscriptionId).toBeFalsy()
   })
 })
 

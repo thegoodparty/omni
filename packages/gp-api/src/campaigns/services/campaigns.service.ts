@@ -181,6 +181,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       },
     })
   }
+  async findSubscriptionCampaigns(subscriptionId: string) {
+    return this.findMany({
+      where: { details: { path: ['subscriptionId'], equals: subscriptionId } },
+      take: 2,
+    })
+  }
+
   // TODO: Find a way to make these JSON path lookups type-safe
 
   async findByHubspotId(hubspotId: string) {
@@ -1012,6 +1019,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           where: { id: campaignId },
           select: {
             isPro: true,
+            userId: true,
             hasFreeTextsOffer: true,
             freeTextsOfferRedeemedAt: true,
             plan: true,

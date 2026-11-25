@@ -20,5 +20,9 @@ export const holdsOneTimePlan = (campaign: CampaignPlanState) =>
 export type LockedCampaignState = CampaignPlanState &
   Pick<
     Campaign,
-    'isPro' | 'planEndsAtOverride' | 'details' | 'outreachCreditCents'
+    | 'isPro'
+    | 'planEndsAtOverride'
+    | 'details'
+    | 'outreachCreditCents'
+    | 'userId'
   >
