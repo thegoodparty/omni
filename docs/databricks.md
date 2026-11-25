@@ -136,6 +136,12 @@ plus one `State` row per state) and `gp_api_block_group_census_demographics`
 tables' `Census_Block_Group_Geoid`). It is deliberately not interchangeable
 with the two agent identities above.
 
+The same identity reads resident comments for the Serve welcome's map from
+the table named in `RESIDENT_VOICES_TABLE`. That table is in the `sandbox`
+schema today, which the identity cannot select from, so the read answers
+empty until the data team publishes it into `mart_gp_api` and the variable
+names the new table (`packages/gp-api/src/residentVoices/AGENTS.md`).
+
 Read the mart, never the `dbt` models underneath it. The data is the same, but
 the access is not: `mart_gp_api` carries a schema-scoped `SELECT` for the
 `mart_gp_api_readers` group, which survives the `CREATE OR REPLACE VIEW` a dbt

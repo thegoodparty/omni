@@ -1633,6 +1633,14 @@ export {
 } from './people/PeoplePrecincts.schema'
 
 export {
+  RESIDENT_VOICES_MAX,
+  ResidentVoiceSchema,
+  type ResidentVoice,
+  ResidentVoicesResponseSchema,
+  type ResidentVoicesResponse,
+} from './residentVoices/ResidentVoices.schema'
+
+export {
   MAX_OVERLAP_SAVED_FILTER_SETS,
   PeopleOverlapCountRequestSchema,
   type PeopleOverlapCountRequest,
