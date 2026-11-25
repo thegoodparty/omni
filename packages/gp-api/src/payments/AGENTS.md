@@ -46,8 +46,9 @@ Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suff
 
 ## Pro subscription lifecycle
 
-`invoice.paid` grants or confirms Pro for an active subscription to our Pro
-Stripe product. Checkout stamps `userId` and `campaignId` on both the session
+`invoice.paid` grants or confirms Pro for an active or trialing subscription to
+our Pro Stripe product. A trial invoice can be paid at zero dollars. Checkout
+stamps `userId` and `campaignId` on both the session
 and its subscription. The handler dispatches to that exact owned campaign,
 never the buyer’s currently active campaign. For older subscriptions without
 campaign metadata, it requires one existing `details.subscriptionId` match;

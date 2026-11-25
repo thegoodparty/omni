@@ -2,7 +2,6 @@ import { holdsOneTimePlan } from '@/campaigns/plans/planState.util'
 import {
   BadGatewayException,
   BadRequestException,
-  ConflictException,
   forwardRef,
   Inject,
   Injectable,
@@ -250,7 +249,7 @@ export class PaymentEventsService {
     const subscription =
       await this.stripeService.retrieveSubscription(subscriptionId)
     if (
-      subscription.status !== 'active' ||
+      !PRO_FULFILL_STATUSES.has(subscription.status) ||
       !this.stripeService.isProSubscription(subscription)
     ) {
       return
@@ -270,11 +269,12 @@ export class PaymentEventsService {
     const user = await this.usersService.findUser({ id: campaign.userId })
     if (!user || user.metaData?.isDeleted) return
 
-    const { becamePro } = await this.setProFromSubscription(
+    const { becamePro, skipped } = await this.setProFromSubscription(
       campaign.id,
       subscriptionId,
       { userId: user.id, paidAt: fromUnixTime(event.created) },
     )
+    if (skipped) return
     if (becamePro) {
       await this.onBecamePro(campaign, user)
       if (process.env.STRIPE_PRO_INVOICE_ONLY === 'true') {
@@ -375,10 +375,11 @@ export class PaymentEventsService {
       return
     }
 
-    const { becamePro } = await this.setProFromSubscription(
+    const { becamePro, skipped } = await this.setProFromSubscription(
       campaignId,
       subscriptionId,
     )
+    if (skipped) return
     if (becamePro) {
       this.logger.info(
         { campaignId, userId: user.id, subscriptionId, status },
@@ -841,10 +842,11 @@ export class PaymentEventsService {
     // events use that link to resolve the same campaign.
     const invoiceOnly = process.env.STRIPE_PRO_INVOICE_ONLY === 'true'
     if (!invoiceOnly) {
-      const { becamePro } = await this.setProFromSubscription(
+      const { becamePro, skipped } = await this.setProFromSubscription(
         campaignId,
         incomingSubscriptionId,
       )
+      if (skipped) return
       if (becamePro) await this.onBecamePro(campaign, user)
     }
 
@@ -911,25 +913,33 @@ export class PaymentEventsService {
     invoice?: { userId: number; paidAt: Date },
   ) {
     let keptPlan: CampaignPlanLevel | undefined
+    let skipped = false
     const result = await this.campaignsService.setIsPro(
       campaignId,
       true,
       true,
       (locked) => {
         const existingId = locked.details?.subscriptionId
-        if (invoice && locked.userId !== invoice.userId) return null
+        if (invoice && locked.userId !== invoice.userId) {
+          skipped = true
+          return null
+        }
         if (
           invoice &&
           !existingId &&
           locked.planEndedAt &&
           !isAfter(invoice.paidAt, locked.planEndedAt)
         ) {
+          skipped = true
           return null
         }
         if (existingId && existingId !== subscriptionId) {
-          throw new ConflictException(
-            'Campaign is already linked to another Stripe subscription',
+          this.logger.error(
+            { campaignId, subscriptionId, existingId },
+            '[WEBHOOK] Campaign linked to another subscription — possible duplicate Pro subscription',
           )
+          skipped = true
+          return null
         }
         const details = { ...locked.details, subscriptionId }
         if (!holdsOneTimePlan(locked)) {
@@ -945,7 +955,7 @@ export class PaymentEventsService {
         '[WEBHOOK] Subscription on a campaign holding a one-time plan; kept the plan',
       )
     }
-    return result
+    return { ...result, skipped }
   }
 
   async onBecamePro(campaign: Campaign, user: User) {

@@ -16,8 +16,9 @@ supersedes:
 ## Decision
 
 `invoice.paid` is the trigger for subscription-backed Pro, at purchase and
-renewal. Verify the subscription is active and is for our Pro product. Checkout
-stamps the user and campaign IDs on both the session and its subscription. A
+renewal. Verify the subscription is active or trialing and is for our Pro
+product. A paid trial invoice may be for zero dollars. Checkout stamps the user
+and campaign IDs on both the session and its subscription. A
 paid invoice uses that exact campaign after verifying its owner. An older
 subscription without campaign metadata can use a unique existing link, but not
 an inferred match by email, customer ID, or currently active campaign.
