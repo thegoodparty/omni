@@ -25,6 +25,14 @@ model Domain {
   paymentId               String?      @map("payment_id")
   emailForwardingDomainId String?      @map("email_forwarding_domain_id")
   registrantVerifiedAt    DateTime?    @map("registrant_verified_at")
+  // The registrar's own verdict when it refused the purchase order. Written
+  // with the refused order id (operationId) and status inactive, so a retry
+  // of the same name answers the same terminal refusal instead of placing a
+  // second order. Every path that places a new order, and every order that
+  // completes, clears them: they only describe a refusal this row has not
+  // moved past.
+  registrarRefusalCode    String?      @map("registrar_refusal_code")
+  registrarRefusedAt      DateTime?    @map("registrar_refused_at")
 
   @@map("domain")
 }
