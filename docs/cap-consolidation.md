@@ -99,13 +99,18 @@ on its own PR, which arrive before the merge (step 3).
    it compares the PMF Engine in dev against the PR's preview on gp-api's
    engine. That verdict, and Delegate's approval of it, is the proof, and
    promoting the PR is the migration. Rollback is reverting the PR's list
-   lines, and that only rolls back if the agent's readers are two-way: one that
-   picks its table from the switch cannot read a run the other engine wrote, so
-   after a revert its gate sees no run and dispatches a second one. The
-   community-issue readers are that one-way shape today. A migrating agent's
-   readers look a run up by id in both tables, as the judge's read route does,
-   and stay two-way across the flip. CI's per-case results are in the
-   `judge-eval-results` artifact
+   lines, which restores the old engine only if the agent's readers can read
+   that engine's runs. They cannot as the switch is written: a gate asks which
+   run this org already has by org, agent type and status, and reads one table,
+   so a reader on one engine cannot see a run the other engine stored — after a
+   revert it finds nothing and dispatches a second run. `meeting_schedule`'s
+   dispatch gate and latest-schedule read are in that shape on main today. So a
+   migration makes its readers two-way first: the gate and the latest-run read
+   check both tables by org and type, and a by-id read falls through to the
+   other table, as the judge's read route does. That is the one place a
+   migration departs from the readers already in, and it is the migration
+   author's to do — no check tests a revert, because the judge verdict does not.
+   CI's per-case results are in the `judge-eval-results` artifact
    ([`judge/AGENTS.md`](../packages/judge/AGENTS.md)).
    - **Wave 1, web tools only:** `race_opponent_summary`,
      `opposition_research`, `opportunities_and_challenges`,

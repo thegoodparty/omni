@@ -25,45 +25,51 @@ PR's preview on gp-api's engine. A verdict of BETTER, NO DIFFERENCE FOUND or
 CAN'T SAY with `handledWhen` unregressed, plus Delegate's approval, is the
 migration passing; promoting the PR is the migration happening.
 
-Rollback is reverting the PR's list lines. That only works if the agent's
-readers are two-way: look a run up by id in `AgentRun` and in `ExperimentRun`
-and return whichever holds it, the way `agentRunRoutes.service.ts`'s `read`
-does. A reader that picks one table from `runsOnGpApi` cannot see a run the
-other engine wrote, so after a revert its gate finds no run and dispatches a
-second one. The community-issue and campaign-strategy readers are that one-way
-shape today; a migration that advertises a revert as its rollback changes its
-readers first.
+Rollback is reverting the PR's list lines, so the PR has to leave a revert
+safe. It does that by making the agent's readers two-way before the flip: the
+dispatch gate and the latest-run read query both `AgentRun` and `ExperimentRun`
+by org and agent type, and a read by id falls through to the other table, the
+way `agentRunRoutes.service.ts`'s `read` does.
+
+One-way readers are the shape on main today: every migrated agent's gate and
+latest-run read (the community-issue pair, `sectionRun.ts`, and
+`meeting_schedule` in `meetingBriefings.service.ts`) picks one table from
+`runsOnGpApi`. That makes the flip atomic but leaves the other engine's runs
+invisible, so after a revert the gate finds no run for an org that has one and
+dispatches a second. The two-way readers are the migration author's work, in the
+migration PR; whoever reviews that PR is who checks it, because the judge
+verdict never tests a revert.
 
 ## Context
 
 The rule this replaces put dev first: land the agent with its switch on in dev
-only, compare dev's runs against a preview's, and flip prod in a later PR. It
-split one change across two PRs and a window in which dev and prod ran different
-engines, which is exactly the state the judge's two arms can already produce
-without a second merge. Dev and a PR preview are the comparison the judge
-performs; a dev-only landing adds nothing to it.
+only, compare dev's runs against a preview's, then flip prod in a later PR. It
+split one change across two merges and a window in which dev and prod ran
+different engines — the state the judge's two arms already produce without a
+second merge. Its second PR had no judge of its own either.
 
 The lists are the source of truth for which engine runs an agent where, and a
 judge run in a preview needs the agent in the preview list or both arms run the
 PMF Engine and the suite compares it with itself.
 
-The trade this makes: the merge is the prod flip, so the verdict precedes
-production traffic instead of following it, and a revert is the only recovery.
-That is why a safe-not-unproven revert is part of the same PR rather than an
-assumption about the readers that exist.
+The trade: the merge is the prod flip, so the verdict precedes production
+traffic and a revert is the only recovery. That is why the revert has to be
+safe before the merge, not assumed.
 
 ## Alternatives rejected
 
 - **Dev first, prod in a later PR.** Two merges and a dev-vs-prod engine
-  divergence for a comparison the judge already makes across dev and a preview.
-  Its second PR also has no judge of its own, so the prod flip would be
-  unproven.
-- **Judge after merging.** The proof would arrive after the change is live,
-  and a WORSE verdict would leave only a revert.
-- **Readers that keep switching tables with `runsOnGpApi`.** The shape the
-  community-issue and campaign-strategy readers have today. It makes the flip
-  atomic, but it strands the runs the other engine wrote, so a revert is not the
-  rollback this rule promises.
+  divergence for a comparison the judge already makes across dev and a preview;
+  the second merge adds no proof.
+- **Judge after merging.** The proof would arrive after the change is live, and
+  a WORSE verdict would leave only a revert.
+- **Readers that keep switching tables with `runsOnGpApi`.** Today's shape. It
+  makes the flip atomic but leaves the other engine's runs invisible, so a
+  revert strands them and the gate dispatches a duplicate. Only acceptable if the
+  rule does not promise a revert.
+- **A by-id fallthrough on its own.** It fixes a reader that already holds a run
+  id, and the gates do not: they search by org, agent type and status, so they
+  have to query both tables themselves.
 
 ## Revisit if
 

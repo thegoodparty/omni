@@ -264,14 +264,20 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
    `communityIssueDispatch.service.ts` for two that have been). A gate left on
    the old table is a duplicate-dispatch bug: it sees no runs and lets the type
    run again.
-   - Those readers pick one table from `runsOnGpApi`. That makes the flip
-     atomic and is not enough for a migration whose rollback is reverting its
-     list lines: a single-table reader cannot read a run the other engine
-     wrote, so after a revert the gate sees no run and dispatches again.
-   - A migrating agent's readers are two-way across the flip: look the run up
-     by id in `AgentRun` and in `ExperimentRun`, as
-     `agentRunRoutes.service.ts`'s `read` does. That is the one place a
-     migration departs from the readers already in.
+   - Those readers pick one table from `runsOnGpApi`, which makes the flip
+     atomic. A migration's rollback is reverting its list lines, and that
+     restores the old engine only if its readers can read that engine's runs.
+     One that reads a single table cannot: a gate asks which run this org
+     already has by org, agent type and status, and a run the other engine
+     stored is invisible, so after a revert the gate dispatches a second one.
+     `meeting_schedule`'s gate and latest-schedule read
+     (`meetingBriefings.service.ts`) are that shape on main today.
+   - So a migrating agent's readers are two-way first: the gate and the
+     latest-run read query both `AgentRun` and `ExperimentRun` by org and agent
+     type, and a read by id falls through to the other table, as
+     `agentRunRoutes.service.ts`'s `read` does. This is the one place a
+     migration departs from the readers already in, it belongs to the migration
+     PR, and nothing checks it — the judge verdict never tests a revert.
 2. The prompt is the experiment's `instruction.md` with the runtime parts
    swapped: input in the first message, our tools, `submitOutput` instead of
    the file and validator. Input and output schemas come from the manifest;
