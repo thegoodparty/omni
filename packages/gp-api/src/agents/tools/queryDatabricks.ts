@@ -260,10 +260,17 @@ const qualifiedElsewhere = (
 // which stand for a stance rather than name a person.
 const MODELED_SCORE = /^hs_[a-z0-9_]+$/
 
-// Every column named in any WHEN condition of a SUM's CASE. The results are
-// checked by sumCountsPeople; the conditions are filters, and a filter is the
-// differencing attack the floor cannot see, so they are checked like a WHERE's.
-const collectCaseConditionColumns = (
+// Every column a SUM's CASE filters on. The results are checked by
+// sumCountsPeople; a filter is the differencing attack the floor cannot see, so
+// its columns are held to the WHERE's rule.
+//
+// A CASE names a filtering column in two places, and both are needed: the
+// searched form (`CASE WHEN <cond> THEN …`) puts it in each branch's `cond`, and
+// the simple form (`CASE <subject> WHEN … THEN …`) puts it in the CASE's own
+// `expr`. Reading only `cond` would let `SUM(CASE LALVOTERID WHEN 'v1' THEN 1
+// ELSE 0 END)` through, which is the same differencing probe as the searched
+// form. A CASE's results only ever hold a literal, so there is no third place.
+const collectCaseFilterColumns = (
   expr: Record<string, unknown>,
   acc: Set<string>,
 ): void => {
@@ -274,7 +281,9 @@ const collectCaseConditionColumns = (
       : Array.isArray(args?.value) && args.value.length === 1
         ? args.value[0]
         : null
-  const branches = isRecord(argument) ? argument.args : null
+  if (!isRecord(argument)) return
+  collectAllColumns(argument.expr, acc)
+  const branches = argument.args
   if (!Array.isArray(branches)) return
   for (const branch of branches) {
     if (isRecord(branch)) collectAllColumns(branch.cond, acc)
@@ -319,13 +328,13 @@ const assertAggregateOnly = (
           'SUM may only count people: SUM(CASE WHEN <condition> THEN 1 ELSE 0 END). Use AVG for an average',
         )
       }
-      // The CASE condition is a filter, and the differencing control the floor
-      // cannot be is on what a filter may name: `... AND LALVOTERID <> 'x'`
-      // leaves both counts far above the floor and their difference is one
-      // person's answer. So the same columns a WHERE may name may appear here,
-      // plus a modeled score (hs_*), which is not an identifier: it can split
-      // the district's own distribution but can never name a row.
-      collectCaseConditionColumns(expr, scored)
+      // A CASE is a filter, and the differencing control the floor cannot be is
+      // on what a filter may name: `... AND LALVOTERID <> 'x'` leaves both
+      // counts far above the floor and their difference is one person's answer.
+      // So the same columns a WHERE may name may appear here, plus a modeled
+      // score (hs_*), which is not an identifier: it can split the district's
+      // own distribution but can never name a row.
+      collectCaseFilterColumns(expr, scored)
       continue
     }
     const args = isRecord(expr.args) ? expr.args : null

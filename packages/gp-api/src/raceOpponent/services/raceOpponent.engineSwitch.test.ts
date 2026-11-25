@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ExperimentRunStatus } from '@/generated/prisma'
+import { AgentRunStatus, ExperimentRunStatus } from '@/generated/prisma'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import {
@@ -41,11 +41,12 @@ const buildWith = (
   prisma: Record<string, unknown>,
   agents: object,
   districtResolver: object = {},
+  raceContext: object = {},
 ) => {
   const service = new RaceOpponentService(
     {} as never,
     agents as never,
-    {} as never,
+    raceContext as never,
     {} as never,
     districtResolver as never,
   )
@@ -85,7 +86,12 @@ afterEach(() => {
 })
 
 describe('race opponent chain engine switch', () => {
-  it('reads the collection run from AgentRun when the switch is on', async () => {
+  // The reader is two-way on purpose: this PR's rollback is reverting its
+  // `deploy/agentsOnGpApi.ts` list lines, and that only restores the PMF Engine
+  // if a reader still sees the runs gp-api wrote across the flip
+  // (docs/adr/2026-11-25-an-agent-migration-is-one-pr-judged-on-the-pr.md). So
+  // a run in EITHER table drives the status, whatever the switch says.
+  it('reads the collection run from AgentRun', async () => {
     vi.stubEnv('AGENTS_ON_GP_API', RACE_OPPONENT_COLLECTION)
     const prisma = basePrisma()
     prisma.agentRun.findFirst.mockResolvedValue({
@@ -98,10 +104,10 @@ describe('race opponent chain engine switch', () => {
 
     expect(status.collectionStatus).toBe('running')
     expect(prisma.agentRun.findFirst).toHaveBeenCalled()
-    expect(prisma.experimentRun.findFirst).not.toHaveBeenCalled()
+    expect(prisma.experimentRun.findFirst).toHaveBeenCalled()
   })
 
-  it('reads the collection run from ExperimentRun when the switch is off', async () => {
+  it('reads the collection run from ExperimentRun', async () => {
     vi.stubEnv('AGENTS_ON_GP_API', '')
     const prisma = basePrisma()
     prisma.experimentRun.findFirst.mockResolvedValue({
@@ -114,7 +120,63 @@ describe('race opponent chain engine switch', () => {
 
     expect(status.collectionStatus).toBe('running')
     expect(prisma.experimentRun.findFirst).toHaveBeenCalled()
-    expect(prisma.agentRun.findFirst).not.toHaveBeenCalled()
+    expect(prisma.agentRun.findFirst).toHaveBeenCalled()
+  })
+
+  // After a revert, an org whose run gp-api wrote still has that run: a
+  // one-way reader would see none and settle to idle, and the page would
+  // re-dispatch a paid run. This is the reader half of the revert promise.
+  it('sees a gp-api run after the switch has been reverted', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', '')
+    const prisma = basePrisma()
+    prisma.agentRun.findFirst.mockResolvedValue({
+      id: 'agent-run-1',
+      status: 'running',
+      createdAt: new Date(),
+    })
+
+    const status = await build(prisma).get(campaign)
+
+    expect(status.collectionStatus).toBe('running')
+  })
+
+  // And the mirror: a PMF run already in the table still drives the page after
+  // the switch is turned on, so the flip does not blank a live run.
+  it('sees a PMF run after the switch has been flipped on', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', RACE_OPPONENT_COLLECTION)
+    const prisma = basePrisma()
+    prisma.experimentRun.findFirst.mockResolvedValue({
+      runId: 'pmf-run-1',
+      status: ExperimentRunStatus.RUNNING,
+      createdAt: new Date(),
+    })
+
+    const status = await build(prisma).get(campaign)
+
+    expect(status.collectionStatus).toBe('running')
+  })
+
+  // Across a flip both tables can hold a run of the same link for one org, and
+  // the newer one is the cycle the page is about.
+  it('takes the newer of the two tables when both hold one', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', RACE_OPPONENT_COLLECTION)
+    const prisma = basePrisma()
+    prisma.agentRun.findFirst.mockResolvedValue({
+      id: 'agent-run-1',
+      status: AgentRunStatus.completed,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    })
+    prisma.experimentRun.findFirst.mockResolvedValue({
+      runId: 'pmf-run-1',
+      status: ExperimentRunStatus.RUNNING,
+      createdAt: new Date('2026-01-02T00:00:00Z'),
+    })
+
+    const status = await build(prisma).get(campaign)
+
+    // The newer run is the PMF one and still live, so the page is not settled
+    // by the older completed gp-api run.
+    expect(status.collectionStatus).toBe('running')
   })
 
   // A reader left on the other engine's table sees no run, settles to idle, and
@@ -143,7 +205,6 @@ describe('race opponent chain engine switch', () => {
     const status = await build(prisma).get(campaign)
 
     expect(status.collectionStatus).toBe('running')
-    expect(prisma.experimentRun.findFirst).not.toHaveBeenCalled()
   })
 
   it('dispatches the collection to AgentsService when the switch is on', async () => {
@@ -280,6 +341,60 @@ describe('race opponent chain engine switch', () => {
     await service.dispatchSummary(campaign)
 
     expect(run).not.toHaveBeenCalled()
+  })
+
+  // `buildRaceContext` speaks the PMF Engine's snake_case, and the agent's
+  // `RaceContextSchema` is `.loose()`, so a snake_case object is not rejected:
+  // every hint just reads as absent and the agent loses the office, cycle and
+  // city it disambiguates a same-named opponent with. The gp-api branch has to
+  // translate.
+  it('sends the race context in the agent schema names', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', RACE_OPPONENT_SUMMARY)
+    const prisma = basePrisma()
+    prisma.raceOpponent.findMany = vi.fn().mockResolvedValue([
+      {
+        opponentName: 'Jane Rival',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://ballotpedia.org/Jane_Rival',
+        content: { text: 'collected bio' },
+      },
+    ])
+    prisma.campaignDetails = {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue({ raceId: 'race-1', city: 'Rockvale' }),
+    }
+    const run = vi.fn().mockResolvedValue({ runId: 'summary-run' })
+    const service = buildWith(
+      prisma,
+      { run },
+      {},
+      {
+        getRaceContext: vi.fn().mockResolvedValue({
+          state: 'GA',
+          officialOfficeName: 'Rockvale City Council',
+          generalElectionDate: '2026-11-03',
+        }),
+      },
+    )
+
+    await service.dispatchSummary({
+      ...campaign,
+      details: { raceId: 'race-1', city: 'Rockvale' },
+    } as unknown as CampaignWith<'user'>)
+
+    const agentInput = run.mock.calls[0]?.[1]
+    expect(agentInput.raceContext).toEqual({
+      city: 'Rockvale',
+      state: 'GA',
+      officeName: 'Rockvale City Council',
+      electionDate: '2026-11-03',
+    })
+    // Nothing snake_case may survive into it: a `_`-keyed hint is not one of the
+    // schema's named fields, so it would read as absent.
+    expect(
+      Object.keys(agentInput.raceContext).some((k) => k.includes('_')),
+    ).toBe(false)
   })
 
   it('sends the actions agent its district trio and threat tiers', async () => {

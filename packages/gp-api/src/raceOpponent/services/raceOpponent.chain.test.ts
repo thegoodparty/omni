@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentRunStatus } from '@/generated/prisma'
+import { AgentsService } from '@/agents/agents.service'
 import { useTestService } from '@/test-service'
 import {
   RACE_OPPONENT_ACTIONS,
@@ -102,24 +103,33 @@ describe('the re-chain excludes the run that is finishing', () => {
   // is genuinely in flight, so the re-chain still refuses to double-dispatch.
   it('leaves a genuinely in-flight summary run alone', async () => {
     vi.stubEnv('AGENTS_ON_GP_API', RACE_OPPONENT_SUMMARY)
-    await seedCampaign()
+    const campaign = await seedCampaign()
+    await service.prisma.raceOpponent.create({
+      data: {
+        campaignId: campaign.id,
+        runId: 'collect-run',
+        opponentName: 'Jane Rival',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://ballotpedia.org/Jane_Rival',
+        content: { text: 'collected bio' },
+      },
+    })
     const inFlight = await seedSummaryRun(
       AgentRunStatus.running,
       new Date('2026-01-01T00:00:00Z'),
     )
+    const run = vi.spyOn(service.app.get(AgentsService), 'run')
 
-    const run = await service.app
+    await service.app.get(RaceOpponentService).dispatchSummary(campaign)
+
+    expect(run).not.toHaveBeenCalled()
+    // And the exception is what makes the difference: asked to exclude nobody,
+    // the same in-flight row is still enough to refuse a second dispatch.
+    const stillBlocked = await service.app
       .get(RaceOpponentService)
-      // Reach the private dedup through the public dispatch, which is the only
-      // caller: dispatchSummary returns early exactly when a run is in flight.
-      .dispatchSummary(
-        await service.prisma.campaign.findFirstOrThrow({
-          include: { user: true },
-        }),
-      )
-      .then(() => 'finished')
-
-    expect(run).toBe('finished')
+      .dispatchSummary(campaign, 'some-other-run-id')
+    expect(stillBlocked).toBeUndefined()
+    expect(run).not.toHaveBeenCalled()
     expect(inFlight.id).toBeTruthy()
   })
 })

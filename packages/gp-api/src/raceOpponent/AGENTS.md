@@ -33,7 +33,7 @@ change "opponent research", be explicit about which one.
 | `raceOpponent.controller.ts` | All routes (`campaigns/mine/race-opponent`). HTTP only; gating + service dispatch. Heavily commented — the routes are the spec. |
 | `raceOpponent.constants.ts` | Experiment-type strings, `MAX_*_ATTEMPTS` caps, `CONTRAST_ALLOWED_CATEGORIES`, `CONTRAST_INFLATION_TERMS`, `DATASET_SOURCE_SCHEMES` |
 | `services/raceOpponent.service.ts` | **Relaxed path** + the module's `assertAccess` (Pro). `collect` / `collectManual` / `get`; dispatches the chain and reads the summary |
-| `services/raceOpponentRun.ts` | One chain link's newest run from whichever engine's table the switch names, and the one status vocabulary both tables map onto |
+| `services/raceOpponentRun.ts` | One chain link's newest run and its in-flight check, read from BOTH engine tables (dispatch is the only switch-picked path), and the one status vocabulary both map onto |
 | `services/raceOpponentPersist.service.ts` | The chain's writes, shared by both engines' completion paths |
 | `services/opponentResearch.service.ts` | **Strict engine** dispatch: `identify` / `start` / `profile`; builds `candidate_platform` from `Website.content.about` (NOT CampaignStory — see ENG-10607) |
 | `services/selfResearch.service.ts` | Strict engine front door: `start` / `status` / `report` of the candidate's own pass |
@@ -73,13 +73,17 @@ lifetime caps (`MAX_SELF_RESEARCH_ATTEMPTS`, `MAX_OPPONENT_RESEARCH_ATTEMPTS`) s
 `retry` instead of looping paid Fargate runs.
 
 **The relaxed chain runs on either engine, per link.** `runsOnGpApi(link)` is read
-by every path that touches a chain run: `dispatchChain` picks `AgentsService.run`
-or the PMF Engine's `dispatchRun`, `findInFlightChainRun` picks the run table, and
-`services/raceOpponentRun.ts` reads the newest run of a link from that same table
-(`collectionStatus`, `postCollectionStatus`, and both re-chain readers go through
-it). A reader left on the other engine's table sees no run, so the chain looks
-idle and the page re-dispatches a paid run — the one mistake that switch exists to
-prevent. `self_research` and `opponent_research` stay on the PMF Engine.
+by the DISPATCH side only: `dispatchChain` picks `AgentsService.run` or the PMF
+Engine's `dispatchRun`. Every reader reads BOTH tables: `services/raceOpponentRun.ts`'s
+`latestChainRun` and `findInFlightChainRun` query `AgentRun` and `ExperimentRun`
+and take the newer run (`collectionStatus`, `postCollectionStatus`, and both
+re-chain readers go through them). A reader that picked one table from the switch,
+or that chose the table from it, sees no run the other engine wrote — so the chain
+looks idle and the page re-dispatches a paid run, and after a revert the gate
+cannot see the runs gp-api left behind. Two-way reads are what make reverting this
+migration's `deploy/agentsOnGpApi.ts` lines a safe rollback
+(`docs/adr/2026-11-25-an-agent-migration-is-one-pr-judged-on-the-pr.md`).
+`self_research` and `opponent_research` stay on the PMF Engine.
 
 The chain passes output stage to stage **through the database, never through the
 engine**: a completed collection persists its items and rows replace the
@@ -117,7 +121,19 @@ Each link's gp-api completion releases the next one from `onArtifact` and from
 before the run is marked terminal, so the finishing row still looks in flight and
 would answer its own dedup. A summary run also skips a collected source the
 summary input schema cannot accept (a non-http URL, empty text) rather than
-failing the whole dispatch for it.
+failing the whole dispatch for it; each skip is logged, because a dropped source
+is evidence that did not reach the summary.
+
+**The chain's readers are two-way, not switch-picked.** `raceOpponentRun.ts`'s
+`latestChainRun` and `findInFlightChainRun` query `AgentRun` and `ExperimentRun`
+both and take the newer one, instead of choosing a table from `runsOnGpApi`. The
+switch still decides where a *new* run is dispatched; it never decides where a
+reader looks. This is the rollback promise
+(`docs/adr/2026-11-25-an-agent-migration-is-one-pr-judged-on-the-pr.md`):
+reverting this migration's `deploy/agentsOnGpApi.ts` lines only restores the PMF
+Engine if a reader still sees the runs gp-api wrote across the flip, or the gate
+finds no run for an org that has one and dispatches a duplicate. The judge never
+tests a revert, so this is review's job.
 
 ## Sourced-or-silent + fair-line (the strict engine's invariants)
 

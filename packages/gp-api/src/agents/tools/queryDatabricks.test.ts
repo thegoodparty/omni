@@ -679,6 +679,11 @@ describe('queryDatabricks', () => {
         'Voters_Age > 30',
         'modeled score',
       ],
+      [
+        'an identifier behind a nested AND/OR/NOT',
+        "NOT (Active = 'A' OR LALVOTERID = 'v123')",
+        'modeled score',
+      ],
     ])(
       'refuses a SUM(CASE WHEN ...) condition on %s',
       async (_l, cond, why) => {
@@ -693,6 +698,71 @@ describe('queryDatabricks', () => {
         expect(query).not.toHaveBeenCalled()
       },
     )
+
+    // The simple form names its filtering column as the CASE's own subject
+    // rather than inside a WHEN. Same probe, so the same rule has to see it: a
+    // guard that reads only the WHEN conditions leaves this one open.
+    it.each([
+      ['an identifier subject', 'LALVOTERID', "WHEN 'v123' THEN 1"],
+      ['a scoreless column subject', 'Voters_Age', 'WHEN 30 THEN 1'],
+    ])(
+      'refuses a SUM(CASE <subject> WHEN ...) filter on %s',
+      async (_l, subject, when) => {
+        const result = await runs(
+          `SELECT COUNT(*) AS n,
+           SUM(CASE ${subject} ${when} ELSE 0 END) AS c
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        )
+
+        expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+        expect(String(result.detail)).toContain('modeled score')
+        expect(query).not.toHaveBeenCalled()
+      },
+    )
+
+    // A threshold on a modeled score is exactly what the count counts, so it is
+    // the one column a CASE may name that a WHERE may not.
+    it('accepts a SUM(CASE ...) threshold on a modeled score', async () => {
+      query.mockResolvedValue({ columns: ['n', 'c'], rows: [['4820', '160']] })
+
+      await expect(
+        runs(
+          `SELECT COUNT(*) AS n,
+             SUM(CASE WHEN CAST(hs_violent_crime_worried AS DOUBLE) >= 50 THEN 1 ELSE 0 END) AS c
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        ),
+      ).resolves.toMatchObject({ ok: true, rowCount: 1 })
+    })
+
+    // The floor reads the outer result, so a nested cell is one it never sees.
+    // A subquery in the CASE condition has to be refused before that, not
+    // collected as if its columns were the filter's.
+    it('refuses a subquery in a SUM(CASE ...) condition', async () => {
+      const result = await runs(
+        `SELECT COUNT(*) AS n,
+           SUM(CASE WHEN Active = (SELECT 'A') THEN 1 ELSE 0 END) AS c
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain('no subquery')
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    // A COUNT column named inside the CASE result is not a count of people, so
+    // the floor cannot hold it: sumCountsPeople refuses anything but 1/0/NULL,
+    // and this is the shape that would otherwise smuggle a column through.
+    it('refuses a SUM(CASE ...) whose ELSE names a column', async () => {
+      const result = await runs(
+        `SELECT COUNT(*) AS n,
+           SUM(CASE WHEN Active = 'A' THEN 1 ELSE hs_violent_crime_worried END) AS c
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain('count people')
+      expect(query).not.toHaveBeenCalled()
+    })
 
     // The same condition over the allowed dimension is fine: title is a
     // declared dimension of this tool.

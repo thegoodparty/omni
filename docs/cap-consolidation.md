@@ -115,13 +115,14 @@ on its own PR, which arrive before the merge (step 3).
      `opposition_research`, `opportunities_and_challenges` and
      `meeting_schedule` are in the preview and dev lists and run on gp-api's
      engine in both; prod still runs them on the PMF Engine, and a promote PR
-     moves them there once their dev runs are healthy. Nothing else in this
-     wave is migrated. The opponent chain runs collection, then summary, then
-     actions, and one chain is one migration: collection and summary land with
-     actions, in the PR that puts all three in every list.
-   - **Wave 2, needs a Databricks tool:** `race_opponent_actions`,
-     `opponent_research`, `top_community_issues` (on gp-api's engine in
-     preview and dev; prod is still on the PMF Engine), `campaign_tracker_tasks`.
+     moves them there once their dev runs are healthy. `self_research` is not
+     migrated. The opponent chain runs collection, then summary, then actions,
+     and one chain is one migration: all three are in the preview, dev and prod
+     lists together.
+   - **Wave 2, needs a Databricks tool:** `race_opponent_actions` (in every
+     list, as the chain's last link), `opponent_research`,
+     `top_community_issues` (on gp-api's engine in preview and dev; prod is
+     still on the PMF Engine), `campaign_tracker_tasks`.
      The tool exists: `queryDatabricks`
      (`packages/gp-api/src/agents/tools/queryDatabricks.ts`) runs one
      aggregate-only SELECT under the agent's own table allowlist and row cap,

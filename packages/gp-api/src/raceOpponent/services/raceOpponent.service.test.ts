@@ -138,6 +138,10 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
         raceOpponentStandoutAction: {
           findMany: vi.fn().mockResolvedValue([]),
         },
+        agentRun: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
         experimentRun: {
           findFirst: vi.fn(({ where }: { where: { experimentType: string } }) =>
             Promise.resolve(
@@ -360,6 +364,10 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
         raceOpponentStandoutAction: {
           findMany: vi.fn().mockResolvedValue([]),
         },
+        agentRun: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
         experimentRun: {
           findFirst: vi.fn().mockResolvedValue({
             runId: 'collection-run',
@@ -503,6 +511,10 @@ describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
     )
     Object.defineProperty(service, '_prisma', {
       value: {
+        agentRun: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
         experimentRun: {
           findFirst: vi.fn().mockResolvedValue(latestCompletedCollection),
         },
@@ -555,6 +567,10 @@ describe('RaceOpponentService.rechainActionsForNewerSummary', () => {
     )
     Object.defineProperty(service, '_prisma', {
       value: {
+        agentRun: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
         experimentRun: {
           findFirst: vi.fn().mockResolvedValue(latestCompletedSummary),
         },
