@@ -2595,14 +2595,23 @@ describe('CreateListFlow — the Pro gate', () => {
     return turfPosts
   }
 
-  it('with per-campaign pricing on: no lock, the banner opens the dialog, and Back from the wizard returns to the step', async () => {
+  it('with per-campaign pricing on: no banner or lock, and Join Pro to start knocking opens the dialog over the draw step', async () => {
     planFlagRef.enabled = true
-    render(<CreateListFlow {...baseProps} step="name" />)
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+    rerender(<CreateListFlow {...baseProps} step="draw" />)
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+    expect(
+      screen.queryByRole('dialog', { name: 'Join Pro to send this campaign' }),
+    ).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Create campaign' })).toBeNull()
 
-    fireEvent.click(screen.getByText(GATE_LINE))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Join Pro to start knocking' }),
+    )
 
     const dialog = await screen.findByRole('dialog', {
-      name: 'Join Pro to start knocking',
+      name: 'Join Pro to send this campaign',
     })
     expect(document.querySelector('.lucide-lock')).toBeNull()
     expect(
@@ -2617,7 +2626,11 @@ describe('CreateListFlow — the Pro gate', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Wizard back' }))
 
     expect(screen.queryByTestId('pro-upgrade-flow')).toBeNull()
-    expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('dialog', {
+        name: 'Join Pro to send this campaign',
+      }),
+    ).toBeInTheDocument()
   })
 
   it('shows the gate banner on the steps before the map for a free candidate', () => {

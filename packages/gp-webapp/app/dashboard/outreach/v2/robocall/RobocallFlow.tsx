@@ -45,6 +45,7 @@ import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
+import { planReviewGateCta } from '../gate/gateCopy'
 import { ProGatePitch } from '../gate/ProGatePitch'
 import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
@@ -1027,6 +1028,13 @@ export const RobocallFlow = ({
             loading: audience.createRecommendedListPending,
           }
 
+  // Flag on, a free campaign's button names what it does: it saves the draft
+  // and opens the Pro gate over the message step (the SMS review button's
+  // equivalent; robocall has no review step before the gate).
+  const proPitchGate = planPitch.enabled && gate.requirement === 'pro'
+  const composeCtaLabel =
+    buildMode && proPitchGate ? planReviewGateCta(planPitch) : 'Continue'
+
   const cta: FlowShellCta | null = gateOpen
     ? // The gate screens carry their own buttons.
       null
@@ -1054,12 +1062,12 @@ export const RobocallFlow = ({
           }
         : stepId === 'compose'
           ? {
-              label: 'Continue',
+              label: composeCtaLabel,
               // Build mode has nothing to schedule or pay for, so this is
               // where the draft is written and the flow hands to the gate.
               onClick: () => {
                 if (buildMode) {
-                  void draftGate.saveDraft('Continue')
+                  void draftGate.saveDraft(composeCtaLabel)
                   return
                 }
                 setStepId('review')
@@ -1132,7 +1140,7 @@ export const RobocallFlow = ({
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner).
       banner={
-        gate.requirement !== null && !settled && !gateOpen ? (
+        gate.requirement !== null && !proPitchGate && !settled && !gateOpen ? (
           <GateBanner
             channel="robocall"
             state={gate}

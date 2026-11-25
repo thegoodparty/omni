@@ -20,7 +20,11 @@ import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { GateBanner } from 'app/dashboard/outreach/v2/gate/GateBanner'
 import { GateExplainerModal } from 'app/dashboard/outreach/v2/gate/GateExplainerModal'
 import { useContextualPlanPitch } from 'app/dashboard/shared/plan/usePlanPitch'
-import { EXPLAINER_COPY } from 'app/dashboard/outreach/v2/gate/gateCopy'
+import {
+  EXPLAINER_COPY,
+  planListGateCta,
+} from 'app/dashboard/outreach/v2/gate/gateCopy'
+import { ProGatePitch } from 'app/dashboard/outreach/v2/gate/ProGatePitch'
 import { OutreachGate } from 'app/dashboard/outreach/v2/gate/OutreachGate'
 import { useOutreachGate } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { useLockedAtOpen } from 'app/dashboard/outreach/v2/gate/useLockedAtOpen'
@@ -906,9 +910,14 @@ export default function CreateListFlow({
   // The label of the button that opened the gate, for Flow Started.
   const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [explainerOpen, setExplainerOpen] = useState(false)
+  // Flag on, a free candidate's Create campaign opens the Pro pitch as a
+  // dialog over the draw step, and only its Join opens the wizard.
+  const [pitchOpen, setPitchOpen] = useState(false)
+  const proPitchGate = planPitch.enabled && gate.requirement === 'pro'
 
   const exitGate = (): void => {
     setGateOpen(false)
+    setPitchOpen(false)
     setGateOrigin(null)
   }
 
@@ -1656,12 +1665,18 @@ export default function CreateListFlow({
     ? audienceEmptyMessage(filters, savedListId !== null)
     : null
 
+  // Flag on, a free campaign's button names what it does, as SMS's does.
+  const createCampaignLabel = proPitchGate
+    ? planListGateCta('door', planPitch)
+    : 'Create campaign'
+
   // The press that writes the campaign, from the draw step's CTA.
   const pressSave = () => {
     if (gate.requirement !== null) {
       setGateOrigin('build')
-      setGateCta('Create campaign')
-      setGateOpen(true)
+      setGateCta(createCampaignLabel)
+      if (proPitchGate) setPitchOpen(true)
+      else setGateOpen(true)
       return
     }
     save.mutate()
@@ -1773,7 +1788,10 @@ export default function CreateListFlow({
       // content there and the shape is being cut against it, so a banner over
       // the footer would cover the only thing being looked at.
       banner={
-        gate.requirement !== null && stage !== 'draw' && !gateOpen ? (
+        gate.requirement !== null &&
+        !proPitchGate &&
+        stage !== 'draw' &&
+        !gateOpen ? (
           <GateBanner
             channel="door"
             state={gate}
@@ -1897,7 +1915,7 @@ export default function CreateListFlow({
                           // nothing is bought here any more.
                           label: save.isPending
                             ? 'Creating campaign'
-                            : 'Create campaign',
+                            : createCampaignLabel,
                           // A campaign with no boundary has nothing in it,
                           // and a turf over the stop cap cannot be routed —
                           // the card above says which one and why, so this
@@ -1924,6 +1942,16 @@ export default function CreateListFlow({
         onVerify={openGateFromExplainer}
         onPin={openGateFromExplainer}
       />
+      {pitchOpen && (
+        <ProGatePitch
+          channel="door"
+          onJoin={() => {
+            setPitchOpen(false)
+            setGateOpen(true)
+          }}
+          onDismiss={exitGate}
+        />
+      )}
       {gateOpen ? (
         <OutreachGate
           channel="door"
@@ -1932,7 +1960,14 @@ export default function CreateListFlow({
           showInterstitial={false}
           source={source}
           cta={gateCta}
-          onFirstStepBack={planPitch.enabled ? exitGate : undefined}
+          onFirstStepBack={
+            planPitch.enabled
+              ? () => {
+                  setGateOpen(false)
+                  setPitchOpen(true)
+                }
+              : undefined
+          }
           onExit={exitGate}
           onComplete={() => {
             setGateOpen(false)

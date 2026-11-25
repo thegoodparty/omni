@@ -49,7 +49,8 @@ import {
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
-import { EXPLAINER_COPY } from '../gate/gateCopy'
+import { EXPLAINER_COPY, planListGateCta } from '../gate/gateCopy'
+import { ProGatePitch } from '../gate/ProGatePitch'
 import { OutreachGate } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
@@ -413,6 +414,9 @@ export const PhoneBankingFlow = ({
   // The label of the button that opened the gate, for Flow Started.
   const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [explainerOpen, setExplainerOpen] = useState(false)
+  // Flag on, a free candidate's gesture opens the Pro pitch as a dialog over
+  // the step they pressed it on, and only its Join opens the wizard.
+  const [pitchOpen, setPitchOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
   // The civic panel invite only goes out in the managed panel's texts.
@@ -984,9 +988,21 @@ export const PhoneBankingFlow = ({
               audience.createRecommendedListPending,
           }
 
+  const proPitchGate = planPitch.enabled && gate.requirement === 'pro'
+
   const exitGate = (): void => {
     setGateOpen(false)
+    setPitchOpen(false)
     setGateOrigin(null)
+  }
+
+  // The gesture that writes the list: the pitch dialog first for a free
+  // candidate under the flag, the gate itself otherwise.
+  const openCreateGate = (cta: string): void => {
+    setGateOrigin('create')
+    setGateCta(cta)
+    if (proPitchGate) setPitchOpen(true)
+    else setGateOpen(true)
   }
 
   const openGateFromExplainer = (): void => {
@@ -1077,14 +1093,12 @@ export const PhoneBankingFlow = ({
                     loading: createMutation.isPending,
                   }
                 : stepId === 'download'
-                  ? {
-                      label: 'Continue',
-                      onClick: () => {
-                        setGateOrigin('create')
-                        setGateCta('Continue')
-                        setGateOpen(true)
-                      },
-                    }
+                  ? (() => {
+                      const label = proPitchGate
+                        ? planListGateCta('phone-bank', planPitch)
+                        : 'Continue'
+                      return { label, onClick: () => openCreateGate(label) }
+                    })()
                   : null
 
   const cta: FlowShellCta | null =
@@ -1123,7 +1137,7 @@ export const PhoneBankingFlow = ({
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner).
       banner={
-        gate.requirement !== null && !saved && !gateOpen ? (
+        gate.requirement !== null && !proPitchGate && !saved && !gateOpen ? (
           <GateBanner
             channel="phone-bank"
             state={gate}
@@ -1147,6 +1161,16 @@ export const PhoneBankingFlow = ({
         onVerify={openGateFromExplainer}
         onPin={openGateFromExplainer}
       />
+      {pitchOpen && (
+        <ProGatePitch
+          channel="phone-bank"
+          onJoin={() => {
+            setPitchOpen(false)
+            setGateOpen(true)
+          }}
+          onDismiss={exitGate}
+        />
+      )}
       {gateOpen ? (
         <OutreachGate
           channel="phone-bank"
@@ -1156,7 +1180,14 @@ export const PhoneBankingFlow = ({
           source={source}
           cta={gateCta}
           tracker={tracker}
-          onFirstStepBack={planPitch.enabled ? exitGate : undefined}
+          onFirstStepBack={
+            planPitch.enabled
+              ? () => {
+                  setGateOpen(false)
+                  setPitchOpen(true)
+                }
+              : undefined
+          }
           onExit={exitGate}
           onComplete={() => {
             setGateOpen(false)
@@ -1356,11 +1387,7 @@ export const PhoneBankingFlow = ({
           }}
           audienceLabel={audienceLabel}
           isServe={surface.isServe}
-          onDownloadGated={(cta) => {
-            setGateOrigin('create')
-            setGateCta(cta)
-            setGateOpen(true)
-          }}
+          onDownloadGated={openCreateGate}
         />
       ) : null}
     </OutreachFlowShell>
