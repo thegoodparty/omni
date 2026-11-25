@@ -32,6 +32,7 @@ import {
 import { campaignParty } from '../winParty'
 import { BriefingStep } from './BriefingStep'
 import {
+  briefingDay,
   firstMeetingFrom,
   parseDay,
   type CalendarId,
@@ -155,9 +156,13 @@ const WarmWelcomeFlow = ({
   )
   const [answer, setAnswer] = useState<MeetingAnswer | null>(null)
   const meeting: FirstMeeting | null = answer ? answer.meeting : found
+  const readyDay = useMemo(
+    () => (meeting ? briefingDay(meeting, new Date()) : null),
+    [meeting],
+  )
   const steps = warmWelcomeSteps({
     foundMeeting: found !== null,
-    knownMeeting: meeting !== null,
+    briefingDated: readyDay !== null,
   })
 
   const [populationWaitOver, setPopulationWaitOver] = useState(false)
@@ -302,10 +307,11 @@ const WarmWelcomeFlow = ({
             />
           )
         }
-        if (id === 'warm-briefing' && meeting) {
+        if (id === 'warm-briefing' && meeting && readyDay) {
           return (
             <BriefingStep
               meeting={meeting}
+              readyDay={readyDay}
               name={fullName}
               place={place}
               onNext={() => advance('warm-briefing')}
@@ -317,6 +323,7 @@ const WarmWelcomeFlow = ({
             <RecapStep
               firstName={firstName}
               meeting={meeting}
+              readyDay={readyDay}
               saving={saving}
               onDone={() => void finish()}
             />

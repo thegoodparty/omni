@@ -221,14 +221,19 @@ export const MeetingStep = ({
         label: copy.usePicked,
         kind: 'primary',
         onClick: () => {
-          const corrected = pickedMeeting(
-            found,
-            picked.day,
-            picked.startMinutes,
-          )
-          setMeeting(corrected)
+          // Leaving the sentence as we found it is a yes.
+          const unchanged =
+            picked.day.getTime() === found.day.getTime() &&
+            picked.startMinutes === found.startMinutes
+          const chosen = unchanged
+            ? found
+            : pickedMeeting(found, picked.day, picked.startMinutes)
+          setMeeting(chosen)
           setAdded(null)
-          onAnswer({ kind: 'corrected', meeting: corrected })
+          onAnswer({
+            kind: unchanged ? 'confirmed' : 'corrected',
+            meeting: chosen,
+          })
           go('calendar')
         },
       },

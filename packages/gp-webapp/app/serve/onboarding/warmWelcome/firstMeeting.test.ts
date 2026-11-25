@@ -110,10 +110,6 @@ describe('meeting dates and times', () => {
     expect(parseDay('January')).toBeNull()
   })
 
-  it('says the briefing is ready three days before the meeting', () => {
-    expect(longDay(briefingDay(meeting()))).toBe('Monday, January 4')
-  })
-
   it('writes times the way the copy does', () => {
     expect(clockTime(19 * 60)).toBe('7:00 pm')
     expect(clockTime(11 * 60)).toBe('11:00 am')
@@ -137,6 +133,43 @@ describe('meeting dates and times', () => {
         source: 'picked',
       }),
     )
+  })
+})
+
+// gp-api's daily job runs at 07:00 UTC and picks up a meeting that starts
+// within three days, reading the meeting's own clock as UTC.
+describe('briefingDay', () => {
+  const NOW = new Date('2026-11-24T15:00:00.000Z')
+  const ready = (overrides: Partial<FirstMeeting> = {}, now = NOW) => {
+    const day = briefingDay(meeting(overrides), now)
+    return day ? longDay(day) : null
+  }
+
+  it('is two days before an evening meeting, when the daily run first sees it', () => {
+    expect(ready()).toBe('Tuesday, January 5')
+  })
+
+  it('is three days before a meeting that starts by the time the run does', () => {
+    expect(ready({ startMinutes: 6 * 60 + 30 })).toBe('Monday, January 4')
+    expect(ready({ startMinutes: 7 * 60 })).toBe('Monday, January 4')
+    expect(ready({ startMinutes: 7 * 60 + 1 })).toBe('Tuesday, January 5')
+  })
+
+  it('promises the day right up until that run, and no day after it', () => {
+    expect(ready({}, new Date('2027-01-05T06:59:00.000Z'))).toBe(
+      'Tuesday, January 5',
+    )
+    expect(ready({}, new Date('2027-01-05T07:00:00.000Z'))).toBeNull()
+  })
+
+  it('promises no day for a meeting too close for the run to be ahead', () => {
+    expect(ready({}, new Date('2027-01-06T12:00:00.000Z'))).toBeNull()
+    expect(ready({}, new Date('2027-01-07T12:00:00.000Z'))).toBeNull()
+  })
+
+  // gp-api still follows the schedule it holds, not the official's date.
+  it('promises no day for a date the official gave', () => {
+    expect(ready({ source: 'picked' })).toBeNull()
   })
 })
 

@@ -1,7 +1,6 @@
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 import { isServeMajorParty } from '../serveOnboardingConfig'
 import {
-  briefingDay,
   clockTime,
   longDay,
   monthDay,
@@ -30,18 +29,17 @@ export const WARM_WELCOME_STEP_LABELS: Record<WarmWelcomeStepId, string> = {
 
 // A step with nothing to show leaves the flow and its breadcrumb. The first
 // meeting step needs a meeting on the office's schedule to confirm. The
-// briefing step needs a meeting date from anywhere: the schedule, or the
-// official on the step before.
+// briefing step needs a day it can promise the briefing for.
 export const warmWelcomeSteps = ({
   foundMeeting,
-  knownMeeting,
+  briefingDated,
 }: {
   foundMeeting: boolean
-  knownMeeting: boolean
+  briefingDated: boolean
 }): WarmWelcomeStepId[] =>
   WARM_WELCOME_STEPS.filter((step) => {
     if (step === 'warm-meeting') return foundMeeting
-    if (step === 'warm-briefing') return knownMeeting
+    if (step === 'warm-briefing') return briefingDated
     return true
   })
 
@@ -127,9 +125,9 @@ export const WARM_WELCOME_COPY = {
     findNext: 'Keep going',
   },
   briefing: {
-    title: (meeting: FirstMeeting): AccentTitle => ({
+    title: (readyDay: Date): AccentTitle => ({
       lead: 'Your first Meeting Briefing will be ready by',
-      accent: `${longDay(briefingDay(meeting))}.`,
+      accent: `${longDay(readyDay)}.`,
     }),
     lede: (place: string | null): string =>
       `What’s on the agenda, what it costs, what people in ${place ?? 'your district'} think, and what to ask.`,
@@ -156,9 +154,13 @@ export const WARM_WELCOME_COPY = {
     title: (firstName: string | null): string =>
       firstName ? `You’re all set, ${firstName}.` : 'You’re all set.',
     next: 'Here’s what happens next:',
-    briefing: (meeting: FirstMeeting): RecapLine => ({
+    briefing: (meeting: FirstMeeting, readyDay: Date): RecapLine => ({
       lead: `Your Meeting Briefing for ${monthDay(meeting.day)} lands on`,
-      strong: `${longDay(briefingDay(meeting))}.`,
+      strong: `${longDay(readyDay)}.`,
+    }),
+    meeting: (meeting: FirstMeeting): RecapLine => ({
+      lead: `Your first ${meeting.name ? `${meeting.name} ` : ''}meeting is`,
+      strong: `${longDay(meeting.day)} at ${clockTime(meeting.startMinutes)}.`,
     }),
     noMeeting: {
       lead: 'You won. Next up is your first meeting.',

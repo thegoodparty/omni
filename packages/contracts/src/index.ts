@@ -1198,6 +1198,11 @@ export {
 } from './meetings/MeetingAgentDispatch.schema'
 
 export {
+  BRIEFING_IMMINENCE_WINDOW_DAYS,
+  BRIEFING_DAILY_DISPATCH_HOUR_UTC,
+} from './meetings/BriefingDispatchTiming'
+
+export {
   CommunityIssuesDispatchRequestSchema,
   type CommunityIssuesDispatchRequest,
   CommunityIssuesDispatchResultSchema,

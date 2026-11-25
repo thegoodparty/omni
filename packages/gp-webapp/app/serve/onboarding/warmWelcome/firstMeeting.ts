@@ -1,10 +1,9 @@
 import { addDays, format, isBefore } from 'date-fns'
+import {
+  BRIEFING_DAILY_DISPATCH_HOUR_UTC,
+  BRIEFING_IMMINENCE_WINDOW_DAYS,
+} from '@goodparty_org/contracts'
 import type { MeetingsListItemDto } from 'gpApi/api-endpoints'
-
-// gp-api starts a briefing once its meeting is this many days out
-// (IMMINENCE_WINDOW_DAYS in gp-api's meetingBriefings.service.ts), so that is
-// the day the warm welcome says it will be ready.
-export const BRIEFING_LEAD_DAYS = 3
 
 const DEFAULT_MEETING_MINUTES = 120
 
@@ -80,8 +79,43 @@ export const pickedMeeting = (
   startMinutes: number,
 ): FirstMeeting => ({ ...found, day, startMinutes, source: 'picked' })
 
-export const briefingDay = (meeting: FirstMeeting): Date =>
-  addDays(meeting.day, -BRIEFING_LEAD_DAYS)
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// The day a first briefing can be promised for, or null when none can.
+//
+// gp-api's daily job starts a briefing on its first run that finds the
+// meeting inside the imminence window, and it reads the meeting's own clock
+// as UTC (projectMeetingDates in meetingBriefings.service.ts). So a 7 pm
+// meeting is picked up two days before it, not three. The day returned is
+// that run's UTC date, which is never earlier than the same moment anywhere
+// in the US.
+//
+// No day is promised when that run is not still ahead (the meeting is too
+// close), or when the date came from the official: gp-api still follows the
+// schedule it holds, so a briefing for their date is not something it does.
+export const briefingDay = (meeting: FirstMeeting, now: Date): Date | null => {
+  if (meeting.source !== 'found') return null
+  const windowOpens =
+    Date.UTC(
+      meeting.day.getFullYear(),
+      meeting.day.getMonth(),
+      meeting.day.getDate(),
+      0,
+      meeting.startMinutes,
+    ) -
+    BRIEFING_IMMINENCE_WINDOW_DAYS * DAY_MS
+  const opens = new Date(windowOpens)
+  const sameDayRun = Date.UTC(
+    opens.getUTCFullYear(),
+    opens.getUTCMonth(),
+    opens.getUTCDate(),
+    BRIEFING_DAILY_DISPATCH_HOUR_UTC,
+  )
+  const run = sameDayRun >= windowOpens ? sameDayRun : sameDayRun + DAY_MS
+  if (run <= now.getTime()) return null
+  const at = new Date(run)
+  return new Date(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate())
+}
 
 // "Thursday, January 7"
 export const longDay = (day: Date): string => format(day, 'EEEE, MMMM d')

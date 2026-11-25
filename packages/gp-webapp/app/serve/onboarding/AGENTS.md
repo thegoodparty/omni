@@ -16,6 +16,7 @@ progress bar; the step set and order live in `serveOnboardingConfig.ts`.
 | `warmWelcome/warmWelcomeConfig.ts`    | Its step ids, which steps are in the flow, who it opens for, all copy |
 | `warmWelcome/WarmWelcomeShell.tsx`    | Its frame: breadcrumb, stage, Back, and the footer's docked buttons   |
 | `warmWelcome/firstMeeting.ts`         | The first meeting, the briefing day, and the calendar links           |
+| `warmWelcome/confetti.ts`             | Its confetti: rigid bodies that pour, pile up and pop                 |
 | `warmWelcome/warmWelcome.css`         | Its type ladder, motion, and the two things it draws                  |
 
 ## Step order
@@ -59,10 +60,17 @@ Priorities are not built yet.
   says they don't know yet. **A changed date lives only in this session**:
   nothing saves it, and the briefing still follows the schedule gp-api has.
   With no meeting found the step leaves the flow.
-- **Meeting Briefing**: the day it will be ready, `BRIEFING_LEAD_DAYS` (3)
-  before the meeting, which mirrors gp-api's `IMMINENCE_WINDOW_DAYS`. Nothing
-  is generated here. The step needs a meeting date; "I don't know yet" drops
-  it from the flow and the breadcrumb.
+- **Meeting Briefing**: the day it will be ready (`briefingDay`), which is
+  the UTC date of the first daily run that will pick the meeting up. gp-api's
+  job runs at `BRIEFING_DAILY_DISPATCH_HOUR_UTC` and takes a meeting inside
+  `BRIEFING_IMMINENCE_WINDOW_DAYS`, reading the meeting's own clock as UTC,
+  so a 7 pm meeting is two days out, not three. Both constants live in
+  `@goodparty_org/contracts` and gp-api reads the same ones. Nothing is
+  generated here. The step shows only when that day can be promised: it
+  leaves the flow and the breadcrumb when the run is no longer ahead (the
+  meeting is too close), when the official changed the date (gp-api would
+  not follow it), and after "I don't know yet". The recap then says when
+  the meeting is, or that we will help them get ready for it.
 - **Recap**: what happens next, then Done.
 
 **Done is the completion save**: `PUT /v1/elected-office/:id` with the party,
@@ -76,6 +84,13 @@ leaves through `/post-auth-redirect` like the stepper.
 Each forward move writes its step id to `onboardingStep` behind the move.
 gp-api's `SERVE_ONBOARDING_STEPS` lists the `warm-*` ids; a checkpoint the
 warm welcome does not know (the stepper's `confirm`) starts at the win.
+
+Confetti is the design's, not the styleguide's `ConfettiBurst`: red, blue and
+white pieces as Matter.js rigid bodies on one canvas over the frame
+(`ConfettiLayer`). They pour on You won, settle on the footer's top edge and
+on the card, pop from the number as it lands and from each recap icon, and
+fade when the step is left. `matter-js` loads on first use and never under
+reduced motion.
 
 The frame is fixed to the window and each step scrolls inside the stage. A
 step names its footer buttons with `useDock(id, delay, actions)`; a new `id`

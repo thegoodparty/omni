@@ -27,19 +27,19 @@ const meeting: FirstMeeting = {
 describe('warmWelcomeSteps', () => {
   it('runs every step when the schedule has a first meeting', () => {
     expect(
-      warmWelcomeSteps({ foundMeeting: true, knownMeeting: true }),
+      warmWelcomeSteps({ foundMeeting: true, briefingDated: true }),
     ).toEqual(['warm-won', 'warm-meeting', 'warm-briefing', 'warm-recap'])
   })
 
-  it('drops the briefing once the official says they do not know the date', () => {
+  it('drops the briefing when no day can be promised for it', () => {
     expect(
-      warmWelcomeSteps({ foundMeeting: true, knownMeeting: false }),
+      warmWelcomeSteps({ foundMeeting: true, briefingDated: false }),
     ).toEqual(['warm-won', 'warm-meeting', 'warm-recap'])
   })
 
   it('goes from the win to the recap when no meeting was found', () => {
     expect(
-      warmWelcomeSteps({ foundMeeting: false, knownMeeting: false }),
+      warmWelcomeSteps({ foundMeeting: false, briefingDated: false }),
     ).toEqual(['warm-won', 'warm-recap'])
   })
 })
@@ -85,7 +85,7 @@ describe('isWarmWelcomeOffice', () => {
 })
 
 describe('resumeWarmWelcomeStep', () => {
-  const steps = warmWelcomeSteps({ foundMeeting: true, knownMeeting: true })
+  const steps = warmWelcomeSteps({ foundMeeting: true, briefingDated: true })
 
   it('returns to the step the official had reached', () => {
     expect(resumeWarmWelcomeStep('warm-briefing', steps)).toBe('warm-briefing')
@@ -100,7 +100,7 @@ describe('resumeWarmWelcomeStep', () => {
     expect(
       resumeWarmWelcomeStep(
         'warm-briefing',
-        warmWelcomeSteps({ foundMeeting: false, knownMeeting: false }),
+        warmWelcomeSteps({ foundMeeting: false, briefingDated: false }),
       ),
     ).toBe('warm-won')
   })
@@ -118,14 +118,20 @@ describe('WARM_WELCOME_COPY', () => {
       lead: 'It looks like your first City Council meeting is',
       accent: 'Thursday, January 7 at 7:00 pm.',
     })
-    expect(WARM_WELCOME_COPY.briefing.title(meeting)).toEqual({
+    expect(WARM_WELCOME_COPY.briefing.title(new Date(2027, 0, 5))).toEqual({
       lead: 'Your first Meeting Briefing will be ready by',
-      accent: 'Monday, January 4.',
+      accent: 'Tuesday, January 5.',
     })
     expect(WARM_WELCOME_COPY.briefing.agenda(meeting)).toBe('Agenda, Jan 7')
-    expect(WARM_WELCOME_COPY.recap.briefing(meeting)).toEqual({
+    expect(
+      WARM_WELCOME_COPY.recap.briefing(meeting, new Date(2027, 0, 5)),
+    ).toEqual({
       lead: 'Your Meeting Briefing for January 7 lands on',
-      strong: 'Monday, January 4.',
+      strong: 'Tuesday, January 5.',
+    })
+    expect(WARM_WELCOME_COPY.recap.meeting(meeting)).toEqual({
+      lead: 'Your first City Council meeting is',
+      strong: 'Thursday, January 7 at 7:00 pm.',
     })
   })
 

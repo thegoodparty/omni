@@ -1,4 +1,7 @@
-import { BriefingDispatchPreview } from '@goodparty_org/contracts'
+import {
+  BRIEFING_IMMINENCE_WINDOW_DAYS,
+  BriefingDispatchPreview,
+} from '@goodparty_org/contracts'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { runsOnGpApi } from '@/agents/agents.registry'
 import { AgentsService } from '@/agents/agents.service'
@@ -225,7 +228,7 @@ type DispatchContext = {
 // falls inside this window. Outside the window we skip — the agent's
 // run would either bail to a placeholder (no packet published yet) or
 // repeat work we'll redo when the meeting gets closer.
-const IMMINENCE_WINDOW_DAYS = 3
+const IMMINENCE_WINDOW_DAYS = BRIEFING_IMMINENCE_WINDOW_DAYS
 
 // Ungated manual dispatches ("brief now" / admin override) project this far
 // out instead, so an operator can pre-brief any office.

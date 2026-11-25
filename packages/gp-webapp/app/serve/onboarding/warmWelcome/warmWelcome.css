@@ -439,6 +439,32 @@
   }
 }
 
+/* The confetti canvas fades out as a step is left. */
+.ww-confetti {
+  transition: opacity 600ms;
+}
+
+/* A recap row's icon as it lands: it swells and fills, then settles. */
+.ww-boom {
+  animation: ww-boom 750ms var(--ww-ease);
+}
+
+@keyframes ww-boom {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.4);
+    background: var(--theme-primary);
+    color: var(--theme-primary-foreground);
+    box-shadow: 0 0 0 8px
+      color-mix(in srgb, var(--theme-primary) 18%, transparent);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 /* Step 2: the date as a sentence. Each word is a button with a dotted
    underline and a fixed width, so the line never shifts as it changes. */
 .ww-date {
@@ -700,7 +726,8 @@
   .ww-sub-out,
   .ww-sub-in,
   .ww-ripple,
-  .ww-number-pop {
+  .ww-number-pop,
+  .ww-boom {
     animation: none;
   }
 

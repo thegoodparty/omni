@@ -98,17 +98,19 @@ const BriefingFolder = ({
 // Step 3: the Meeting Briefing, and the day it will be ready.
 export const BriefingStep = ({
   meeting,
+  readyDay,
   name,
   place,
   onNext,
 }: {
   meeting: FirstMeeting
+  readyDay: Date
   name: string | null
   place: string | null
   onNext: () => void
 }): React.JSX.Element => {
   const copy = WARM_WELCOME_COPY.briefing
-  const title = copy.title(meeting)
+  const title = copy.title(readyDay)
   const titleWords = countWords(title.lead ?? '') + 1
 
   useDock('briefing', 2300, [

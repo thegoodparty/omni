@@ -29,6 +29,17 @@ vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: () => ({ ready: true, enabled: false }),
 }))
 
+// The canvas and its physics are covered in confetti.test.ts. Here the flow
+// only has to ask for the right thing at the right moment.
+const confetti = vi.hoisted(() => ({
+  pour: vi.fn(),
+  burst: vi.fn(),
+  addSurface: vi.fn(),
+  clear: vi.fn(),
+  destroy: vi.fn(),
+}))
+vi.mock('./confetti', () => ({ createConfetti: () => confetti }))
+
 const impersonation = vi.hoisted(() => ({ active: false }))
 vi.mock('@shared/hooks/useIsImpersonating', () => ({
   useIsImpersonating: () => impersonation.active,
@@ -178,6 +189,7 @@ const crumbs = (): string[] =>
 
 beforeEach(() => {
   trackEventMock.mockClear()
+  Object.values(confetti).forEach((mock) => mock.mockClear())
   testQueryClient.clear()
   warmWelcomeFlag.enabled = true
   impersonation.active = false
@@ -207,8 +219,13 @@ describe('the warm welcome', () => {
       'Recap',
     ])
     expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled()
+    await waitFor(() => expect(confetti.pour).toHaveBeenCalledTimes(1), {
+      timeout: 3000,
+    })
 
     await press(user, 'Let’s get ready')
+    // Leaving the win fades its confetti away.
+    await waitFor(() => expect(confetti.clear).toHaveBeenCalled())
     // The first meeting in their term, not the one before they take office.
     expect(
       await heading(
@@ -243,7 +260,8 @@ describe('the warm welcome', () => {
     ).toBeInTheDocument()
 
     await press(user, 'Let’s keep going')
-    const ready = longDay(addDays(FIRST_MEETING, -3))
+    // A 7 pm meeting is picked up by the daily run two days before it.
+    const ready = longDay(addDays(FIRST_MEETING, -2))
     expect(
       await heading(`Your first Meeting Briefing will be ready by ${ready}.`),
     ).toBeInTheDocument()
@@ -316,7 +334,10 @@ describe('the warm welcome', () => {
     expect(eventProps('Serve Onboarding - Pledge Completed')).toHaveLength(0)
   })
 
-  it('carries a date the official corrects through to the recap', async () => {
+  // The schedule gp-api holds is unchanged by a correction, so no briefing
+  // day is promised for it: the briefing step leaves, and the recap says
+  // when their meeting is instead.
+  it('keeps a corrected date for the calendar and the recap, and promises no briefing day for it', async () => {
     const user = userEvent.setup()
     mockLoad()
     renderFlow()
@@ -337,22 +358,60 @@ describe('the warm welcome', () => {
     await press(user, 'Use this date')
 
     expect(await heading(`${longDay(corrected)} it is.`)).toBeInTheDocument()
-    await press(user, 'Let’s keep going')
-    expect(
-      await heading(
-        `Your first Meeting Briefing will be ready by ${longDay(addDays(corrected, -3))}.`,
-      ),
-    ).toBeInTheDocument()
+    expect(crumbs()).toEqual(['You won', 'First meeting', 'Recap'])
+
     await press(user, 'Let’s keep going')
     await heading('You’re all set, Anna.')
+    const recap = within(screen.getByRole('region', { name: 'Recap' }))
     expect(
-      within(screen.getByRole('region', { name: 'Recap' })).getByText(
-        `${longDay(addDays(corrected, -3))}.`,
-      ),
+      recap.getByText('Your first City Council meeting is', { exact: false }),
+    ).toBeInTheDocument()
+    expect(
+      recap.getByText(`${longDay(corrected)} at 7:00 pm.`),
     ).toBeInTheDocument()
     expect(eventProps('Serve Onboarding - First Meeting Completed')).toEqual([
       { electedOfficeId: EO_ID, meetingAnswer: 'corrected', calendar: null },
     ])
+  })
+
+  it('counts the sentence left as we found it as a yes', async () => {
+    const user = userEvent.setup()
+    mockLoad()
+    renderFlow()
+
+    await press(user, 'Let’s get ready')
+    await press(user, 'That’s not right')
+    await press(user, 'Use this date')
+    await heading(`${longDay(FIRST_MEETING)} it is.`)
+    expect(crumbs()).toEqual([
+      'You won',
+      'First meeting',
+      'Meeting Briefing',
+      'Recap',
+    ])
+  })
+
+  // A briefing for a meeting this close starts whenever the office goes
+  // live, so there is no day to promise.
+  it('promises no briefing day for a meeting that is tomorrow', async () => {
+    const user = userEvent.setup()
+    mockLoad({
+      office: buildOffice({ termStartDate: iso(addDays(TODAY, -5)) }),
+      meetings: [meetingRow(addDays(TODAY, 1))],
+    })
+    renderFlow()
+
+    expect(await heading('Well done, Anna. You won!')).toBeInTheDocument()
+    expect(crumbs()).toEqual(['You won', 'First meeting', 'Recap'])
+    await press(user, 'Let’s get ready')
+    await press(user, 'Yes, that’s it')
+    await press(user, 'Let’s keep going')
+    await heading('You’re all set, Anna.')
+    expect(
+      within(screen.getByRole('region', { name: 'Recap' })).getByText(
+        `${longDay(addDays(TODAY, 1))} at 7:00 pm.`,
+      ),
+    ).toBeInTheDocument()
   })
 
   it('skips the briefing when the official does not know the date yet', async () => {

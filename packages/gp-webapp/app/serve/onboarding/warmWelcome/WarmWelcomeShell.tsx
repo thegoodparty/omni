@@ -11,6 +11,7 @@ import {
 import { Button, GoodPartyOrgLogo } from '@styleguide'
 import { ChevronLeftIcon } from '@styleguide/components/ui/icons'
 import { cn } from '@styleguide/lib/utils'
+import { ConfettiLayer } from './ConfettiLayer'
 import {
   EntranceOffset,
   prefersReducedMotion,
@@ -131,6 +132,7 @@ export const WarmWelcomeShell = ({
   const [dock, setDockState] = useState<Dock | null>(null)
   const [leavingDock, setLeavingDock] = useState<Dock | null>(null)
   const dockRef = useRef<Dock | null>(null)
+  const footerRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     if (step === shown) return
@@ -167,84 +169,89 @@ export const WarmWelcomeShell = ({
   const previous = index > 0 ? steps[index - 1] : undefined
 
   return (
-    <div className="ww fixed inset-0 flex flex-col bg-base-surface text-foreground">
-      <header className="ww-topbar mx-auto flex w-full max-w-[960px] flex-none items-center gap-5 px-4">
-        <GoodPartyOrgLogo size="small" className="flex-none" />
-        <nav
-          aria-label={WARM_WELCOME_COPY.steps}
-          className="flex min-w-0 flex-1 gap-2"
-        >
-          {steps.map((id, at) => (
-            // The breadcrumb segment is a bar over a label, which no
-            // styleguide control draws.
-            <button
-              key={id}
-              type="button"
-              className="ww-crumb"
-              data-reached={at <= index}
-              aria-current={at === index ? 'step' : undefined}
-              disabled={at > index}
-              onClick={() => onGoTo(id)}
-            >
-              <i />
-              <span>{WARM_WELCOME_STEP_LABELS[id]}</span>
-            </button>
-          ))}
-        </nav>
-      </header>
-
-      {notice}
-
-      <main className="ww-stage relative min-h-0 flex-1">
-        {(leaving ? [leaving, shown] : [shown]).map((id) => (
-          <section
-            key={id}
-            aria-label={WARM_WELCOME_STEP_LABELS[id]}
-            aria-hidden={id === leaving ? true : undefined}
-            inert={id === leaving}
-            className={cn(
-              'ww-step',
-              id === leaving ? 'ww-step-leave' : moved && 'ww-step-enter',
-            )}
+    <ConfettiLayer floorRef={footerRef}>
+      <div className="ww fixed inset-0 flex flex-col bg-base-surface text-foreground">
+        <header className="ww-topbar mx-auto flex w-full max-w-[960px] flex-none items-center gap-5 px-4">
+          <GoodPartyOrgLogo size="small" className="flex-none" />
+          <nav
+            aria-label={WARM_WELCOME_COPY.steps}
+            className="flex min-w-0 flex-1 gap-2"
           >
-            <DockContext.Provider value={id === leaving ? NO_DOCK : setDock}>
-              <EntranceOffset
-                value={moved && id !== leaving ? STEP_ENTRANCE_OFFSET_MS : 0}
+            {steps.map((id, at) => (
+              // The breadcrumb segment is a bar over a label, which no
+              // styleguide control draws.
+              <button
+                key={id}
+                type="button"
+                className="ww-crumb"
+                data-reached={at <= index}
+                aria-current={at === index ? 'step' : undefined}
+                disabled={at > index}
+                onClick={() => onGoTo(id)}
               >
-                {children(id)}
-              </EntranceOffset>
-            </DockContext.Provider>
-          </section>
-        ))}
-      </main>
+                <i />
+                <span>{WARM_WELCOME_STEP_LABELS[id]}</span>
+              </button>
+            ))}
+          </nav>
+        </header>
 
-      <footer className="flex-none bg-base-surface pb-[env(safe-area-inset-bottom)]">
-        <div className="ww-foot mx-auto flex w-full max-w-[960px] items-center justify-between gap-2 px-4">
-          <Button
-            type="button"
-            variant="ghost"
-            size="large"
-            aria-label={WARM_WELCOME_COPY.back}
-            disabled={!previous}
-            onClick={() => previous && onGoTo(previous)}
-          >
-            <ChevronLeftIcon className="sm:hidden" aria-hidden />
-            <span className="hidden sm:inline">{WARM_WELCOME_COPY.back}</span>
-          </Button>
-          <div className="relative flex min-w-0 items-center justify-end">
-            {leavingDock && (
-              <div key={leavingDock.id} className="ww-dock-leave" inert>
-                <DockButtons dock={leavingDock} />
-              </div>
-            )}
-            {dock && (
-              <div key={dock.id}>
-                <DockButtons dock={dock} />
-              </div>
-            )}
+        {notice}
+
+        <main className="ww-stage relative min-h-0 flex-1">
+          {(leaving ? [leaving, shown] : [shown]).map((id) => (
+            <section
+              key={id}
+              aria-label={WARM_WELCOME_STEP_LABELS[id]}
+              aria-hidden={id === leaving ? true : undefined}
+              inert={id === leaving}
+              className={cn(
+                'ww-step',
+                id === leaving ? 'ww-step-leave' : moved && 'ww-step-enter',
+              )}
+            >
+              <DockContext.Provider value={id === leaving ? NO_DOCK : setDock}>
+                <EntranceOffset
+                  value={moved && id !== leaving ? STEP_ENTRANCE_OFFSET_MS : 0}
+                >
+                  {children(id)}
+                </EntranceOffset>
+              </DockContext.Provider>
+            </section>
+          ))}
+        </main>
+
+        <footer
+          ref={footerRef}
+          className="flex-none bg-base-surface pb-[env(safe-area-inset-bottom)]"
+        >
+          <div className="ww-foot mx-auto flex w-full max-w-[960px] items-center justify-between gap-2 px-4">
+            <Button
+              type="button"
+              variant="ghost"
+              size="large"
+              aria-label={WARM_WELCOME_COPY.back}
+              disabled={!previous}
+              onClick={() => previous && onGoTo(previous)}
+            >
+              <ChevronLeftIcon className="sm:hidden" aria-hidden />
+              <span className="hidden sm:inline">{WARM_WELCOME_COPY.back}</span>
+            </Button>
+            <div className="relative flex min-w-0 items-center justify-end">
+              {leavingDock && (
+                <div key={leavingDock.id} className="ww-dock-leave" inert>
+                  <DockButtons dock={leavingDock} />
+                </div>
+              )}
+              {dock && (
+                <div key={dock.id}>
+                  <DockButtons dock={dock} />
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </footer>
-    </div>
+        </footer>
+      </div>
+    </ConfettiLayer>
   )
 }
