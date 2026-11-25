@@ -79,10 +79,13 @@ describe('election-db reads during the nightly swap', () => {
     await service.instance.race.count()
 
     // Same give-up as production, no retry extension: a read that reaches the
-    // 1s deadlock check instead of backing off must surface 40P01 here.
+    // 1s deadlock check instead of backing off must surface 40P01 here. Warmed
+    // like the service client, or a slow first connect outlasts the harness's
+    // 100ms head start and the read never meets the swap.
     noRetryClient = new PrismaClient({
       datasources: { db: { url: withLockTimeout(url) } },
     })
+    await noRetryClient.race.count()
   })
 
   afterAll(async () => {
