@@ -1,4 +1,5 @@
 import { expect, test } from 'src/fixtures/test'
+import { captureAnalyticsEvents } from 'src/helpers/analyticsEvents.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser, winRaceAsPro } from 'src/helpers/organizations'
 
@@ -6,23 +7,24 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-test('"I won" hands a Pro winner to Serve onboarding until they finish it', async ({
+test('"I won" hands a Pro winner to the warm welcome until they finish it', async ({
   page,
 }) => {
+  const analytics = await captureAnalyticsEvents(page)
   const { client } = await setupProCampaignUser(page, {
     zip: '82001',
     office: 'Cheyenne City Council - Ward 1',
   })
 
   await winRaceAsPro(page)
-  await expect(
-    page
-      .getByRole('heading', { level: 1 })
-      .filter({ hasText: /party designation|term run|look right/i }),
-  ).toBeVisible({ timeout: 15_000 })
+  const won = page.getByRole('heading', { level: 1, name: /You won!/ })
+  await expect(won).toBeVisible({ timeout: 20_000 })
+  await analytics.expectEvent('Serve Onboarding - You Won Viewed', {
+    electedOfficeId: expect.any(String),
+  })
 
-  // The office is linked to the campaign and starts unfinished: the pledge at
-  // the end of onboarding finishes it.
+  // The office is linked to the campaign and starts unfinished: Done at the
+  // end of the welcome finishes it.
   const { data: offices } = await client.get<
     { campaignId: number | null; onboardingCompletedAt: string | null }[]
   >('/v1/elected-office/mine')
@@ -36,6 +38,16 @@ test('"I won" hands a Pro winner to Serve onboarding until they finish it', asyn
   expect(data.organizations.some((org) => org.slug.startsWith('eo-'))).toBe(
     true,
   )
+
+  // The welcome's own button arrives last, after the numbers have counted.
+  await page
+    .getByRole('button', { name: 'Let’s get ready' })
+    .click({ timeout: 20_000 })
+  await expect(won).toBeHidden({ timeout: 10_000 })
+  await analytics.expectEvent('Serve Onboarding - You Won Completed', {
+    hasPopulation: expect.any(Boolean),
+    hasVotes: expect.any(Boolean),
+  })
 
   // Leaving partway, the dashboard brings them back.
   await page.goto('/dashboard/polls')
