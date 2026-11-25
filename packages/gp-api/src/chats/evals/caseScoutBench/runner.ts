@@ -7,8 +7,10 @@ import {
   COVERED_SCOPES,
 } from '@/caseScout/caseScout.config'
 import {
+  productMapReference,
   SCORING_PROMPT,
   SECOND_READ_PROMPT,
+  secondReadMessage,
 } from '@/caseScout/caseScout.prompts'
 import {
   DraftOutcome,
@@ -23,14 +25,16 @@ import {
 } from '@/caseScout/schemas/caseScoutModel.schema'
 import type { DraftedCase } from '@/caseScout/schemas/draftedCase.schema'
 import {
-  emptyCaseList,
   LIST_SOFT_CAP,
+  mergeCaseLists,
+  SUITE_PATHS,
   type CaseListInfo,
 } from '@/caseScout/services/caseScoutCaseLists.service'
 import {
   ScoreParseError,
   type CaseScoutModelService,
 } from '@/caseScout/services/caseScoutModel.service'
+import { findDateDrift } from '@/caseScout/util/dateDrift.util'
 import {
   buildDraftedCase,
   buildDraftingPrompt,
@@ -57,6 +61,7 @@ import {
   segmentIntoSessions,
   type Session,
 } from '@/caseScout/util/sessions.util'
+import { readSuiteCases } from '@/caseScout/util/suiteCases.util'
 import {
   renderSessionTranscript,
   sessionDenylist,
@@ -119,10 +124,13 @@ type DraftResponseCase = {
   handledWhen: string
 }
 
+// `flagged` is what a blocking second read listed, kept so a reviewer can see
+// it. Only the bench keeps it: the draft job never writes it anywhere.
 export type GateSummary = {
   passed: boolean
   rule: GateRule | null
   reason: string | null
+  flagged?: string[] | null
 }
 
 export type Grades = {
@@ -179,27 +187,39 @@ const DRAFTED_OUTCOMES: ReadonlySet<DraftOutcomeValue> = new Set([
 
 const SCORE_PARSE_ATTEMPTS = 2
 
-// Reads the judge's case list from this checkout rather than GitHub main, so
-// a run sees the conditions on the branch under test and makes no network
-// call for them. Same fields CaseScoutCaseListsService.read takes.
+const REPO_ROOT = path.resolve(__dirname, '../../../../../..')
+
+// Reads the judged suite and the judge's case list from this checkout rather
+// than GitHub main, so a run sees the cases on the branch under test and
+// makes no network call for them. Merged as CaseScoutCaseListsService.read
+// merges them. The bench has no run record to note a miss in, so a suite it
+// cannot read in full is a bug in the checkout and throws.
 export const readLocalCaseList = (
   agentId: string,
   casesDir: string = CASES_DIR,
 ): CaseListInfo => {
-  let text: string
+  const suitePath = SUITE_PATHS[agentId]
+  const suite =
+    suitePath === undefined
+      ? undefined
+      : readSuiteCases(readFileSync(path.join(REPO_ROOT, suitePath), 'utf8'))
+  if (suite && suite.cases.length === 0) {
+    throw new Error(`${suitePath} has no readable cases`)
+  }
+  if (suite && suite.unreadConditions > 0) {
+    throw new Error(
+      `${suite.unreadConditions} conditions in ${suitePath} could not be read`,
+    )
+  }
+  let text: string | undefined
   try {
     text = readFileSync(path.join(casesDir, `${agentId}.json`), 'utf8')
   } catch {
-    return emptyCaseList(agentId)
+    text = undefined
   }
-  const list = parseCaseList(agentId, text, { agentId })
-  return {
-    agentId,
-    caseCount: list.cases.length,
-    caseIds: new Set(list.cases.map((c) => c.caseId)),
-    conditions: list.cases.flatMap((c) => (c.condition ? [c.condition] : [])),
-    fixtureDescription: list.note ?? '',
-  }
+  const list =
+    text === undefined ? undefined : parseCaseList(agentId, text, { agentId })
+  return mergeCaseLists(agentId, suite?.cases ?? [], list)
 }
 
 const CaseListFileSchema = z
@@ -307,13 +327,20 @@ export const runBench = async ({
   for (const session of sessions) {
     if (!COVERED_SCOPES.has(session.scope)) continue
     const transcript = renderSessionTranscript(session)
-    const inputChars = SCORING_PROMPT.length + transcript.length
+    const inputChars =
+      productMapReference(session.scope).length +
+      SCORING_PROMPT.length +
+      transcript.length
     let lastParseError = 'unknown'
     let score: BenchScore | undefined
     let callFailed = false
     for (let attempt = 0; attempt < SCORE_PARSE_ATTEMPTS; attempt++) {
       try {
-        const response = await model.scoreTranscript(transcript, signal)
+        const response = await model.scoreTranscript(
+          session.scope,
+          transcript,
+          signal,
+        )
         calls.push({
           stage: 'score',
           sessionId: session.sessionId,
@@ -385,16 +412,18 @@ export const runBench = async ({
 
   const recordingSecondRead =
     (session: Session): SecondReadCall =>
-    async (draftText) => {
+    async (draftText, sourceText) => {
       let output = ''
       try {
-        output = await model.secondRead(draftText, signal)
+        output = await model.secondRead(draftText, sourceText, signal)
         return output
       } finally {
         calls.push({
           stage: 'gate',
           sessionId: session.sessionId,
-          inputChars: SECOND_READ_PROMPT.length + draftText.length,
+          inputChars:
+            SECOND_READ_PROMPT.length +
+            secondReadMessage(draftText, sourceText).length,
           outputChars: output.length,
         })
       }
@@ -402,8 +431,13 @@ export const runBench = async ({
 
   const gateSummary = (gate: GateResult): GateSummary =>
     gate.passed
-      ? { passed: true, rule: null, reason: null }
-      : { passed: false, rule: gate.rule, reason: gate.reason }
+      ? { passed: true, rule: null, reason: null, flagged: null }
+      : {
+          passed: false,
+          rule: gate.rule,
+          reason: gate.reason,
+          flagged: gate.flagged ?? null,
+        }
 
   for (const { session } of candidates) {
     const agentId = session.scope
@@ -530,6 +564,24 @@ export const runBench = async ({
     }
 
     const passedGate = gateSummary(gate)
+    const drift = findDateDrift({
+      userTurns:
+        draftedCase.turns ??
+        (draftedCase.question === undefined ? [] : [draftedCase.question]),
+      sourceTexts: sessionSourceTexts(session),
+      sessionStartedAt: session.startedAt,
+    })
+    if (drift) {
+      decide({
+        outcome: DraftOutcome.heldForDate,
+        case: draftedCase,
+        gate: passedGate,
+        draftResponse,
+        failureSummary: drift.reason,
+      })
+      proposedIds.add(draftedCase.caseId)
+      continue
+    }
     if (caseList.caseCount >= LIST_SOFT_CAP) {
       decide({
         outcome: DraftOutcome.listFull,
@@ -689,6 +741,17 @@ const fixtureResult = ({
           (flagged.length > 0 ? flagged.join(', ') : 'nothing at severity 2+'),
       )
     }
+  }
+
+  if (expect.max_severity !== null) {
+    checks.severity =
+      score === null
+        ? check(FAIL, 'not scored')
+        : check(
+            score.severity <= expect.max_severity ? PASS : FAIL,
+            `expected at most ${expect.max_severity}, scout gave ` +
+              `${score.severity}`,
+          )
   }
 
   if (finalCase) {

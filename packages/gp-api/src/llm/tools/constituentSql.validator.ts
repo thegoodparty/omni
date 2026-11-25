@@ -145,7 +145,7 @@ const containsPeopleCount = (node: unknown): boolean => {
 // SUM(CASE WHEN <condition> THEN 1 ELSE 0 END) is a count of people. Any
 // other result value (THEN 1000, THEN Voters_Age) would let a small count
 // clear the floor scaled up, so only 0, 1 and NULL results pass.
-const sumCountsPeople = (node: Record<string, unknown>): boolean => {
+export const sumCountsPeople = (node: Record<string, unknown>): boolean => {
   const args = node.args
   if (!isRecord(args)) return false
   const argument: unknown =

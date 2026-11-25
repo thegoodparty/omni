@@ -41,11 +41,13 @@ Use `ctx.runAgent(name, input)` for background agents. It starts a run and polls
 | ------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `condition`   | The grader needs context that the output does not show.                                               | The district had no public meetings in the requested period.                                                              |
 | `handledWhen` | There is a concrete pass/fail requirement for each output.                                            | Each reported issue includes a dated source from the supplied material, or the reply says there is insufficient evidence. |
-| `dimensions`  | A case needs a scored quality measure beyond the defaults. Each named question is scored from 1 to 5. | `specificity`: Does the reply name the decision, not just the topic?                                                      |
+| `dimensions`  | A case needs an observable quality criterion beyond the defaults.                                      | `specificity`: Does the reply name the decision, not just the topic?                                                      |
 
 The grader cannot verify that a cited source is real. Use `handledWhen` for grounding rules the grader can check against the material it sees. Use independent verification when you need to establish that a source exists.
 
-The judge compares blinded outputs in both orders for each of three attempts per case. The suite looks for a meaningful difference in wins or a regression in `handledWhen`. Only **WORSE** and **CAN'T JUDGE** fail the suite. See [the trending issues suite](../packages/gp-api/src/communityIssues/trendingIssuesAgent/trending_issues.eval.ts).
+The judge compares blinded outputs in both orders for each of three attempts per case. Both orders must identify the same criterion and direction, and the change must recur in at least two attempts on the same case. Write grading dimensions that describe observable behavior, not preferences about wording or length. A confirmed regression on one case makes the suite **WORSE** even if other cases improve. See [the trending issues suite](../packages/gp-api/src/communityIssues/trendingIssuesAgent/trending_issues.eval.ts).
+
+An engine migration is judged on its own PR, and that verdict is the migration's proof. The PR adds the agent to the preview, dev and prod lists in `deploy/agentsOnGpApi.ts`, but dev runs `main`'s lists until it merges, so a pairwise suite on that PR reads the PMF Engine on the base arm and gp-api's engine on the candidate. `handledWhen` is what keeps that comparison honest across the two engines: state the requirement in terms of the artifact, not of either engine's behaviour. A suite whose cases are all thin-data or otherwise unscoreable ties on both arms and proves nothing.
 
 ### Chat suites
 
@@ -85,9 +87,15 @@ list marked `scored: false` is a normal case whose `condition` starts with
 `Control:`. Run one with `/judge-eval <file stem>`.
 
 The five `cases/<agent>.json` files those lists were are still in
-`packages/gp-api/src/chats/evals/judge/cases/`, but nothing judges them: the
-case scout reads them for case-id collisions and existing conditions, and the
-scout's bench reads them back. A change to one changes no verdict.
+`packages/gp-api/src/chats/evals/judge/cases/`, but nothing judges them. The
+case scout reads case ids and conditions from the `campaign_assistant` and
+`chief_of_staff` suites themselves, by parsing their source off main, and
+reads the JSON only for its fixture note and as a fallback; the scout's bench
+reads both the same way from its own checkout. A change to one changes no
+verdict. A case in those two
+suites keeps its `id` and `grading.condition` as string literals (several
+joined by `+` is fine), or the scout's reader test fails: see
+`packages/gp-api/src/caseScout/AGENTS.md`.
 
 ## Agents with no suite
 
@@ -167,14 +175,15 @@ This works for `/judge-eval` runs and for `Universal judge guard (shadow)` runs 
 
 Start with Vitest annotations. They show the evidence for an individual attempt, such as intermediate results, excerpts, and grading. For expected results, compare the expected judgment with the actual one. For pairwise suites, look at the verdict table first and then inspect the attempts behind it.
 
-| Verdict             | Meaning                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| BETTER              | The comparison found evidence in favor of the candidate.                           |
-| NO DIFFERENCE FOUND | The comparison did not establish a difference. This does not prove equivalence.    |
-| WORSE               | The comparison found a regression in preference or in a `handledWhen` requirement. |
-| CAN'T JUDGE         | No pairs were judged, or more than half were not judged.                           |
+| Verdict             | Meaning                                                            |
+| ------------------- | ------------------------------------------------------------------ |
+| WORSE               | At least one case has a confirmed, material regression.            |
+| BETTER              | At least one case has a confirmed improvement and none regressed.  |
+| NO DIFFERENCE FOUND | Neither was confirmed. This does not prove equivalence.             |
 
-For CAN'T JUDGE, inspect the failed attempts and arm reachability. Check preview health, credentials, agent run failures, and grader errors. Fix the cause and run again. Do not count missing judgments as ties or as evidence that the candidate passed.
+A change must be observable in the outputs, not a preference about presentation. Read the cited case and evidence before deciding what to fix. A tie means both grading orders found no material difference. A disagreement between orders is reported separately.
+
+**CAN'T JUDGE** is an execution status, not a quality verdict. Inspect failed attempts and arm reachability. Check preview health, credentials, agent run failures, and grader errors. Fix the cause and run again. Do not count missing judgments as ties or as evidence that the candidate passed.
 
 ## Code reference
 

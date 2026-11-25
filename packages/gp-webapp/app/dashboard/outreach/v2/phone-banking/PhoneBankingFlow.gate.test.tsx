@@ -199,17 +199,35 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     })
   })
 
-  it('with per-campaign pricing on: no lock, the banner opens the dialog, and Back from the wizard returns to the flow', async () => {
+  it('with per-campaign pricing on: no banner or lock, and the ready-screen button opens the dialog over it', async () => {
     planFlagRef.enabled = true
     gateRef.set(FREE_GATE)
+    const createCalls = mockCreateList()
     render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
 
-    await user.click(await screen.findByText(GATE_LINE))
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+    await advanceToSheets()
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Your call sheet is ready')
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+    expect(
+      screen.queryByRole('dialog', { name: 'Join Pro to send this campaign' }),
+    ).toBeNull()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Join Pro to call this list' }),
+    )
 
     const dialog = await screen.findByRole('dialog', {
-      name: 'Join Pro to call this list',
+      name: 'Join Pro to send this campaign',
     })
     expect(document.querySelector('.lucide-lock')).toBeNull()
+    // The ready screen is still there behind the dialog.
+    expect(
+      screen.getAllByText('Your call sheet is ready').length,
+    ).toBeGreaterThan(0)
     expect(
       within(dialog).getByRole('link', { name: 'See all plans' }),
     ).toBeInTheDocument()
@@ -223,7 +241,12 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     await user.click(screen.getByRole('button', { name: 'Wizard back' }))
 
     expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
-    expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
+    expect(
+      await screen.findByRole('dialog', {
+        name: 'Join Pro to send this campaign',
+      }),
+    ).toBeInTheDocument()
+    expect(createCalls).toHaveLength(0)
   })
 
   it('shows the gate banner on every step for a free candidate', async () => {

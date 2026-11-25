@@ -420,8 +420,10 @@ interface SmsFlowProps {
   initialEvent?: ProposalEvent
   preselectedListId?: number
   // A chat card's "Join Pro to send" (win_per_campaign_pricing): the flow
-  // opens on the card's draft with the Pro pitch already over it. Nothing is
-  // saved; leaving the pitch lands on the draft, as Edit would have.
+  // goes to the review step with the card's draft and, once there, does what
+  // the review button does: saves the draft and puts the Pro gate over it. A
+  // prerequisite the card could not supply (the headshot) is collected on its
+  // own step first, and the gate waits for review.
   openProGate?: boolean
   // The day a chat card suggested ("YYYY-MM-DD"). The schedule step opens on
   // it when the picker would allow it; a past, invalid or too-soon day is
@@ -923,6 +925,9 @@ export const SmsFlow = ({
     resumeDraft,
     resumeCta,
     pitchAsDialog: planPitch.enabled,
+    // A card's draft is the candidate's to come back to on the review step
+    // they pressed it from; the hub's closes the sheet.
+    keepFlowOnDialogClose: proposalLink !== undefined,
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
@@ -959,26 +964,6 @@ export const SmsFlow = ({
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
 
-  // A chat card's "Join Pro to send": the pitch goes up once per open, as
-  // soon as the gate knows the campaign is on the free plan.
-  const proGateShownRef = useRef(false)
-  const { openPitch } = draftGate
-  useEffect(() => {
-    if (!open) {
-      proGateShownRef.current = false
-      return
-    }
-    if (
-      !openProGate ||
-      proGateShownRef.current ||
-      !planPitch.enabled ||
-      gate.requirement !== 'pro' ||
-      resumed
-    )
-      return
-    proGateShownRef.current = true
-    openPitch(planReviewGateCta(planPitch))
-  }, [open, openProGate, planPitch, gate.requirement, resumed, openPitch])
   const { enabled: previewFlagOn } = useWinSmsPreviewEditFlag(
     surface === WIN_SMS_SURFACE,
   )
@@ -1950,6 +1935,10 @@ export const SmsFlow = ({
         voterFileFilterId: audience.selectedListId,
         script: composedMessage,
         ...(tracker ? { trackerTaskId: tracker.trackerTaskId } : {}),
+        // A chat card's draft has its own slot under the card's key, so it
+        // never meets the draft the hub saved (a 409 that resumed it, and
+        // the card's draft with it), and saving again updates it.
+        ...(proposalLink ? { proposalKey: proposalLink.proposalKey } : {}),
       },
       image,
     )
@@ -2300,6 +2289,16 @@ export const SmsFlow = ({
     ? message !== (initialScript ?? '')
     : !scheduled && purpose !== null && savedDraft === null
 
+  // Both surfaces send MMS: the image lifts the text past single-SMS segment
+  // limits, and Peerly rejects an imageless Win text/p2p send.
+  const composeReady =
+    hasWrittenBody &&
+    standards.passed &&
+    bracketsToFill.length === 0 &&
+    !pastedJoinLine &&
+    composedLength <= SMS_COMPOSED_MAX_LENGTH &&
+    image !== null
+
   const reviewGateCta =
     gate.requirement === null
       ? undefined
@@ -2423,17 +2422,7 @@ export const SmsFlow = ({
                       // Stays pressable while something is missing: a press
                       // shows what (design rule 4) instead of a dead button.
                       onClick: () => {
-                        const ready =
-                          hasWrittenBody &&
-                          standards.passed &&
-                          bracketsToFill.length === 0 &&
-                          !pastedJoinLine &&
-                          composedLength <= SMS_COMPOSED_MAX_LENGTH &&
-                          // Both surfaces send MMS: the image lifts the text
-                          // past single-SMS segment limits, and Peerly
-                          // rejects an imageless Win text/p2p send.
-                          image !== null
-                        if (!ready) {
+                        if (!composeReady) {
                           setComposeContinueAttempts((n) => n + 1)
                           return
                         }
@@ -2472,6 +2461,66 @@ export const SmsFlow = ({
                         stepId === 'review' && reviewInFooter
                         ? reviewCta
                         : null
+
+  // A chat card's "Join Pro to send" is the review button pressed for the
+  // candidate: from the card's message it goes to review when nothing is
+  // missing, and on review it saves the draft and opens the gate over it. A
+  // missing headshot keeps the flow on the steps that collect it, and the
+  // gate waits for the review it leads to. Once per open: Back from review
+  // is the candidate's own.
+  const cardProGateRef = useRef<'pending' | 'skipped' | 'opened'>('pending')
+  const { saveDraft } = draftGate
+  useEffect(() => {
+    if (!open) {
+      cardProGateRef.current = 'pending'
+      return
+    }
+    if (
+      !openProGate ||
+      !buildMode ||
+      !planPitch.enabled ||
+      gate.requirement !== 'pro' ||
+      cardProGateRef.current === 'opened'
+    ) {
+      return
+    }
+    if (stepId === 'compose') {
+      // Only the card's own headshot counts as in hand: an upload the
+      // candidate makes here goes through the steps like any other build.
+      if (
+        cardProGateRef.current !== 'pending' ||
+        !profilePhotoUrl ||
+        !composeReady ||
+        (showCropper && !croppedImage)
+      ) {
+        return
+      }
+      cardProGateRef.current = 'skipped'
+      if (showCropper && croppedImage) setImage(croppedImage)
+      setStepId('review')
+      return
+    }
+    if (stepId !== 'review' || !audience.selectedListId || !image) return
+    if (name.trim() === '') return
+    cardProGateRef.current = 'opened'
+    void saveDraft(reviewGateCta)
+  }, [
+    open,
+    openProGate,
+    buildMode,
+    planPitch.enabled,
+    gate.requirement,
+    stepId,
+    profilePhotoUrl,
+    composeReady,
+    showCropper,
+    croppedImage,
+    audience.selectedListId,
+    image,
+    name,
+    saveDraft,
+    reviewGateCta,
+  ])
 
   const cta: FlowShellCta | null = managed
     ? stepId === 'compose'

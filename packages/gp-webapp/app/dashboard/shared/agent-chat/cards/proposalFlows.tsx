@@ -69,8 +69,8 @@ type Opened = {
   // message with that list picked rather than on the list builder.
   listId?: number
   launchSource: OutreachLaunchSource
-  // A free campaign's text card pressed "Join Pro to send": the flow opens
-  // with the Pro pitch over the draft.
+  // A free campaign's text card pressed "Join Pro to send": the flow goes to
+  // its review step with the Pro gate over it.
   proGate?: boolean
 }
 
@@ -106,8 +106,9 @@ const READY_CHANNELS: ReadonlySet<ProposalChannel> = new Set([
 
 // Which control on a free campaign's card opened the flow (win_per_campaign_
 // pricing). Edit and the drafted message go to the flow itself, whose own gate
-// meets the candidate at send. Join Pro to send opens a text's flow with the
-// pitch over it; the other channels still go to the pitch first.
+// meets the candidate at send. Join Pro to send opens a text's flow at its
+// review step with the Pro gate over it; the other channels still go to the
+// pitch first.
 export type ProposalOpenIntent = 'edit' | 'joinPro'
 
 type SentListener = (proposal: OutreachProposal) => void

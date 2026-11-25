@@ -6,11 +6,12 @@ import {
   gradingSchema,
   DEFAULT_DIMENSIONS,
   gradePair,
-  mean,
+  handledDirection,
   orientOrder,
   readSlotVerdict,
   type Dimension,
   type OrderRequest,
+  type OrientedOrder,
   type SlotReading,
   type SlotVerdict,
 } from './grade'
@@ -19,38 +20,47 @@ const dimensions: Dimension[] = Object.entries(DEFAULT_DIMENSIONS).map(
   ([name, question]) => ({ name, question }),
 )
 
-// A model's raw shape: the schema's `dimensions` array, still in A/B.
+// A model's raw shape: the schema's `changes` array, still in A/B.
 const rawVerdictOf = (
-  winner: SlotVerdict['winner'],
-  values: { a: number; b: number } = { a: 3, b: 3 },
+  better: 'A' | 'B' | 'none',
+  criterion: string = dimensions[0]!.name,
 ): SlotVerdict => ({
-  winner,
-  reasoning: `${winner} because of the thing`,
-  dimensions: dimensions.map((dimension) => ({
-    name: dimension.name,
-    A: values.a,
-    B: values.b,
+  reasoning: `${better} because of the thing`,
+  changes: dimensions.map((dimension) => ({
+    criterion: dimension.name,
+    better: dimension.name === criterion ? better : 'none',
+    evidence: `${dimension.name}: A said one thing, B said another`,
   })),
 })
 
-// The same reading with scores keyed by question, which is what gradePair and
+// The same reading with the pass rule absent, which is what gradePair and
 // orientOrder take.
 const verdictOf = (
-  winner: SlotReading['winner'],
-  values: { a: number; b: number } = { a: 3, b: 3 },
+  better: 'A' | 'B' | 'none',
+  criterion: string = dimensions[0]!.name,
 ): SlotReading => ({
-  winner,
-  reasoning: `${winner} because of the thing`,
+  reasoning: `${better} because of the thing`,
+  changes: dimensions.map((dimension) => ({
+    criterion: dimension.name,
+    better: dimension.name === criterion ? better : 'none',
+    evidence: `${dimension.name}: A said one thing, B said another`,
+  })),
   handledWhen: null,
-  scores: Object.fromEntries(
-    dimensions.map((dimension) => [
-      dimension.name,
-      { A: values.a, B: values.b },
-    ]),
-  ),
 })
 
 const usage = { inputTokens: 10, outputTokens: 4 }
+
+const orderWith = (
+  aArm: OrientedOrder['aArm'],
+  changes: OrientedOrder['changes'],
+  handled: OrientedOrder['handled'] = null,
+): OrientedOrder => ({
+  aArm,
+  changes,
+  reasoning: 'because of the thing',
+  handled,
+  usage,
+})
 
 describe('buildGradingPrompt', () => {
   const request: OrderRequest = {
@@ -85,11 +95,28 @@ describe('buildGradingPrompt', () => {
     expect(prompt).not.toContain('PASS RULE')
   })
 
-  it('asks every dimension question', () => {
+  it('asks every criterion question', () => {
     const prompt = buildGradingPrompt(request)
     for (const dimension of dimensions) {
       expect(prompt).toContain(dimension.question)
     }
+  })
+
+  it('asks for a per-criterion reading and rules out preference', () => {
+    const prompt = buildGradingPrompt(request)
+    expect(prompt).toContain(
+      'For each criterion, answer which output behaves materially better',
+    )
+    expect(prompt).toContain(
+      'Ignore preferences about wording, style, tone, length and formatting',
+    )
+    expect(prompt).toContain('Read each criterion on its own')
+  })
+
+  it('never asks for an overall winner or a score', () => {
+    const prompt = buildGradingPrompt(request)
+    expect(prompt).not.toContain('Pick the winner')
+    expect(prompt).not.toContain('Score each question')
   })
 })
 
@@ -97,43 +124,54 @@ describe('readSlotVerdict', () => {
   it('reads a well-formed verdict', () => {
     const verdict = readSlotVerdict(
       {
-        winner: 'A',
         reasoning: 'A said more.',
-        handledWhen: { A: 'yes', B: 'partly' },
-        dimensions: dimensions.map((dimension) => ({
-          name: dimension.name,
-          A: 5,
-          B: 2,
+        changes: dimensions.map((dimension) => ({
+          criterion: dimension.name,
+          better: 'A',
+          evidence: 'A named the district.',
         })),
+        handledWhen: { A: 'yes', B: 'partly' },
       },
       dimensions,
     )
-    expect(verdict.winner).toBe('A')
+    expect(verdict.changes[0]).toMatchObject({
+      criterion: dimensions[0]!.name,
+      better: 'A',
+      evidence: 'A named the district.',
+    })
     expect(verdict.handledWhen).toEqual({ A: 'yes', B: 'partly' })
-    expect(verdict.scores.task_success).toEqual({ A: 5, B: 2 })
   })
 
   it('reads a verdict with no pass rule as having no handledWhen', () => {
-    const verdict = readSlotVerdict(rawVerdictOf('tie'), dimensions)
+    const verdict = readSlotVerdict(rawVerdictOf('none'), dimensions)
     expect(verdict.handledWhen).toBeNull()
   })
 
-  it('rejects an unusable winner and an empty reasoning, at the schema', () => {
+  it('rejects an unusable direction and an empty evidence string', () => {
     const schema = gradingSchema(dimensions, false)
     const wellFormed = {
       reasoning: 'x',
-      dimensions: dimensions.map((dimension) => ({
-        name: dimension.name,
-        A: 3,
-        B: 3,
+      changes: dimensions.map((dimension) => ({
+        criterion: dimension.name,
+        better: 'none',
+        evidence: 'neither named the district',
       })),
     }
-    expect(schema.safeParse({ ...wellFormed, winner: 'C' }).success).toBe(false)
+    expect(schema.safeParse({ ...wellFormed, better: 'C' }).success).toBe(true)
     expect(
-      schema.safeParse({ ...wellFormed, winner: 'tie', reasoning: '' }).success,
+      schema.safeParse({
+        ...wellFormed,
+        changes: [{ ...wellFormed.changes[0], better: 'C' }],
+      }).success,
     ).toBe(false)
-    expect(schema.safeParse({ ...wellFormed, winner: 'tie' }).success).toBe(
-      true,
+    expect(
+      schema.safeParse({
+        ...wellFormed,
+        changes: [{ ...wellFormed.changes[0], evidence: '' }],
+      }).success,
+    ).toBe(false)
+    expect(schema.safeParse({ ...wellFormed, reasoning: '' }).success).toBe(
+      false,
     )
   })
 
@@ -150,53 +188,56 @@ describe('readSlotVerdict', () => {
     expect(entries(false)).not.toContain('handledWhen')
   })
 
-  it('rejects a missing dimension, rather than scoring it 0', () => {
+  it('rejects a missing criterion, rather than reading it as no change', () => {
     expect(() =>
       readSlotVerdict(
         {
-          winner: 'tie',
           reasoning: 'x',
-          dimensions: [{ name: dimensions[0]!.name, A: 3, B: 3 }],
-        },
-        dimensions,
-      ),
-    ).toThrow(/no scores for/)
-  })
-
-  it('rejects an unknown dimension', () => {
-    expect(() =>
-      readSlotVerdict(
-        {
-          winner: 'tie',
-          reasoning: 'x',
-          dimensions: [
-            ...dimensions.map((dimension) => ({
-              name: dimension.name,
-              A: 3,
-              B: 3,
-            })),
-            { name: 'vibes', A: 3, B: 3 },
+          changes: [
+            {
+              criterion: dimensions[0]!.name,
+              better: 'none',
+              evidence: 'same',
+            },
           ],
         },
         dimensions,
       ),
-    ).toThrow(/unknown dimension/)
+    ).toThrow(/no reading for/)
   })
 
-  it('rejects a repeated dimension', () => {
-    const name = dimensions[0]!.name
+  it('rejects an unknown criterion', () => {
     expect(() =>
       readSlotVerdict(
         {
-          winner: 'tie',
           reasoning: 'x',
-          dimensions: [
-            { name, A: 3, B: 3 },
-            { name, A: 4, B: 4 },
+          changes: [
+            ...dimensions.map((dimension) => ({
+              criterion: dimension.name,
+              better: 'none',
+              evidence: 'same',
+            })),
+            { criterion: 'vibes', better: 'none', evidence: 'same' },
+          ],
+        },
+        dimensions,
+      ),
+    ).toThrow(/unknown criteria/)
+  })
+
+  it('rejects a repeated criterion', () => {
+    const criterion = dimensions[0]!.name
+    expect(() =>
+      readSlotVerdict(
+        {
+          reasoning: 'x',
+          changes: [
+            { criterion, better: 'none', evidence: 'same' },
+            { criterion, better: 'A', evidence: 'A named it' },
             ...dimensions.slice(1).map((dimension) => ({
-              name: dimension.name,
-              A: 3,
-              B: 3,
+              criterion: dimension.name,
+              better: 'none',
+              evidence: 'same',
             })),
           ],
         },
@@ -207,38 +248,61 @@ describe('readSlotVerdict', () => {
 })
 
 describe('orientOrder', () => {
-  const verdict: SlotReading = {
-    winner: 'A',
+  const verdict: SlotReading & { handledWhen: { A: 'yes'; B: 'no' } } = {
     reasoning: 'A was better',
+    changes: dimensions.map((dimension) => ({
+      criterion: dimension.name,
+      better: 'A',
+      evidence: 'A named the district',
+    })),
     handledWhen: { A: 'yes', B: 'no' },
-    scores: Object.fromEntries(
-      dimensions.map((dimension) => [dimension.name, { A: 5, B: 2 }]),
-    ),
   }
 
   it('maps A and B onto the arms when the base was shown as A', () => {
     const oriented = orientOrder(verdict, usage, false)
     expect(oriented.aArm).toBe('base')
-    expect(oriented.winner).toBe('base')
+    expect(oriented.changes[0]?.better).toBe('base')
     expect(oriented.handled).toEqual({ base: 'yes', candidate: 'no' })
-    expect(oriented.scores.task_success).toEqual({ base: 5, candidate: 2 })
   })
 
   it('swaps them when the candidate was shown as A', () => {
     const oriented = orientOrder(verdict, usage, true)
     expect(oriented.aArm).toBe('candidate')
-    expect(oriented.winner).toBe('candidate')
+    expect(oriented.changes[0]?.better).toBe('candidate')
     expect(oriented.handled).toEqual({ base: 'no', candidate: 'yes' })
-    expect(oriented.scores.task_success).toEqual({ base: 2, candidate: 5 })
   })
 
-  it('keeps a tie a tie in either order', () => {
-    expect(
-      orientOrder({ ...verdict, winner: 'tie' }, usage, false).winner,
-    ).toBe('tie')
-    expect(orientOrder({ ...verdict, winner: 'tie' }, usage, true).winner).toBe(
-      'tie',
-    )
+  it('keeps "none" as no change in either order', () => {
+    const noChange: SlotReading = {
+      ...verdict,
+      changes: verdict.changes.map((change) => ({ ...change, better: 'none' })),
+    }
+    expect(orientOrder(noChange, usage, false).changes[0]?.better).toBe('none')
+    expect(orientOrder(noChange, usage, true).changes[0]?.better).toBe('none')
+  })
+})
+
+describe('handledDirection', () => {
+  const handled = (
+    base: 'yes' | 'partly' | 'no',
+    candidate: 'yes' | 'partly' | 'no',
+  ) => orderWith('base', [], { base, candidate })
+
+  it('reads a better pass rule as a candidate improvement', () => {
+    expect(handledDirection(handled('no', 'yes'))).toBe('candidate')
+    expect(handledDirection(handled('partly', 'yes'))).toBe('candidate')
+    expect(handledDirection(handled('no', 'partly'))).toBe('none')
+  })
+
+  it('reads a worse pass rule as a candidate regression', () => {
+    expect(handledDirection(handled('yes', 'no'))).toBe('base')
+    expect(handledDirection(handled('yes', 'partly'))).toBe('base')
+  })
+
+  it('is no change when both sides answered the same', () => {
+    expect(handledDirection(handled('yes', 'yes'))).toBe('none')
+    expect(handledDirection(handled('partly', 'partly'))).toBe('none')
+    expect(handledDirection(orderWith('base', []))).toBe('none')
   })
 })
 
@@ -253,10 +317,10 @@ describe('gradePair', () => {
     candidateOutput: 'the candidate output',
   }
 
-  it('judges both orders and reads agreement as a direction', async () => {
-    // The model prefers whichever output it is shown as A, whatever it is. Both
-    // orders therefore point the same way in slot terms, and orienting them puts
-    // them on opposite arms: a disagreement, hence a tie.
+  it('judges both orders and confirms a criterion both read the same way', async () => {
+    // Slot A is the base first, then the candidate. Both calls name A, which is
+    // the base in one order and the candidate in the other: a disagreement, so
+    // no criterion is confirmed.
     const calls: string[] = []
     const gradeOrder = async (request: OrderRequest) => {
       calls.push(request.a)
@@ -265,42 +329,113 @@ describe('gradePair', () => {
     const pair = await gradePair(baseRequest, gradeOrder)
     expect(calls).toEqual(['the base output', 'the candidate output'])
     expect(pair.orders).toHaveLength(2)
-    expect(pair.winner).toBe('tie')
+    expect(pair.changes).toEqual([])
+    expect(pair.disagreements).toEqual([dimensions[0]!.name])
   })
 
-  it('reads two orders that name the same arm as that arm', async () => {
-    // Slot A is the base first, then the candidate. Naming A first and B second
-    // is the base winning, then the candidate winning: a genuine disagreement.
-    // To make both point at the candidate, the model has to name B in the first
-    // order.
+  it('confirms the change both orders read on the same arm', async () => {
+    // Slot A is the base first, then the candidate. Naming B first and A second
+    // names the candidate in both orders.
     let call = 0
     const gradeOrder = async () => {
       call += 1
       return { verdict: verdictOf(call === 1 ? 'B' : 'A'), usage }
     }
     const pair = await gradePair(baseRequest, gradeOrder)
-    expect(pair.winner).toBe('candidate')
+    expect(pair.changes).toHaveLength(1)
+    expect(pair.changes[0]?.criterion).toBe(dimensions[0]!.name)
+    for (const change of pair.changes) {
+      expect(change.direction).toBe('better')
+      expect(change.evidence).toHaveLength(2)
+    }
+    expect(pair.disagreements).toEqual([])
   })
 
-  it('is a tie when either order says tie', async () => {
+  it('leaves a criterion out when one order read a change and the other none', async () => {
     let call = 0
     const gradeOrder = async () => {
       call += 1
-      return { verdict: verdictOf(call === 1 ? 'tie' : 'B'), usage }
+      return { verdict: verdictOf(call === 1 ? 'B' : 'none'), usage }
     }
-    expect((await gradePair(baseRequest, gradeOrder)).winner).toBe('tie')
+    const pair = await gradePair(baseRequest, gradeOrder)
+    expect(pair.changes).toEqual([])
+    expect(pair.disagreements).toEqual([dimensions[0]!.name])
   })
 
-  it('counts handled only when both orders said yes', async () => {
-    // Slot A is the base in the first order and the candidate in the second.
-    // `handled('yes', 'no')` therefore says base yes, candidate no; the reverse
-    // call says base yes, candidate yes. The candidate was not handled in every
-    // order, so it is not handled.
+  it('is no change at all when both orders read every criterion as none', async () => {
+    const gradeOrder = async () => ({ verdict: verdictOf('none'), usage })
+    const pair = await gradePair(baseRequest, gradeOrder)
+    expect(pair.changes).toEqual([])
+    expect(pair.disagreements).toEqual([])
+  })
+
+  it('keeps a regression and an improvement in the same pair', async () => {
+    // Each order reads grounding worse and specificity better, in its own slot
+    // terms. One direction must not erase the other.
+    let call = 0
+    const gradeOrder = async () => {
+      call += 1
+      const candidateIsA = call === 2
+      const better = (candidateBetter: boolean) =>
+        candidateIsA === candidateBetter ? 'A' : 'B'
+      return {
+        verdict: {
+          reasoning: 'both moved',
+          changes: [
+            {
+              criterion: 'grounding',
+              better: better(false),
+              evidence: 'one cited a source, the other did not',
+            },
+            {
+              criterion: 'specificity',
+              better: better(true),
+              evidence: 'one named the street, the other did not',
+            },
+            ...dimensions
+              .filter(
+                (dimension) =>
+                  dimension.name !== 'grounding' &&
+                  dimension.name !== 'specificity',
+              )
+              .map((dimension) => ({
+                criterion: dimension.name,
+                better: 'none' as const,
+                evidence: 'same',
+              })),
+          ],
+          handledWhen: null,
+        } satisfies SlotReading,
+        usage,
+      }
+    }
+    const pair = await gradePair(
+      {
+        ...baseRequest,
+        dimensions: [
+          {
+            name: 'grounding',
+            question: 'Does every claim trace to evidence?',
+          },
+          { name: 'specificity', question: 'Does it name the street?' },
+        ],
+      },
+      gradeOrder,
+    )
+    expect(
+      pair.changes.map(({ criterion, direction }) => [criterion, direction]),
+    ).toEqual([
+      ['grounding', 'worse'],
+      ['specificity', 'better'],
+    ])
+  })
+
+  it("keeps each order's own handledWhen readings", async () => {
     const handled = (
       A: 'yes' | 'partly' | 'no',
       B: 'yes' | 'partly' | 'no',
     ) => ({
-      verdict: { ...verdictOf('tie'), handledWhen: { A, B } },
+      verdict: { ...verdictOf('none'), handledWhen: { A, B } },
       usage,
     })
     let call = 0
@@ -309,28 +444,43 @@ describe('gradePair', () => {
       return call === 1 ? handled('yes', 'no') : handled('yes', 'yes')
     }
     const pair = await gradePair(baseRequest, gradeOrder)
-    expect(pair.handled).toEqual({ base: true, candidate: false })
+    expect(pair.orders.map(({ handled: reading }) => reading)).toEqual([
+      { base: 'yes', candidate: 'no' },
+      { base: 'yes', candidate: 'yes' },
+    ])
   })
 
-  it('counts handled for both arms when every order said yes', async () => {
-    const gradeOrder = async () => ({
-      verdict: {
-        ...verdictOf('tie'),
-        handledWhen: { A: 'yes' as const, B: 'yes' as const },
-      },
+  it('does not confirm a pass-rule change when the orders disagree on it', async () => {
+    const handled = async (
+      A: 'yes' | 'partly' | 'no',
+      B: 'yes' | 'partly' | 'no',
+    ) => ({
+      verdict: { ...verdictOf('none'), handledWhen: { A, B } },
       usage,
     })
-    const pair = await gradePair(baseRequest, gradeOrder)
-    expect(pair.handled).toEqual({ base: true, candidate: true })
+    let call = 0
+    const gradeOrder = async () => {
+      call += 1
+      return call === 1 ? handled('no', 'yes') : handled('yes', 'yes')
+    }
+    const pair = await gradePair(
+      {
+        ...baseRequest,
+        grading: { handledWhen: 'the reply names a dated source' },
+      },
+      gradeOrder,
+    )
+    expect(pair.changes).toEqual([])
+    expect(pair.disagreements).toEqual(['handledWhen'])
   })
 
-  it('is not handled when one order says partly', async () => {
+  it('does not confirm a pass-rule change when one order says partly', async () => {
     let call = 0
     const gradeOrder = async () => {
       call += 1
       return {
         verdict: {
-          ...verdictOf('tie'),
+          ...verdictOf('none'),
           handledWhen:
             call === 1
               ? { A: 'partly' as const, B: 'yes' as const }
@@ -339,29 +489,51 @@ describe('gradePair', () => {
         usage,
       }
     }
-    expect((await gradePair(baseRequest, gradeOrder)).handled).toEqual({
-      base: false,
-      candidate: true,
-    })
+    const pair = await gradePair(
+      {
+        ...baseRequest,
+        grading: { handledWhen: 'the reply names a dated source' },
+      },
+      gradeOrder,
+    )
+    expect(pair.changes).toEqual([])
+    expect(pair.disagreements).toEqual(['handledWhen'])
   })
 
-  it('averages each dimension over the orders', async () => {
-    // Base is A in the first order and B in the second, so both orders have to
-    // score base 4 for the average to be 4.
+  it('reads a pass-rule drop both orders saw as a confirmed regression of its own', async () => {
+    // Both orders agree the candidate no longer meets the rule, so the pair
+    // confirms a `handledWhen` regression even though no dimension moved.
     let call = 0
     const gradeOrder = async () => {
       call += 1
       return {
-        verdict: verdictOf('tie', call === 1 ? { a: 4, b: 2 } : { a: 2, b: 4 }),
+        verdict: {
+          ...verdictOf('none'),
+          handledWhen:
+            call === 1
+              ? { A: 'yes' as const, B: 'no' as const }
+              : { A: 'no' as const, B: 'yes' as const },
+        },
         usage,
       }
     }
-    const pair = await gradePair(baseRequest, gradeOrder)
-    expect(pair.scores.task_success).toEqual({ base: 4, candidate: 2 })
+    const pair = await gradePair(
+      {
+        ...baseRequest,
+        grading: { handledWhen: 'the reply names a dated source' },
+      },
+      gradeOrder,
+    )
+    expect(pair.changes).toContainEqual(
+      expect.objectContaining({
+        criterion: 'handledWhen',
+        direction: 'worse',
+      }),
+    )
   })
 
   it('sums the token usage of both orders', async () => {
-    const gradeOrder = async () => ({ verdict: verdictOf('tie'), usage })
+    const gradeOrder = async () => ({ verdict: verdictOf('none'), usage })
     const pair = await gradePair(baseRequest, gradeOrder)
     expect(pair.usage).toEqual({ inputTokens: 20, outputTokens: 8 })
   })
@@ -369,6 +541,15 @@ describe('gradePair', () => {
 
 describe('createGrader', () => {
   const model = new MockLanguageModelV3()
+
+  const noChangeObject = () => ({
+    reasoning: 'No observable difference.',
+    changes: dimensions.map((dimension) => ({
+      criterion: dimension.name,
+      better: 'none',
+      evidence: 'both named the district',
+    })),
+  })
 
   it('drives the AI SDK generateObject with the schema and prompt', async () => {
     const prompts: string[] = []
@@ -378,12 +559,11 @@ describe('createGrader', () => {
         prompts.push(prompt)
         return {
           object: {
-            winner: 'A',
-            reasoning: 'A.',
-            dimensions: dimensions.map((dimension) => ({
-              name: dimension.name,
-              A: 5,
-              B: 1,
+            reasoning: 'A named the district.',
+            changes: dimensions.map((dimension) => ({
+              criterion: dimension.name,
+              better: 'A',
+              evidence: 'A named the district',
             })),
           },
           usage,
@@ -402,32 +582,15 @@ describe('createGrader', () => {
     expect(prompts).toHaveLength(2)
     expect(prompts[0]).toContain('OUTPUT A\nbase')
     expect(prompts[1]).toContain('OUTPUT A\ncandidate')
-    // A model that always prefers slot A prefers each arm once, so the pair is
-    // a tie. That is the property the order swap exists to catch.
-    expect(pair.winner).toBe('tie')
+    // A model that always prefers slot A prefers each arm once, so nothing is
+    // confirmed. That is the property the order swap exists to catch.
+    expect(pair.changes).toEqual([])
   })
 
-  it('reads a model that prefers the same arm in both orders as that arm', async () => {
-    let call = 0
+  it('confirms nothing when both orders read every criterion as none', async () => {
     const grader = createGrader({
       model,
-      generateObjectFn: async () => {
-        call += 1
-        return {
-          object: {
-            // Base is A first, so slot B is the candidate: naming B first then A
-            // names the candidate twice.
-            winner: call === 1 ? 'B' : 'A',
-            reasoning: 'the candidate was better',
-            dimensions: dimensions.map((dimension) => ({
-              name: dimension.name,
-              A: 5,
-              B: 1,
-            })),
-          },
-          usage,
-        }
-      },
+      generateObjectFn: async () => ({ object: noChangeObject(), usage }),
     })
     const pair = await grader.gradePair({
       caseId: 'case-1',
@@ -438,7 +601,8 @@ describe('createGrader', () => {
       baseOutput: 'base',
       candidateOutput: 'candidate',
     })
-    expect(pair.winner).toBe('candidate')
+    expect(pair.changes).toEqual([])
+    expect(pair.disagreements).toEqual([])
   })
 
   it('goes through the real generateObject against the mock model', async () => {
@@ -448,12 +612,11 @@ describe('createGrader', () => {
           {
             type: 'text',
             text: JSON.stringify({
-              winner: 'B',
-              reasoning: 'B is more specific.',
-              dimensions: dimensions.map((dimension) => ({
-                name: dimension.name,
-                A: 2,
-                B: 5,
+              reasoning: 'B named the street.',
+              changes: dimensions.map((dimension) => ({
+                criterion: dimension.name,
+                better: 'B',
+                evidence: 'B named the street',
               })),
             }),
           },
@@ -475,30 +638,24 @@ describe('createGrader', () => {
       a: 'base',
       b: 'candidate',
     })
-    expect(order.verdict.winner).toBe('B')
+    expect(order.verdict.changes[0]?.better).toBe('B')
     expect(order.usage).toEqual({ inputTokens: 7, outputTokens: 3 })
   })
 })
 
 describe('gradingSchema', () => {
-  // Claude's native JSON output scores 3.5; an integer-only schema rejected the
-  // whole verdict, and so every pair, on PR #3898.
-  it('accepts a half-point score and rejects one outside 1 to 5', () => {
+  it('accepts one reading per criterion and rejects a reading outside A/B/none', () => {
     const schema = gradingSchema(dimensions, false)
-    const verdict = (score: number) => ({
-      winner: 'A',
-      reasoning: 'A.',
-      dimensions: dimensions.map(({ name }) => ({ name, A: score, B: 3 })),
+    const verdict = (better: string) => ({
+      reasoning: 'x',
+      changes: dimensions.map(({ name }) => ({
+        criterion: name,
+        better,
+        evidence: 'A said one thing, B another',
+      })),
     })
-    expect(schema.safeParse(verdict(3.5)).success).toBe(true)
-    expect(schema.safeParse(verdict(0)).success).toBe(false)
-    expect(schema.safeParse(verdict(5.5)).success).toBe(false)
-  })
-})
-
-describe('mean', () => {
-  it('is 0 for no values and the average otherwise', () => {
-    expect(mean([])).toBe(0)
-    expect(mean([2, 4])).toBe(3)
+    expect(schema.safeParse(verdict('none')).success).toBe(true)
+    expect(schema.safeParse(verdict('tie')).success).toBe(false)
+    expect(schema.safeParse(verdict('C')).success).toBe(false)
   })
 })

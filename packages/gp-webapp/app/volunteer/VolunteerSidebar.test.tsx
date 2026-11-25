@@ -140,6 +140,24 @@ describe('VolunteerSidebar', () => {
     ).not.toBeInTheDocument()
   })
 
+  // ENG-11739: a long volunteer name painted past the rail's right edge and
+  // over the content column instead of truncating. jsdom has no layout, so this
+  // asserts the constraint that makes truncation possible rather than a
+  // measured width: globals.css gives every `<li>` under a `data-slot` ancestor
+  // `display: flex`, which makes this row a flex item whose default
+  // `min-width: auto` floors it at the nowrap name's min-content width. The row
+  // has to pin its own width so the `min-w-0 flex-1` column below it can shrink.
+  it('pins the user block row to the rail width so the name can truncate', () => {
+    render(<VolunteerSidebar>{children}</VolunteerSidebar>)
+
+    const nameSpan = screen.getByText('Val Unteer')
+    const textColumn = nameSpan.parentElement
+    const row = textColumn?.parentElement
+
+    expect(row).toHaveClass('flex', 'w-full', 'min-w-0')
+    expect(nameSpan).toHaveClass('truncate')
+  })
+
   describe('with more than one campaign', () => {
     beforeEach(() => {
       mockUseOrganizations.mockReturnValue([orgOne, orgTwo])
@@ -158,6 +176,22 @@ describe('VolunteerSidebar', () => {
       expect(screen.getByText('Switch campaign')).toBeInTheDocument()
       expect(screen.getByText('Renee Wells')).toBeInTheDocument()
       expect(screen.getByText('Marcus Ortega')).toBeInTheDocument()
+    })
+
+    // ENG-11739, second instance: the switcher's rows are grid items of the
+    // `grid gap-1` RadioGroup, so the same automatic minimum size floors each
+    // row at its longest nowrap line and the campaign names paint past the rail.
+    it('lets a switch-campaign row shrink so its labels truncate', async () => {
+      const userEventInstance = userEvent.setup()
+      render(<VolunteerSidebar>{children}</VolunteerSidebar>)
+
+      await userEventInstance.click(
+        screen.getByRole('button', { name: /switch campaign/i }),
+      )
+
+      const row = screen.getByText('Renee Wells').closest('label')
+
+      expect(row).toHaveClass('flex', 'min-w-0')
     })
 
     it('switches the selected campaign slug when a different radio option is chosen', async () => {

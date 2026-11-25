@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import Image from 'next/image'
 import { useMutation } from '@tanstack/react-query'
 import imageCompression from 'browser-image-compression'
+import { SMS_IMAGE_MAX_BYTES } from '@goodparty_org/contracts'
 import { cn } from '@styleguide'
 import {
   ImageIcon,
@@ -15,7 +16,6 @@ import { apiRoutes } from 'gpApi/routes'
 import { SERVE_POLL_QUESTION_COPY } from './pollCopy'
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg']
-const MAX_SIZE_KB = 500
 
 interface PollImageDropzoneProps {
   imageUrl: string | undefined
@@ -35,7 +35,7 @@ export const PollImageDropzone = ({
   const upload = useMutation({
     mutationFn: async (file: File) => {
       const downsized = await imageCompression(file, {
-        maxSizeMB: MAX_SIZE_KB / 1024,
+        maxSizeMB: SMS_IMAGE_MAX_BYTES / (1024 * 1024),
         useWebWorker: true,
       })
       return uploadFileToS3(downsized, apiRoutes.polls.imageUploadUrl)

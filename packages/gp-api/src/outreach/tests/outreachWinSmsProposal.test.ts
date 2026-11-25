@@ -180,6 +180,33 @@ describe('a Win text carrying a proposal key', () => {
     expect((await probe()).status).toBe(HttpStatus.NOT_FOUND)
   })
 
+  it("replaces the card's saved draft with the fresh draft, leaving no keyless draft behind", async () => {
+    const saved = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: orgSlug,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.draft,
+        proposalKey: PROPOSAL_KEY,
+      },
+    })
+
+    const res = await submitDraft({ proposalKey: PROPOSAL_KEY })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const rows = await service.prisma.outreach.findMany({
+      where: { campaignId: campaign.id },
+    })
+    expect(rows.map((row) => row.id)).not.toContain(saved.id)
+    expect(
+      rows.filter((row) => row.status === OutreachStatus.draft),
+    ).toHaveLength(0)
+    const holder = await service.prisma.outreach.findUniqueOrThrow({
+      where: { proposalKey: PROPOSAL_KEY },
+    })
+    expect(holder.id).toBe((res.data as { id: number }).id)
+  })
+
   it('lets a text that never went out be started again from the card', async () => {
     await submitDraft({ proposalKey: PROPOSAL_KEY })
     await service.prisma.outreach.update({

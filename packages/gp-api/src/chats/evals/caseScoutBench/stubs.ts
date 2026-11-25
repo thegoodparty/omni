@@ -30,7 +30,7 @@ const fixtureFor = (
 export const labelEchoModel = (fixtures: BenchFixture[]): BenchModel => {
   const byId = new Map(fixtures.map((fixture) => [fixture.id, fixture]))
   return {
-    scoreTranscript: async (transcript): Promise<ScoreResponse> => {
+    scoreTranscript: async (_scope, transcript): Promise<ScoreResponse> => {
       const fixture = fixtureFor(transcript, byId)
       const failing =
         fixture.expect.should_draft || fixture.expect.covered_by !== null

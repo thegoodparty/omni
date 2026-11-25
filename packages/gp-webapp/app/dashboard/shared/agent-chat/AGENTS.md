@@ -264,9 +264,16 @@ there is the agent's to say, once, in its message; no card repeats it.
   for the campaign alone (`winResolved`). The card's
   `proposalKey` rides Win's `POST /v1/outreach` create, and
   `GET /v1/outreach/by-proposal-key/:proposalKey` resolves it once paid.
-  The key rides a fresh draft only, never a resume: a draft built in build
-  mode and resumed later does not carry it, so that card never reads as
-  sent. A create refused while carrying the key (a 409: already sent) has
+  The key rides a fresh create only, never a resume. A free campaign's build
+  mode saves a draft instead (`POST /v1/outreach/drafts`), and that draft
+  carries the key as its own slot: it neither 409s into the draft the hub
+  saved (which resumed that draft's old audience and lost the card's) nor
+  replaces it, and saving again updates it. The draft reads as unsent until
+  its resume is paid. A card's "Join Pro to send" opens the flow, goes to the
+  review step once nothing is missing (the card's headshot is the one thing it
+  may lack, and the flow lands on its step first), and there does what the
+  review button does: saves the draft and opens the Pro gate over it. Closing
+  the gate on a card's flow leaves the review step open. A create refused while carrying the key (a 409: already sent) has
   the provider re-read the card, and a card that resolves as sent closes
   the flow. The other channels open Win's own flows with no `surface`:
   `PhoneBankingFlow` and `SocialFlow` over the chat, and door knocking on

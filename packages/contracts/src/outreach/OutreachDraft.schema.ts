@@ -17,8 +17,20 @@ export const CreateOutreachDraftRequestSchema = z
     // The campaign-plan task the flow was opened from. Kept on the draft so
     // the task still closes once a later resume schedules it.
     trackerTaskId: z.string().min(1).optional(),
+    // The chat card a texting draft was written from (the card's key, never
+    // the model's). A keyed draft has its own slot, so it neither collides
+    // with the draft the candidate saved from the hub nor replaces it, and
+    // saving again under the same key updates that one row.
+    proposalKey: z.string().uuid().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.outreachType === 'robocall' && data.proposalKey) {
+      ctx.addIssue({
+        path: ['proposalKey'],
+        code: z.ZodIssueCode.custom,
+        message: 'proposalKey is only accepted on a texting draft',
+      })
+    }
     if (data.outreachType === 'p2p' && !data.script) {
       ctx.addIssue({
         path: ['script'],
@@ -43,8 +55,8 @@ export type CreateOutreachDraftRequest = z.infer<
   typeof CreateOutreachDraftRequestSchema
 >
 
-// The 409 body when a draft of that type already exists, so the client can
-// offer "resume" instead of "start".
+// The 409 body when a draft of that type already exists (one unkeyed draft per
+// type per campaign), so the client can offer "resume" instead of "start".
 export const OutreachDraftConflictSchema = z.object({
   existingId: z.number().int(),
 })

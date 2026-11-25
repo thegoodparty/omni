@@ -185,8 +185,8 @@ dormant and dispatches nothing.
   agent types, `meeting_schedule` then `meeting_briefing`. Signup dispatches the
   schedule; schedule completion chains a briefing if the **imminence gate** passes (a
   projected meeting within `IMMINENCE_WINDOW_DAYS = 3`). `meeting_schedule` can
-  instead run on gp-api's own agents (`AGENTS_ON_GP_API`, unset everywhere until its
-  dev-versus-preview comparison passes; `src/agents/AGENTS.md`). The `meetingBriefingsDaily`
+  instead run on gp-api's own agents (`AGENTS_ON_GP_API`, which
+  `deploy/agentsOnGpApi.ts` sets per environment; `src/agents/AGENTS.md`). The `meetingBriefingsDaily`
   pg-boss schedule (`0 7 * * *` UTC) sends one `meetingBriefingDispatch` job per
   candidate office, and each job dispatches if the office is still eligible. The "brief now" UI path
   bypasses the gate and widens the window to 60 days. User-supplied agendas ride as
@@ -197,15 +197,22 @@ dormant and dispatches nothing.
   `communityIssueDispatch` job per org; cap at `DISPATCH_CAP_PER_TICK = 200`.
   `onExperimentRunCompleted` re-reads S3, validates, **verifies the artifact's
   `organization_slug` and `generated_for_run_id` match the run** (anti-cross-
-  contamination), then upserts. `trending_issues` can instead run on gp-api's
-  own agents (`AGENTS_ON_GP_API`, set in dev and prod, unset in preview;
-  `src/agents/AGENTS.md`).
+  contamination), then upserts. `trending_issues` and `top_community_issues`
+  can instead run on gp-api's own agents (`AGENTS_ON_GP_API`, which
+  `deploy/agentsOnGpApi.ts` sets per environment; `src/agents/AGENTS.md`).
 - **Campaign strategy** (`src/campaignStrategy/`) — experiments `opposition_research`
-  - `opportunities_and_challenges`, persisted section by section. Each experiment
-  can run on gp-api's own agents (`opposition_research` is on in preview only,
-  while it is judged; `src/agents/AGENTS.md`), and `CampaignStrategyService` picks
-  its run table, its artifact store and its dispatch from that same per-agent
-  switch, so a section moved to gp-api lands on the plan exactly as before.
+  and `opportunities_and_challenges`, persisted section by section. Each
+  experiment can run on gp-api's own agents, and `CampaignStrategyService` picks
+  its dispatch from that per-agent switch, so a section the switch moves lands
+  on the plan exactly as before. Read `deploy/agentsOnGpApi.ts` for which
+  environment runs which.
+- **Opposition research** (`src/raceOpponent/`) — the relaxed chain
+  `race_opponent_collection` -> `race_opponent_summary` ->
+  `race_opponent_actions`, one experiment per link. Each link can run on
+  gp-api's own agents; the switch moves the dispatch, and the chain's readers
+  (`services/raceOpponentRun.ts`) query both engines' run tables so a revert of
+  the switch is a safe rollback. Read `deploy/agentsOnGpApi.ts` for the current
+  per-environment state.
 
 ### Admin / bulk-dispatch surface
 

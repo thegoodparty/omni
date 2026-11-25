@@ -35,6 +35,15 @@ export type AgentDefinition<
     run: { runId: string; input: z.infer<I> },
     context: WorkerContext,
   ) => Promise<void>
+  // A run that ended `failed` (its last attempt threw and is not a deploy
+  // shutdown). An agent whose product chains off its completion needs this:
+  // without it a failed link leaves the next one waiting on a run that never
+  // lands, and the page polls a chain that will never settle. Runs after the
+  // failure is recorded and never on a requeue, so one failure is one call.
+  onFailure?: (
+    run: { runId: string; input: z.infer<I>; error: string | null },
+    context: WorkerContext,
+  ) => Promise<void>
 }
 
 // Erases the definition's own input and output types so every agent fits one
@@ -45,12 +54,26 @@ export const defineAgent = <
   O extends z.ZodType,
 >(
   definition: AgentDefinition<I, O>,
-): AgentDefinition => ({
-  ...definition,
-  onArtifact: async (artifact, run, context) =>
-    definition.onArtifact(
-      definition.output.parse(artifact),
-      { runId: run.runId, input: definition.input.parse(run.input) },
-      context,
-    ),
-})
+): AgentDefinition => {
+  const { onFailure, ...rest } = definition
+  return {
+    ...rest,
+    onArtifact: async (artifact, run, context) =>
+      definition.onArtifact(
+        definition.output.parse(artifact),
+        { runId: run.runId, input: definition.input.parse(run.input) },
+        context,
+      ),
+    ...(onFailure && {
+      onFailure: async (run, context) =>
+        onFailure(
+          {
+            runId: run.runId,
+            input: definition.input.parse(run.input),
+            error: run.error,
+          },
+          context,
+        ),
+    }),
+  }
+}

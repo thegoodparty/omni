@@ -5,6 +5,7 @@ import {
   PRO_COPY,
   PRO_COPY_SMS_CLOSED,
   planInterstitialCopy,
+  planListGateCta,
   planReviewGateCta,
   withPlanPriceBullet,
 } from './gateCopy'
@@ -69,6 +70,17 @@ describe('gateCopy plan copy', () => {
       'Join Pro to send',
     )
   })
+
+  it(
+    'names the list channels' + "'" + ' free button for what Pro unlocks',
+    () => {
+      const pitch = buildPlanPitch(true, true, false)
+      expect(planListGateCta('door', pitch)).toBe('Join Pro to start knocking')
+      expect(planListGateCta('phone-bank', pitch)).toBe(
+        'Join Pro to call this list',
+      )
+    },
+  )
 
   it('keeps the Pro explainer title by default', () => {
     expect(EXPLAINER_COPY.titleFree('sms')).toBe(

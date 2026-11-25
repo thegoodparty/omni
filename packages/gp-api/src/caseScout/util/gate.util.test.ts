@@ -159,14 +159,50 @@ describe('checkCopiedText', () => {
 
 describe('checkContactPatterns', () => {
   it.each([
-    'reach me at jane.doe+test@example.com',
+    'reach me at jane.doe+test@lakemoor-news.test',
     'call (555) 123-4567 for details',
     'call 555-123-4567 for details',
     'call +1 555 123 4567 for details',
-    'see https://example.com/profile for more',
-    'see www.example.com for more',
+    'see https://lakemoor-news.test/profile for more',
+    'see www.lakemoor-news.test for more',
   ])('catches %s', (text) => {
     expect(checkContactPatterns([text])).toBeDefined()
+  })
+
+  it.each([
+    'reach me at jane.doe+test@example.com',
+    'write to clerk@town.example.org.',
+    'or volunteers@EXAMPLE.NET, either works',
+    'see https://example.com/profile for more',
+    'see https://www.example.org/filing-guide?step=2#fees for more',
+    'see www.example.net for more',
+    'see http://example.com:8080/ for more',
+    'see (https://example.org/donate) for more',
+    'my page is https://example.org.',
+  ])('passes the reserved example domains: %s', (text) => {
+    expect(checkContactPatterns([text])).toBeUndefined()
+  })
+
+  it.each([
+    'see https://example.org.evil.test/donate',
+    'see https://notexample.com/donate',
+    'see https://example.com@evil.test/',
+    'see https://user:pw@example.com/',
+    'see https://example.com-evil.test/',
+    'see https://exa%6Dple.com/',
+    'see www.example.com.evil.test',
+    'write to user@example.com.evil.test',
+    'write to user@notexample.com',
+    'write to user@example.com-evil.test',
+    'see https://example.org/donate and https://evil.test/',
+  ])('catches a lookalike of an example domain: %s', (text) => {
+    expect(checkContactPatterns([text])).toBeDefined()
+  })
+
+  it('still catches a phone inside an example link', () => {
+    expect(
+      checkContactPatterns(['see https://example.org/call/555-0123']),
+    ).toBe('a phone number appeared in a case field')
   })
 
   it('passes ordinary text', () => {
@@ -209,42 +245,60 @@ describe('checkContactPatterns', () => {
 
 describe('runSecondRead', () => {
   it('passes an empty list and blocks a flagged string', async () => {
-    expect(await runSecondRead(['draft'], async () => '[]')).toBeUndefined()
     expect(
-      await runSecondRead(['draft'], async () => '["Lakemoor"]'),
-    ).toBeDefined()
+      await runSecondRead(['draft'], ['source'], async () => '[]'),
+    ).toBeUndefined()
+    expect(
+      await runSecondRead(['draft'], ['source'], async () => '["Lakemoor"]'),
+    ).toEqual({
+      reason: 'the second read flagged a detail from the real chat',
+      flagged: ['Lakemoor'],
+    })
   })
 
   it('blocks a call error at once, with no retry', async () => {
     const call = vi.fn(async () => {
       throw new SecondReadCallError('down')
     })
-    expect(await runSecondRead(['draft'], call)).toBe(
-      'the second read call failed',
-    )
+    expect(await runSecondRead(['draft'], [], call)).toEqual({
+      reason: 'the second read call failed',
+    })
     expect(call).toHaveBeenCalledTimes(1)
   })
 
   it('retries an unreadable answer once, then blocks', async () => {
     const call = vi.fn(async () => 'None found.')
-    expect(await runSecondRead(['draft'], call)).toBe(
-      'the second read returned an unparseable answer after a retry',
-    )
+    expect(await runSecondRead(['draft'], [], call)).toEqual({
+      reason: 'the second read returned an unparseable answer after a retry',
+    })
     expect(call).toHaveBeenCalledTimes(2)
   })
 
   it('recovers when the retry reads', async () => {
     const call = vi
-      .fn<(text: string) => Promise<string>>()
+      .fn<(text: string, source: string) => Promise<string>>()
       .mockResolvedValueOnce('None found.')
       .mockResolvedValueOnce('```json\n[]\n```')
-    expect(await runSecondRead(['draft'], call)).toBeUndefined()
+    expect(await runSecondRead(['draft'], [], call)).toBeUndefined()
   })
 
-  it('sends the draft alone', async () => {
+  it('sends the draft and every source text', async () => {
     const call = vi.fn(async () => '[]')
-    await runSecondRead(['condition', 'handled', 'question'], call)
-    expect(call).toHaveBeenCalledWith('condition\nhandled\nquestion')
+    await runSecondRead(
+      ['condition', 'handled', 'question'],
+      ['a user turn', '{"query":"a tool input"}'],
+      call,
+    )
+    expect(call).toHaveBeenCalledWith(
+      'condition\nhandled\nquestion',
+      'a user turn\n---\n{"query":"a tool input"}',
+    )
+  })
+
+  it('keeps a non-string item it flagged as text', async () => {
+    expect(
+      await runSecondRead(['draft'], [], async () => '[{"name":"Odalys"}]'),
+    ).toMatchObject({ flagged: ['{"name":"Odalys"}'] })
   })
 })
 
@@ -253,6 +307,36 @@ describe('gateDraft', () => {
 
   it('passes a clean draft', async () => {
     expect(await gateDraft(clean, [], [], pass)).toEqual({ passed: true })
+  })
+
+  it('hands the second read the source texts it gates against', async () => {
+    const secondRead = vi.fn(async () => '["Odalys Brennick"]')
+    const result = await gateDraft(
+      { ...clean, question: 'Should I thank Odalys Brennick?' },
+      [],
+      ['thank Odalys Brennick for me', '{"note":"volunteer"}'],
+      secondRead,
+    )
+    expect(secondRead).toHaveBeenCalledWith(
+      expect.stringContaining('Should I thank Odalys Brennick?'),
+      'thank Odalys Brennick for me\n---\n{"note":"volunteer"}',
+    )
+    expect(result).toEqual({
+      passed: false,
+      rule: 'secondRead',
+      reason: 'the second read flagged a detail from the real chat',
+      flagged: ['Odalys Brennick'],
+    })
+  })
+
+  it('carries no flagged list for any other rule', async () => {
+    const result = await gateDraft(
+      { ...clean, question: 'Is Lakemoor turnout up?' },
+      ['Lakemoor'],
+      [],
+      pass,
+    )
+    expect(result).not.toHaveProperty('flagged')
   })
 
   it('stops at the first failing layer, before the paid second read', async () => {
@@ -451,7 +535,10 @@ describe('the caseId', () => {
   it('is part of what the second read sees', async () => {
     const call = vi.fn(pass)
     await gateDraft({ ...clean, caseId: 'a-clean-case' }, [], [], call)
-    expect(call).toHaveBeenCalledWith(expect.stringContaining('a clean case'))
+    expect(call).toHaveBeenCalledWith(
+      expect.stringContaining('a clean case'),
+      '',
+    )
   })
 })
 

@@ -47,6 +47,18 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 - **Observability lives here, not just in app code.** Grafana dashboards/alerts are defined in `components/grafana.ts` and `components/alerting/`. App-side metric naming must line up with these.
 - **Previews send nothing to Grafana.** `GP_API_SECRET_KEYS.preview` is the dev list without `OTEL_EXPORTER_OTLP_HEADERS`, the Grafana Cloud token, so `src/otel.ts` never starts OpenTelemetry on a preview (no logs, metrics or traces) and Pyroscope stays off. Every preview stack used to export a full copy of every metric series, under instance ids that churned on each deploy, which outnumbered dev and prod together. Preview logs are still in CloudWatch (`components/service.ts` log group). A preview stack also creates no Grafana resources (`createGrafanaResources` runs on dev and prod only).
 
+## Aurora parameters for Databricks CDC (`rdsCluster` in `index.ts`)
+
+A cluster parameter group `gp-api-db-cdc` (`cdcParameterGroup`) turns on logical replication for the Lakeflow Connect CDC pipeline that mirrors `gpdb.public` into Databricks. It is dev only; prod joins in a later PR, and preview still runs the shared preview cluster.
+
+- **The static parameters need a writer reboot.** `rds.logical_replication`, `aurora.enhanced_logical_replication`, `aurora.logical_replication_backup` and `aurora.logical_replication_globaldb` are static, so the cluster reports `pending-reboot` until the instance restarts. `Infra` shows as `in-sync` in the meantime. `max_slot_wal_keep_size` is dynamic and applies without one.
+- **Never change `aurora.enhanced_logical_replication` while a replication slot exists.** AWS documents that changing it invalidates all logical replication slots on the cluster. The parameter is also static, so the change only takes effect at reboot, which means a slot can exist and then be invalidated by the restart. Check `SELECT * FROM pg_replication_slots` first (expect no rows), drop the slot through the runbook if one is there, then change the parameter. The same rule applies to a major engine upgrade.
+- **`aurora.logical_replication_backup` and `aurora.logical_replication_globaldb` only move in the same request as the enhanced flag.** Both are 1 when enhanced replication is off and must be 0 to turn it on. AWS rejects changing either on its own, so a future change to enhanced replication sets all three together.
+- **Enhanced logical replication stays off on purpose.** Turning it on makes Aurora write every column to WAL on every UPDATE and DELETE, the same cost as `REPLICA IDENTITY FULL`, which is expensive on `campaign`, `website` and `user`. Only Aurora zero-ETL needs it.
+- **`max_slot_wal_keep_size` is the safety cap.** If a slot's WAL exceeds it, Aurora invalidates the slot and the pipeline needs a full refresh. The size is per environment, so re-check the prod value against the measured WAL rate before prod joins.
+
+Runbook, architecture and recovery steps will live in `databricks/lakeflow/README.md`, which lands with the pipeline in a later PR.
+
 ## Shared preview ALB (`components/preview-shared-alb.ts`)
 
 Every PR preview routes through one ALB, `gp-api-previews`. A preview stack creates only a target group and a host-header rule on its HTTPS listener (priority = PR number), and `*.preview.goodparty.org` resolves to it, so a new PR provisions no ALB and no DNS record. A per-PR ALB cost ~3 minutes to provision plus ~2 for its new record to resolve, on every new PR.

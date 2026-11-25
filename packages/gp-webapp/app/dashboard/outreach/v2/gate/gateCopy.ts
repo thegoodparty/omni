@@ -193,6 +193,16 @@ export const REVIEW_GATE_CTA: Record<
 export const planReviewGateCta = (pitch: PlanPitch): string =>
   `Join ${pitch.name} to send`
 
+// The same button on the list channels, which name what Pro unlocks the way
+// their explainer titles do.
+export const planListGateCta = (
+  channel: Extract<GateChannel, 'door' | 'phone-bank'>,
+  pitch: PlanPitch,
+): string =>
+  channel === 'door'
+    ? `Join ${pitch.name} to start knocking`
+    : `Join ${pitch.name} to call this list`
+
 export const BANNER_COPY = {
   twoStepFree: (noun: string): string =>
     `Two things are needed before this ${noun} can send.`,

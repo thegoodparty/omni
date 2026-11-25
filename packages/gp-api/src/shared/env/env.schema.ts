@@ -376,6 +376,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     default: 'win_agent_contact_overlay',
   },
 
+  STRIPE_PRO_INVOICE_ONLY: { tier: 'optional', default: 'false' },
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
   // Experiment ids that run on gp-api's own agents (src/agents) instead of

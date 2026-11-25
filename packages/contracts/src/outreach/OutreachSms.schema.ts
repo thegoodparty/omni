@@ -17,6 +17,12 @@ export type SmsPurpose = z.infer<typeof SmsPurposeSchema>
 // to 2000 (ENG-11355) to match Peerly's own MMS and the backend script cap.
 export const SMS_COMPOSED_MAX_LENGTH = 2000
 export const SMS_BODY_MAX_LENGTH = 360
+// Past this a text is allowed but discouraged: the composer warns.
+export const SMS_LONG_MESSAGE_LENGTH = 1000
+
+// Peerly's MMS media limit. The composers capped photos lower than Peerly
+// accepts, so the two disagreed about which images could go out.
+export const SMS_IMAGE_MAX_BYTES = 745_000
 
 export const SmsDraftRequestSchema = z.object({
   purpose: SmsPurposeSchema,

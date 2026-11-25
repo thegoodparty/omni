@@ -6,11 +6,14 @@ import {
   NoOutputGeneratedError,
   Output,
   type LanguageModel,
+  type SystemModelMessage,
 } from 'ai'
 import {
+  productMapReference,
   SCORING_MODEL,
   SECOND_READ_PROMPT,
   SCORING_PROMPT,
+  secondReadMessage,
 } from '../caseScout.prompts'
 import {
   ScoreResponseSchema,
@@ -39,6 +42,21 @@ const telemetry = (functionId: string) =>
 const withTimeout = (signal: AbortSignal): AbortSignal =>
   AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)])
 
+const cached = (content: string): SystemModelMessage => ({
+  role: 'system',
+  content,
+  providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+})
+
+// The scope's product map leads the scoring system prompt, so a night of
+// scoring calls in one scope reads it from the cache instead of paying for it
+// each time. The drafter is never given it: its privacy rules lost out to the
+// map in the de-identifier eval.
+export const scoringSystem = (scope: string): SystemModelMessage[] => [
+  cached(productMapReference(scope)),
+  cached(SCORING_PROMPT),
+]
+
 // The scout's three model calls. None of them is ever given a tool: the model
 // reads untrusted chat text, so all it can do is return text that is then
 // schema-checked and gated. One attempt each, with no SDK retries, as the
@@ -52,13 +70,14 @@ export class CaseScoutModelService {
   }
 
   async scoreTranscript(
+    scope: string,
     transcript: string,
     signal: AbortSignal,
   ): Promise<ScoreResponse> {
     try {
       const result = await generateText({
         model: this.model(),
-        system: SCORING_PROMPT,
+        system: scoringSystem(scope),
         prompt: transcript,
         maxOutputTokens: SCORE_MAX_TOKENS,
         maxRetries: 0,
@@ -99,13 +118,16 @@ export class CaseScoutModelService {
     return result.text
   }
 
-  // Sees only the draft's own text.
-  async secondRead(draftText: string, signal: AbortSignal): Promise<string> {
+  async secondRead(
+    draftText: string,
+    sourceText: string,
+    signal: AbortSignal,
+  ): Promise<string> {
     try {
       const result = await generateText({
         model: this.model(),
         system: SECOND_READ_PROMPT,
-        prompt: draftText,
+        prompt: secondReadMessage(draftText, sourceText),
         maxOutputTokens: SECOND_READ_MAX_TOKENS,
         maxRetries: 0,
         abortSignal: withTimeout(signal),

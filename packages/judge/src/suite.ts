@@ -84,8 +84,9 @@ export type CaseGrading = {
   condition?: string
   // A pass/fail rule the judge checks on each run, as a sentence.
   handledWhen?: string
-  // Extra questions, name to question, each scored 1 to 5 on both sides. They
-  // come on top of the suite's default dimensions.
+  // Extra criteria, name to question, on top of the suite's default ones. The
+  // grader reads each on its own: which output behaves materially better, or
+  // neither.
   dimensions?: Record<string, string>
 }
 

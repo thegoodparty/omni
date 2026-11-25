@@ -234,13 +234,17 @@ E2E or QA test user is signed in.
 - **Report an error.** Faro catches uncaught errors and unhandled
   rejections on its own. The `error.tsx` boundaries (`app/error.tsx`,
   `app/dashboard/error.tsx`, `app/global-error.tsx`) report what they catch,
-  and code that catches an error it still wants seen calls
+  except when a route boundary can retry a script chunk load. The root route
+  and dashboard boundaries log the retry as a warning and reload once per
+  route per tab in a minute. If loading fails again within that window, or
+  the browser cannot store the retry marker, they report the exception.
+  Code that catches an error it still wants seen calls
   `reportClientError` (`app/shared/observability/reportClientError.tsx`),
   the one way to push an error to Faro. A failure the browser raises about
   something we asked it for, which no change of ours can prevent, is a log
   line instead (`faro.api.pushLog`) so it stays queryable without reading as
-  an exception we shipped: the service worker registration refusal in
-  `app/shared/AppServiceWorker.tsx` is the one such case today.
+  an exception we shipped. For example, see the service worker registration
+  refusal in `app/shared/AppServiceWorker.tsx`.
 - **Find an error.** Grafana, Frontend, Frontend Apps, `gp-webapp-prod`,
   Errors. Stack traces are source-mapped when the build uploaded its maps
   (`scripts/upload-faro-sourcemaps.mjs`), and each error carries the user, the

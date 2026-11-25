@@ -4,9 +4,10 @@ import { CaseListError, ChatAccountStateSchema } from './accountState'
 
 // THE SHAPE OF A CASE IN cases/<agentId>.json, and the loader that reads one.
 //
-// These files are the case scout's inbox now: no judge runs them, and the
-// harness that used to is gone. They stay because the publisher still appends
-// to them, and because the scout's own bench reads them from this checkout
+// No judge runs these files, and the harness that used to is gone. The case
+// scout reads their notes, and reads their cases only as a fallback to the
+// judged suites. They stay because the publisher still appends to them, and
+// because the scout's own bench reads them from this checkout
 // (caseScoutBench/runner.ts) to check that a draft parses once appended.
 //
 // `/v1/chats` is the only route a case drives, so a case is a chat case and

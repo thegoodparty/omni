@@ -103,6 +103,7 @@ export class CaseScoutScoreService {
     for (let attempt = 0; attempt < SCORE_PARSE_ATTEMPTS; attempt++) {
       try {
         const response = await this.model.scoreTranscript(
+          session.scope,
           transcript,
           job.signal,
         )

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { assignSplit, parseDraftResponse } from './drafting.util'
+import {
+  assignSplit,
+  buildDraftingPrompt,
+  parseDraftResponse,
+} from './drafting.util'
 import { extractJsonArray, extractJsonObject } from './extractJson.util'
 
 const caseFields = {
@@ -93,5 +97,21 @@ describe('assignSplit', () => {
       splits.filter((s) => s === 'holdout').length
     expect(ratio).toBeGreaterThan(1.3)
     expect(ratio).toBeLessThan(3.3)
+  })
+})
+
+describe('buildDraftingPrompt', () => {
+  it('lists each current condition under its caseId', () => {
+    const prompt = buildDraftingPrompt({
+      agentId: 'campaign_assistant',
+      fixtureDescription: 'The fixture account.',
+      currentConditions: [
+        { caseId: 'product-how-to', condition: 'A product question.' },
+      ],
+      recentProposals: [],
+    })
+    expect(prompt).toContain('- product-how-to: A product question.')
+    expect(prompt).toContain('answer "coveredBy" with the caseId')
+    expect(prompt).toContain('copied exactly, never its condition text')
   })
 })

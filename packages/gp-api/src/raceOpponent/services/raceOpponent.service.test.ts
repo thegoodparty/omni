@@ -22,6 +22,7 @@ describe('RaceOpponentService.autoCollectOnProUpgrade', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     // PrismaBase exposes `client` via a getter over the injected `_prisma`;
     // direct instantiation skips onModuleInit, so wire the campaign delegate
@@ -112,6 +113,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     Object.defineProperty(service, '_prisma', {
       value: {
@@ -135,6 +137,10 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
         },
         raceOpponentStandoutAction: {
           findMany: vi.fn().mockResolvedValue([]),
+        },
+        agentRun: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
         },
         experimentRun: {
           findFirst: vi.fn(({ where }: { where: { experimentType: string } }) =>
@@ -340,6 +346,7 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     Object.defineProperty(service, '_prisma', {
       value: {
@@ -356,6 +363,10 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
         },
         raceOpponentStandoutAction: {
           findMany: vi.fn().mockResolvedValue([]),
+        },
+        agentRun: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
         },
         experimentRun: {
           findFirst: vi.fn().mockResolvedValue({
@@ -496,9 +507,14 @@ describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     Object.defineProperty(service, '_prisma', {
       value: {
+        agentRun: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
         experimentRun: {
           findFirst: vi.fn().mockResolvedValue(latestCompletedCollection),
         },
@@ -547,9 +563,14 @@ describe('RaceOpponentService.rechainActionsForNewerSummary', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     Object.defineProperty(service, '_prisma', {
       value: {
+        agentRun: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
         experimentRun: {
           findFirst: vi.fn().mockResolvedValue(latestCompletedSummary),
         },

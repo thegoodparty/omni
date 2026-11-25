@@ -62,6 +62,22 @@ const bundle: Bundle = {
       failureSummary: 'list full',
     },
   ],
+  held: [
+    {
+      agentId: 'chief_of_staff',
+      severity: 3,
+      case: {
+        caseId: 'held-for-date-case',
+        condition: 'A held condition that must stay home.',
+        handledWhen: 'A held handled-when.',
+        source: 'production',
+        split: 'tune',
+        question: 'How did the 2028 general election go?',
+      },
+      failureSummary: 'held for its date',
+      reason: 'names 2028; the chat is from 2026',
+    },
+  ],
   removals: [
     {
       caseId: 'noisy-case',
@@ -125,6 +141,8 @@ describe('buildHandoff', () => {
     expect(body).not.toContain(SESSION_ID)
     expect(body).not.toContain('lost the thread')
     expect(body).not.toContain('list-full')
+    expect(body).not.toContain('held-for-date')
+    expect(body).not.toContain('2028')
     expect(body).not.toContain('must stay home')
     expect(body).not.toContain('noisy-case')
     expect(body).not.toContain(WITHHELD_NEEDS_SETUP)

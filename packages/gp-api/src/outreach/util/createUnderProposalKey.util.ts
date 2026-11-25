@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common'
 import {
+  Outreach,
   OutreachStatus,
   OutreachType,
   Prisma,
@@ -17,6 +18,25 @@ export const UNSENT_PROPOSAL_STATUSES: OutreachStatus[] = [
   OutreachStatus.failed,
   OutreachStatus.denied,
 ]
+
+export type ProposalKeyHolder = Pick<
+  Outreach,
+  'organizationSlug' | 'outreachType' | 'status'
+>
+
+// Another org's key, or another channel's, is not this proposal's text.
+// This org's text past checkout is the proposal already sent.
+export const proposalHolderRefusal = (
+  holder: ProposalKeyHolder,
+  organizationSlug: string,
+  outreachType: OutreachType,
+): ConflictException | null =>
+  holder.organizationSlug !== organizationSlug ||
+  holder.outreachType !== outreachType
+    ? new ConflictException('Proposal key is already in use')
+    : !UNSENT_PROPOSAL_STATUSES.some((status) => status === holder.status)
+      ? new ConflictException('This proposal has already been sent')
+      : null
 
 /**
  * A text draft from a chat card carries the card's key. Going back from
@@ -49,15 +69,8 @@ export const createUnderProposalKey = async <T>(
       },
     })
   type Holder = NonNullable<Awaited<ReturnType<typeof holderOf>>>
-  // Another org's key, or another channel's, is not this proposal's text.
-  // This org's text past checkout is the proposal already sent.
-  const refusalFor = (holder: Holder): ConflictException | null =>
-    holder.organizationSlug !== organizationSlug ||
-    holder.outreachType !== outreachType
-      ? new ConflictException('Proposal key is already in use')
-      : !UNSENT_PROPOSAL_STATUSES.some((status) => status === holder.status)
-        ? new ConflictException('This proposal has already been sent')
-        : null
+  const refusalFor = (holder: Holder) =>
+    proposalHolderRefusal(holder, organizationSlug, outreachType)
 
   return client
     .$transaction(async (tx) => {
@@ -65,10 +78,20 @@ export const createUnderProposalKey = async <T>(
       if (holder) {
         const refusal = refusalFor(holder)
         if (refusal) throw refusal
-        await tx.outreach.update({
-          where: { id: holder.id },
-          data: { proposalKey: null },
-        })
+        // A saved draft under the key is this card's own earlier work that
+        // this create supersedes. Keeping it would leave a keyless draft in
+        // the hub's one slot, so it goes (its image is left in the bucket,
+        // the lesser harm); any other unpaid row just gives up the key.
+        if (holder.status === OutreachStatus.draft) {
+          await tx.outreach.deleteMany({
+            where: { id: holder.id, status: OutreachStatus.draft },
+          })
+        } else {
+          await tx.outreach.update({
+            where: { id: holder.id },
+            data: { proposalKey: null },
+          })
+        }
       }
       return create(tx)
     })

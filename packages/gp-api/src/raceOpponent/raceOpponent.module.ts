@@ -8,6 +8,7 @@ import { HttpModule } from '@nestjs/axios'
 import { Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
+import { AgentsModule } from '@/agents/agents.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { CampaignStrategyContextModule } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.module'
@@ -33,6 +34,7 @@ import { ContrastEditService } from './services/contrastEdit.service'
     ClerkModule,
     HttpModule,
     AgentExperimentsModule,
+    AgentsModule,
     AwsModule,
     CampaignStrategyContextModule,
     CampaignStrategyModule,

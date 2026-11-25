@@ -72,7 +72,15 @@ await agentsService.run('myAgent', { organizationSlug, topic })
   `scope.data_required_unless` does.
 - `onArtifact` saves the validated output where the product reads it. It
   can run twice for one run (a crash after it, before the run is marked
-  complete), so make it an upsert.
+  complete), so make it an upsert. It also runs BEFORE the run is marked
+  complete, so a re-chain it triggers still sees its own row as `running`: an
+  in-flight dedup has to exclude `run.runId`.
+- `onFailure` is optional and runs only when the run ends `failed` — the last
+  attempt threw and it was not a deploy shutdown — after the row says so. An
+  agent whose product chains off its completion needs it, or a failed link
+  leaves the next one waiting on a run that never lands. It gets
+  `{ runId, input, error }`, and a hook that throws is logged without changing
+  the failed row.
 - A tool's `execute` gets `ToolContext`: `runId`, `stepKey` (stable across a
   resume of the same step, so key a write on `runId + stepKey`),
   `organizationSlug`, `signal` and `get` (any provider, as in a job worker).
@@ -167,7 +175,14 @@ pass, because then one caller that forgets starts runs no query can serve.
   person's score. An aggregate's own argument (`AVG(hs_x)`) is unrestricted,
   because that is what the aggregate is for and the floor holds its result, but
   it must be one plain column or `*`: a CASE or comparison inside an aggregate
-  (`AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)`) is a filter of its own. An
+  (`AVG(CASE WHEN LALVOTERID = 'x' THEN hs_x END)`) is a filter of its own. The
+  one exception is `SUM(CASE WHEN <condition> THEN 1 ELSE 0 END)`, which is a
+  count of people rather than a way around the floor: the constituent-data
+  tools' own `sumCountsPeople` decides it, and only a `CASE` whose every branch
+  yields `1`, `0` or `NULL` passes. `SUM(hs_x)`, `SUM(CASE WHEN … THEN hs_x
+  END)` and `COUNT_IF` are refused. A `SUM` that passes is held to the floor as
+  a count of people, because `findPeopleCountColumns` names its column and
+  `scrubResults` masks it below `minCellSize` exactly as it masks a `COUNT`. An
   agent lists the coarse dimensions it reasons about — `Active` and the like —
   and nothing row-level. The scope's own jurisdiction columns (the state, and the
   office's L2 district column) are sliceable without being declared, because
@@ -259,22 +274,42 @@ d.Residence_Addresses_State = 'IL'`), so a SELECT that reads the table may
 
 1. Register it in `AGENTS` under its experiment id, so every reader and gate
    that queries the PMF Engine's `ExperimentRun` rows of that `experimentType`
-   can be pointed at `AgentRun` rows of that `agentName` (see
+   has one that queries `AgentRun` rows of that `agentName` (see
    `communityIssueRead.service.ts` and
-   `communityIssueDispatch.service.ts` for the ones that have been). A gate
-   left on the old table is a duplicate-dispatch bug: it sees no runs and lets
-   the type run again.
+   `communityIssueDispatch.service.ts` for two that have been). A gate left on
+   the old table is a duplicate-dispatch bug: it sees no runs and lets the type
+   run again.
+   - Those readers pick one table from `runsOnGpApi`, which makes the flip
+     atomic. A migration's rollback is reverting its list lines, and that
+     restores the old engine only if its readers can read that engine's runs.
+     One that reads a single table cannot: a gate asks which run this org
+     already has by org, agent type and status, and a run the other engine
+     stored is invisible, so after a revert the gate dispatches a second one.
+     `meeting_schedule`'s gate and latest-schedule read
+     (`meetingBriefings.service.ts`) are that shape on main today.
+   - So a migrating agent's readers are two-way first: the gate and the
+     latest-run read query both `AgentRun` and `ExperimentRun` by org and agent
+     type, and a read by id falls through to the other table, as
+     `agentRunRoutes.service.ts`'s `read` does. This is the one place a
+     migration departs from the readers already in, it belongs to the migration
+     PR, and nothing checks it — the judge verdict never tests a revert.
 2. The prompt is the experiment's `instruction.md` with the runtime parts
    swapped: input in the first message, our tools, `submitOutput` instead of
    the file and validator. Input and output schemas come from the manifest;
    leave out fields gp-api knows (the run id) and add them in `onArtifact`.
 3. `onArtifact` calls the code that ingests the PMF Engine's artifact today.
 4. The dispatcher calls `AgentsService.run` when `runsOnGpApi(name)`: the
-   experiment ids in `AGENTS_ON_GP_API`, comma-separated. Unset means the
-   PMF Engine, so the switch flips per environment. Keep the test-user and
-   test-mode check `ExperimentRunsService.dispatchRun` makes; `run` does not
-   make it.
-5. Add a pairwise migration suite. See [Writing agent evals](../../../../docs/agent-evals.md).
+   experiment ids in `AGENTS_ON_GP_API`, comma-separated, which
+   `deploy/agentsOnGpApi.ts` sets per environment (`preview`, `dev`, `prod`).
+   Unset means the PMF Engine, so the switch is per environment. Keep the
+   test-user and test-mode check `ExperimentRunsService.dispatchRun` makes;
+   `run` does not make it.
+5. Add it to all three lists in `deploy/agentsOnGpApi.ts` in the same PR, with
+   the agent, its readers and its judge suite — one PR is the whole migration.
+   While that PR is open, dev runs `main`'s lists, so its `/judge-eval` reads
+   the PMF Engine on the base arm and gp-api's engine on the preview; that
+   verdict is the proof. Add a pairwise migration suite. See
+   [Writing agent evals](../../../../docs/agent-evals.md).
 6. Delete its `qa/` manifest under `packages/runbooks/experiments/`. QA
    checkers are not migrated.
 

@@ -65,6 +65,8 @@ export default definePairwiseAgentEvalSuite<RaceOpponentCollectionEvalInput>(
         grading: {
           condition:
             "No stressor planted. A real municipal field, Phoenix City Council District 2 (Arizona, general election 2026-11-03), three opponents: Matt Evans with a Ballotpedia hint, Danny Mazza and Julie Read with none. Production's own unevenness stays: one opponent's only known page describes a prior office, one may have no page at all, and no campaign site was confirmed for any of the three before dispatch. The judge cannot see what was fetched; read each item's source_url and text for whether the page is this person's own Ballotpedia entry or own campaign site for this race.",
+          handledWhen:
+            "every item's opponent_name matches one of the three input opponents verbatim, each item's source_type is exactly ballotpedia or opponent_website, and every source_url is a page carrying that opponent's own name. An item that attributes a page to a different person, or invents a URL, is not handled. Zero items for an opponent whose page could not be found is handled.",
           dimensions: {
             grounding:
               'Does every claim in the artifact trace to evidence this run actually had in its sources? Judge traceability only, not whether the claim is true in the world.',
@@ -373,6 +375,8 @@ export default definePairwiseAgentEvalSuite<RaceOpponentCollectionEvalInput>(
         grading: {
           condition:
             'Control: the old list marked this case unscored, so a difference reported here is one called with nothing to find. No stressor. The Oakland mayoral race (California, general election 2026-11-03), two opponents whose Ballotpedia entries exist and are supplied as hints, so that leg needs no discovery: Barbara Lee, the incumbent, and Mindy Pechenuk, a qualified challenger. No campaign site was confirmed for either, so website_url is null and that leg is discovered on both arms. This case exists to show how often and how strongly a difference is called when there is nothing to find.',
+          handledWhen:
+            "every item names one of these two opponents and carries a source_url that is that opponent's own Ballotpedia entry or own campaign site. A page belonging to anyone else, or a fabricated URL, is not handled.",
         },
       },
     ],

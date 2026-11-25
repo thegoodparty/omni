@@ -357,6 +357,48 @@ export = async () => {
         },
       })
 
+  // Logical replication for the Databricks Lakeflow Connect CDC pipeline.
+  // Dev only for now; other environments keep the engine default. The static
+  // parameters need a writer reboot, and aurora.enhanced_logical_replication
+  // stays off on purpose. See "Aurora parameters for Databricks CDC" in
+  // deploy/AGENTS.md before changing any of them.
+  const cdcParameterGroup =
+    environment === 'dev'
+      ? new aws.rds.ClusterParameterGroup('cdcParameterGroup', {
+          name: 'gp-api-db-cdc',
+          family: 'aurora-postgresql16',
+          description:
+            'Logical replication for the Databricks Lakeflow Connect CDC pipeline',
+          parameters: [
+            {
+              name: 'rds.logical_replication',
+              value: '1',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'aurora.enhanced_logical_replication',
+              value: '0',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'aurora.logical_replication_backup',
+              value: '1',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'aurora.logical_replication_globaldb',
+              value: '1',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'max_slot_wal_keep_size',
+              value: '10240',
+              applyMethod: 'immediate',
+            },
+          ],
+        })
+      : undefined
+
   // The master password is not managed here, so no preview reads it and no
   // state holds it. The cluster keeps the one it has, and tasks read
   // DB_PASSWORD from the secret.
@@ -376,6 +418,8 @@ export = async () => {
           databaseName: 'gpdb',
           masterUsername: 'gpuser',
           dbSubnetGroupName: subnetGroup!.name,
+          dbClusterParameterGroupName:
+            cdcParameterGroup?.name ?? 'default.aurora-postgresql16',
           vpcSecurityGroupIds: [rdsSecurityGroup!.id],
           storageEncrypted: true,
           serverlessv2ScalingConfiguration: {
@@ -805,6 +849,9 @@ jwIDAQAB
         prod: 'robocall-free-offer-2026-11',
       }),
       // The nightly case scout (src/caseScout/AGENTS.md). On in dev and prod.
+      STRIPE_PRO_INVOICE_ONLY: String(
+        config.getBoolean('stripeProInvoiceOnly') ?? false,
+      ),
       // The bucket belongs to gp-ai's case-scout module. The send switch is
       // off everywhere, so each night's handoff is held in the bucket for a
       // person to read and nothing goes to Delegate. Previews never run it.
@@ -823,25 +870,12 @@ jwIDAQAB
         prod: 'false',
       }),
       CASE_SCOUT_BUCKET: caseScoutName,
-      // Prod's draft cap, first-night window and higher spend cap are
-      // temporary: they fill the first 20 prod cases quickly while the
-      // handoff is held for a person to read. Revert them after that review.
       CASE_SCOUT_SPEND_CAP_USD: select({
         preview: '50',
         dev: '50',
-        prod: '100',
+        prod: '65',
       }),
       CASE_SCOUT_SESSION_CAP: '75',
-      CASE_SCOUT_NIGHTLY_CAP: select({
-        preview: '',
-        dev: '',
-        prod: '10',
-      }),
-      CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS: select({
-        preview: '',
-        dev: '',
-        prod: '168',
-      }),
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
       HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({
@@ -930,9 +964,9 @@ jwIDAQAB
       // Background agents that dispatch to gp-api's own agents instead of
       // the PMF Engine. A preview names every agent gp-api has, so the judge's
       // candidate arm runs gp-api's engine; prod names only the agents the
-      // Universal Judge has read as same or better, and dev adds
-      // `top_community_issues`, which the eval framework judges
-      // (docs/cap-consolidation.md, docs/agent-evals.md,
+      // Universal Judge has read as same or better, and dev adds the agents
+      // whose dev-versus-preview comparison passed, so they accumulate real
+      // traffic there first (docs/cap-consolidation.md, docs/agent-evals.md,
       // deploy/agentsOnGpApi.ts).
       AGENTS_ON_GP_API: agentsOnGpApi(environment),
     },

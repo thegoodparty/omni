@@ -566,6 +566,218 @@ describe('queryDatabricks', () => {
       expect(query).not.toHaveBeenCalled()
     })
 
+    // The tool's aggregate-argument rule is the constituent-data tools' rule: a
+    // SUM may only count people, so SUM(CASE WHEN ... THEN 1 ELSE 0 END) is a
+    // count and SUM(hs_x) is not.
+    it('accepts SUM(CASE WHEN ... THEN 1 ELSE 0 END), which counts people', async () => {
+      query.mockResolvedValue({
+        columns: ['n', 'lean_housing'],
+        rows: [['4820', '2911']],
+      })
+
+      await expect(
+        runs(
+          `SELECT COUNT(*) AS n,
+             SUM(CASE WHEN CAST(hs_affordable_housing_gov_has_role AS DOUBLE) >= 50 THEN 1 ELSE 0 END) AS lean_housing
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        ),
+      ).resolves.toMatchObject({
+        ok: true,
+        rows: [['4820', '2911']],
+        rowCount: 1,
+      })
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+
+    // It is a count of people, so the floor holds it exactly as it holds a
+    // COUNT: a value under minCellSize is masked, never returned.
+    it('masks a SUM(CASE ...) people count under the floor', async () => {
+      query.mockResolvedValue({
+        columns: ['n', 'lean_housing'],
+        rows: [['4820', '12']],
+      })
+
+      await expect(
+        runs(
+          `SELECT COUNT(*) AS n,
+             SUM(CASE WHEN CAST(hs_affordable_housing_gov_has_role AS DOUBLE) >= 50 THEN 1 ELSE 0 END) AS lean_housing
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        ),
+      ).resolves.toMatchObject({
+        ok: true,
+        rows: [['4820', null]],
+        suppressed: 0,
+      })
+    })
+
+    // And a row is dropped on its own COUNT(*), the SUM being a count of people
+    // does not change what the floor reads.
+    it('drops a row whose COUNT(*) is under the floor', async () => {
+      query.mockResolvedValue({
+        columns: ['title', 'n', 'lean_housing'],
+        rows: [
+          ['issue-a', '99', '160'],
+          ['issue-b', '100', '160'],
+        ],
+      })
+
+      await expect(
+        runs(
+          `SELECT title, COUNT(*) AS n,
+             SUM(CASE WHEN CAST(hs_affordable_housing_gov_has_role AS DOUBLE) >= 50 THEN 1 ELSE 0 END) AS lean_housing
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL' GROUP BY title`,
+        ),
+      ).resolves.toEqual({
+        ok: true,
+        columns: ['title', 'n', 'lean_housing'],
+        rows: [['issue-b', '100', '160']],
+        rowCount: 1,
+        suppressed: 1,
+        truncated: false,
+      })
+    })
+
+    it.each([
+      [
+        'a SUM of a score column',
+        'SUM(hs_violent_crime_worried) AS total_score',
+        'count people',
+      ],
+      [
+        'a SUM whose CASE yields a score',
+        "SUM(CASE WHEN Active = 'A' THEN hs_violent_crime_worried ELSE 0 END) AS total_score",
+        'count people',
+      ],
+      [
+        'COUNT_IF, which is a count the validator does not allow here',
+        'COUNT_IF(hs_violent_crime_worried >= 50) AS n_ge50',
+        'aggregate function not allowed',
+      ],
+    ])('still refuses %s', async (_label, item, why) => {
+      const result = await runs(
+        `SELECT COUNT(*) AS n, ${item} FROM ${TABLE}
+         WHERE Residence_Addresses_State = 'IL'`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain(why)
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    // The count form is a filter as much as the WHERE is. `AND LALVOTERID <>
+    // 'v123'` inside the CASE leaves both counts far above the floor, and the
+    // difference between the two results is that one voter's answer.
+    it.each([
+      ['an identifier equality', "LALVOTERID = 'v123'", 'modeled score'],
+      [
+        'an identifier inequality',
+        "CAST(hs_violent_crime_worried AS DOUBLE) >= 50 AND LALVOTERID <> 'v123'",
+        'modeled score',
+      ],
+      [
+        'a column that is neither a dimension nor a score',
+        'Voters_Age > 30',
+        'modeled score',
+      ],
+      [
+        'an identifier behind a nested AND/OR/NOT',
+        "NOT (Active = 'A' OR LALVOTERID = 'v123')",
+        'modeled score',
+      ],
+    ])(
+      'refuses a SUM(CASE WHEN ...) condition on %s',
+      async (_l, cond, why) => {
+        const result = await runs(
+          `SELECT COUNT(*) AS n,
+           SUM(CASE WHEN ${cond} THEN 1 ELSE 0 END) AS c
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        )
+
+        expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+        expect(String(result.detail)).toContain(why)
+        expect(query).not.toHaveBeenCalled()
+      },
+    )
+
+    // The simple form names its filtering column as the CASE's own subject
+    // rather than inside a WHEN. Same probe, so the same rule has to see it: a
+    // guard that reads only the WHEN conditions leaves this one open.
+    it.each([
+      ['an identifier subject', 'LALVOTERID', "WHEN 'v123' THEN 1"],
+      ['a scoreless column subject', 'Voters_Age', 'WHEN 30 THEN 1'],
+    ])(
+      'refuses a SUM(CASE <subject> WHEN ...) filter on %s',
+      async (_l, subject, when) => {
+        const result = await runs(
+          `SELECT COUNT(*) AS n,
+           SUM(CASE ${subject} ${when} ELSE 0 END) AS c
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        )
+
+        expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+        expect(String(result.detail)).toContain('modeled score')
+        expect(query).not.toHaveBeenCalled()
+      },
+    )
+
+    // A threshold on a modeled score is exactly what the count counts, so it is
+    // the one column a CASE may name that a WHERE may not.
+    it('accepts a SUM(CASE ...) threshold on a modeled score', async () => {
+      query.mockResolvedValue({ columns: ['n', 'c'], rows: [['4820', '160']] })
+
+      await expect(
+        runs(
+          `SELECT COUNT(*) AS n,
+             SUM(CASE WHEN CAST(hs_violent_crime_worried AS DOUBLE) >= 50 THEN 1 ELSE 0 END) AS c
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        ),
+      ).resolves.toMatchObject({ ok: true, rowCount: 1 })
+    })
+
+    // The floor reads the outer result, so a nested cell is one it never sees.
+    // A subquery in the CASE condition has to be refused before that, not
+    // collected as if its columns were the filter's.
+    it('refuses a subquery in a SUM(CASE ...) condition', async () => {
+      const result = await runs(
+        `SELECT COUNT(*) AS n,
+           SUM(CASE WHEN Active = (SELECT 'A') THEN 1 ELSE 0 END) AS c
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain('no subquery')
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    // A COUNT column named inside the CASE result is not a count of people, so
+    // the floor cannot hold it: sumCountsPeople refuses anything but 1/0/NULL,
+    // and this is the shape that would otherwise smuggle a column through.
+    it('refuses a SUM(CASE ...) whose ELSE names a column', async () => {
+      const result = await runs(
+        `SELECT COUNT(*) AS n,
+           SUM(CASE WHEN Active = 'A' THEN 1 ELSE hs_violent_crime_worried END) AS c
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+      )
+
+      expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+      expect(String(result.detail)).toContain('count people')
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    // The same condition over the allowed dimension is fine: title is a
+    // declared dimension of this tool.
+    it('accepts a SUM(CASE WHEN ...) condition on an allowed dimension', async () => {
+      query.mockResolvedValue({ columns: ['n', 'c'], rows: [['4820', '160']] })
+
+      await expect(
+        runs(
+          `SELECT COUNT(*) AS n,
+             SUM(CASE WHEN title = 'issue-a' THEN 1 ELSE 0 END) AS c
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        ),
+      ).resolves.toMatchObject({ ok: true, rowCount: 1 })
+    })
+
     // The aggregate's own argument is not a filter: it is what the aggregate is
     // for, and the floor holds its result.
     it('still accepts an aggregate over a score column', async () => {

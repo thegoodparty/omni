@@ -16,6 +16,7 @@ import {
   ScoreStatus,
   type Bundle,
   type BundleDraft,
+  type HeldDraft,
   type LedgerLine,
   type Manifest,
   type ManifestSession,
@@ -27,6 +28,7 @@ import {
   type DraftResponse,
 } from '../schemas/caseScoutModel.schema'
 import { nightlyCapForMergeShare, trailingMergeShare } from '../util/cap.util'
+import { findDateDrift } from '../util/dateDrift.util'
 import {
   buildDraftedCase,
   buildDraftingPrompt,
@@ -196,12 +198,13 @@ export class CaseScoutDraftService {
     const working: LedgerEntry[] = [...history]
     const caseLists = new Map<string, CaseListInfo>()
     const spendCap = spendCapUsd()
-    const secondRead: SecondReadCall = (text) =>
-      this.model.secondRead(text, job.signal)
+    const secondRead: SecondReadCall = (text, source) =>
+      this.model.secondRead(text, source, job.signal)
 
     const drafts: BundleDraft[] = []
     const needsSetup: Bundle['needsSetup'] = []
     const listFull: BundleDraft[] = []
+    const held: HeldDraft[] = []
     const sources: Sources = {}
     const ledgerLines: LedgerLine[] = []
     let drafted = 0
@@ -397,6 +400,29 @@ export class CaseScoutDraftService {
         case: draftedCase,
         failureSummary,
       }
+
+      // Held, never repaired: the year comes from the drafter, and copying
+      // one from the chat would undo its de-identification.
+      const drift = findDateDrift({
+        userTurns:
+          draftedCase.turns ??
+          (draftedCase.question === undefined ? [] : [draftedCase.question]),
+        sourceTexts: sessionSourceTexts(session),
+        sessionStartedAt: session.startedAt,
+      })
+      if (drift) {
+        held.push({ ...bundled, reason: drift.reason })
+        sources[draftedCase.caseId] = {
+          conversationId,
+          sessionId: candidate.session.sessionId,
+        }
+        line(candidate, DraftOutcome.heldForDate, {
+          caseId: draftedCase.caseId,
+          failureSummary: drift.reason,
+        })
+        continue
+      }
+
       if (caseList.caseCount >= LIST_SOFT_CAP) {
         listFull.push(bundled)
         line(candidate, DraftOutcome.listFull, {
@@ -445,7 +471,7 @@ export class CaseScoutDraftService {
     )
 
     return {
-      bundle: { runId, drafts, needsSetup, listFull, removals: [] },
+      bundle: { runId, drafts, needsSetup, listFull, held, removals: [] },
       sources,
       ledgerLines,
       record: {
@@ -463,6 +489,7 @@ export class CaseScoutDraftService {
           capped: outcomes(DraftOutcome.capped),
           spendCapped: outcomes(DraftOutcome.spendCapped),
           listFull: outcomes(DraftOutcome.listFull),
+          heldForDate: outcomes(DraftOutcome.heldForDate),
         },
         spendUsd: { ...spend, total: totalOf(spend) },
         spendCapHit: totalOf(spend) > spendCap,

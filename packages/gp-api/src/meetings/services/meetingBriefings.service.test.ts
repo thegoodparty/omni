@@ -7,6 +7,7 @@ import {
 import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { AgentsService } from '@/agents/agents.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -271,6 +272,96 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
       .onElectedOfficeCreated(electedOffice)
 
     expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  // The switch picks the engine for a new dispatch; it cannot change the fact
+  // that an office's schedule already ran on the other one. Reading only the
+  // switched-to table found no run and started a second paid schedule the
+  // office did not need.
+  it('skips schedule dispatch when the org’s schedule ran on the PMF Engine before the switch flipped', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    const suffix = Date.now()
+    const owner = await service.prisma.user.create({
+      data: {
+        email: `dedup-flip-${suffix}@example.com`,
+        clerkId: `clerk-${suffix}`,
+        firstName: 'Test',
+        lastName: 'Official',
+      },
+    })
+    const orgSlug = `eo-dedup-flip-${suffix}`
+    await service.prisma.organization.create({
+      data: {
+        slug: orgSlug,
+        ownerId: owner.id,
+        positionId: `br-pos-dedup-flip-${suffix}`,
+      },
+    })
+    const electedOffice = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: owner.id },
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+    const runSpy = vi
+      .spyOn(service.app.get(AgentsService), 'run')
+      .mockResolvedValue({ runId: 'agent-run' })
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onElectedOfficeCreated(electedOffice)
+
+    expect(runSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  // Control for the test above: the same setup with the PMF run removed does
+  // dispatch, so the assertions there can fail. Without this, a gate-less
+  // implementation would pass the dedup test by never resolving a context.
+  it('dispatches the same office when no schedule run exists to dedupe on', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    const suffix = Date.now()
+    const owner = await service.prisma.user.create({
+      data: {
+        email: `dedup-flip-control-${suffix}@example.com`,
+        clerkId: `clerk-control-${suffix}`,
+        firstName: 'Test',
+        lastName: 'Official',
+      },
+    })
+    const orgSlug = `eo-dedup-flip-control-${suffix}`
+    await service.prisma.organization.create({
+      data: {
+        slug: orgSlug,
+        ownerId: owner.id,
+        positionId: `br-pos-dedup-control-${suffix}`,
+      },
+    })
+    const electedOffice = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: owner.id },
+    })
+
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const runSpy = vi
+      .spyOn(service.app.get(AgentsService), 'run')
+      .mockResolvedValue({ runId: 'agent-run' })
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onElectedOfficeCreated(electedOffice)
+
+    expect(runSpy).toHaveBeenCalledTimes(1)
   })
 
   it('re-dispatches when the only existing schedule run failed', async () => {

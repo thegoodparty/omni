@@ -5,6 +5,7 @@ export const WebhookEventType = {
     'checkout.session.async_payment_succeeded',
   CheckoutSessionAsyncPaymentFailed: 'checkout.session.async_payment_failed',
   CheckoutSessionExpired: 'checkout.session.expired',
+  InvoicePaid: 'invoice.paid',
   CustomerSubscriptionCreated: 'customer.subscription.created',
   CustomerSubscriptionDeleted: 'customer.subscription.deleted',
   CustomerSubscriptionUpdated: 'customer.subscription.updated',

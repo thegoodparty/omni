@@ -193,7 +193,7 @@ const VolunteerSidebar = ({
                     <label
                       key={org.slug}
                       htmlFor={`switch-campaign-${org.slug}`}
-                      className="flex cursor-pointer items-center gap-2 rounded-md py-1.5"
+                      className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md py-1.5"
                     >
                       <Avatar className="size-8 shrink-0">
                         <Avatar.Fallback className="bg-background">
@@ -285,7 +285,16 @@ const UserBlock = ({
 }): React.JSX.Element => (
   <SidebarMenu>
     <SidebarMenuItem>
-      <div className="flex items-center gap-2 p-2">
+      {/*
+        `w-full min-w-0` is load-bearing. A menu item's `<li>` is a flex row
+        (globals.css `[data-slot] li { display: flex }`, see its CAUTION
+        block), so this row is a flex item whose default `min-width: auto`
+        floors it at the nowrap name's min-content width: the row grows past
+        the rail and paints over the content column instead of the name
+        truncating (ENG-11739). Pinning its width clears that floor; the
+        truncation below then has a width to work in.
+      */}
+      <div className="flex w-full min-w-0 items-center gap-2 p-2">
         <Avatar className="size-8 shrink-0">
           <Avatar.Image src={user?.avatar || undefined} />
           <Avatar.Fallback className="bg-background">

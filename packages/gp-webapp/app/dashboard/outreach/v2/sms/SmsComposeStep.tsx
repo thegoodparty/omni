@@ -11,7 +11,10 @@ import {
   SOCIAL_TONE_VALUES,
   type SocialTone,
 } from '@goodparty_org/contracts'
-import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
+import {
+  SMS_COMPOSED_MAX_LENGTH,
+  SMS_LONG_MESSAGE_LENGTH,
+} from '@goodparty_org/contracts'
 import {
   Button,
   Card,
@@ -302,6 +305,7 @@ export const SmsComposeStep = ({
   ]
   const isImprove = aiAction === 'improve'
   const overLimit = composedLength > SMS_COMPOSED_MAX_LENGTH
+  const longMessage = !overLimit && composedLength > SMS_LONG_MESSAGE_LENGTH
 
   // Moves to the first field still missing, top to bottom: the image, then
   // the message. Keyed on the press count alone so typing never steals focus.
@@ -326,7 +330,9 @@ export const SmsComposeStep = ({
       return
     }
     if (file.size > IMAGE_MAX_BYTES) {
-      onImageError('Image too large — choose one under 500 KB.')
+      onImageError(
+        `Image too large. Choose one under ${IMAGE_MAX_BYTES / 1000} KB.`,
+      )
       return
     }
     let snapshot: File
@@ -465,6 +471,7 @@ export const SmsComposeStep = ({
             <span
               className={cn(
                 'text-xs tabular-nums text-muted-foreground',
+                longMessage && 'text-warning-dark',
                 overLimit && 'text-destructive',
               )}
             >
@@ -613,6 +620,12 @@ export const SmsComposeStep = ({
             Your message still has {unfilledBrackets.join(', ')}. Replace{' '}
             {unfilledBrackets.length === 1 ? 'it' : 'them'} with the real
             details before you send.
+          </p>
+        )}
+        {longMessage && (
+          <p className="text-xs text-warning-dark">
+            Shorter texts work better. Try to keep it under{' '}
+            {SMS_LONG_MESSAGE_LENGTH.toLocaleString('en-US')} characters.
           </p>
         )}
         {overLimit && (

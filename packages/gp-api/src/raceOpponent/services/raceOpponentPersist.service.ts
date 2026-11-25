@@ -26,6 +26,9 @@ import {
   RACE_OPPONENT_COLLECTION,
   RACE_OPPONENT_SUMMARY,
 } from '../raceOpponent.constants'
+import type { RaceOpponentActionsOutput } from '../raceOpponentActionsAgent/race_opponent_actions.schema'
+import type { RaceOpponentCollectionOutput } from '../raceOpponentCollectionAgent/race_opponent_collection.schema'
+import type { RaceOpponentSummaryOutput } from '../raceOpponentSummaryAgent/race_opponent_summary.schema'
 import { RaceOpponentService } from './raceOpponent.service'
 
 // The collection agent only ever emits these two web-discovered source types;
@@ -163,9 +166,8 @@ export class RaceOpponentPersistService extends createPrismaBase(
     }
   }
 
-  // A race_opponent_collection run completed. Load its artifact, replace the
-  // campaign's collected rows, then chain the summary structuring run so a
-  // successful collection automatically produces a fresh summary.
+  // A race_opponent_collection run completed on the PMF Engine. Load its
+  // artifact from S3, then persist it through the same body gp-api's agent uses.
   private async onCollectionCompleted(run: ExperimentRun): Promise<void> {
     const campaign = await this.loadCampaign(run.organizationSlug)
     if (!campaign) return
@@ -184,30 +186,7 @@ export class RaceOpponentPersistService extends createPrismaBase(
     try {
       const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
       if (!raw) throw new Error('artifact is missing or empty')
-      const envelope = ArtifactEnvelopeSchema.parse(JSON.parse(raw))
-
-      // An empty items array is a valid result per the experiment contract: an
-      // opponent with no findable Ballotpedia page or website is the expected
-      // down-ballot case, and that "no web footprint" finding is exactly what
-      // this collection exists to surface. Leave the run COMPLETED, write
-      // nothing, and preserve any prior collection.
-      if (envelope.items.length === 0) {
-        this.logger.info(
-          { runId: run.runId },
-          'collection found no web sources; completing with no rows written',
-        )
-        return
-      }
-
-      const items = this.parseItems(run.runId, envelope.items)
-
-      // The artifact carried items but every one failed per-item validation —
-      // an agent/contract defect, not a no-data race. Fail the run.
-      if (items.length === 0) {
-        throw new Error('every artifact item failed per-item validation')
-      }
-
-      await this.replaceForCampaign(campaign.id, run.runId, items)
+      await this.persistCollection(campaign, run.runId, JSON.parse(raw))
     } catch (error) {
       await this.experimentRuns.markFailed(
         run.runId,
@@ -215,26 +194,76 @@ export class RaceOpponentPersistService extends createPrismaBase(
       )
       throw error
     }
+  }
 
-    // Fire-and-forget: the structuring run persists on its own completion
-    // event. dispatchSummary reads the rows just committed above and skips when
-    // none survived. A dispatch failure must not fail the collection run —
-    // the collection's rows are already persisted and the summary can be
-    // re-dispatched on the next collection — so log rather than rethrow.
+  // A race_opponent_collection run completed on gp-api's own agents. The
+  // artifact is already the run's validated output, so there is no S3 read. A
+  // throw fails the run (AgentsService marks it failed) without touching the
+  // prior rows, which is what the PMF Engine's markFailed does above.
+  async onCollectionArtifact(args: {
+    runId: string
+    artifact: RaceOpponentCollectionOutput
+  }): Promise<void> {
+    const run = await this.client.agentRun.findUnique({
+      where: { id: args.runId },
+      select: { organizationSlug: true, input: true, agentName: true },
+    })
+    if (!run || run.agentName !== RACE_OPPONENT_COLLECTION) return
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    await this.persistCollection(campaign, args.runId, args.artifact)
+  }
+
+  // The collection artifact's one write path, shared by both engines. `raw` is
+  // the artifact document as read (PMF Engine: the parsed S3 file; gp-api: the
+  // validated output) and is re-parsed here so one set of rules decides what a
+  // valid collection is.
+  private async persistCollection(
+    campaign: CampaignWith<'user'>,
+    runId: string,
+    raw: unknown,
+  ): Promise<void> {
+    const envelope = ArtifactEnvelopeSchema.parse(raw)
+
+    // An empty items array is a valid result per the experiment contract: an
+    // opponent with no findable Ballotpedia page or website is the expected
+    // down-ballot case, and that "no web footprint" finding is exactly what
+    // this collection exists to surface. Leave the run completed, write
+    // nothing, and preserve any prior collection.
+    if (envelope.items.length === 0) {
+      this.logger.info(
+        { runId },
+        'collection found no web sources; completing with no rows written',
+      )
+      return
+    }
+
+    const items = this.parseItems(runId, envelope.items)
+
+    // The artifact carried items but every one failed per-item validation —
+    // an agent/contract defect, not a no-data race.
+    if (items.length === 0) {
+      throw new Error('every artifact item failed per-item validation')
+    }
+
+    await this.replaceForCampaign(campaign.id, runId, items)
+
+    // Fire-and-forget: the structuring run persists on its own completion. A
+    // dispatch failure must not fail the collection run — the collection's rows
+    // are already persisted and the summary can be re-dispatched on the next
+    // collection — so log rather than rethrow.
     try {
       await this.raceOpponent.dispatchSummary(campaign)
     } catch (error) {
       this.logger.error(
-        { runId: run.runId, error },
+        { runId, error },
         'failed to chain race_opponent_summary dispatch after collection',
       )
     }
   }
 
-  // A race_opponent_summary run completed. Load its artifact, resolve each
-  // rich source's URL against the campaign's collected rows, validate against
-  // the contract, then idempotently replace the campaign's persisted summaries
-  // and campaign-level field analysis.
+  // A race_opponent_summary run completed on the PMF Engine. Load its artifact
+  // from S3, then persist it through the same body gp-api's agent uses.
   private async onSummaryCompleted(run: ExperimentRun): Promise<void> {
     const campaign = await this.loadCampaign(run.organizationSlug)
     if (!campaign) return
@@ -258,26 +287,7 @@ export class RaceOpponentPersistService extends createPrismaBase(
       try {
         const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
         if (!raw) throw new Error('artifact is missing or empty')
-        const envelope = ArtifactSummaryEnvelopeSchema.parse(JSON.parse(raw))
-
-        const sourceTypeByUrl = await this.sourceTypeByUrl(campaign.id)
-        const summaries = envelope.opponents.map((opponent) =>
-          this.mapSummary(opponent, envelope.generated_at, sourceTypeByUrl),
-        )
-        const fieldAnalysis = envelope.field_analysis
-          ? this.mapFieldAnalysis(
-              envelope.field_analysis,
-              envelope.generated_at,
-              sourceTypeByUrl,
-            )
-          : null
-
-        await this.replaceSummaries(
-          campaign.id,
-          run.runId,
-          summaries,
-          fieldAnalysis,
-        )
+        await this.persistSummary(campaign, run.runId, JSON.parse(raw))
       } catch (error) {
         await this.experimentRuns.markFailed(
           run.runId,
@@ -285,23 +295,102 @@ export class RaceOpponentPersistService extends createPrismaBase(
         )
         throw error
       }
-
-      // Fire-and-forget: the actions run persists on its own completion event
-      // (ENG-10647). dispatchActions reads the summaries just committed above
-      // and skips when none survived. A dispatch failure must not fail the
-      // summary persist — the summaries are already committed and actions can
-      // be re-dispatched on the next summary — so log rather than rethrow.
-      try {
-        await this.raceOpponent.dispatchActions(campaign)
-      } catch (error) {
-        this.logger.error(
-          { runId: run.runId, error },
-          'failed to chain race_opponent_actions dispatch after summary',
-        )
-      }
     } finally {
       await this.rechainAfterSummary(campaign, run.createdAt)
     }
+  }
+
+  // A race_opponent_summary run completed on gp-api's own agents. The re-chain
+  // sits in a finally here too: a newer collection may be waiting on the summary
+  // this run's in-flight dedup skipped, and that has to be recovered whether or
+  // not this artifact persisted.
+  async onSummaryArtifact(args: {
+    runId: string
+    artifact: RaceOpponentSummaryOutput
+  }): Promise<void> {
+    const run = await this.client.agentRun.findUnique({
+      where: { id: args.runId },
+      select: { organizationSlug: true, agentName: true, createdAt: true },
+    })
+    if (!run || run.agentName !== RACE_OPPONENT_SUMMARY) return
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    try {
+      await this.persistSummary(campaign, args.runId, args.artifact)
+    } finally {
+      // This run is still `running` while here, so the re-chain has to exclude
+      // it or its own row answers the in-flight dedup and nothing dispatches.
+      await this.rechainAfterSummary(campaign, run.createdAt, args.runId)
+    }
+  }
+
+  // The summary artifact's one write path, shared by both engines: resolve each
+  // rich source's URL against the campaign's collected rows, validate against
+  // the contract, then idempotently replace the campaign's persisted summaries
+  // and campaign-level field analysis, and chain the actions run.
+  private async persistSummary(
+    campaign: CampaignWith<'user'>,
+    runId: string,
+    raw: unknown,
+  ): Promise<void> {
+    const envelope = ArtifactSummaryEnvelopeSchema.parse(raw)
+
+    const sourceTypeByUrl = await this.sourceTypeByUrl(campaign.id)
+    const summaries = envelope.opponents.map((opponent) =>
+      this.mapSummary(opponent, envelope.generated_at, sourceTypeByUrl),
+    )
+    const fieldAnalysis = envelope.field_analysis
+      ? this.mapFieldAnalysis(
+          envelope.field_analysis,
+          envelope.generated_at,
+          sourceTypeByUrl,
+        )
+      : null
+
+    await this.replaceSummaries(campaign.id, runId, summaries, fieldAnalysis)
+
+    // Fire-and-forget: the actions run persists on its own completion event
+    // (ENG-10647). A dispatch failure must not fail the summary persist — the
+    // summaries are already committed and actions can be re-dispatched on the
+    // next summary — so log rather than rethrow.
+    try {
+      await this.raceOpponent.dispatchActions(campaign)
+    } catch (error) {
+      this.logger.error(
+        { runId, error },
+        'failed to chain race_opponent_actions dispatch after summary',
+      )
+    }
+  }
+
+  // A race_opponent_summary run FAILED on gp-api's own agents. The agent
+  // engine calls this from its terminal failure path, because a failed link
+  // still has to release the next one: a newer collection may be waiting on the
+  // summary this run's in-flight dedup skipped, and without the re-chain the
+  // page polls a chain that will never settle (ENG-10614).
+  async onSummaryFailure(args: { runId: string }): Promise<void> {
+    const run = await this.client.agentRun.findUnique({
+      where: { id: args.runId },
+      select: { organizationSlug: true, agentName: true, createdAt: true },
+    })
+    if (!run || run.agentName !== RACE_OPPONENT_SUMMARY) return
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    await this.rechainAfterSummary(campaign, run.createdAt, args.runId)
+  }
+
+  // The actions link's terminal failure, on gp-api's own agents, for the same
+  // reason: a fresh summary that landed while this actions run was in flight
+  // had its chained dispatch skipped, and its cards must still be regenerated.
+  async onActionsFailure(args: { runId: string }): Promise<void> {
+    const run = await this.client.agentRun.findUnique({
+      where: { id: args.runId },
+      select: { organizationSlug: true, agentName: true, createdAt: true },
+    })
+    if (!run || run.agentName !== RACE_OPPONENT_ACTIONS) return
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    await this.rechainAfterActions(campaign, run.createdAt, args.runId)
   }
 
   // A race_opponent_summary run FAILED at the queue level (no artifact to
@@ -313,12 +402,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
     await this.rechainAfterSummary(campaign, run.createdAt)
   }
 
-  // A race_opponent_actions run completed. Load its artifact, validate each
-  // card against the contract, then idempotently replace the campaign's
-  // persisted stand-out actions. Structured like onSummaryCompleted: the
-  // re-chain sits in a finally so it fires on every terminal outcome of this
-  // handler, and a persist failure marks the run FAILED without touching the
-  // prior rows.
+  // A race_opponent_actions run completed on the PMF Engine. Structured like
+  // onSummaryCompleted: the re-chain sits in a finally so it fires on every
+  // terminal outcome, and a persist failure marks the run FAILED without
+  // touching the prior rows.
   private async onActionsCompleted(run: ExperimentRun): Promise<void> {
     const campaign = await this.loadCampaign(run.organizationSlug)
     if (!campaign) return
@@ -337,20 +424,7 @@ export class RaceOpponentPersistService extends createPrismaBase(
       try {
         const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
         if (!raw) throw new Error('artifact is missing or empty')
-        const envelope = ArtifactActionsEnvelopeSchema.parse(JSON.parse(raw))
-
-        const actions = this.parseActions(run.runId, envelope.actions)
-
-        // The artifact carried cards but every one failed per-card validation
-        // — an agent/contract defect, not the valid "no grounded angles" empty
-        // artifact. Fail the run and leave the prior cards untouched. An
-        // actually-empty artifact falls through to the replace, which clears
-        // any prior cards: the agent's current answer is "no cards".
-        if (envelope.actions.length > 0 && actions.length === 0) {
-          throw new Error('every artifact action failed per-card validation')
-        }
-
-        await this.replaceStandoutActions(campaign.id, run.runId, actions)
+        await this.persistActions(campaign, run.runId, JSON.parse(raw))
       } catch (error) {
         await this.experimentRuns.markFailed(
           run.runId,
@@ -361,6 +435,48 @@ export class RaceOpponentPersistService extends createPrismaBase(
     } finally {
       await this.rechainAfterActions(campaign, run.createdAt)
     }
+  }
+
+  // A race_opponent_actions run completed on gp-api's own agents. The re-chain
+  // fires on every outcome, as it does on the PMF Engine's path.
+  async onActionsArtifact(args: {
+    runId: string
+    artifact: RaceOpponentActionsOutput
+  }): Promise<void> {
+    const run = await this.client.agentRun.findUnique({
+      where: { id: args.runId },
+      select: { organizationSlug: true, agentName: true, createdAt: true },
+    })
+    if (!run || run.agentName !== RACE_OPPONENT_ACTIONS) return
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    try {
+      await this.persistActions(campaign, args.runId, args.artifact)
+    } finally {
+      await this.rechainAfterActions(campaign, run.createdAt, args.runId)
+    }
+  }
+
+  // The actions artifact's one write path, shared by both engines.
+  private async persistActions(
+    campaign: CampaignWith<'user'>,
+    runId: string,
+    raw: unknown,
+  ): Promise<void> {
+    const envelope = ArtifactActionsEnvelopeSchema.parse(raw)
+
+    const actions = this.parseActions(runId, envelope.actions)
+
+    // The artifact carried cards but every one failed per-card validation — an
+    // agent/contract defect, not the valid "no grounded angles" empty artifact.
+    // Fail the run and leave the prior cards untouched. An actually-empty
+    // artifact falls through to the replace, which clears any prior cards: the
+    // agent's current answer is "no cards".
+    if (envelope.actions.length > 0 && actions.length === 0) {
+      throw new Error('every artifact action failed per-card validation')
+    }
+
+    await this.replaceStandoutActions(campaign.id, runId, actions)
   }
 
   // A race_opponent_actions run FAILED at the queue level (no artifact to
@@ -378,11 +494,13 @@ export class RaceOpponentPersistService extends createPrismaBase(
   private async rechainAfterActions(
     campaign: CampaignWith<'user'>,
     actionsRunCreatedAt: Date,
+    actionsRunId?: string,
   ): Promise<void> {
     try {
       await this.raceOpponent.rechainActionsForNewerSummary(
         campaign,
         actionsRunCreatedAt,
+        actionsRunId,
       )
     } catch (error) {
       this.logger.error(
@@ -400,11 +518,13 @@ export class RaceOpponentPersistService extends createPrismaBase(
   private async rechainAfterSummary(
     campaign: CampaignWith<'user'>,
     summaryRunCreatedAt: Date,
+    summaryRunId?: string,
   ): Promise<void> {
     try {
       await this.raceOpponent.rechainSummaryForNewerCollection(
         campaign,
         summaryRunCreatedAt,
+        summaryRunId,
       )
     } catch (error) {
       this.logger.error(

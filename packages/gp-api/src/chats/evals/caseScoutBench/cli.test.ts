@@ -69,7 +69,7 @@ describe('the bench CLI', () => {
       JSON.parse(readFileSync(path.join(runDir, 'results.json'), 'utf8')),
     )
     expect(results.mode).toBe('stub')
-    expect(results.summary.fixturesPassed).toBe(20)
+    expect(results.summary.fixturesPassed).toBe(26)
     expect(readFileSync(path.join(runDir, 'report.html'), 'utf8')).toContain(
       'data-grade-for="f01-unsourced-turnout-math"',
     )

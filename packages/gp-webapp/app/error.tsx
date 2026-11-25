@@ -5,22 +5,14 @@ import H1 from '@shared/typography/H1'
 import Image from 'next/image'
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { reportClientError } from '@shared/observability/reportClientError'
-import { isChunkLoadError } from '@shared/observability/isChunkLoadError'
+import { recoverOrReportRouteError } from '@shared/observability/recoverOrReportRouteError'
 
 interface ErrorPageProps {
   error: Error
 }
 
 export default function Error({ error }: ErrorPageProps): React.JSX.Element {
-  useEffect(() => {
-    reportClientError(error)
-    if (!isChunkLoadError(error)) return undefined
-    // Faro sends what it has batched every 250ms. Reloading on the spot could
-    // tear the page down before the batch holding this error goes out.
-    const reload = setTimeout(() => window.location.reload(), 500)
-    return () => clearTimeout(reload)
-  }, [error])
+  useEffect(() => recoverOrReportRouteError(error), [error])
 
   return (
     <div className="min-h-[calc(100vh-56px)] flex flex-col items-center justify-center px-3 lg:px-5">

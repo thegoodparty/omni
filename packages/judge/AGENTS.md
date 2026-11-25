@@ -34,19 +34,18 @@ identity today; annotations say `not reported` when it is missing.
 | `src/arm.ts` and `src/apiRoot.ts` | Test-user context, API-root discovery, and run-route preflight  |
 | `src/runAgent.ts`                 | Agent run and polling routes                                    |
 | `src/chatTurns.ts`                | Chat turns: opens the conversation, posts each turn, reads SSE  |
-| `src/grade.ts` and `src/stats.ts` | Grading, exact sign test, and handledWhen regression test       |
+| `src/grade.ts` and `src/stats.ts` | Blinded grading and case-level verdicts                        |
 | `src/reporter.ts`                 | Markdown verdict table, and the results JSON |
 | `src/guard/`                      | The PR guard's picker, code map and verdict mapping             |
 
 ## The grader
 
-One pair per attempt, three pairs per case. Each pair is judged in **both
-orders** — base as A and candidate as B, then swapped — and two orders that
-disagree are a tie. One `generateObject` call returns the winner, `handledWhen`
-as yes/partly/no per side, a 1-5 score per dimension (half points allowed: Claude's native JSON output
-gives them, and an integer-only schema rejected whole verdicts), and one sentence of
-reasoning. Default questions: `task_success`, `instruction_adherence`,
-`user_utility`; a case's `grading.dimensions` adds to them.
+One pair per attempt, three pairs per case. The grader reads the pair in both
+orders without knowing which output is the candidate. It identifies concrete
+behavior changes, not differences in style. A tie means both orders found no
+material difference. Disagreements are recorded separately. The `handledWhen`
+rule is another source of evidence: one output fully meets it and the other
+does not.
 
 `generateObject` from `ai` with a Zod schema — never a provider SDK — so
 `JUDGE_MODEL` is the only thing naming a provider. `src/model.ts` maps a known prefix (`anthropic`) to that provider,
@@ -54,15 +53,11 @@ so `anthropic/claude-sonnet-5-5` needs `ANTHROPIC_API_KEY`; a prefix it does not
 know goes to the AI SDK's default provider, the gateway, which needs
 `AI_GATEWAY_API_KEY`.
 
-A suite's verdict is an exact sign test over its non-tied pairs: BETTER or WORSE
-at p < 0.05, otherwise NO DIFFERENCE FOUND. It is also WORSE when the candidate's
-handledWhen pass rate drops significantly (one-sided Fisher exact on the
-per-attempt pass counts), because a failure both arms share reads as a tie in the
-pairwise comparison.
-
-The exact tests cannot reach p < 0.05 from a single case's three attempts (three
-of three is p = 0.125), which is the honest reading of that little data. A suite
-with one case reports NO DIFFERENCE FOUND however lopsided it looks.
+The verdict does not pool votes across cases. Both grading orders must
+identify the same criterion and direction, and the change must recur in at
+least two attempts on the same case. A confirmed, material regression on any
+case makes the suite **WORSE**. If no case regresses, a confirmed improvement
+makes it **BETTER**. Otherwise it is **NO DIFFERENCE FOUND**.
 
 ## A failed run is never graded
 
@@ -73,9 +68,9 @@ judged** and annotated on its case. Grading the marker
 is how a candidate whose routes were not deployed yet scored 18-0 for a degraded
 build (PR #3926).
 
-A suite with no judged pairs, or with more than half of them not judged, is
-**CAN'T JUDGE**: its votes are the minority of its attempts, so reading a
-direction off them claims more than the run saw. The preflight asks each arm for a run ID no arm can hold
+With no confirmed regression, the suite reports **CAN'T JUDGE** if any case
+has no judged pairs or more than half the suite's pairs were not judged. This
+is an execution status, not a quality verdict. The preflight asks each arm for a run ID no arm can hold
 (`GET .../v1/agents/runs/<random uuid>`). Its guard answers 401, or its handler
 answers 404 for the missing run. Nest's `Cannot GET ...` 404 instead fails the
 suite before a single agent run or grading call is spent.
@@ -106,12 +101,11 @@ verdicts from the run's artifact instead:
 gh run download <run id> -n judge-eval-results
 ```
 
-That file holds, per suite, the verdict with its counts, p-values and
-`handledWhen` totals, and per case and attempt the winner, each order's arm
-arrangement, the grader's full reasoning and its `handledWhen` answers. Get the
-run id from `gh run list --workflow judge-eval.yml` or the check run's link. The
-verdict table is also printed to stdout (so it is in the job log) and posted in
-the PR's judge-eval comment, but neither carries the per-case reasoning.
+That file holds the verdict, the evidence behind confirmed changes, and both
+grading orders' reasoning and `handledWhen` answers for each attempt. Get the
+run ID from `gh run list --workflow judge-eval.yml` or the check run's link. The
+verdict table is also printed to stdout and posted in the PR's judge-eval
+comment.
 
 Run evals from a worktree, not the main checkout: `vite-tsconfig-paths` walks
 every `.worktrees/*` tsconfig there and fails to resolve them.

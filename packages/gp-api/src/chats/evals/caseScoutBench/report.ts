@@ -122,11 +122,15 @@ const expected = (fixture: FixtureResult): string => {
   const { expect } = fixture
   if (!expect.scored) return 'ignored (scope not covered)'
   if (expect.covered_by) return `skipped, covered by ${expect.covered_by}`
+  const cap =
+    expect.max_severity !== null
+      ? `, severity at most ${expect.max_severity}`
+      : ''
   if (expect.should_draft) {
     const text = expect.pattern ? `draft (${expect.pattern})` : 'draft'
-    return text + (expect.drop_ok ? ', or dropped' : '')
+    return text + (expect.drop_ok ? ', or dropped' : '') + cap
   }
-  return 'no draft'
+  return 'no draft' + cap
 }
 
 const summaryTable = (fixtures: FixtureResult[]): string => {
@@ -248,6 +252,11 @@ const fixtureCard = (fixture: FixtureResult): string => {
       `<p>${status('fail')} ${escapeHtml(String(gate.rule))}: ` +
         `${escapeHtml(String(gate.reason))}</p>`,
     )
+    if (gate.flagged && gate.flagged.length > 0) {
+      parts.push(
+        `<p>Flagged: ${gate.flagged.map((item) => escapeHtml(item)).join('; ')}</p>`,
+      )
+    }
   }
 
   const checks = Object.entries(fixture.checks)
