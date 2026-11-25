@@ -357,6 +357,48 @@ export = async () => {
         },
       })
 
+  // Logical replication for the Databricks Lakeflow Connect CDC pipeline.
+  // Dev only for now; other environments keep the engine default. The static
+  // parameters need a writer reboot, and aurora.enhanced_logical_replication
+  // stays off on purpose. See "Aurora parameters for Databricks CDC" in
+  // deploy/AGENTS.md before changing any of them.
+  const cdcParameterGroup =
+    environment === 'dev'
+      ? new aws.rds.ClusterParameterGroup('cdcParameterGroup', {
+          name: 'gp-api-db-cdc',
+          family: 'aurora-postgresql16',
+          description:
+            'Logical replication for the Databricks Lakeflow Connect CDC pipeline',
+          parameters: [
+            {
+              name: 'rds.logical_replication',
+              value: '1',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'aurora.enhanced_logical_replication',
+              value: '0',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'aurora.logical_replication_backup',
+              value: '1',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'aurora.logical_replication_globaldb',
+              value: '1',
+              applyMethod: 'pending-reboot',
+            },
+            {
+              name: 'max_slot_wal_keep_size',
+              value: '10240',
+              applyMethod: 'immediate',
+            },
+          ],
+        })
+      : undefined
+
   // The master password is not managed here, so no preview reads it and no
   // state holds it. The cluster keeps the one it has, and tasks read
   // DB_PASSWORD from the secret.
@@ -376,6 +418,8 @@ export = async () => {
           databaseName: 'gpdb',
           masterUsername: 'gpuser',
           dbSubnetGroupName: subnetGroup!.name,
+          dbClusterParameterGroupName:
+            cdcParameterGroup?.name ?? 'default.aurora-postgresql16',
           vpcSecurityGroupIds: [rdsSecurityGroup!.id],
           storageEncrypted: true,
           serverlessv2ScalingConfiguration: {
