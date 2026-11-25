@@ -823,25 +823,12 @@ jwIDAQAB
         prod: 'false',
       }),
       CASE_SCOUT_BUCKET: caseScoutName,
-      // Prod's draft cap, first-night window and higher spend cap are
-      // temporary: they fill the first 20 prod cases quickly while the
-      // handoff is held for a person to read. Revert them after that review.
       CASE_SCOUT_SPEND_CAP_USD: select({
         preview: '50',
         dev: '50',
-        prod: '100',
+        prod: '65',
       }),
       CASE_SCOUT_SESSION_CAP: '75',
-      CASE_SCOUT_NIGHTLY_CAP: select({
-        preview: '',
-        dev: '',
-        prod: '10',
-      }),
-      CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS: select({
-        preview: '',
-        dev: '',
-        prod: '168',
-      }),
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
       HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({

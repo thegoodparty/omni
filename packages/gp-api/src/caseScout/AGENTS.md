@@ -42,11 +42,11 @@ parses. No judge runs them, so a change to one has no effect on any gate.
 
 ## Flow
 
-| Step                                          | Where                                  | What                                                                                                                                                                                                                                                                                                                                                          |
-| --------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `caseScoutNightly` schedule, 09:17 UTC        | `services/caseScoutNightly.service.ts` | Claims the night, reads messages since the marker minus 60 minutes (no marker: the last `CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS`, 24 hours unless set and 168 in prod, plus the same 60), splits sessions, caps at 75, writes `manifest.json`, sends one `caseScoutScoreSession` per session in a covered scope                                                  |
-| `caseScoutScoreSession`, 4 at once fleet-wide | `services/caseScoutScore.service.ts`   | One Opus call; writes `scores/<sessionId>.json`; the last to finish sends `caseScoutDraft` keyed by the run                                                                                                                                                                                                                                                   |
-| `caseScoutDraft`, one at a time               | `services/caseScoutDraft.service.ts`   | Severity 2 and 3, worst first, up to the nightly cap (`CASE_SCOUT_NIGHTLY_CAP` when set, 10 in prod; unset, 3, moving with the merge share of proposals a person ruled on); drafts and gates one at a time; holds a draft that moves its chat into a later year; writes the night's files; holds or sends the handoff, posts the Slack note, moves the marker |
+| Step                                          | Where                                  | What                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caseScoutNightly` schedule, 09:17 UTC        | `services/caseScoutNightly.service.ts` | Claims the night, reads messages since the marker minus 60 minutes (no marker: the last `CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS`, 24 hours unless set, plus the same 60), splits sessions, caps at 75, writes `manifest.json`, sends one `caseScoutScoreSession` per session in a covered scope                                                      |
+| `caseScoutScoreSession`, 4 at once fleet-wide | `services/caseScoutScore.service.ts`   | One Opus call; writes `scores/<sessionId>.json`; the last to finish sends `caseScoutDraft` keyed by the run                                                                                                                                                                                                                                       |
+| `caseScoutDraft`, one at a time               | `services/caseScoutDraft.service.ts`   | Severity 2 and 3, worst first, up to the nightly cap (`CASE_SCOUT_NIGHTLY_CAP` when set; unset, 3, moving with the merge share of proposals a person ruled on); drafts and gates one at a time; holds a draft that moves its chat into a later year; writes the night's files; holds or sends the handoff, posts the Slack note, moves the marker |
 
 Covered scopes are `chief_of_staff` and `campaign_assistant`
 (`COVERED_SCOPES` in `caseScout.config.ts`). Other sessions count toward the
@@ -222,17 +222,11 @@ dead-letters.
 ## Spend
 
 A flat $0.75 per call, an estimate about 7 times the real price, against
-`CASE_SCOUT_SPEND_CAP_USD`: $50 in dev, $100 in prod (the code's default is
+`CASE_SCOUT_SPEND_CAP_USD`: $50 in dev, $65 in prod (the code's default is
 $50). The cap reads the night's running total from `scores/` before each score
 call, so with four score jobs in flight the score stage can pass the cap by up
 to 4 calls ($3.00); drafting is sequential and passes it by at most one. A
 capped session is never marked processed, so a later night reads it.
-
-Prod's $100 is temporary and sized for its temporary `CASE_SCOUT_NIGHTLY_CAP`
-of 10: 75 scored sessions ($56.25) plus 10 drafts and their second reads
-($15) would stop drafting early at $65. Prod's 168-hour
-`CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS` widens only what a night with no marker
-reads; the 75-session cap still bounds what it scores.
 
 ## Config
 
@@ -241,10 +235,7 @@ reads; the 75-session cap still bounds what it scores.
 `CASE_SCOUT_SESSION_CAP`, `CASE_SCOUT_NIGHTLY_CAP` (1 to 25; unset, blank or
 out of range keeps the merge-share ladder) and
 `CASE_SCOUT_FIRST_NIGHT_WINDOW_HOURS` (1 to 336, read only with no marker;
-anything else reads 24). Prod sets the nightly cap to 10, the first-night
-window to 168 and the spend cap to $100; dev and previews leave the two new
-ones unset. Those prod values are temporary, to fill the first 20 prod cases
-quickly while the handoff is held, and are reverted after that review. Set in
+anything else reads 24); no environment sets those two. The rest are set in
 `deploy/index.ts`, with the task role's grants on the bucket; each environment's bucket is its own gp-ai root
 (`environments/<env>/case-scout`). The webhook URL and signing secret
 (`CASE_SCOUT_DELEGATE_WEBHOOK_URL`, `CASE_SCOUT_DELEGATE_WEBHOOK_SECRET`) are
