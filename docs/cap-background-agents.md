@@ -203,10 +203,16 @@ dormant and dispatches nothing.
 - **Campaign strategy** (`src/campaignStrategy/`) — experiments `opposition_research`
   and `opportunities_and_challenges`, persisted section by section. Each
   experiment can run on gp-api's own agents, and `CampaignStrategyService` picks
-  its run table, its artifact store and its dispatch from that same per-agent
-  switch, so a section the switch moves lands on the plan exactly as before.
-  Both are on gp-api's engine in a preview only while the judge compares them
-  against the PMF Engine.
+  its dispatch from that per-agent switch, so a section the switch moves lands
+  on the plan exactly as before. Read `deploy/agentsOnGpApi.ts` for which
+  environment runs which.
+- **Opposition research** (`src/raceOpponent/`) — the relaxed chain
+  `race_opponent_collection` -> `race_opponent_summary` ->
+  `race_opponent_actions`, one experiment per link. Each link can run on
+  gp-api's own agents; the switch moves the dispatch, and the chain's readers
+  (`services/raceOpponentRun.ts`) query both engines' run tables so a revert of
+  the switch is a safe rollback. Read `deploy/agentsOnGpApi.ts` for the current
+  per-environment state.
 
 ### Admin / bulk-dispatch surface
 
