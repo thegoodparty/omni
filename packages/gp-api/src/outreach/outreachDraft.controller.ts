@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
   BadRequestException,
   Body,
@@ -78,9 +79,11 @@ export class OutreachDraftController {
           'Image filename and MIME type are required for a texting draft',
         )
       }
-      // The send path's key embeds the send date; a draft has none.
+      // The send path's key embeds the send date; a draft has none, so a
+      // folder of its own per upload keeps two drafts (the hub's and a
+      // card's) from sharing an object that either one's cleanup could take.
       const imageKey = this.s3.buildKey(
-        `scheduled-campaign/${campaign.slug}/p2p/draft`,
+        `scheduled-campaign/${campaign.slug}/p2p/draft/${randomUUID()}`,
         image.filename,
       )
       const imageUrl = await this.s3.uploadFile(
@@ -93,8 +96,9 @@ export class OutreachDraftController {
           baseUrl: `https://${ASSET_DOMAIN}`,
         },
       )
+      let id: number
       try {
-        return await this.drafts.createP2pDraft(campaign, body, imageUrl)
+        id = await this.drafts.createP2pDraft(campaign, body, imageUrl)
       } catch (error) {
         // preflight is a plain read; the transaction inside createP2pDraft
         // is the real cap, and when it rejects a racing second create the
@@ -104,6 +108,9 @@ export class OutreachDraftController {
           .catch(() => undefined)
         throw error
       }
+      // The row is committed and points at the image: from here on a failure
+      // must not delete it.
+      return this.drafts.findDraftDetail(campaign, id)
     }
 
     const { audioKey, callbackNumber } = body

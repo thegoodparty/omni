@@ -45,6 +45,10 @@ interface UseDraftGateParams {
   // the Pro pitch as a dialog over the step they pressed it on, not as the
   // wizard's inline interstitial in place of it.
   pitchAsDialog?: boolean
+  // Closing the pitch dialog leaves the candidate on the step it is over,
+  // with the saved draft kept, instead of closing the flow. For a flow a chat
+  // card opened, whose review step is where the candidate was.
+  keepFlowOnDialogClose?: boolean
 }
 
 export interface DraftGate {
@@ -59,10 +63,6 @@ export interface DraftGate {
   pitchOpen: boolean
   // "Join Pro" on that dialog: the wizard takes the step's place.
   joinPitch: () => void
-  // The pitch from a gesture that saves nothing (a chat card's "Join Pro to
-  // send"): the same dialog, and finishing or leaving it returns the
-  // candidate to the step they were on.
-  openPitch: (cta?: string) => void
   // Back off the wizard's first step returns to the pitch when the gate was
   // reached through it. Unset otherwise, so the wizard falls back to its own
   // interstitial as it always has.
@@ -94,6 +94,7 @@ export const useDraftGate = ({
   onClose,
   resumeCta,
   pitchAsDialog = false,
+  keepFlowOnDialogClose = false,
 }: UseDraftGateParams): DraftGate => {
   // The saved draft row this flow is working against: the one the hub
   // resumed, the one a 409 says already exists, or the one just written.
@@ -109,9 +110,6 @@ export const useDraftGate = ({
   const [gateOrigin, setGateOrigin] = useState<GateOrigin>(null)
   const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [pitchOpen, setPitchOpen] = useState(false)
-  // The pitch came from a gesture that saves nothing (openPitch), so the
-  // wizard's Back returns to it just as it does after a save.
-  const [pitchFromCard, setPitchFromCard] = useState(false)
   const [explainerOpen, setExplainerOpen] = useState(false)
 
   // Reopening starts fresh, exactly as the rest of the flow state does.
@@ -125,7 +123,6 @@ export const useDraftGate = ({
     setGateOrigin(null)
     setGateCta(undefined)
     setPitchOpen(false)
-    setPitchFromCard(false)
     setExplainerOpen(false)
   }, [open, resumeDraft])
 
@@ -175,7 +172,8 @@ export const useDraftGate = ({
       // what Campaign Created reports. Fired once, here, for a gated
       // candidate; the Pro path reports it off the pending_payment draft
       // instead, and a resume of THIS row must not report it a second time.
-      onCampaignCreated?.(draft)
+      // Nor must a card's draft saved again, which updates the row in place.
+      if (draft.id !== savedDraft?.id) onCampaignCreated?.(draft)
       setSavedDraft(draft)
       setGateOrigin('save')
       setGateCta(cta)
@@ -234,24 +232,19 @@ export const useDraftGate = ({
   // only mean returning to the step the candidate was building — which is
   // also what Back on the upgrade wizard's first step calls.
   const handleGateExit = (): void => {
+    const dialogClosed = pitchOpen
     setGateOpen(false)
     setPitchOpen(false)
     const origin = gateOrigin
     setGateOrigin(null)
     if (origin === 'explainer' || savedDraft === null) return
+    if (dialogClosed && keepFlowOnDialogClose) return
     onClose()
   }
 
   const joinPitch = useCallback((): void => {
     setPitchOpen(false)
     setGateOpen(true)
-  }, [])
-
-  const openPitch = useCallback((cta?: string): void => {
-    setGateOrigin('explainer')
-    setGateCta(cta)
-    setPitchFromCard(true)
-    setPitchOpen(true)
   }, [])
 
   const backToPitch = useCallback((): void => {
@@ -275,11 +268,8 @@ export const useDraftGate = ({
     gateCta,
     pitchOpen,
     joinPitch,
-    openPitch,
     wizardBack:
-      pitchAsDialog && (gateOrigin === 'save' || pitchFromCard)
-        ? backToPitch
-        : undefined,
+      pitchAsDialog && gateOrigin === 'save' ? backToPitch : undefined,
     explainerOpen,
     setExplainerOpen,
     savingDraft,
