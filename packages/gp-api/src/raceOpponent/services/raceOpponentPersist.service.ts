@@ -318,7 +318,9 @@ export class RaceOpponentPersistService extends createPrismaBase(
     try {
       await this.persistSummary(campaign, args.runId, args.artifact)
     } finally {
-      await this.rechainAfterSummary(campaign, run.createdAt)
+      // This run is still `running` while here, so the re-chain has to exclude
+      // it or its own row answers the in-flight dedup and nothing dispatches.
+      await this.rechainAfterSummary(campaign, run.createdAt, args.runId)
     }
   }
 
@@ -359,6 +361,36 @@ export class RaceOpponentPersistService extends createPrismaBase(
         'failed to chain race_opponent_actions dispatch after summary',
       )
     }
+  }
+
+  // A race_opponent_summary run FAILED on gp-api's own agents. The agent
+  // engine calls this from its terminal failure path, because a failed link
+  // still has to release the next one: a newer collection may be waiting on the
+  // summary this run's in-flight dedup skipped, and without the re-chain the
+  // page polls a chain that will never settle (ENG-10614).
+  async onSummaryFailure(args: { runId: string }): Promise<void> {
+    const run = await this.client.agentRun.findUnique({
+      where: { id: args.runId },
+      select: { organizationSlug: true, agentName: true, createdAt: true },
+    })
+    if (!run || run.agentName !== RACE_OPPONENT_SUMMARY) return
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    await this.rechainAfterSummary(campaign, run.createdAt, args.runId)
+  }
+
+  // The actions link's terminal failure, on gp-api's own agents, for the same
+  // reason: a fresh summary that landed while this actions run was in flight
+  // had its chained dispatch skipped, and its cards must still be regenerated.
+  async onActionsFailure(args: { runId: string }): Promise<void> {
+    const run = await this.client.agentRun.findUnique({
+      where: { id: args.runId },
+      select: { organizationSlug: true, agentName: true, createdAt: true },
+    })
+    if (!run || run.agentName !== RACE_OPPONENT_ACTIONS) return
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    await this.rechainAfterActions(campaign, run.createdAt, args.runId)
   }
 
   // A race_opponent_summary run FAILED at the queue level (no artifact to
@@ -421,7 +453,7 @@ export class RaceOpponentPersistService extends createPrismaBase(
     try {
       await this.persistActions(campaign, args.runId, args.artifact)
     } finally {
-      await this.rechainAfterActions(campaign, run.createdAt)
+      await this.rechainAfterActions(campaign, run.createdAt, args.runId)
     }
   }
 
@@ -462,11 +494,13 @@ export class RaceOpponentPersistService extends createPrismaBase(
   private async rechainAfterActions(
     campaign: CampaignWith<'user'>,
     actionsRunCreatedAt: Date,
+    actionsRunId?: string,
   ): Promise<void> {
     try {
       await this.raceOpponent.rechainActionsForNewerSummary(
         campaign,
         actionsRunCreatedAt,
+        actionsRunId,
       )
     } catch (error) {
       this.logger.error(
@@ -484,11 +518,13 @@ export class RaceOpponentPersistService extends createPrismaBase(
   private async rechainAfterSummary(
     campaign: CampaignWith<'user'>,
     summaryRunCreatedAt: Date,
+    summaryRunId?: string,
   ): Promise<void> {
     try {
       await this.raceOpponent.rechainSummaryForNewerCollection(
         campaign,
         summaryRunCreatedAt,
+        summaryRunId,
       )
     } catch (error) {
       this.logger.error(

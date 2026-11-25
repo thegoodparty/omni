@@ -27,4 +27,14 @@ export const raceOpponentSummaryAgent = defineAgent({
       .get(RaceOpponentPersistService)
       .onSummaryArtifact({ runId: run.runId, artifact: output })
   },
+  // A failed summary still releases the actions link: a newer collection may be
+  // waiting on the summary this run's in-flight dedup skipped, and without the
+  // re-chain the page would poll a chain that never settles (ENG-10614).
+  onFailure: async (run, context) => {
+    const { RaceOpponentPersistService } =
+      await import('../services/raceOpponentPersist.service.js')
+    await context
+      .get(RaceOpponentPersistService)
+      .onSummaryFailure({ runId: run.runId })
+  },
 })

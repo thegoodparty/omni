@@ -108,7 +108,16 @@ Its grant is one table, the row cap, and `dimensions: ['Active']` alone: the
 `>= 50`/`>= 70` counts are `SUM(CASE WHEN CAST(hs_x AS DOUBLE) >= 50 THEN 1 ELSE
 0 END)`, the people-count form the tool shares with the constituent-data tools:
 `SUM(hs_x)` and `COUNT_IF` stay refused, and a passing `SUM(CASE ...)` is held to
-the cell-size floor as a count of people.
+the cell-size floor as a count of people. Its `WHEN` is a filter, so it may name
+only a declared dimension or an `hs_*` score: `AND LALVOTERID <> 'x'` inside the
+CASE would otherwise isolate one voter's answer the floor cannot see.
+
+Each link's gp-api completion releases the next one from `onArtifact` and from
+`onFailure`, and both re-chains exclude their own run id: the engine calls them
+before the run is marked terminal, so the finishing row still looks in flight and
+would answer its own dedup. A summary run also skips a collected source the
+summary input schema cannot accept (a non-http URL, empty text) rather than
+failing the whole dispatch for it.
 
 ## Sourced-or-silent + fair-line (the strict engine's invariants)
 

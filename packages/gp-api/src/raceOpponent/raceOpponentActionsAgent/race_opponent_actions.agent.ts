@@ -37,7 +37,7 @@ const ACTIONS_DIMENSIONS = ['Active']
 // run with no state refuses every query, and one with no district (or half an
 // L2 pair) is scoped to its state alone, which is the manifest's own degrade
 // path (`haystaq_status: no_district` is the agent's choice, not this tool's).
-const actionsDatabricksScope = async (
+export const actionsDatabricksScope = async (
   ctx: ToolContext,
 ): Promise<DatabricksScope | null> => {
   const run = await ctx.get(PrismaService).agentRun.findUnique({
@@ -51,7 +51,9 @@ const actionsDatabricksScope = async (
   if (!state) return null
   // A half L2 pair cannot scope a district, and a column name that is not an
   // identifier is not one the tool can prove a clause against.
-  if (Boolean(l2DistrictType) !== Boolean(l2DistrictName)) return { state }
+  if (Boolean(l2DistrictType) !== Boolean(l2DistrictName)) {
+    return { state, district: null }
+  }
   return {
     state,
     district:
@@ -93,5 +95,14 @@ export const raceOpponentActionsAgent = defineAgent({
     await context
       .get(RaceOpponentPersistService)
       .onActionsArtifact({ runId: run.runId, artifact: output })
+  },
+  // Same release as the summary link: a fresh summary that landed while this
+  // actions run was in flight still needs its cards regenerated.
+  onFailure: async (run, context) => {
+    const { RaceOpponentPersistService } =
+      await import('../services/raceOpponentPersist.service.js')
+    await context
+      .get(RaceOpponentPersistService)
+      .onActionsFailure({ runId: run.runId })
   },
 })

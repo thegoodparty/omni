@@ -664,6 +664,50 @@ describe('queryDatabricks', () => {
       expect(query).not.toHaveBeenCalled()
     })
 
+    // The count form is a filter as much as the WHERE is. `AND LALVOTERID <>
+    // 'v123'` inside the CASE leaves both counts far above the floor, and the
+    // difference between the two results is that one voter's answer.
+    it.each([
+      ['an identifier equality', "LALVOTERID = 'v123'", 'modeled score'],
+      [
+        'an identifier inequality',
+        "CAST(hs_violent_crime_worried AS DOUBLE) >= 50 AND LALVOTERID <> 'v123'",
+        'modeled score',
+      ],
+      [
+        'a column that is neither a dimension nor a score',
+        'Voters_Age > 30',
+        'modeled score',
+      ],
+    ])(
+      'refuses a SUM(CASE WHEN ...) condition on %s',
+      async (_l, cond, why) => {
+        const result = await runs(
+          `SELECT COUNT(*) AS n,
+           SUM(CASE WHEN ${cond} THEN 1 ELSE 0 END) AS c
+         FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        )
+
+        expect(result).toMatchObject({ ok: false, reason: 'rejected' })
+        expect(String(result.detail)).toContain(why)
+        expect(query).not.toHaveBeenCalled()
+      },
+    )
+
+    // The same condition over the allowed dimension is fine: title is a
+    // declared dimension of this tool.
+    it('accepts a SUM(CASE WHEN ...) condition on an allowed dimension', async () => {
+      query.mockResolvedValue({ columns: ['n', 'c'], rows: [['4820', '160']] })
+
+      await expect(
+        runs(
+          `SELECT COUNT(*) AS n,
+             SUM(CASE WHEN title = 'issue-a' THEN 1 ELSE 0 END) AS c
+           FROM ${TABLE} WHERE Residence_Addresses_State = 'IL'`,
+        ),
+      ).resolves.toMatchObject({ ok: true, rowCount: 1 })
+    })
+
     // The aggregate's own argument is not a filter: it is what the aggregate is
     // for, and the floor holds its result.
     it('still accepts an aggregate over a score column', async () => {

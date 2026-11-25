@@ -72,7 +72,15 @@ await agentsService.run('myAgent', { organizationSlug, topic })
   `scope.data_required_unless` does.
 - `onArtifact` saves the validated output where the product reads it. It
   can run twice for one run (a crash after it, before the run is marked
-  complete), so make it an upsert.
+  complete), so make it an upsert. It also runs BEFORE the run is marked
+  complete, so a re-chain it triggers still sees its own row as `running`: an
+  in-flight dedup has to exclude `run.runId`.
+- `onFailure` is optional and runs only when the run ends `failed` — the last
+  attempt threw and it was not a deploy shutdown — after the row says so. An
+  agent whose product chains off its completion needs it, or a failed link
+  leaves the next one waiting on a run that never lands. It gets
+  `{ runId, input, error }`, and a hook that throws is logged without changing
+  the failed row.
 - A tool's `execute` gets `ToolContext`: `runId`, `stepKey` (stable across a
   resume of the same step, so key a write on `runId + stepKey`),
   `organizationSlug`, `signal` and `get` (any provider, as in a job worker).

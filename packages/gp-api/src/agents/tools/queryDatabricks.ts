@@ -255,6 +255,32 @@ const qualifiedElsewhere = (
 // bare COUNT(*) for the cell-size floor. A derived table is its own SELECT, so
 // each one that reads the table is checked: an aggregate in a branch would land
 // in the COUNT(*) column the floor reads.
+
+// A modeled score column: the hs_* predictions the constituent-data tools read,
+// which stand for a stance rather than name a person.
+const MODELED_SCORE = /^hs_[a-z0-9_]+$/
+
+// Every column named in any WHEN condition of a SUM's CASE. The results are
+// checked by sumCountsPeople; the conditions are filters, and a filter is the
+// differencing attack the floor cannot see, so they are checked like a WHERE's.
+const collectCaseConditionColumns = (
+  expr: Record<string, unknown>,
+  acc: Set<string>,
+): void => {
+  const args = isRecord(expr.args) ? expr.args : null
+  const argument: unknown =
+    expr.type === 'aggr_func'
+      ? args?.expr
+      : Array.isArray(args?.value) && args.value.length === 1
+        ? args.value[0]
+        : null
+  const branches = isRecord(argument) ? argument.args : null
+  if (!Array.isArray(branches)) return
+  for (const branch of branches) {
+    if (isRecord(branch)) collectAllColumns(branch.cond, acc)
+  }
+}
+
 const assertAggregateOnly = (
   select: Record<string, unknown>,
   readsTable: boolean,
@@ -275,6 +301,7 @@ const assertAggregateOnly = (
   // SUM(CASE WHEN <condition> THEN 1 ELSE 0 END), which the constituent-data
   // tools' own validator decides, so SUM(hs_x) is refused by this tool the way
   // it is refused there.
+  const scored = new Set<string>()
   for (const column of Array.isArray(select.columns) ? select.columns : []) {
     const expr = isRecord(column) ? column.expr : null
     const name = isRecord(expr) ? aggregateFunctionName(expr) : null
@@ -292,6 +319,13 @@ const assertAggregateOnly = (
           'SUM may only count people: SUM(CASE WHEN <condition> THEN 1 ELSE 0 END). Use AVG for an average',
         )
       }
+      // The CASE condition is a filter, and the differencing control the floor
+      // cannot be is on what a filter may name: `... AND LALVOTERID <> 'x'`
+      // leaves both counts far above the floor and their difference is one
+      // person's answer. So the same columns a WHERE may name may appear here,
+      // plus a modeled score (hs_*), which is not an identifier: it can split
+      // the district's own distribution but can never name a row.
+      collectCaseConditionColumns(expr, scored)
       continue
     }
     const args = isRecord(expr.args) ? expr.args : null
@@ -323,6 +357,20 @@ const assertAggregateOnly = (
     if (!allowed.has(normalizeColumn(column))) {
       throw new SqlRejected(
         `a WHERE or HAVING may only name one of the allowed dimensions (${named.join(', ') || '(none)'}): ${column}`,
+      )
+    }
+  }
+
+  // A SUM's CASE condition is a filter too, so it is held to the same rule as a
+  // WHERE with one addition: a modeled score (hs_*), which no predicate could
+  // otherwise name, because a threshold on it is exactly what the count counts.
+  // A score is not an identifier, so it can split the district's distribution
+  // but can never isolate a row.
+  for (const column of scored) {
+    const normalized = normalizeColumn(column)
+    if (!allowed.has(normalized) && !MODELED_SCORE.test(normalized)) {
+      throw new SqlRejected(
+        `a SUM(CASE WHEN ...) condition may name only an allowed dimension (${named.join(', ') || '(none)'}) or a modeled score (hs_*): ${column}`,
       )
     }
   }

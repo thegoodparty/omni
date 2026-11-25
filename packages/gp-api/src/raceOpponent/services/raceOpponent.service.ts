@@ -337,9 +337,15 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   // link is live would produce a duplicate paid run whose persist races the
   // first's. Reads whichever engine's table the switch sends the link to, so a
   // reader on the wrong table cannot see "no run" and dispatch a duplicate.
+  // `exceptRunId` is the run whose completion is doing the asking. On gp-api
+  // the engine calls `onArtifact`/`onFailure` BEFORE it marks the run terminal,
+  // so this row is still `running` and would match itself: the deferred
+  // re-chain would find "something in flight" and return without dispatching
+  // the link it exists to dispatch.
   private async findInFlightChainRun(
     link: ChainLink,
     organizationSlug: string,
+    exceptRunId?: string,
   ): Promise<string | null> {
     if (runsOnGpApi(link)) {
       // gp-api's `superseded` is deliberately not in flight: `supersede` starts
@@ -350,6 +356,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
           organizationSlug,
           agentName: link,
           status: { in: [AgentRunStatus.queued, AgentRunStatus.running] },
+          ...(exceptRunId ? { id: { not: exceptRunId } } : {}),
         },
         orderBy: { createdAt: Prisma.SortOrder.desc },
         select: { id: true },
@@ -442,7 +449,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   // dispatches race_opponent_summary. No external call — the input is our own
   // collected text. Skips dispatch when nothing was collected: a summary over
   // zero sources has nothing to structure.
-  async dispatchSummary(campaign: CampaignWith<'user'>): Promise<void> {
+  async dispatchSummary(
+    campaign: CampaignWith<'user'>,
+    exceptRunId?: string,
+  ): Promise<void> {
     const clerkUserId = campaign.user?.clerkId
     if (!clerkUserId) return
 
@@ -462,6 +472,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     const inFlight = await this.findInFlightChainRun(
       RACE_OPPONENT_SUMMARY,
       campaign.organizationSlug,
+      exceptRunId,
     )
     if (inFlight) return
 
@@ -511,6 +522,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   async rechainSummaryForNewerCollection(
     campaign: CampaignWith<'user'>,
     summaryRunCreatedAt: Date,
+    summaryRunId?: string,
   ): Promise<void> {
     const latestCollection = await latestChainRun(
       this.client,
@@ -523,7 +535,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       latestCollection &&
       isAfter(latestCollection.createdAt, summaryRunCreatedAt)
     ) {
-      await this.dispatchSummary(campaign)
+      await this.dispatchSummary(campaign, summaryRunId)
     }
   }
 
@@ -533,7 +545,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   // summaries back, flattens each into the plain-text actions input, and
   // dispatches race_opponent_actions. Skips dispatch when no summaries
   // persisted: there is nothing to build cards from.
-  async dispatchActions(campaign: CampaignWith<'user'>): Promise<void> {
+  async dispatchActions(
+    campaign: CampaignWith<'user'>,
+    exceptRunId?: string,
+  ): Promise<void> {
     const clerkUserId = campaign.user?.clerkId
     if (!clerkUserId) return
 
@@ -547,6 +562,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     const inFlight = await this.findInFlightChainRun(
       RACE_OPPONENT_ACTIONS,
       campaign.organizationSlug,
+      exceptRunId,
     )
     if (inFlight) return
 
@@ -616,6 +632,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   async rechainActionsForNewerSummary(
     campaign: CampaignWith<'user'>,
     actionsRunCreatedAt: Date,
+    actionsRunId?: string,
   ): Promise<void> {
     const latestSummary = await latestChainRun(
       this.client,
@@ -628,7 +645,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       latestSummary &&
       isAfter(latestSummary.createdAt, actionsRunCreatedAt)
     ) {
-      await this.dispatchActions(campaign)
+      await this.dispatchActions(campaign, actionsRunId)
     }
   }
 
@@ -718,14 +735,26 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       }
       if (!row.sourceUrl) continue
 
+      // The summary agent's input schema is strict: a source needs an http(s)
+      // URL and non-empty text. `ArtifactItemSchema` accepts any string for
+      // both and `CollectedContentSchema`'s catch turns malformed content into
+      // '' , so a persisted row can fail the contract. `AgentsService.run`
+      // parses the whole input, so one such source would fail the entire
+      // dispatch and leave every other opponent unstructurable. Drop the
+      // unstructurable source instead.
+      const sourceUrl = row.sourceUrl
+      if (!SUMMARY_SOURCE_URL.test(sourceUrl)) continue
+      const text = CollectedContentSchema.parse(row.content).text?.trim() ?? ''
+      if (text.length === 0) continue
+
       const entry = byName.get(row.opponentName) ?? {
         opponent_name: row.opponentName,
         sources: [],
       }
       entry.sources.push({
         source_type: row.sourceType,
-        source_url: row.sourceUrl,
-        text: CollectedContentSchema.parse(row.content).text ?? '',
+        source_url: sourceUrl,
+        text,
       })
       byName.set(row.opponentName, entry)
     }
@@ -1173,3 +1202,7 @@ const apexDomain = (url: string): string =>
 
 const capActionsText = (text: string): string =>
   text.slice(0, MAX_ACTIONS_TEXT_CHARS)
+
+// The summary agent's input contract, checked before dispatch: one persisted
+// row that cannot meet it would fail the whole run.
+const SUMMARY_SOURCE_URL = /^https?:\/\//
