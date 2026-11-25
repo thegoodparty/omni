@@ -91,7 +91,15 @@ satellite fields a resume cannot re-derive — `audioKey` and `callbackNumber`
 — because the resume's own `POST /outreach/robocall` has to send them back;
 the rest of the satellite is billing and settlement state no client reads.
 One active draft per type per campaign, so the wizard resumes rather than
-accumulating half-built sends; the cap check runs INSIDE the insert's
+accumulating half-built sends. A texting draft written from a chat card
+(`proposalKey` on the request, p2p only) is outside that cap and has its own
+slot under the key, so it neither 409s into the hub's draft nor replaces it:
+saving the same card again updates its row in place (the superseded image is
+deleted once the row points at the new one), a card whose earlier text was
+canceled or failed hands the key to the new draft, and a text already past
+checkout, or another org's or channel's key, is a 409. The hub's own cap
+counts unkeyed drafts only. The convert then moves the keyed row in place, so
+its key makes the proposal sent once paid; the cap check runs INSIDE the insert's
 `Serializable` transaction (with a cheap `preflight` copy before the image
 upload, so a rejected create orphans no S3 object). `deleteDraftRow` is the
 shared teardown (also used by the expiry job): a `status: draft`-guarded

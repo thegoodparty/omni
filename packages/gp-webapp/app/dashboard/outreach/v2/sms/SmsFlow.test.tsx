@@ -17,7 +17,11 @@ import { SmsFlow, SuccessScreen } from './SmsFlow'
 import { cropImageFile } from './smsCrop.util'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import { gateRef } from '../gate/testing/mockReactiveGate'
-import { SMS_GREETING_PREVIEW, SMS_GREETING } from './smsCompose.util'
+import {
+  SMS_GREETING_PREVIEW,
+  SMS_GREETING,
+  profilePhotoFile,
+} from './smsCompose.util'
 import type { TcrCompliance } from 'helpers/types'
 
 // The gate's own flag/membership plumbing has its own tests; here the flow's
@@ -78,6 +82,11 @@ vi.mock('react-advanced-cropper', () => ({
 vi.mock('./smsCrop.util', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./smsCrop.util')>()
   return { ...actual, cropImageFile: vi.fn(actual.cropImageFile) }
+})
+
+vi.mock('./smsCompose.util', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./smsCompose.util')>()
+  return { ...actual, profilePhotoFile: vi.fn(actual.profilePhotoFile) }
 })
 
 vi.mock('helpers/createOutreachDraft', () => ({
@@ -198,6 +207,7 @@ const campaignState = vi.hoisted(() => {
     isPro: true,
     hasFreeTextsOffer: true,
     ownerName: 'Jane Doe',
+    ownerAvatar: undefined as string | undefined,
     positionName: undefined as string | undefined,
     details: { normalizedOffice: 'City Council' } as {
       normalizedOffice?: string
@@ -2857,19 +2867,24 @@ describe('SmsFlow', () => {
         expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
       })
 
-      // A chat card's "Join Pro to send": nothing is saved, the pitch is up
-      // over the card's message, and leaving it lands back on that message.
-      describe('opened by a card with the Pro gate', () => {
-        const openCardFlow = () => {
+      // A chat card's flow carries the card's key, so its draft has a slot of
+      // its own: the hub's saved draft neither 409s it into resuming the old
+      // audience nor is replaced by it.
+      describe('opened by a chat card', () => {
+        const PROPOSAL_KEY = '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7'
+        const CARD_MESSAGE = 'Early voting opens Saturday at the library.'
+
+        const openCardFlow = (openProGate: boolean) => {
           const onClose = vi.fn()
           render(
             <SmsFlow
               source="campaign_manager"
               open
-              openProGate
-              initialScript="Early voting opens Saturday at the library."
+              {...(openProGate && { openProGate })}
+              initialScript={CARD_MESSAGE}
               preselectedListId={41}
               audienceSettled
+              proposalLink={{ proposalKey: PROPOSAL_KEY }}
               onClose={onClose}
               onScheduled={vi.fn().mockResolvedValue(undefined)}
               tcrCompliance={TCR_FIXTURE}
@@ -2878,39 +2893,74 @@ describe('SmsFlow', () => {
           return { onClose }
         }
 
-        it('opens the Pro dialog at once and writes no draft', async () => {
-          openCardFlow()
-
-          expect(
-            await screen.findByRole('dialog', { name: GATE_TITLE }),
-          ).toBeInTheDocument()
-          expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
-        })
-
-        it('returns to the dialog on Back off the wizard', async () => {
-          openCardFlow()
-
-          await user.click(
-            await screen.findByRole('button', { name: 'Join Pro for $299' }),
+        const withHeadshot = () => {
+          campaignState.campaign = {
+            ...campaignState.base(),
+            ownerAvatar: 'https://assets.example.org/jane.png',
+          }
+          vi.mocked(profilePhotoFile).mockResolvedValue(
+            new File(['x'.repeat(100)], 'profile-photo.png', {
+              type: 'image/png',
+            }),
           )
+        }
+
+        const expectReview = () =>
           expect(
-            await screen.findByTestId('pro-upgrade-flow'),
-          ).toBeInTheDocument()
-          await user.click(screen.getByRole('button', { name: 'Wizard back' }))
+            screen.getAllByText('Review and verify').length,
+          ).toBeGreaterThan(0)
 
-          expect(
-            await screen.findByRole('dialog', { name: GATE_TITLE }),
-          ).toBeInTheDocument()
-        })
-
-        it('leaves the sheet open on the draft when the dialog is closed', async () => {
-          const { onClose } = openCardFlow()
-
-          await user.click(
+        const closeGate = async () =>
+          user.click(
             within(
               await screen.findByRole('dialog', { name: GATE_TITLE }),
             ).getByRole('button', { name: 'Close' }),
           )
+
+        it('goes from Join Pro to send to the review step with the gate over it', async () => {
+          withHeadshot()
+          openCardFlow(true)
+
+          const dialog = await screen.findByRole('dialog', { name: GATE_TITLE })
+
+          // The review step is the one behind the dialog, not the message.
+          expectReview()
+          expect(
+            screen.getByRole('button', {
+              name: 'Join Pro to send',
+              hidden: true,
+            }),
+          ).toBeInTheDocument()
+          expect(screen.queryByText('What do you want to say?')).toBeNull()
+          expect(
+            within(dialog).getByRole('button', { name: 'Join Pro for $299' }),
+          ).toBeInTheDocument()
+          expect(screen.queryByTestId('pro-upgrade-flow')).toBeNull()
+        })
+
+        it('saves the draft under the card key before the gate opens', async () => {
+          withHeadshot()
+          openCardFlow(true)
+
+          await screen.findByRole('dialog', { name: GATE_TITLE })
+
+          expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledTimes(1)
+          expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
+            expect.objectContaining({
+              outreachType: 'p2p',
+              voterFileFilterId: 41,
+              proposalKey: PROPOSAL_KEY,
+              script: expect.stringContaining('Early voting opens Saturday'),
+            }),
+            expect.any(File),
+          )
+        })
+
+        it('stays on the review step when the gate is closed', async () => {
+          withHeadshot()
+          const { onClose } = openCardFlow(true)
+
+          await closeGate()
 
           await waitFor(() =>
             expect(
@@ -2918,16 +2968,161 @@ describe('SmsFlow', () => {
             ).not.toBeInTheDocument(),
           )
           expect(onClose).not.toHaveBeenCalled()
+          expectReview()
+          expect(
+            screen.getByRole('button', { name: 'Join Pro to send' }),
+          ).toBeInTheDocument()
         })
 
-        it('does not open the dialog for a flow opened without it', async () => {
-          openFlow()
+        it('saves the draft again and reopens the gate from the review button', async () => {
+          withHeadshot()
+          openCardFlow(true)
+          await closeGate()
 
-          await screen.findByText('Introduce myself to voters')
+          await user.click(
+            await screen.findByRole('button', { name: 'Join Pro to send' }),
+          )
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+          // Same key both times, so the server updates the one draft.
+          expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledTimes(2)
+          const keys = vi
+            .mocked(createOutreachDraft)
+            .mock.calls.map(([payload]) => payload.proposalKey)
+          expect(keys).toEqual([PROPOSAL_KEY, PROPOSAL_KEY])
+        })
+
+        it('reports the campaign created once for a draft saved twice', async () => {
+          withHeadshot()
+          vi.mocked(createOutreachDraft).mockResolvedValue({
+            draft: { id: 77 } as OutreachDetail,
+            conflictId: null,
+          })
+          openCardFlow(true)
+          await closeGate()
+          await user.click(
+            await screen.findByRole('button', { name: 'Join Pro to send' }),
+          )
+          await screen.findByRole('dialog', { name: GATE_TITLE })
+
+          const created = vi
+            .mocked(trackEvent)
+            .mock.calls.filter(
+              ([event]) =>
+                event === EVENTS.Dashboard.VoterContact.CampaignCreated,
+            )
+          expect(created).toHaveLength(1)
+        })
+
+        // The card's headshot is what lets the flow skip the message step.
+        // Without one the candidate adds it there, and the gate holds until
+        // review.
+        it('holds the gate on the headshot step and opens it at review', async () => {
+          openCardFlow(true)
+
+          expect(
+            (await screen.findAllByText('What do you want to say?')).length,
+          ).toBeGreaterThan(0)
           expect(
             screen.queryByRole('dialog', { name: GATE_TITLE }),
           ).not.toBeInTheDocument()
+          expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+
+          await attachImage()
+          await waitFor(() =>
+            expect(
+              screen.getByRole('button', { name: 'Continue' }),
+            ).toBeEnabled(),
+          )
+          // Adding the headshot is not review: still no gate.
+          expect(
+            screen.queryByRole('dialog', { name: GATE_TITLE }),
+          ).not.toBeInTheDocument()
+
+          await user.click(screen.getByRole('button', { name: 'Continue' }))
+          await screen.findByRole('heading', {
+            level: 3,
+            name: 'What do you want to call this campaign?',
+          })
+          expect(
+            screen.queryByRole('dialog', { name: GATE_TITLE }),
+          ).not.toBeInTheDocument()
+          await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+          expectReview()
+          expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
+            expect.objectContaining({ proposalKey: PROPOSAL_KEY }),
+            expect.any(File),
+          )
         })
+
+        // Edit opens the flow on the draft with no gate; the review button
+        // meets the gate the way the hub's does, over the review step.
+        it('puts the gate over the review step from the review button after Edit', async () => {
+          const { onClose } = openCardFlow(false)
+
+          await screen.findAllByText('What do you want to say?')
+          expect(
+            screen.queryByRole('dialog', { name: GATE_TITLE }),
+          ).not.toBeInTheDocument()
+          await attachImage()
+          await waitFor(() =>
+            expect(
+              screen.getByRole('button', { name: 'Continue' }),
+            ).toBeEnabled(),
+          )
+          await user.click(screen.getByRole('button', { name: 'Continue' }))
+          await user.click(
+            await screen.findByRole('button', { name: 'Continue' }),
+          )
+          await user.click(
+            await screen.findByRole('button', { name: 'Join Pro to send' }),
+          )
+
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+          expectReview()
+          expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
+            expect.objectContaining({ proposalKey: PROPOSAL_KEY }),
+            expect.any(File),
+          )
+
+          await closeGate()
+          await waitFor(() =>
+            expect(
+              screen.queryByRole('dialog', { name: GATE_TITLE }),
+            ).not.toBeInTheDocument(),
+          )
+          expect(onClose).not.toHaveBeenCalled()
+          expectReview()
+        })
+
+        it('does not open the gate for a flow opened without it', async () => {
+          withHeadshot()
+          openCardFlow(false)
+
+          await screen.findAllByText('What do you want to say?')
+          expect(
+            screen.queryByRole('dialog', { name: GATE_TITLE }),
+          ).not.toBeInTheDocument()
+          expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+        })
+      })
+
+      it('sends no card key from the hub, whose draft keeps the one-per-campaign slot', async () => {
+        openFlow()
+        await user.click(await reachReview())
+        await screen.findByRole('dialog', { name: GATE_TITLE })
+
+        expect(
+          vi.mocked(createOutreachDraft).mock.calls[0]?.[0],
+        ).not.toHaveProperty('proposalKey')
       })
 
       it('closes the sheet on the X, the draft being saved', async () => {

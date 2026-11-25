@@ -16,6 +16,7 @@
  *     OutreachNotificationInterceptor: a draft is not a send attempt.
  */
 
+import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import FormData from 'form-data'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -135,11 +136,18 @@ const postForm = (form: FormData) =>
     headers: { ...orgHeaders().headers, ...form.getHeaders() },
   })
 
-const createP2pDraft = (name = 'Weekend texts') => {
+const createP2pDraft = (
+  name = 'Weekend texts',
+  { proposalKey, listId = filterId } = {} as {
+    proposalKey?: string
+    listId?: number
+  },
+) => {
   const form = new FormData()
   form.append('outreachType', 'p2p')
   form.append('name', name)
-  form.append('voterFileFilterId', String(filterId))
+  form.append('voterFileFilterId', String(listId))
+  if (proposalKey) form.append('proposalKey', proposalKey)
   form.append('script', 'Hi {first_name}, this is Jane. Reply STOP to opt out.')
   form.append('file', Buffer.from('fake-image-bytes'), {
     filename: 'image.png',
@@ -389,6 +397,196 @@ describe('POST /v1/outreach/drafts', () => {
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
     expect(await service.prisma.outreach.count()).toBe(0)
+  })
+})
+
+// An agent card's Edit and Join Pro to send save the card's text before
+// checkout. The candidate may already hold a draft from the hub, and the card's
+// draft must neither 409 into it nor replace it: the flow would resume the
+// hub's old audience and the card's draft would be lost.
+describe('POST /v1/outreach/drafts from a chat card', () => {
+  const OLD_IMAGE_URL = `https://${ASSET_DOMAIN}/scheduled-campaign/jane-doe/p2p/draft/old.png`
+  const NEW_IMAGE_URL = `https://${ASSET_DOMAIN}/scheduled-campaign/jane-doe/p2p/draft/new.png`
+  let otherFilterId: number
+
+  beforeEach(async () => {
+    const other = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: orgSlug, name: 'ward 3' },
+    })
+    otherFilterId = other.id
+  })
+
+  it('saves the card draft beside the draft the hub already holds', async () => {
+    const hub = await createP2pDraft('Hub draft')
+    expect(hub.status).toBe(HttpStatus.CREATED)
+    const proposalKey = randomUUID()
+
+    const card = await createP2pDraft('Card draft', {
+      proposalKey,
+      listId: otherFilterId,
+    })
+
+    expect(card.status).toBe(HttpStatus.CREATED)
+    expect(card.data.id).not.toBe(hub.data.id)
+    expect(card.data.voterFileFilterId).toBe(otherFilterId)
+    const rows = await service.prisma.outreach.findMany({
+      where: { campaignId: CAMPAIGN_ID, status: OutreachStatus.draft },
+      orderBy: { id: 'asc' },
+    })
+    expect(rows.map((row) => [row.id, row.proposalKey])).toEqual([
+      [hub.data.id, null],
+      [card.data.id, proposalKey],
+    ])
+    // The hub's draft is untouched, and so is its image.
+    expect(rows[0]?.name).toBe('Hub draft')
+    expect(deleteObject).not.toHaveBeenCalled()
+  })
+
+  it('still caps the hub at one draft once a card draft exists', async () => {
+    await createP2pDraft('Card draft', { proposalKey: randomUUID() })
+    const hub = await createP2pDraft('Hub draft')
+    expect(hub.status).toBe(HttpStatus.CREATED)
+
+    const again = await createP2pDraft('Hub again')
+
+    expect(again.status).toBe(HttpStatus.CONFLICT)
+    expect(again.data.existingId).toBe(hub.data.id)
+  })
+
+  it('updates the same row when the card is saved again, dropping the old image', async () => {
+    const proposalKey = randomUUID()
+    uploadFile.mockResolvedValueOnce(OLD_IMAGE_URL)
+    const first = await createP2pDraft('First walk', { proposalKey })
+    uploadFile.mockResolvedValueOnce(NEW_IMAGE_URL)
+
+    const second = await createP2pDraft('Second walk', {
+      proposalKey,
+      listId: otherFilterId,
+    })
+
+    expect(second.status).toBe(HttpStatus.CREATED)
+    expect(second.data.id).toBe(first.data.id)
+    expect(second.data.name).toBe('Second walk')
+    expect(second.data.voterFileFilterId).toBe(otherFilterId)
+    expect(second.data.imageUrl).toBe(NEW_IMAGE_URL)
+    expect(
+      await service.prisma.outreach.count({
+        where: { campaignId: CAMPAIGN_ID },
+      }),
+    ).toBe(1)
+    expect(deleteObject).toHaveBeenCalledWith(
+      ASSET_DOMAIN,
+      'scheduled-campaign/jane-doe/p2p/draft/old.png',
+    )
+  })
+
+  it('leaves one row when the card is saved twice at once', async () => {
+    const proposalKey = randomUUID()
+
+    const results = await Promise.all([
+      createP2pDraft('First', { proposalKey }),
+      createP2pDraft('Second', { proposalKey }),
+    ])
+
+    expect(results.map((res) => res.status)).toEqual([
+      HttpStatus.CREATED,
+      HttpStatus.CREATED,
+    ])
+    expect(
+      await service.prisma.outreach.count({
+        where: { campaignId: CAMPAIGN_ID, proposalKey },
+      }),
+    ).toBe(1)
+  })
+
+  it('hands the key to a new draft when the card is saved after its text was canceled', async () => {
+    const proposalKey = randomUUID()
+    const first = await createP2pDraft('First', { proposalKey })
+    await service.prisma.outreach.update({
+      where: { id: first.data.id },
+      data: { status: OutreachStatus.canceled },
+    })
+
+    const second = await createP2pDraft('Second', { proposalKey })
+
+    expect(second.status).toBe(HttpStatus.CREATED)
+    expect(second.data.id).not.toBe(first.data.id)
+    const old = await service.prisma.outreach.findUnique({
+      where: { id: first.data.id },
+    })
+    expect(old?.proposalKey).toBeNull()
+  })
+
+  it('409s a card whose text already went out, leaving the row alone', async () => {
+    const proposalKey = randomUUID()
+    const first = await createP2pDraft('First', { proposalKey })
+    await service.prisma.outreach.update({
+      where: { id: first.data.id },
+      data: { status: OutreachStatus.pending },
+    })
+    deleteObject.mockClear()
+
+    const second = await createP2pDraft('Second', { proposalKey })
+
+    expect(second.status).toBe(HttpStatus.CONFLICT)
+    // The image the refused create uploaded is removed again.
+    expect(deleteObject).toHaveBeenCalledTimes(1)
+    const row = await service.prisma.outreach.findUnique({
+      where: { id: first.data.id },
+    })
+    expect(row?.name).toBe('First')
+    expect(row?.status).toBe(OutreachStatus.pending)
+  })
+
+  it('409s a key another organization holds', async () => {
+    const proposalKey = randomUUID()
+    const otherOrg = await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-978',
+        ownerId: service.user.id,
+        positionId: 'pos-2',
+      },
+    })
+    const otherCampaign = await service.prisma.campaign.create({
+      data: {
+        id: 978,
+        organizationSlug: otherOrg.slug,
+        userId: service.user.id,
+        slug: 'john-doe',
+        isPro: false,
+        details: { state: 'TX', zip: '78634' },
+        data: {},
+      },
+    })
+    await service.prisma.outreach.create({
+      data: {
+        campaignId: otherCampaign.id,
+        organizationSlug: otherOrg.slug,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.draft,
+        proposalKey,
+        title: 'P2P Outreach - Campaign 978',
+      },
+    })
+
+    const res = await createP2pDraft('Mine', { proposalKey })
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(
+      await service.prisma.outreach.count({
+        where: { campaignId: CAMPAIGN_ID },
+      }),
+    ).toBe(0)
+  })
+
+  it('refuses a key on a robocall draft', async () => {
+    const res = await service.client.post(
+      '/v1/outreach/drafts',
+      { ...robocallDraftBody(), proposalKey: randomUUID() },
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 })
 

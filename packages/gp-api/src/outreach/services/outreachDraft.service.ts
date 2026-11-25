@@ -27,6 +27,7 @@ import {
 import { OutreachSocialService } from './outreachSocial.service'
 import { RobocallComplianceResultService } from './robocallComplianceResult.service'
 import { requireBoundPassingCompliance } from '../util/robocallComplianceGate.util'
+import { proposalHolderRefusal } from '../util/createUnderProposalKey.util'
 
 class DraftAlreadyConverted extends Error {}
 
@@ -41,6 +42,15 @@ const DRAFT_OUTREACH_TYPES: Record<
 > = {
   p2p: OutreachType.p2p,
   robocall: OutreachType.robocall,
+}
+
+type P2pDraftFields = {
+  name: string
+  script: string | undefined
+  message: string | undefined
+  imageUrl: string
+  voterFileFilterId: number
+  trackerTaskId: string | undefined
 }
 
 const draftConflict = (existingId: number): ConflictException =>
@@ -74,12 +84,19 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
 
   private readonly audioBucket: string
 
+  // The campaign's own slot: a draft written from a chat card holds a
+  // proposal key and has its slot under that key, so it never counts here.
   findActiveDraft(
     campaignId: number,
     outreachType: OutreachType,
   ): Promise<Outreach | null> {
     return this.findFirst({
-      where: { campaignId, outreachType, status: OutreachStatus.draft },
+      where: {
+        campaignId,
+        outreachType,
+        status: OutreachStatus.draft,
+        proposalKey: null,
+      },
     })
   }
 
@@ -90,10 +107,13 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
     campaign: Campaign,
     input: CreateOutreachDraftRequest,
   ): Promise<void> {
-    await this.assertNoActiveDraft(
-      campaign.id,
-      DRAFT_OUTREACH_TYPES[input.outreachType],
-    )
+    // A keyed draft is resolved by its key inside the write, not capped.
+    if (!input.proposalKey) {
+      await this.assertNoActiveDraft(
+        campaign.id,
+        DRAFT_OUTREACH_TYPES[input.outreachType],
+      )
+    }
     await this.requireOwnFilter(campaign, input.voterFileFilterId)
   }
 
@@ -103,26 +123,137 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
     imageUrl: string,
   ): Promise<OutreachDetail> {
     await this.requireOwnFilter(campaign, input.voterFileFilterId)
-    const row = await this.createDraftRow(campaign.id, OutreachType.p2p, (tx) =>
-      tx.outreach.create({
-        data: {
-          campaignId: campaign.id,
-          organizationSlug: campaign.organizationSlug,
-          outreachType: OutreachType.p2p,
-          status: OutreachStatus.draft,
-          name: input.name,
-          // Both columns, the way the send path writes them, so a resume
-          // reads back the candidate's own text from either.
-          script: input.script,
-          message: input.script,
-          imageUrl,
-          voterFileFilterId: input.voterFileFilterId,
-          trackerTaskId: input.trackerTaskId,
-          title: `P2P Outreach - Campaign ${campaign.id}`,
-        },
-      }),
-    )
-    return this.socialService.findDetail({ campaignId: campaign.id }, row.id)
+    const fields = {
+      name: input.name,
+      // Both columns, the way the send path writes them, so a resume
+      // reads back the candidate's own text from either.
+      script: input.script,
+      message: input.script,
+      imageUrl,
+      voterFileFilterId: input.voterFileFilterId,
+      trackerTaskId: input.trackerTaskId,
+    }
+    const id = input.proposalKey
+      ? await this.saveProposalP2pDraft(campaign, input.proposalKey, fields)
+      : (
+          await this.createDraftRow(campaign.id, OutreachType.p2p, (tx) =>
+            tx.outreach.create({
+              data: this.newP2pDraftData(campaign, fields),
+            }),
+          )
+        ).id
+    return this.socialService.findDetail({ campaignId: campaign.id }, id)
+  }
+
+  private newP2pDraftData(
+    campaign: Campaign,
+    fields: P2pDraftFields,
+  ): Prisma.OutreachUncheckedCreateInput {
+    return {
+      campaignId: campaign.id,
+      organizationSlug: campaign.organizationSlug,
+      outreachType: OutreachType.p2p,
+      status: OutreachStatus.draft,
+      title: `P2P Outreach - Campaign ${campaign.id}`,
+      ...fields,
+    }
+  }
+
+  // A text written from a chat card holds that card's key, and the key is
+  // the draft's slot: the candidate's hub draft stays where it is, and saving
+  // the card's text again updates its own draft in place rather than
+  // stacking a second one or 409ing into the hub's. The superseded image is
+  // the only thing that goes, and only once the row points at the new one.
+  // A card's earlier unpaid text (checkout abandoned, or canceled) hands the
+  // key to this draft, as every create under a key does.
+  private async saveProposalP2pDraft(
+    campaign: Campaign,
+    proposalKey: string,
+    fields: P2pDraftFields,
+  ): Promise<number> {
+    const { organizationSlug } = campaign
+    if (!organizationSlug) throw new NotFoundException('Voter list not found')
+    const attempt = async (): Promise<{
+      id: number
+      replacedImageUrl: string | null
+    }> =>
+      this.client.$transaction(async (tx) => {
+        const holder = await tx.outreach.findUnique({
+          where: { proposalKey },
+          select: {
+            id: true,
+            organizationSlug: true,
+            outreachType: true,
+            status: true,
+            imageUrl: true,
+          },
+        })
+        if (holder) {
+          const refusal = proposalHolderRefusal(
+            holder,
+            organizationSlug,
+            OutreachType.p2p,
+          )
+          if (refusal) throw refusal
+          if (holder.status === OutreachStatus.draft) {
+            const { count } = await tx.outreach.updateMany({
+              where: { id: holder.id, status: OutreachStatus.draft },
+              data: fields,
+            })
+            // Converted to a send since the read: it is no longer a draft
+            // to update, and its key is the proposal going out.
+            if (count === 0) {
+              throw new ConflictException('This proposal is already being sent')
+            }
+            return { id: holder.id, replacedImageUrl: holder.imageUrl }
+          }
+          await tx.outreach.update({
+            where: { id: holder.id },
+            data: { proposalKey: null },
+          })
+        }
+        const created = await tx.outreach.create({
+          data: { ...this.newP2pDraftData(campaign, fields), proposalKey },
+          select: { id: true },
+        })
+        return { id: created.id, replacedImageUrl: null }
+      })
+    let saved: Awaited<ReturnType<typeof attempt>>
+    try {
+      saved = await attempt()
+    } catch (err) {
+      // Two taps raced past the read and the unique index let one through.
+      // The row that won holds the key now, so this one updates it.
+      if (
+        !(err instanceof Prisma.PrismaClientKnownRequestError) ||
+        err.code !== 'P2002'
+      ) {
+        throw err
+      }
+      saved = await attempt()
+    }
+    if (saved.replacedImageUrl && saved.replacedImageUrl !== fields.imageUrl) {
+      await this.deleteReplacedImage(saved.id, saved.replacedImageUrl)
+    }
+    return saved.id
+  }
+
+  // The row already points at the new image, so a failure here leaves one
+  // orphaned object, the lesser harm, and is logged rather than thrown.
+  private async deleteReplacedImage(
+    outreachId: number,
+    imageUrl: string,
+  ): Promise<void> {
+    const key = keyFromAssetUrl(imageUrl)
+    if (!key) return
+    try {
+      await this.s3.deleteObject(ASSET_DOMAIN, key)
+    } catch (error) {
+      this.logger.error(
+        { error: serializeError(error), outreachId },
+        'draft updated but its previous image was not deleted',
+      )
+    }
   }
 
   async createRobocallDraft(
@@ -265,7 +396,12 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
       return await this.client.$transaction(
         async (tx) => {
           const existing = await tx.outreach.findFirst({
-            where: { campaignId, outreachType, status: OutreachStatus.draft },
+            where: {
+              campaignId,
+              outreachType,
+              status: OutreachStatus.draft,
+              proposalKey: null,
+            },
             select: { id: true },
           })
           if (existing) throw draftConflict(existing.id)
@@ -282,9 +418,9 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  // One active draft per type: the wizard resumes the existing one rather than
-  // accumulating half-built sends, so the id rides the 409 for the client to
-  // switch to resume.
+  // One active draft per type from the hub: the wizard resumes the existing
+  // one rather than accumulating half-built sends, so the id rides the 409
+  // for the client to switch to resume. A card's keyed draft is outside it.
   private async assertNoActiveDraft(
     campaignId: number,
     outreachType: OutreachType,
