@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from '@/shared/test-utils/arrays.util'
-import { ExperimentRunStatus } from '../../generated/prisma'
+import { AgentRunStatus, ExperimentRunStatus } from '../../generated/prisma'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { addDays, getDay, parseISO, subDays } from 'date-fns'
@@ -287,6 +287,68 @@ describe('GET /v1/meetings', () => {
       const day = getDay(parseISO(m.meetingDate))
       expect(day).toBe(2)
     }
+  })
+
+  // A schedule that ran on the PMF Engine before the switch flipped has its
+  // artifact in S3 only. A reader that trusted the switch alone reported no
+  // schedule, and nothing re-dispatches one for an existing office, so the
+  // meetings list would stay empty.
+  it('reads a PMF Engine schedule while the switch sends new runs to gp-api', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'meeting_schedule')
+    const orgSlug = 'eo-pmf-schedule-after-flip'
+    await seedElectedOffice(orgSlug)
+    await seedScheduleRun(orgSlug)
+    mockS3({ 'schedule-key.json': JSON.stringify(foundSchedule) })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.scheduleKnown).toBe(true)
+    expect(result.data.meetings.length).toBeGreaterThan(0)
+  })
+
+  // The other direction, which is what makes reverting the line a rollback: an
+  // office whose schedule ran on gp-api's engine keeps it on the AgentRun row
+  // and has no published artifact at all.
+  it('reads a gp-api schedule after the switch is turned back off', async () => {
+    const orgSlug = 'eo-agent-schedule-after-revert'
+    await seedElectedOffice(orgSlug)
+    await service.prisma.agentRun.create({
+      data: {
+        agentName: 'meeting_schedule',
+        organizationSlug: orgSlug,
+        status: AgentRunStatus.completed,
+        manifest: {},
+        shapeHash: 'a-shape-hash',
+        input: { organizationSlug: orgSlug },
+        artifact: {
+          generated_at: '2026-01-01',
+          status: 'found',
+          meeting_name: 'City Council',
+          location: 'City Hall Council Chambers, 200 Main St',
+          rrule: 'FREQ=MONTHLY;BYDAY=2MO,4MO',
+          human: '2nd and 4th Monday',
+          time: '19:00',
+          timezone: 'America/Denver',
+          duration_minutes: 180,
+          sources: [{ url: 'https://example.gov', note: 'meeting page' }],
+          discovered_schedule_location: null,
+        },
+      },
+    })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.scheduleKnown).toBe(true)
+    expect(result.data.meetings.length).toBeGreaterThan(0)
+    expect(
+      (result.data.meetings as Array<{ meetingName: string }>)[0].meetingName,
+    ).toBe('City Council')
   })
 
   it('marks dates with existing briefings as hasBriefing:true', async () => {
