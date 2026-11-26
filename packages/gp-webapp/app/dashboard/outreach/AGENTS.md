@@ -32,7 +32,11 @@ A completed text row's history Results column reads "N responded" on Win and
 Serve. A Win text whose delivery receipts have been read adds Delivered and
 Not delivered ahead of Responded (`notDelivered` on the results read; null on
 Serve, whose fulfilment file carries replies only), and No response counts
-from Delivered. An email's card reads Delivered, Not delivered (bounced), Clicked with
+from Delivered. A completed phone banking list's card is based on calls made
+(`entriesCalled`): each call outcome, then its answers counted by call
+(`callsBySupport` on Win, `callsByFollowUp` on Serve; a call counts toward an
+answer when anyone on it gave it), so no share is over a different total.
+An email's card reads Delivered, Not delivered (bounced), Clicked with
 its share marked CTR, Opted out (the send's unsubscribes), Opened
 (approximate) and Marked as spam.
 
