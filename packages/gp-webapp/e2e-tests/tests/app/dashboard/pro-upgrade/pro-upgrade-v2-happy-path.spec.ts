@@ -1,11 +1,10 @@
 import { addDays, addYears, format } from 'date-fns'
-import { expect, test } from 'src/fixtures/test'
+import { expect, type Page, test } from 'src/fixtures/test'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
-import { eventually } from 'tests/utils/eventually'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
 import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
@@ -19,10 +18,9 @@ import { withGatewayRetry } from '@goodparty_org/test-users'
 // the mechanism that replaced the post-payment campaign-verification handoff
 // candidates never came back for.
 //
-// The `checkout.session.completed` event is delivered in-process via
-// deliverStripeEvent (the real paymentEventsService handler), so no inbound
-// webhook from Stripe is needed. It leaves a test-mode subscription in place;
-// the @test.goodparty.org user is swept by gp-api's deleteTestUsers.
+// The preview spec delivers the paid invoice in-process; the dev spec waits
+// for Stripe itself. Both leave a test-mode subscription in place; the
+// @test.goodparty.org user is swept by gp-api's deleteTestUsers.
 
 type CampaignProState = { isPro?: boolean }
 type TcrComplianceMine = { status?: string | null }
@@ -31,11 +29,7 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-test('filed candidate submits filing details before payment and lands on the submitted confirmation', async ({
-  page,
-}) => {
-  // deliverStripeEvent delivers the webhook in-process, so the isPro flip is
-  // near-instant.
+const verifyProCheckout = async (page: Page, inbound: boolean) => {
   test.setTimeout(8 * 60 * 1000)
 
   // Isolated: mutates account-level state (campaign → Pro).
@@ -221,17 +215,17 @@ test('filed candidate submits filing details before payment and lands on the sub
   await completeButton.scrollIntoViewIfNeeded()
   await completeButton.click()
 
-  // Deliver checkout.session.completed in-process: the real handler flips
-  // isPro and runs the deferred compliance kickoff, no Stripe inbound needed.
-  // On dev Stripe's own webhook can land at the same moment, and the handler
-  // is idempotent, so a transient write conflict (503) is safe to retry.
+  // Previews have no target registered in Stripe. The dev smoke test makes
+  // no fixture call, so only an actual webhook can activate its subscription.
   await page.waitForURL(/\/dashboard\/pro-upgrade\/success/, {
     timeout: 60_000,
   })
   expect(sessionId).toBeTruthy()
-  await withGatewayRetry('POST stripe/events', () =>
-    deliverStripeEvent(client, sessionId!),
-  )
+  if (!inbound) {
+    await withGatewayRetry('POST stripe/events', () =>
+      deliverStripeEvent(client, sessionId!),
+    )
+  }
 
   // 6. Success — the submitted confirmation, never the Start-verification
   // handoff: the filing is already on record.
@@ -249,19 +243,11 @@ test('filed candidate submits filing details before payment and lands on the sub
 
   // THE mechanism under test, half two: the webhook flips isPro server-side
   // and carries the deferred compliance kickoff with it.
-  await eventually(
-    {
-      that: 'the campaign isPro flips server-side via deliverStripeEvent',
-      minTimeout: 500,
-      maxTimeout: 2_000,
-      retries: 5,
-    },
-    async () => {
-      const res = await client.get<CampaignProState>('/v1/campaigns/mine')
-      expect(res.status).toBe(200)
-      expect(res.data.isPro).toBe(true)
-    },
-  )
+  await expect(async () => {
+    const res = await client.get<CampaignProState>('/v1/campaigns/mine')
+    expect(res.status).toBe(200)
+    expect(res.data.isPro).toBe(true)
+  }).toPass({ timeout: 60_000, intervals: [500, 1_000, 2_000, 5_000] })
 
   // The single centered Done exits to the dashboard once Pro lands.
   const doneButton = page.getByRole('button', { name: 'Done' })
@@ -282,4 +268,19 @@ test('filed candidate submits filing details before payment and lands on the sub
   await expect(
     page.getByText('Verify your campaign to send texts.'),
   ).toHaveCount(0)
+}
+
+test('filed candidate submits filing details before payment and lands on the submitted confirmation', async ({
+  page,
+}) => verifyProCheckout(page, false))
+
+test('real Stripe paid invoice grants Pro after checkout @dev-only', async ({
+  page,
+  baseURL,
+}) => {
+  test.skip(
+    !baseURL || new URL(baseURL).hostname !== 'dev.goodparty.org',
+    'Requires the Stripe test-mode webhook for dev',
+  )
+  await verifyProCheckout(page, true)
 })

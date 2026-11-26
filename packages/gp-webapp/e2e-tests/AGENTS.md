@@ -26,7 +26,8 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
   - The test drives a **live async pipeline the preview doesn't run** (e.g. the SQS analyze round-trip in `polls-onboarding`).
   - It needs **live external data the preview doesn't have** (e.g. BallotReady future-election data) or **core external infrastructure a preview can't reach or stand up.**
 
-  **What carries the tag today:** two specs.
+  **What carries the tag today:**
+  - `tests/app/dashboard/pro-upgrade/pro-upgrade-v2-happy-path.spec.ts` has a dev-only variant that pays through Stripe test mode and requires real `invoice.paid` delivery. The standard preview variant injects the real paid test invoice in-process.
   - `tests/app/polls/polls-onboarding.spec.ts`, for the poll pipeline: the test completes the poll with `pollAnalysisComplete` messages on dev's SQS queue. The expansion's Stripe checkout rides along because it needs that completed poll. The `pollCreation` and `pollExpansion` jobs that post a poll's Slack CSV run on PRs in `poll-send.spec.ts`, which expands a poll seeded as completed, and what the Constituents overlay shows a poll respondent runs on PRs in `poll-respondent-overlay.spec.ts`; both seed through `POST /v1/test-fixtures/polls/results`.
   - `tests/app/contacts/import-contacts-people-reads.spec.ts`, for the contact overlay: Databricks reads imported contacts through a federated view over dev's Postgres, and a preview writes its imports to its own database, which Databricks cannot reach. Everything else about an import runs on PRs in the other `import-contacts-*` specs.
 

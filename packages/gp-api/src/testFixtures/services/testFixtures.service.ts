@@ -9,6 +9,10 @@ import { OutreachResultsAdminService } from '@/outreach/services/outreachResults
 import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
+import {
+  CheckoutSessionMode,
+  WebhookEventType,
+} from '@/payments/payments.types'
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import type { ScheduleName } from '@/jobs/jobs.registry'
@@ -53,6 +57,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { randomUUID } from 'crypto'
@@ -67,7 +72,6 @@ import {
   subHours,
   subMinutes,
 } from 'date-fns'
-import Stripe from 'stripe'
 import {
   Campaign,
   DomainSource,
@@ -1111,28 +1115,64 @@ export class TestFixturesService {
   async deliverStripeEvent(
     type: 'checkout.session.completed',
     sessionId: string,
+    userId: number,
   ): Promise<DeliverStripeEventResponse> {
     const session = await this.stripeService.retrieveCheckoutSession(sessionId)
     const eventId = `evt_fixture_${randomUUID().replace(/-/g, '')}`
-    // Construct a minimal Stripe.Event wrapper — the handler reads only
-    // event.type and event.data.object, so the other envelope fields are
-    // placeholders. The type assertion is intentional: we are building an
-    // in-process fixture, not a real Stripe delivery.
-    const event = {
+    const paymentEvents = this.moduleRef.get(PaymentEventsService, {
+      strict: false,
+    })
+    const envelope = {
       id: eventId,
-      object: 'event',
-      type,
-      data: { object: session },
+      object: 'event' as const,
       api_version: '2025-03-31.basil',
       created: Math.floor(Date.now() / 1000),
       livemode: false,
       pending_webhooks: 0,
       request: null,
-    } as Stripe.CheckoutSessionCompletedEvent
-    const paymentEvents = this.moduleRef.get(PaymentEventsService, {
-      strict: false,
-    })
-    await paymentEvents.handleEvent(event)
+    }
+
+    if (session.mode === CheckoutSessionMode.SUBSCRIPTION) {
+      if (session.metadata?.userId !== String(userId) || session.livemode) {
+        throw new ForbiddenException('Test checkout does not belong to caller')
+      }
+      const subscriptionId =
+        typeof session.subscription === 'string'
+          ? session.subscription
+          : session.subscription?.id
+      if (session.status !== 'complete' || !subscriptionId) {
+        throw new ServiceUnavailableException(
+          'Stripe checkout has not completed',
+        )
+      }
+      const subscription = await this.stripeService.retrieveSubscription(
+        subscriptionId,
+        { expand: ['latest_invoice'] },
+      )
+      const invoice = subscription.latest_invoice
+      if (
+        !invoice ||
+        typeof invoice === 'string' ||
+        invoice.status !== 'paid'
+      ) {
+        throw new ServiceUnavailableException(
+          'Stripe subscription invoice is not paid',
+        )
+      }
+      await paymentEvents.handleEvent({
+        ...envelope,
+        type: WebhookEventType.InvoicePaid,
+        data: { object: invoice },
+      })
+    } else {
+      // Construct a minimal Stripe event wrapper for the in-process fixture.
+      // The payload is the real checkout session, not a simulated payment.
+      await paymentEvents.handleEvent({
+        ...envelope,
+        type,
+        data: { object: session },
+      })
+    }
     return { eventId, status: 'delivered' }
   }
 

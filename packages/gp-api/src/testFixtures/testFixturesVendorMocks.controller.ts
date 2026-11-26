@@ -132,7 +132,11 @@ export class TestFixturesVendorMocksController {
     if (!user.email || !isTestUser({ email: user.email })) {
       throw new ForbiddenException('Test users only')
     }
-    return this.testFixtures.deliverStripeEvent(body.type, body.sessionId)
+    return this.testFixtures.deliverStripeEvent(
+      body.type,
+      body.sessionId,
+      user.id,
+    )
   }
 
   // Stands in for the staff "override CV validation" step. The pre-submission
