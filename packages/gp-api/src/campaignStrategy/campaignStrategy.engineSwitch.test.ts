@@ -3,7 +3,11 @@ import { subMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { AgentRunStatus, OrganizationRole } from '@/generated/prisma'
+import {
+  AgentRunStatus,
+  ExperimentRunStatus,
+  OrganizationRole,
+} from '@/generated/prisma'
 import { useTestService } from '@/test-service'
 import { StrategicLandscapeParamsService } from './services/strategicLandscapeParams.service'
 
@@ -281,6 +285,67 @@ describe('POST /v1/campaignStrategy/mine/strategic-landscape, engine switch', ()
         },
       }),
     ).toBe(1)
+  })
+  // A section's run id is written into whichever table the switch named when it
+  // was dispatched. At a prod flip, or a revert, the plan can name a run on the
+  // engine the switch no longer picks, and reading only the switched-to table
+  // made the section look idle: a second paid run started while the first landed
+  // nowhere the plan points at. The reader asks the other table too.
+  it('reads a section run that the other engine holds, after the switch flips on', async () => {
+    vi.stubEnv('AGENTS_ON_GP_API', 'opposition_research')
+    const campaign = await seedCampaign()
+    const pmfRun = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'pmf-held-run',
+        experimentType: 'opposition_research',
+        organizationSlug: SLUG,
+        status: ExperimentRunStatus.RUNNING,
+        params: {},
+      },
+    })
+    await seedPlan(campaign.id, { oppositionRunId: pmfRun.runId })
+    stubParams(builtParams())
+    const pmf = stubPmfDispatch()
+
+    const res = await poll()
+
+    // In flight, so no new run: the PMF Engine's own run still answers. The
+    // opportunities section is untouched here, and it still dispatches.
+    expect(res.data).toEqual({ status: 'generating' })
+    expect(pmf).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ type: 'opportunities_and_challenges' }),
+    )
+    expect((await planOf(campaign.id)).oppositionRunId).toBe(pmfRun.runId)
+    expect(
+      await service.prisma.agentRun.count({
+        where: { organizationSlug: SLUG, agentName: 'opposition_research' },
+      }),
+    ).toBe(0)
+  })
+
+  it('reads a section run that gp-api holds, after the switch flips off', async () => {
+    const campaign = await seedCampaign()
+    const agentRun = await service.prisma.agentRun.create({
+      data: {
+        agentName: 'opposition_research',
+        organizationSlug: SLUG,
+        status: AgentRunStatus.running,
+        manifest: {},
+        shapeHash: 'a-shape-hash',
+        input: {},
+      },
+    })
+    await seedPlan(campaign.id, { oppositionRunId: agentRun.id })
+    stubParams(builtParams())
+    const pmf = stubPmfDispatch()
+
+    const res = await poll()
+
+    expect(res.data).toEqual({ status: 'generating' })
+    expect(pmf).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ type: 'opportunities_and_challenges' }),
+    )
+    expect((await planOf(campaign.id)).oppositionRunId).toBe(agentRun.id)
   })
 })
 

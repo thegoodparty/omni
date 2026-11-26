@@ -962,11 +962,10 @@ jwIDAQAB
         ? { DRIFT_PROBE_PEERLY_IDENTITY_ID: driftProbePeerlyIdentityId }
         : {}),
       // Background agents that dispatch to gp-api's own agents instead of
-      // the PMF Engine. A preview names every agent gp-api has, so the judge's
-      // candidate arm runs gp-api's engine; prod names only the agents the
-      // Universal Judge has read as same or better, and dev adds the agents
-      // whose dev-versus-preview comparison passed, so they accumulate real
-      // traffic there first (docs/agent-evals.md, deploy/agentsOnGpApi.ts).
+      // the PMF Engine. Every environment names every agent gp-api has; a
+      // preview must, because it is the judge's candidate arm and an agent it
+      // left out would run the PMF Engine on both arms
+      // (docs/agent-evals.md, deploy/agentsOnGpApi.ts).
       AGENTS_ON_GP_API: agentsOnGpApi(environment),
     },
     permissions: [
