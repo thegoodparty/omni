@@ -120,6 +120,7 @@ import {
 import { FollowUpOutstandingSection } from './FollowUpOutstandingSection'
 import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
+import { DoorKnockingResults } from './DoorKnockingResults'
 import { CampaignTurfList } from './CampaignTurfList'
 import { getOutreachHistoryCopy } from './outreachHistoryCopy'
 import {
@@ -1563,11 +1564,10 @@ export const OutreachDetailsDrawer = ({
               </p>
             )}
 
-            {/* Unlike phone banking's, this section does not give way to a
-                Results table on a finished row: door knocking has no outcomes
-                surface here, and a walk is routinely ended with doors left
-                unlogged — so how much of the list was covered is the answer
-                on a done walk too, not only on a live one. */}
+            {/* Unlike phone banking's, the turfs' progress does not give way
+                to the results on a finished row: a walk is routinely ended
+                with doors left unlogged, so how much of the list was covered
+                is still worth showing beside its Statistics. */}
             {/* The campaign's own turfs: one row per turf, plus an "Add
                 another turf" affordance that lands on the create flow scoped
                 to this campaign. Rendered for every door-knocking row rather
@@ -1583,6 +1583,13 @@ export const OutreachDetailsDrawer = ({
                 numbers a second time on the one campaign shape it appeared
                 for. A campaign-wide rollup would need a real total rather
                 than the anchor's, and nothing computes one yet. */}
+            {isDoorKnocking && row && (
+              <DoorKnockingResults
+                anchorOutreachId={anchorOutreachId}
+                isServe={isServe}
+              />
+            )}
+
             {isDoorKnocking && row && (
               <CampaignTurfList
                 isServe={isServe}

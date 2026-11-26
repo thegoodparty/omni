@@ -38,6 +38,7 @@ import type {
   DoorKnockingTalkingPointsDraftResponse,
   DoorKnockingTalkingPointsPurpose,
   OutreachEventDetails,
+  DoorKnockingCampaignResults,
   DoorKnockingTurf,
   GeoJsonPolygon,
   GeoJsonShape,
@@ -1963,6 +1964,11 @@ export type APIEndpoints = {
   'GET /v1/door-knocking/campaigns/:anchorId': {
     Request: {}
     Response: DoorKnockingTurf[]
+  }
+  // The campaign's outcomes across every turf, counted by door.
+  'GET /v1/door-knocking/campaigns/:anchorId/results': {
+    Request: {}
+    Response: DoorKnockingCampaignResults
   }
   // One turf, org-scoped and NOT surface-scoped — which is what the two print
   // surfaces need it for. They hold an id they already fetched a route with,

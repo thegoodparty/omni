@@ -21,6 +21,7 @@ export const OUTREACH_RESULTS_COPY = {
   basedOn: (total: number, one: string, other: string) =>
     `Based on ${formatResultCount(total)} ${total === 1 ? one : other}`,
   respondedCount: (count: number) => `${formatResultCount(count)} responded`,
+  answeredCount: (count: number) => `${formatResultCount(count)} answered`,
   clickedCount: (count: number, sent: number) =>
     `${formatResultCount(count)} clicked (${percentOf(count, sent)}% CTR)`,
 } as const

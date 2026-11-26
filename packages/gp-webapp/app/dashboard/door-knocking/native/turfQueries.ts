@@ -61,6 +61,18 @@ export const campaignTurfsQueryOptions = (anchorOutreachId: number) =>
       }).then((res) => res.data),
   })
 
+// The campaign's outcomes across every turf. On a key of its own, outside
+// CAMPAIGN_TURFS_QUERY_KEY, so the lifecycle writes that await that key's
+// refetch never wait on this read too; knocks change it, not those writes.
+export const campaignResultsQueryOptions = (anchorOutreachId: number) =>
+  queryOptions({
+    queryKey: ['door-knocking-campaign-results', anchorOutreachId],
+    queryFn: () =>
+      clientRequest('GET /v1/door-knocking/campaigns/:anchorId/results', {
+        anchorId: String(anchorOutreachId),
+      }).then((res) => res.data),
+  })
+
 // Whether the list the who step is on keeps anybody at all.
 //
 // Keyed on the filters alone, because that is the whole input — no polygon is
