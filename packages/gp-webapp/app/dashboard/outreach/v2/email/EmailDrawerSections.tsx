@@ -57,6 +57,7 @@ export const EmailDrawerSections = ({
             rows={EMAIL_RESULT_ROWS.map((row) => ({
               label: row.label,
               count: row.count(counts),
+              percentSuffix: row.percentSuffix,
             }))}
           />
         </DetailsSection>

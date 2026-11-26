@@ -1,9 +1,11 @@
 import { ChartColumnIcon } from '@styleguide/components/ui/icons'
-import { percentOf } from '../outreachResultsCopy'
+import { formatResultCount, percentOf } from '../outreachResultsCopy'
 
 export interface OutreachResultRow {
   label: string
   count: number
+  // Names what the share means where it has a name of its own (CTR).
+  percentSuffix?: string
 }
 
 interface OutreachResultsCardProps {
@@ -37,10 +39,11 @@ export const OutreachResultsCard = ({
         <span className="text-sm">{row.label}</span>
         <span className="flex items-baseline gap-2">
           <span className="text-sm font-semibold">
-            {row.count.toLocaleString()}
+            {formatResultCount(row.count)}
           </span>
           <span className="text-xs text-muted-foreground">
             {percentOf(row.count, total)}%
+            {row.percentSuffix ? ` ${row.percentSuffix}` : ''}
           </span>
         </span>
       </div>

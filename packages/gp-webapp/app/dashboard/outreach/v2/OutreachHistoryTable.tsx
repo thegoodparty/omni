@@ -190,8 +190,8 @@ const DoorKnockingPeopleMetric = ({
 }
 
 // An email's counts live on its own send, so like door knocking they come
-// off a per-row fetch. Nothing has been delivered before the send starts.
-const EmailDeliveredMetric = ({
+// off a per-row fetch. Nothing has been clicked before the send starts.
+const EmailClickedMetric = ({
   id,
   isServe,
 }: {
@@ -199,11 +199,11 @@ const EmailDeliveredMetric = ({
   isServe: boolean
 }) => {
   const { data } = useEmailSend(isServe, id)
-  const delivered = data?.deliveryCounts?.delivered
-  if (delivered === undefined) {
+  const counts = data?.deliveryCounts
+  if (!counts) {
     return <span className="text-muted-foreground">—</span>
   }
-  return <>{delivered.toLocaleString()} delivered</>
+  return <>{OUTREACH_RESULTS_COPY.clickedCount(counts.clicked, counts.sent)}</>
 }
 
 // "Logged", not "responses": a knock is logged whether or not anyone answered,
@@ -407,7 +407,7 @@ const RowResults = ({
     )
   }
   if (isEmailRow(row) && row.status !== 'draft') {
-    return <EmailDeliveredMetric id={row.id} isServe={Boolean(isServe)} />
+    return <EmailClickedMetric id={row.id} isServe={Boolean(isServe)} />
   }
   return <span className="text-muted-foreground">—</span>
 }

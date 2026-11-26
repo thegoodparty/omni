@@ -240,6 +240,7 @@ export const EmailDeliveryCountsSchema = z.object({
   complained: z.number().int().nonnegative(),
   opened: z.number().int().nonnegative(),
   clicked: z.number().int().nonnegative(),
+  optedOut: z.number().int().nonnegative(),
 })
 export type EmailDeliveryCounts = z.infer<typeof EmailDeliveryCountsSchema>
 
