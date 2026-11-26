@@ -130,6 +130,7 @@ export class OutreachEmailPrepareService extends createPrismaBase(
         row.outreach.date ?? new Date(),
         this.profiles,
         row.sender.organizationSlug,
+        { requireResolved: true },
       ),
     )
 

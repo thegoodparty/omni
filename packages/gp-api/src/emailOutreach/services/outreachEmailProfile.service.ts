@@ -22,14 +22,21 @@ export class OutreachEmailProfileService extends createPrismaBase(
   // Empty when the content has no signature (no lookup at all), when the
   // owner has no live page, or when the page's address is not one an email
   // may link to (a local WEBAPP_ROOT_URL is plain http on localhost).
+  // `requireResolved` is for prepare: the SES template is built once for
+  // every recipient, so an election-api outage must fail the job (which
+  // retries) instead of sending the whole email without the link.
   async withProfileUrl(
     organizationSlug: string,
     content: EmailContentDraft,
+    { requireResolved = false }: { requireResolved?: boolean } = {},
   ): Promise<EmailContentDraft> {
     if (!content.blocks.some((block) => block.type === 'signature')) {
       return content
     }
-    const profileUrl = await this.profileUrlFor(organizationSlug)
+    const profileUrl = await this.profileUrlFor(
+      organizationSlug,
+      requireResolved,
+    )
     return {
       ...content,
       blocks: content.blocks.map((block) =>
@@ -38,7 +45,10 @@ export class OutreachEmailProfileService extends createPrismaBase(
     }
   }
 
-  private async profileUrlFor(organizationSlug: string): Promise<string> {
+  private async profileUrlFor(
+    organizationSlug: string,
+    requireResolved: boolean,
+  ): Promise<string> {
     const organization = await this.model.findUnique({
       where: { slug: organizationSlug },
       select: {
@@ -55,6 +65,11 @@ export class OutreachEmailProfileService extends createPrismaBase(
       organization?.owner.personProfile ?? null,
       format(new Date(), 'yyyy-MM-dd'),
     )
+    if (requireResolved && address.status === 'unknown') {
+      throw new Error(
+        `Public profile address for organization ${organizationSlug} could not be resolved`,
+      )
+    }
     return address.status === 'live' && isEmailProfileUrl(address.url)
       ? address.url
       : ''

@@ -1,3 +1,4 @@
+import { EmailContentDraftSchema } from '@goodparty_org/contracts'
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,6 +14,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OutreachStatus } from '../../generated/prisma'
 import { SesService } from '../services/ses.service'
+import { OutreachEmailProfileService } from '../services/outreachEmailProfile.service'
 
 const service = useTestService({ jobs: true })
 
@@ -623,6 +625,32 @@ describe('the signature profile link', () => {
     expect(preview.data.html).toContain('Jane Doe')
     expect(preview.data.html).not.toContain('My public profile')
     expect(preview.data.html).not.toContain(sentByClient)
+  })
+
+  it('fails prepare, not the preview, when the address cannot be resolved', async () => {
+    await service.prisma.personProfile.create({
+      data: {
+        personId: randomUUID(),
+        userId: service.user.id,
+        publishedAt: new Date(),
+      },
+    })
+    vi.spyOn(service.app.get(PersonsService), 'getPersons').mockResolvedValue(
+      [],
+    )
+    const preview = await post(
+      '/v1/outreach/email/preview',
+      { content: letter },
+      winHeaders(),
+    )
+    expect(preview.data.html).not.toContain('My public profile')
+
+    const profiles = service.app.get(OutreachEmailProfileService)
+    await expect(
+      profiles.withProfileUrl(winSlug, EmailContentDraftSchema.parse(letter), {
+        requireResolved: true,
+      }),
+    ).rejects.toThrow('could not be resolved')
   })
 
   it('leaves the link out while the profile is unpublished', async () => {

@@ -28,9 +28,12 @@ export const renderOutreachEmail = async (
   sendDate: Date,
   profiles: OutreachEmailProfileService,
   organizationSlug: string,
+  { requireResolved = false }: { requireResolved?: boolean } = {},
 ) =>
   renderEmailTemplate(
-    await profiles.withProfileUrl(organizationSlug, sendableContentOf(row)),
+    await profiles.withProfileUrl(organizationSlug, sendableContentOf(row), {
+      requireResolved,
+    }),
     { senderName, paidForBy: row.paidForBy, sendDate },
   )
 
