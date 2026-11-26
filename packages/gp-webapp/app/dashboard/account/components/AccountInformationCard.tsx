@@ -26,6 +26,7 @@ import {
   buildPlanPitch,
   formatPlanCents,
 } from 'app/dashboard/shared/plan/planPitch'
+import { plansHrefWithBackTo } from 'app/dashboard/pro-upgrade/proUpgradePlanParams'
 import { formatPlanEndDate } from 'app/dashboard/shared/plan/formatPlanEndDate'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { AccountSettingsButton } from 'app/dashboard/profile/components/AccountSettingsButton'
@@ -212,7 +213,9 @@ export const AccountInformationCard = ({
           </div>
           <div className="flex justify-end">
             <Button asChild>
-              <Link href="/dashboard/plans">See plans</Link>
+              <Link href={plansHrefWithBackTo('/dashboard/account')}>
+                See plans
+              </Link>
             </Button>
           </div>
           <Separator />

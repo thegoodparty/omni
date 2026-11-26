@@ -137,8 +137,7 @@ export const planIncludes = (plan: PlanKey, feature: PlanFeature): boolean =>
   PLAN_RANK[plan] >= PLAN_RANK[feature.from]
 
 export const PLANS_COPY = {
-  title: 'Plans',
-  back: 'Back to dashboard',
+  back: 'Back',
   heading: 'Unlock voter data and outreach',
   subtitle: 'Pay once for your plan, good for your whole race.',
   recommend: (plan: string) => `We recommend ${plan} for a race your size.`,
