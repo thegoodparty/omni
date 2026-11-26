@@ -9,6 +9,7 @@ scope:
   - packages/gp-api/src/managedPanelWaves/**
   - packages/gp-api/src/priorities/services/priorityRead.service.ts
   - packages/gp-api/src/priorities/services/priorityAnswerCoding.service.ts
+  - packages/gp-api/src/outreach/services/managedPanelFundingReconcile.service.ts
 ---
 
 # Test mode's civic panel writes made-up rows on the test org, and the jobs skip test orgs
@@ -21,11 +22,13 @@ writing ordinary rows (panel, members, text send, replies, coded answers,
 themes) on that test org. Every person in them is a made-up id (a uuid v5 of
 the org slug and an index), never a voter file id, and every reply is from
 one shared fixture (`src/testMode/fixtures/civicPanel.fixture.ts`). The rows
-cascade away with the org. Three background paths skip any org with
+cascade away with the org. Four background paths skip any org with
 `testModeCreatedAt`: the managed panel wave fan-out (no draws, texts,
 confirmation or milestone events), the answer coding sweep (no model calls
-on made-up replies) and the priority read (stored as no read, since the
-warehouse has never heard of these people, so the count alone decides).
+on made-up replies), the priority read (stored as no read, since the
+warehouse has never heard of these people, so the count alone decides) and
+the managed panel funding reconcile's unpaid-send check (the fixture
+question is a sent text no one paid for, and never reaches a vendor).
 
 ## Context
 

@@ -7,6 +7,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
 import { JobsService } from '@/jobs/jobs.service'
 import { ManagedPanelWaveJobService } from '@/managedPanelWaves/managedPanelWaveJob.service'
+import { ManagedPanelFundingReconcileService } from '@/outreach/services/managedPanelFundingReconcile.service'
 import { PriorityReadService } from '@/priorities/services/priorityRead.service'
 import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { useTestService } from '@/test-service'
@@ -666,6 +667,35 @@ describe('POST /v1/test-mode/apply civicPanel', () => {
       .currentRead(priority!.id)
 
     expect(read).toBeNull()
+  })
+
+  it('never reports its unpaid question as an unfunded send', async () => {
+    const created = await createOrg(officeBundle())
+    await apply(created.slug, { family: 'civicPanel', preset: 'answers_in' })
+
+    const mismatches = await service.app
+      .get(ManagedPanelFundingReconcileService)
+      .reconcile()
+
+    expect(mismatches).toEqual([])
+  })
+
+  it('fills a panel approved with a small goal enough to be answered', async () => {
+    const created = await createOrg(officeBundle())
+    await apply(created.slug, { family: 'civicPanel', preset: 'building' })
+    await service.prisma.managedCivicPanel.update({
+      where: { organizationSlug: created.slug },
+      data: { goalMembers: 75 },
+    })
+
+    const res = await apply(created.slug, {
+      family: 'civicPanel',
+      preset: 'answers_in',
+    })
+
+    expect(res.data.active?.families.civicPanel?.current).toBe('answers_in')
+    const priority = await fixturePriority(created.slug)
+    expect(await replies(priority!.id)).toBe(answersNeeded())
   })
 })
 

@@ -62,10 +62,13 @@ Coverage: `tests/testMode.routes.test.ts` (routes on real Postgres),
   and an index, never voter file ids), worded by
   `fixtures/civicPanel.fixture.ts`. A preset rewrites only the members it
   wrote (their join events carry `sourceId` `test-mode-fixture:<personId>`),
+  fills the panel to at least `answersNeeded()` for the answer presets (an
+  approved panel's district goal can be smaller),
   keeps a panel the official approved and its goal, and keeps the priority
   so its page stays open while answers change. The wave fan-out, the answer
-  coding sweep and the priority read skip test orgs, so nothing is texted,
-  coded by a model or read from the warehouse; with no read, the answer
+  coding sweep, the priority read and the managed panel funding reconcile
+  skip test orgs, so nothing is texted, coded by a model, read from the
+  warehouse or paged as unfunded; with no read, the answer
   count alone decides the results page
   (`docs/adr/2026-11-26-test-mode-civic-panel-writes-made-up-rows.md`).
 - There is no undo. The presets are the reset.

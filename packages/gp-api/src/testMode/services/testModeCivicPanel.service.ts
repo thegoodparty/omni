@@ -59,6 +59,9 @@ const fixturePersonId = (organizationSlug: string, index: number) =>
 const fixturePhone = (index: number) =>
   `+1555010${String(index % 100).padStart(2, '0')}`
 
+// The answer presets ask a full panel, and a good read needs
+// answersNeeded() of them, so a panel approved with a smaller district goal
+// still gets enough members to answer.
 const membersFor = (preset: TestModeCivicPanelPreset, goal: number) => {
   switch (preset) {
     case 'none':
@@ -70,8 +73,10 @@ const membersFor = (preset: TestModeCivicPanelPreset, goal: number) => {
       return Math.min(civicPanelMilestoneAt('canCompare', goal), goal)
     case 'halfway':
       return civicPanelMilestoneAt('halfway', goal)
-    default:
+    case 'full':
       return goal
+    default:
+      return Math.max(goal, answersNeeded())
   }
 }
 
