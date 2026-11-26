@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { IconButton } from '@styleguide'
+import { Button } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { WIN_PER_CAMPAIGN_PRICING_FLAG_KEY } from '@shared/experiments/winPerCampaignPricingFlag'
@@ -9,14 +9,20 @@ import DashboardLayout from '../shared/DashboardLayout'
 import { usePlan } from '../shared/membership/deriveMembershipState'
 import { PlanCards } from './PlanCards'
 import { PlansTable } from './PlansTable'
+import { plansHrefWithBackTo } from '../pro-upgrade/proUpgradePlanParams'
 import { planCheckoutHref } from './planCheckoutHref'
 import { planColumnsFor, PLANS_COPY, planRank, type PlanKey } from './plansCopy'
 
 interface PlansPageProps {
   highlightTeam: boolean
+  // The page that opened Plans, already checked against the allowed list.
+  backTo: string | null
 }
 
-const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
+const PlansPage = ({
+  highlightTeam,
+  backTo,
+}: PlansPageProps): React.JSX.Element => {
   const {
     plan: currentPlan,
     heldPlan,
@@ -36,7 +42,13 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
     if (planRank(plan) <= planRank(currentPlan)) return null
     if (onSubscription) return { href: null }
     return {
-      href: planCheckoutHref(plan, `Join ${column.name}`, '/dashboard/plans'),
+      // Checkout's Back returns here, and this page's Back still reaches
+      // where the candidate started.
+      href: planCheckoutHref(
+        plan,
+        `Join ${column.name}`,
+        plansHrefWithBackTo(backTo),
+      ),
     }
   }
 
@@ -45,15 +57,15 @@ const PlansPage = ({ highlightTeam }: PlansPageProps): React.JSX.Element => {
       flagKey={WIN_PER_CAMPAIGN_PRICING_FLAG_KEY}
       trackExposure={false}
     >
-      <DashboardLayout pathname="/dashboard/plans" hideMenu>
+      <DashboardLayout pathname="/dashboard/plans" hideMenu hideChatDock>
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6">
           <div className="flex items-center gap-3">
-            <IconButton asChild variant="ghost" size="small">
-              <Link href="/dashboard" aria-label={PLANS_COPY.back}>
-                <ArrowLeftIcon className="size-5" aria-hidden />
+            <Button asChild variant="ghost" size="small">
+              <Link href={backTo ?? '/dashboard'}>
+                <ArrowLeftIcon className="size-4" aria-hidden />
+                {PLANS_COPY.back}
               </Link>
-            </IconButton>
-            <span className="text-base font-semibold">{PLANS_COPY.title}</span>
+            </Button>
           </div>
           <div className="flex flex-col gap-1.5 md:items-center md:text-center">
             <h1 className="text-xl font-semibold md:text-2xl">

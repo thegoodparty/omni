@@ -61,8 +61,9 @@ charged through the other.
   "...for $299, one payment for your whole race."; Back off it goes to the page
   that carried the candidate in (`back=<path>` on the entry URL, set by
   `planCheckoutHref`'s third argument from the plans page,
-  exact-path allowlist like `returnTo`; history cannot say, since every step
-  move is a push) instead of always `/dashboard`, which stays the fallback. Checkout's verification notice is
+  exact-path allowlist like `returnTo`, which also keeps a plans page's own
+  `backTo` so Plans, checkout, Back, Back reaches where the candidate started;
+  history cannot say, since every step move is a push) instead of always `/dashboard`, which stays the fallback. Checkout's verification notice is
   an info `Alert` (clock icon, `paymentVerificationTitle` / `Detail`), the
   closing-week warning stays; the footnote carries a lock icon and "no
   subscription". "Unlocked now" lists the outreach credit as a row, the PIN

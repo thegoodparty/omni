@@ -1,3 +1,4 @@
+import { usePathname } from 'next/navigation'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { buildPlanPitch, type PlanPitch } from './planPitch'
@@ -5,7 +6,7 @@ import { buildPlanPitch, type PlanPitch } from './planPitch'
 export const usePlanPitch = (): PlanPitch => {
   const { ready, enabled } = useWinPerCampaignPricingFlag()
   const { recommendTeam } = usePlan()
-  return buildPlanPitch(ready, enabled, recommendTeam)
+  return buildPlanPitch(ready, enabled, recommendTeam, usePathname())
 }
 
 // Gates, modals and agent cards sell Pro whatever the race size: the user is
@@ -14,5 +15,5 @@ export const usePlanPitch = (): PlanPitch => {
 // `recommendTeam` from `usePlan` itself.
 export const useContextualPlanPitch = (): PlanPitch => {
   const { ready, enabled } = useWinPerCampaignPricingFlag()
-  return buildPlanPitch(ready, enabled, false)
+  return buildPlanPitch(ready, enabled, false, usePathname())
 }

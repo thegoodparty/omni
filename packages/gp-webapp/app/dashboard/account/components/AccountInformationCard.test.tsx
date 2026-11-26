@@ -220,7 +220,7 @@ describe('AccountInformationCard plans', () => {
     expect(screen.getByText('$175 outreach credit')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'See plans' })).toHaveAttribute(
       'href',
-      '/dashboard/plans',
+      '/dashboard/plans?backTo=%2Fdashboard%2Faccount',
     )
   })
 
