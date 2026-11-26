@@ -60,7 +60,7 @@ const PlansPage = ({
       <DashboardLayout pathname="/dashboard/plans" hideMenu hideChatDock>
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6">
           <div className="flex items-center gap-3">
-            <Button asChild variant="ghost" size="small" className="gap-1 px-2">
+            <Button asChild variant="ghost" size="small">
               <Link href={backTo ?? '/dashboard'}>
                 <ArrowLeftIcon className="size-4" aria-hidden />
                 {PLANS_COPY.back}
