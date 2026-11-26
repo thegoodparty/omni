@@ -637,6 +637,56 @@ export const inMemoryCopy = (file: File): Promise<File> =>
     reader.readAsArrayBuffer(file)
   })
 
+// Every phone photo is 2 to 5 MB and a Mac screenshot is around 1 MB, several
+// times the 745 KB an MMS attachment allows, so an image over the cap is
+// redrawn to fit rather than refused. Unlike the profile photo below, the
+// long edge is kept generous: the compose step crops a 2:1 window out of it,
+// and the cut is read from these pixels.
+const SMS_IMAGE_MAX_EDGE = 1600
+const SMS_IMAGE_SCALES = [1, 0.75, 0.5]
+const SMS_IMAGE_QUALITIES = [0.9, 0.75, 0.5]
+
+// Null only when even the smallest redraw is over the cap; an image the
+// browser cannot decode rejects, so the caller can tell "too big" from
+// "unreadable". `from-image` because a phone photo carries its rotation in
+// EXIF, and a JPEG drawn sideways would bake it in.
+export const compressImageToSmsCap = async (
+  file: File,
+): Promise<File | null> => {
+  const bitmap = await createImageBitmap(file, {
+    imageOrientation: 'from-image',
+  })
+  try {
+    const edge = Math.max(bitmap.width, bitmap.height)
+    if (edge <= 0) return null
+    const base = Math.min(SMS_IMAGE_MAX_EDGE, edge)
+    for (const scale of SMS_IMAGE_SCALES) {
+      const ratio = (base * scale) / edge
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(bitmap.width * ratio))
+      canvas.height = Math.max(1, Math.round(bitmap.height * ratio))
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return null
+      // JPEG has no transparency: a PNG logo fills white, not black.
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+      for (const quality of SMS_IMAGE_QUALITIES) {
+        const blob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, 'image/jpeg', quality),
+        )
+        if (blob && blob.size <= IMAGE_MAX_BYTES) {
+          const name = file.name.replace(/\.[^.]+$/, '') || 'image'
+          return new File([blob], `${name}.jpeg`, { type: 'image/jpeg' })
+        }
+      }
+    }
+    return null
+  } finally {
+    bitmap.close()
+  }
+}
+
 // The profile photo the SMS image starts from. Avatars are stored at up to
 // 5 MB, several times what an MMS attachment allows, so anything over the cap or
 // in another format is redrawn as a JPEG. Null on any failure: the dropzone
