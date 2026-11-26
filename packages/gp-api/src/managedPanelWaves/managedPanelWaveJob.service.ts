@@ -201,8 +201,12 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     ) {
       return
     }
+    // A test org's panel is Test mode's made-up one: never drawn or texted.
     const panels = await this.model.findMany({
-      where: { status: { not: ManagedCivicPanelStatus.stopped } },
+      where: {
+        status: { not: ManagedCivicPanelStatus.stopped },
+        organization: { testModeCreatedAt: null },
+      },
       select: { id: true },
     })
     await this.jobs.sendMany(

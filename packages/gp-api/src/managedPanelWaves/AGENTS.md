@@ -3,7 +3,8 @@
 The hourly managed civic panel wave job, `ManagedPanelWaveJobService`: draws,
 sends, closes and finishes each building panel's waves. The `managedPanelWaves`
 schedule (`src/jobs/jobs.registry.ts`, `fanOutWaves`) sends one
-`managedPanelWaveAdvance` job per panel not stopped (`advanceWave`: the wave
+`managedPanelWaveAdvance` job per panel not stopped, leaving out test orgs
+(`testModeCreatedAt`: Test mode's made-up panels are never drawn or texted) (`advanceWave`: the wave
 step, the confirmation text, the milestones), grouped by panel; a panel whose
 job throws retries and dead-letters on its own. Timing (two-day
 lead, the official's chosen first send date, 48-hour replies, waiting on a

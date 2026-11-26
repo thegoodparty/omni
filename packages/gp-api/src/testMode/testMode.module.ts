@@ -5,6 +5,7 @@ import { StateTransitionsModule } from '@/testFixtures/stateTransitions.module'
 import { Module } from '@nestjs/common'
 import { TestModeGuard } from './guards/TestMode.guard'
 import { TestModeService } from './services/testMode.service'
+import { TestModeCivicPanelService } from './services/testModeCivicPanel.service'
 import { TestModeController } from './testMode.controller'
 
 @Module({
@@ -15,6 +16,6 @@ import { TestModeController } from './testMode.controller'
     StateTransitionsModule,
   ],
   controllers: [TestModeController],
-  providers: [TestModeService, TestModeGuard],
+  providers: [TestModeService, TestModeCivicPanelService, TestModeGuard],
 })
 export class TestModeModule {}

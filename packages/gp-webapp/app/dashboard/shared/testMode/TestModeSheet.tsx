@@ -38,6 +38,7 @@ import type {
   TestModeElectionPreset,
   TestModeTermPreset,
   TestModeTenDlcPreset,
+  TestModeCivicPanelPreset,
   TestModeActiveOrganization,
   TestModeOrganization,
 } from '@goodparty_org/contracts'
@@ -519,6 +520,19 @@ function OrgRow({
                 onApply({
                   family: 'tenDlc',
                   preset: preset as TestModeTenDlcPreset,
+                })
+              }
+              isApplying={isApplying}
+            />
+          )}
+          {families.civicPanel && (
+            <FamilyRow
+              label="civicPanel"
+              state={families.civicPanel}
+              onApply={(preset) =>
+                onApply({
+                  family: 'civicPanel',
+                  preset: preset as TestModeCivicPanelPreset,
                 })
               }
               isApplying={isApplying}

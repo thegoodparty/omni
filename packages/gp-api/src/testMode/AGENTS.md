@@ -22,6 +22,7 @@ Amplitude flag on. Every write 409s unless the target org carries
 
 The UI is `gp-webapp/app/dashboard/shared/testMode/` (its own `AGENTS.md`).
 Coverage: `tests/testMode.routes.test.ts` (routes on real Postgres),
+`tests/testModeCivicPanel.jobs.test.ts` (the schedules that skip test orgs),
 `guards/TestMode.guard.test.ts`, and the Playwright spec
 `gp-webapp/e2e-tests/tests/app/dashboard/test-mode/test-mode.spec.ts`.
 
@@ -54,4 +55,21 @@ Coverage: `tests/testMode.routes.test.ts` (routes on real Postgres),
   holds a real registration (no marker) is refused rather than overwritten.
 - Deleting a test campaign org first nulls `ElectedOffice.campaignId` on any
   office pointing at it: that FK is `onDelete: NoAction`.
+- `civicPanel` (elected office only, `services/testModeCivicPanel.service.ts`)
+  walks one managed civic panel through its milestones (`building` to
+  `full`) and then one shared priority through its answers (`asked`,
+  `answers_coming`, `answers_in`). Members, replies, coded answers and
+  themes are rows on the test org for made-up people (uuid v5 of the slug
+  and an index, never voter file ids), worded by
+  `fixtures/civicPanel.fixture.ts`. A preset rewrites only the members it
+  wrote (their join events carry `sourceId` `test-mode-fixture:<personId>`),
+  fills the panel to at least `answersNeeded()` for the answer presets (an
+  approved panel's district goal can be smaller),
+  keeps a panel the official approved and its goal, and keeps the priority
+  so its page stays open while answers change. The wave fan-out, the answer
+  coding sweep, the priority read and the managed panel funding reconcile
+  skip test orgs, so nothing is texted, coded by a model, read from the
+  warehouse or paged as unfunded; with no read, the answer
+  count alone decides the results page
+  (`docs/adr/2026-11-26-test-mode-civic-panel-writes-made-up-rows.md`).
 - There is no undo. The presets are the reset.

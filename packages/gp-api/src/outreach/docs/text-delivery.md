@@ -63,7 +63,9 @@ re-checks every Serve send that moved past
 `pending_payment` and was created in the last week (so one left alone keeps
 paging daily), and every free wave or confirmation still `pending` four hours
 after its claim, and raises `serve-managed-panel-funding-mismatch` on any it cannot
-account for.
+account for. Test orgs are left out of the unpaid-send check: Test mode's
+civic panel writes its priority question as a sent, unpaid text that never
+reaches a vendor.
 
 **Claim before handoff, not a check after it.** `requestSend` CASes the spine
 `pending → in_progress` FIRST. A read would not close the window: a user can
