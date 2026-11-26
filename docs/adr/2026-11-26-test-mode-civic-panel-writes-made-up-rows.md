@@ -3,7 +3,7 @@ title: Test mode's civic panel writes made-up rows on the test org, and the jobs
 status: active
 decided_by: [bryclevgp]
 date: 2026-11-26
-code: ['claude/amazing-mendel-2x993z']
+code: ['#4103']
 scope:
   - packages/gp-api/src/testMode/**
   - packages/gp-api/src/managedPanelWaves/**
