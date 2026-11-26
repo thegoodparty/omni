@@ -4,9 +4,6 @@ import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.ser
 import { ElectionsService } from '@/elections/services/elections.service'
 import { RacesService } from '@/elections/services/races.service'
 import { FeaturesService } from '@/features/services/features.service'
-import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
-import { JobsService } from '@/jobs/jobs.service'
-import { ManagedPanelWaveJobService } from '@/managedPanelWaves/managedPanelWaveJob.service'
 import { ManagedPanelFundingReconcileService } from '@/outreach/services/managedPanelFundingReconcile.service'
 import { PriorityReadService } from '@/priorities/services/priorityRead.service'
 import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
@@ -640,21 +637,6 @@ describe('POST /v1/test-mode/apply civicPanel', () => {
     })
 
     expect(res.status).toBe(HttpStatus.CONFLICT)
-  })
-
-  it('never sends a test panel through the wave job', async () => {
-    const created = await createOrg(officeBundle())
-    await apply(created.slug, { family: 'civicPanel', preset: 'halfway' })
-    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
-    const sendMany = vi
-      .spyOn(service.app.get(JobsService), 'sendMany')
-      .mockResolvedValue([])
-
-    await service.app
-      .get(ManagedPanelWaveJobService)
-      .fanOutWaves({ id: 'run-1' } as JobRun<ScheduleData>)
-
-    expect(sendMany).toHaveBeenCalledWith('managedPanelWaveAdvance', [])
   })
 
   it('stores no warehouse read for its answers', async () => {

@@ -22,6 +22,7 @@ Amplitude flag on. Every write 409s unless the target org carries
 
 The UI is `gp-webapp/app/dashboard/shared/testMode/` (its own `AGENTS.md`).
 Coverage: `tests/testMode.routes.test.ts` (routes on real Postgres),
+`tests/testModeCivicPanel.jobs.test.ts` (the schedules that skip test orgs),
 `guards/TestMode.guard.test.ts`, and the Playwright spec
 `gp-webapp/e2e-tests/tests/app/dashboard/test-mode/test-mode.spec.ts`.
 

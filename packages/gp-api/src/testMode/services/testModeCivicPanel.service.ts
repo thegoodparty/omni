@@ -55,9 +55,9 @@ const PANEL_PRESETS: TestModeCivicPanelPreset[] = [
 const fixturePersonId = (organizationSlug: string, index: number) =>
   uuidv5(`${organizationSlug}:${index}`, FIXTURE_PERSON_NAMESPACE)
 
-// 555-0100 through 555-0199 are reserved for fiction; nothing texts them.
+// 202-555-0100 through 0199 are reserved for fiction; nothing texts them.
 const fixturePhone = (index: number) =>
-  `+1555010${String(index % 100).padStart(2, '0')}`
+  `+1202555${String(100 + (index % 100)).padStart(4, '0')}`
 
 // The answer presets ask a full panel, and a good read needs
 // answersNeeded() of them, so a panel approved with a smaller district goal
