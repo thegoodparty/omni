@@ -5,7 +5,6 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
-import { eventually } from 'tests/utils/eventually'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
 import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
@@ -244,19 +243,11 @@ const verifyProCheckout = async (page: Page, inbound: boolean) => {
 
   // THE mechanism under test, half two: the webhook flips isPro server-side
   // and carries the deferred compliance kickoff with it.
-  await eventually(
-    {
-      that: 'the paid invoice makes the campaign Pro server-side',
-      minTimeout: 500,
-      maxTimeout: inbound ? 5_000 : 2_000,
-      retries: 5,
-    },
-    async () => {
-      const res = await client.get<CampaignProState>('/v1/campaigns/mine')
-      expect(res.status).toBe(200)
-      expect(res.data.isPro).toBe(true)
-    },
-  )
+  await expect(async () => {
+    const res = await client.get<CampaignProState>('/v1/campaigns/mine')
+    expect(res.status).toBe(200)
+    expect(res.data.isPro).toBe(true)
+  }).toPass({ timeout: 60_000, intervals: [500, 1_000, 2_000, 5_000] })
 
   // The single centered Done exits to the dashboard once Pro lands.
   const doneButton = page.getByRole('button', { name: 'Done' })
