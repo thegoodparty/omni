@@ -316,11 +316,13 @@ describe('outreachInboundSweep', () => {
     }
   })
 
-  it("copies the job's delivery receipts, and keeps the replies when the stats read fails", async () => {
+  it("copies the job's delivery receipts at most every few hours", async () => {
     const outreach = await createSweepableOutreach()
 
     await service.jobs.runSchedule('outreachInboundSweep')
+    await service.jobs.runSchedule('outreachInboundSweep')
 
+    expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
     expect(getJobDetailedStats).toHaveBeenCalledWith(
       JOB_ID,
       expect.objectContaining({ startDate: expect.any(String) }),
@@ -329,7 +331,10 @@ describe('outreachInboundSweep', () => {
       where: { outreachId: outreach.id },
     })
     expect(delivery).toMatchObject({ delivered: 2, failed: 1, unconfirmed: 0 })
+  })
 
+  it('keeps the replies when the stats read fails', async () => {
+    const outreach = await createSweepableOutreach()
     getJobDetailedStats.mockRejectedValue(new Error('peerly down'))
     fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101')])
 
@@ -337,6 +342,11 @@ describe('outreachInboundSweep', () => {
 
     const person1 = await findInteraction(outreach.id, 'person-1')
     expect(person1.respondedAt).not.toBeNull()
+    expect(
+      await service.prisma.outreachSmsDelivery.findUnique({
+        where: { outreachId: outreach.id },
+      }),
+    ).toBeNull()
   })
 
   it('records an opt-out for a revocation phrase with no stop keyword on its own', async () => {

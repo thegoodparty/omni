@@ -208,6 +208,7 @@ interface SweepCounters {
   inboundRowsSeen: number
   unexpectedDirectionRows: number
   messagesWritten: number
+  deliveryStatsFailed: number
 }
 
 const emptySweepCounters = (): SweepCounters => ({
@@ -225,6 +226,7 @@ const emptySweepCounters = (): SweepCounters => ({
   inboundRowsSeen: 0,
   unexpectedDirectionRows: 0,
   messagesWritten: 0,
+  deliveryStatsFailed: 0,
 })
 
 // The candidate query below scopes to text/p2p rows, which are always
@@ -253,6 +255,13 @@ export type WinReplyBackfillSummary = {
 
 const sendAnchorOf = (outreach: Outreach): Date =>
   outreach.date ?? outreach.createdAt
+
+// Peerly's job stats read has taken 45s to 4min (outreachSmsAdmin.service.ts),
+// so each job's receipts are read at most this often, and a read that runs
+// past the timeout is dropped until a later pass rather than holding the
+// sweep's budget for every job behind it.
+export const DELIVERY_STATS_INTERVAL_HOURS = 6
+const DELIVERY_STATS_TIMEOUT_MS = 15_000
 
 // Padded a day on each side: Peerly evaluates the range in its account
 // timezone while these timestamps are server-local, and a boundary
@@ -629,21 +638,47 @@ export class OutreachInboundSweepService extends createPrismaBase(
     counters.messagesWritten += await this.writeReplyMessages(
       this.buildReplyMessages(outreach.id, cdrRows, phoneToPersonIds, now),
     )
-    await this.recordDeliveryReceipts(outreach, jobId, now)
+    await this.recordDeliveryReceipts(outreach, jobId, now, counters)
     return true
   }
 
-  // Last, so a stats failure never costs the replies already written: the
-  // job counts as failed and is read again next pass.
+  // Last, and isolated, so a slow or failed stats read never costs the
+  // replies: it is counted in the sweep summary and read again next pass.
   private async recordDeliveryReceipts(
     outreach: SweepableOutreach,
     jobId: string,
     now: Date,
+    counters: SweepCounters,
   ): Promise<void> {
-    const stats = await this.peerlyP2pJobs.getJobDetailedStats(
-      jobId,
-      buildReportWindow(outreach, now),
-    )
+    const last = await this.client.outreachSmsDelivery.findUnique({
+      where: { outreachId: outreach.id },
+      select: { readAt: true },
+    })
+    if (
+      last &&
+      isAfter(last.readAt, subHours(now, DELIVERY_STATS_INTERVAL_HOURS))
+    ) {
+      return
+    }
+    let stats: Awaited<ReturnType<PeerlyP2pJobService['getJobDetailedStats']>>
+    try {
+      stats = await Promise.race([
+        this.peerlyP2pJobs.getJobDetailedStats(
+          jobId,
+          buildReportWindow(outreach, now),
+        ),
+        delay(DELIVERY_STATS_TIMEOUT_MS, undefined, { ref: false }).then(() => {
+          throw new GatewayTimeoutException('Peerly job stats read timed out')
+        }),
+      ])
+    } catch (err) {
+      counters.deliveryStatsFailed += 1
+      this.logger.warn(
+        { err, outreachId: outreach.id, projectId: jobId },
+        '[Outreach Inbound] delivery stats read failed; will retry next sweep',
+      )
+      return
+    }
     const data = {
       delivered: stats.delivered,
       failed: stats.deliveryFailed,
