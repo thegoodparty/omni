@@ -2978,6 +2978,88 @@ describe('RobocallFlow', () => {
       expect(bodies).toHaveLength(1)
     })
 
+    describe('reopening a saved draft that needs Pro, with per-campaign pricing on', () => {
+      const PITCH = 'Join Pro to send this campaign'
+
+      const openSaved = (resumeStartsOnWizard = false) => {
+        planFlagRef.enabled = true
+        gateRef.set(FREE_GATE)
+        mockSavedLists()
+        mockFreeAudience()
+        const onClose = vi.fn()
+        render(
+          <RobocallFlow
+            source="outreach_page"
+            open
+            onClose={onClose}
+            resumeDraft={draftDetail()}
+            resumeStartsOnWizard={resumeStartsOnWizard}
+          />,
+        )
+        return { onClose }
+      }
+
+      const closePitch = async () =>
+        user.click(
+          within(await screen.findByRole('dialog', { name: PITCH })).getByRole(
+            'button',
+            { name: 'Close' },
+          ),
+        )
+
+      it('puts the pitch over the draft schedule step, not over a blank sheet', async () => {
+        openSaved()
+
+        await screen.findByRole('dialog', { name: PITCH })
+
+        expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+        expect(
+          screen.getByLabelText('Campaign name', { selector: 'input' }),
+        ).toBeInTheDocument()
+      })
+
+      it('keeps the step on the X, and its button reopens the pitch instead of going on to pay', async () => {
+        const { onClose } = openSaved()
+        await closePitch()
+
+        await waitFor(() =>
+          expect(
+            screen.queryByRole('dialog', { name: PITCH }),
+          ).not.toBeInTheDocument(),
+        )
+        expect(onClose).not.toHaveBeenCalled()
+        expect(
+          screen.queryByRole('button', { name: 'Back' }),
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: 'Continue' }),
+        ).not.toBeInTheDocument()
+
+        await user.click(
+          screen.getByRole('button', { name: 'Join Pro to send' }),
+        )
+        expect(
+          await screen.findByRole('dialog', { name: PITCH }),
+        ).toBeInTheDocument()
+      })
+
+      it('opens the wizard from the drawer and leaves the step behind it on exit', async () => {
+        const { onClose } = openSaved(true)
+
+        expect(
+          await screen.findByTestId('pro-upgrade-flow'),
+        ).toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Finish later' }))
+
+        await waitFor(() =>
+          expect(
+            screen.queryByTestId('pro-upgrade-flow'),
+          ).not.toBeInTheDocument(),
+        )
+        expect(onClose).not.toHaveBeenCalled()
+      })
+    })
+
     it('switches into resume mode when a draft already exists', async () => {
       gateRef.set(FREE_GATE)
       api.mock('POST /v1/outreach/drafts', {
