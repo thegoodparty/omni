@@ -28,6 +28,9 @@ sent / ...}", then each outcome as a count and its share of that one total)
 and `v2/outreachResultsCopy.ts` (Sent, Delivered, Not delivered, Responded,
 No response, Opted out). A stat that means the same thing on two channels
 reads the same on both, so never say "unsub" or "Unsubscribes" for an opt-out.
+Each person counts once, by their last status on the campaign: someone who
+replied and then opted out is Opted out, never also Responded (gp-api's text
+and poll results reads do this).
 A completed text row's history Results column reads "N responded" on Win and
 Serve. A Win text whose delivery receipts have been read adds Delivered and
 Not delivered ahead of Responded (`notDelivered` on the results read; null on

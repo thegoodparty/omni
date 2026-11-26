@@ -213,6 +213,25 @@ describe('GET /v1/outreach/serve/:id/poll-results', () => {
     expect(res.data.analysis).toEqual({ status: 'completed' })
   })
 
+  it('counts each person once, by their latest message', async () => {
+    await addReplies(3)
+    await addReply({
+      personId: 'answered-then-stop',
+      sentAt: new Date('2026-09-01T12:00:00Z'),
+    })
+    await addReply({
+      personId: 'answered-then-stop',
+      isOptOut: true,
+      content: 'STOP',
+      sentAt: new Date('2026-09-01T13:00:00Z'),
+    })
+
+    const res = await getResults()
+
+    expect(res.data.responses).toBe(3)
+    expect(res.data.optOutRate).toBe(0.01)
+  })
+
   it('counts a reply added after the previous run as a new mention', async () => {
     const previousAt = new Date('2026-09-02T00:00:00Z')
     const before = await Promise.all(

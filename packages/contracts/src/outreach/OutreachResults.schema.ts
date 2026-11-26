@@ -9,9 +9,11 @@ export const SmsOutreachResultsSchema = z.object({
   contacts: z.number(),
   responded: z.number(),
   optedOut: z.number(),
-  // Recipients whose text the carrier reported as failed. Null when no
-  // delivery receipts were read for the send: every Serve text, and a Win
-  // send the inbound sweep has not reached.
+  // Recipients estimated not to have received the text: Peerly's failed share
+  // of receipts (counted per message, for the whole job) applied to the
+  // people texted, never more than those with no reply and no opt-out. Null
+  // when no delivery receipts were read for the send: every Serve text, and
+  // a Win send the inbound sweep has not reached.
   notDelivered: z.number().nullable(),
 })
 export type SmsOutreachResults = z.infer<typeof SmsOutreachResultsSchema>

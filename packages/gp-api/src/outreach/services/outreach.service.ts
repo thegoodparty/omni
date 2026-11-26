@@ -1670,8 +1670,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
     const [recipients, responded, optedOut, delivery] = await Promise.all([
       this.client.contactInteractionText.count({ where: { outreachId } }),
+      // One status per person, their last: an opt-out ends the conversation,
+      // so anyone who opted out counts there and nowhere else.
       this.client.contactInteractionText.count({
-        where: { outreachId, respondedAt: { not: null } },
+        where: { outreachId, respondedAt: { not: null }, optedOutAt: null },
       }),
       this.client.contactInteractionText.count({
         where: { outreachId, optedOutAt: { not: null } },
@@ -1682,10 +1684,22 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       recipients > 0
         ? recipients
         : (outreach.billableTextCount ?? outreach.textCount ?? 0)
-    // Peerly's receipts count messages, not people. A number whose first
-    // text failed is sent nothing more, so a failed receipt stands for one
-    // recipient; capped so a follow-up's failure can never exceed the send.
-    const notDelivered = delivery ? Math.min(delivery.failed, contacts) : null
+    // Peerly reports receipts per message, for the whole job, and never per
+    // person, while a send's messages include every follow-up. So the share of
+    // messages that failed is applied to the people texted, and capped at the
+    // people with no reply and no opt-out, since anyone who wrote back was
+    // reached.
+    const receipts = delivery
+      ? delivery.delivered + delivery.failed + delivery.unconfirmed
+      : 0
+    const notDelivered = delivery
+      ? Math.min(
+          receipts > 0
+            ? Math.round((contacts * delivery.failed) / receipts)
+            : 0,
+          Math.max(0, contacts - responded - optedOut),
+        )
+      : null
     return { contacts, responded, optedOut, notDelivered }
   }
 
