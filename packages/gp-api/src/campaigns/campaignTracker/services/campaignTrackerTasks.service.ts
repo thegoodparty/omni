@@ -686,8 +686,11 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       }
 
       const { AgentsService } = await import('@/agents/agents.service.js')
+      // Loose lookup: this service is provided in CampaignsModule, which does
+      // not import AgentsModule, so a strict lookup only searches a module that
+      // cannot hold it and throws.
       await this.moduleRef
-        .get(AgentsService)
+        .get(AgentsService, { strict: false })
         .run(CAMPAIGN_TRACKER_EXPERIMENT_TYPE, {
           organizationSlug,
           raceId: params.race_id,

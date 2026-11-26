@@ -36,6 +36,22 @@ describe('campaign_tracker_tasks schemas', () => {
     ).toMatchObject({ city: null, campaignStory: null })
   })
 
+  // `details.electionDate` is free-form: `updateCampaign.schema.ts` accepts any
+  // string, and older rows hold a `toISOString()` value or an empty string. The
+  // PMF Engine's manifest declares a bare string, so a date-shaped check here
+  // would drop those campaigns on this engine alone.
+  it.each(['2026-11-03T00:00:00.000Z', '', '2026-11-03'])(
+    'accepts the election date %j the PMF Engine accepted',
+    (electionDate) => {
+      expect(
+        CampaignTrackerTasksInputSchema.parse({
+          ...dispatchInput,
+          electionDate,
+        }).electionDate,
+      ).toBe(electionDate)
+    },
+  )
+
   it('refuses a run with no organization, and a mode outside the two', () => {
     expect(() =>
       CampaignTrackerTasksInputSchema.parse({

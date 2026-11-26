@@ -11,7 +11,11 @@ export const CampaignTrackerTasksInputSchema = z.object({
   userFullName: z.string().min(1),
   mode: z.enum(['initial', 'weekly']),
   today: z.iso.date(),
-  electionDate: z.iso.date().nullable(),
+  // Any string, as the manifest declares it: `details.electionDate` is
+  // free-form (a fixture's `toISOString()` value, or an empty string), and a
+  // date-shaped check here would refuse on this engine a campaign the PMF
+  // Engine runs.
+  electionDate: z.string().nullable(),
   state: z.string().nullable(),
   city: z.string().nullable(),
   campaignPlan: z.string().nullable(),

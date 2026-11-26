@@ -243,6 +243,15 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `CAMPAIGN_TASK_CATALOG` by the same filter). The agents registry holds it
   under the experiment id (`campaignTrackerTasksAgent/campaignTrackerTasks.agent.ts`),
   and `deploy/agentsOnGpApi.ts` names it in the preview, dev and prod lists.
+- **The dispatch resolves `AgentsService` loosely, and the input schema takes
+  any election date.** `CampaignTrackerTasksService` is provided in
+  `CampaignsModule`, which neither imports `AgentsModule` nor provides
+  `AgentsService`, so `moduleRef.get(AgentsService)` (strict) throws and the
+  gp-api branch needs `{ strict: false }`. And its input's `electionDate` is
+  `z.string().nullable()`, not `z.iso.date()`: `details.electionDate` is
+  free-form (a saved `toISOString()`, an empty string) and the PMF manifest
+  declares a bare string, so a date check refuses campaigns the PMF Engine
+  ran. `tests/dispatch-engine-switch.test.ts` drives the real app for both.
 - **The weekly coverage gate reads both engines.** `dispatchIfNeeded` asks
   `hasRecentTrackerRun` (`services/campaignTrackerRun.ts`), which queries
   `AgentRun` and `ExperimentRun` and ignores a FAILED run on either. A one-table
