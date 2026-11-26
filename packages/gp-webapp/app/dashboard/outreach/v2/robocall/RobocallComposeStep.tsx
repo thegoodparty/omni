@@ -63,6 +63,8 @@ const fmtDur = (secs: number): string =>
   `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
 
 interface RobocallComposeStepProps {
+  // The script is what a saved draft already holds, so it cannot be edited.
+  scriptLocked?: boolean
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   // The whole script the candidate reads aloud, the disclosure line included.
@@ -102,6 +104,7 @@ interface RobocallComposeStepProps {
 }
 
 export const RobocallComposeStep = ({
+  scriptLocked = false,
   tone,
   onToneChange,
   script,
@@ -226,7 +229,7 @@ export const RobocallComposeStep = ({
               }
               // Read-only until the first draft lands, so nothing typed is
               // overwritten by it.
-              readOnly={awaitingFirstDraft}
+              readOnly={awaitingFirstDraft || scriptLocked}
               placeholder={
                 awaitingFirstDraft
                   ? 'Drafting your script…'

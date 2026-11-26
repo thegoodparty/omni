@@ -2956,6 +2956,16 @@ describe('RobocallFlow', () => {
         screen.getByText(/Read the script below into your microphone/),
       ).toBeInTheDocument()
       expect(bodies).toHaveLength(1)
+      // What the saved row holds is what gets paid for, so it cannot be
+      // edited from here.
+      expect(
+        screen.queryByRole('button', { name: 'Back' }),
+      ).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(
+          screen.getByRole('textbox', { name: 'Robocall script' }),
+        ).toHaveAttribute('contenteditable', 'false'),
+      )
 
       // The row is saved: the button opens the pitch for it again rather
       // than writing a second draft.
