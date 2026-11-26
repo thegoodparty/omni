@@ -32,12 +32,6 @@ export const SERVE_POLL_RESULTS_COPY = {
     canceled: 'This poll was canceled.',
     failed: "This poll couldn't be sent.",
   },
-  stats: {
-    sent: 'Sent',
-    responses: 'Responses',
-    responseRate: 'Response rate',
-    optOutRate: 'Opted out',
-  },
   notEnough: {
     title: 'Not enough responses yet',
     body: `We need at least ${POLL_MIN_RESPONSES} responses before we can group them into themes.`,

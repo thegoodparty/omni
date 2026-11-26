@@ -169,6 +169,18 @@ describe('PollResultsPage', () => {
     expect(screen.getByText('12 responses')).toBeVisible()
   })
 
+  it('reads its numbers like every other text, counts over texts sent', async () => {
+    mockPage()
+    render(<PollResultsPage outreachId={OUTREACH_ID} />)
+
+    expect(await screen.findByText('Based on 1,000 texts sent')).toBeVisible()
+    expect(screen.getByText('Responded')).toBeVisible()
+    // 1,000 sent, less 120 responded and 10 opted out.
+    expect(screen.getByText('870')).toBeVisible()
+    expect(screen.getByText('Opted out')).toBeVisible()
+    expect(screen.getByText('10')).toBeVisible()
+  })
+
   it('shows "N new" only on a theme with new mentions', async () => {
     mockPage()
     render(<PollResultsPage outreachId={OUTREACH_ID} />)
