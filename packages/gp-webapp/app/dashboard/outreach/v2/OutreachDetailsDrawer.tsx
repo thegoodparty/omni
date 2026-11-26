@@ -449,14 +449,32 @@ export const OutreachDetailsDrawer = ({
     isServe ? 'serve' : 'win',
   )
   const results = resultsQuery.data ?? null
+  // With receipts, a text that never arrived is Not delivered rather than
+  // No response; without them (Serve, or a send not yet swept) the card
+  // keeps the three rows every text has.
+  const delivered =
+    results && results.notDelivered !== null
+      ? results.contacts - results.notDelivered
+      : null
   const statRows = results
     ? [
+        ...(delivered !== null && results.notDelivered !== null
+          ? [
+              { label: OUTREACH_RESULTS_COPY.delivered, count: delivered },
+              {
+                label: OUTREACH_RESULTS_COPY.notDelivered,
+                count: results.notDelivered,
+              },
+            ]
+          : []),
         { label: OUTREACH_RESULTS_COPY.responded, count: results.responded },
         {
           label: OUTREACH_RESULTS_COPY.noResponse,
           count: Math.max(
             0,
-            results.contacts - results.responded - results.optedOut,
+            (delivered ?? results.contacts) -
+              results.responded -
+              results.optedOut,
           ),
         },
         { label: OUTREACH_RESULTS_COPY.optedOut, count: results.optedOut },

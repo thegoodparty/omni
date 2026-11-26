@@ -21,12 +21,14 @@ import {
   PeerlyReportDateWindow,
   PeerlyReportRequestOptions,
 } from '@/vendors/peerly/services/peerlyJobResults.service'
+import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import {
   Campaign,
   OutreachType,
   PollIndividualMessageSender,
 } from '../../generated/prisma'
 import {
+  DELIVERY_STATS_INTERVAL_HOURS,
   INBOUND_SWEEP_AGED_HOUR_INTERVAL,
   INBOUND_SWEEP_FRESH_WINDOW_DAYS,
   OPT_OUT_FINAL_READ_DAYS,
@@ -53,6 +55,22 @@ const fetchQuestionResponseRows =
       window: PeerlyReportDateWindow,
       request?: PeerlyReportRequestOptions,
     ) => Promise<PeerlyQuestionResponsesCsvRow[]>
+  >()
+
+const DETAILED_STATS = {
+  sentTotal: 3,
+  receivedTotal: 1,
+  delivered: 2,
+  deliveryFailed: 1,
+  deliveryUnconfirmed: 0,
+  totalCost: 0.1,
+}
+const getJobDetailedStats =
+  vi.fn<
+    (
+      jobId: string,
+      range: { startDate: string; endDate: string },
+    ) => Promise<typeof DETAILED_STATS>
   >()
 
 const JOB_ID = 'peerly-job-1'
@@ -235,6 +253,11 @@ beforeEach(async () => {
   vi.spyOn(resultsService, 'fetchQuestionResponseRows').mockImplementation(
     fetchQuestionResponseRows,
   )
+  getJobDetailedStats.mockReset().mockResolvedValue(DETAILED_STATS)
+  vi.spyOn(
+    service.app.get(PeerlyP2pJobService),
+    'getJobDetailedStats',
+  ).mockImplementation(getJobDetailedStats)
 
   sweepService = service.app.get(OutreachInboundSweepService)
 
@@ -292,6 +315,84 @@ describe('outreachInboundSweep', () => {
       expect(row.optedOutAt).toBeNull()
       expect(row.sourceEventId).toBeNull()
     }
+  })
+
+  it("copies the job's delivery receipts at most every few hours", async () => {
+    const outreach = await createSweepableOutreach()
+    // Each read gets a job id of its own, so the console's per-job stats
+    // cache can never be what holds a second read back: only the readAt
+    // interval can.
+    const pointAt = (projectId: string) =>
+      service.prisma.outreach.update({
+        where: { id: outreach.id },
+        data: { projectId },
+      })
+    await pointAt('peerly-job-receipts-1')
+
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
+    expect(getJobDetailedStats).toHaveBeenCalledWith(
+      'peerly-job-receipts-1',
+      expect.objectContaining({ startDate: expect.any(String) }),
+    )
+    const findDelivery = () =>
+      service.prisma.outreachSmsDelivery.findUnique({
+        where: { outreachId: outreach.id },
+      })
+    expect(await findDelivery()).toMatchObject({
+      delivered: 2,
+      failed: 1,
+      unconfirmed: 0,
+    })
+
+    await pointAt('peerly-job-receipts-2')
+    await service.jobs.runSchedule('outreachInboundSweep')
+    expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
+
+    await service.prisma.outreachSmsDelivery.update({
+      where: { outreachId: outreach.id },
+      data: {
+        readAt: subHours(new Date(), DELIVERY_STATS_INTERVAL_HOURS + 1),
+      },
+    })
+    getJobDetailedStats.mockResolvedValue({
+      ...DETAILED_STATS,
+      delivered: 5,
+      deliveryFailed: 4,
+      deliveryUnconfirmed: 1,
+    })
+    await pointAt('peerly-job-receipts-3')
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    expect(getJobDetailedStats).toHaveBeenCalledTimes(2)
+    expect(await findDelivery()).toMatchObject({
+      delivered: 5,
+      failed: 4,
+      unconfirmed: 1,
+    })
+  })
+
+  it('keeps the replies when the stats read fails', async () => {
+    const outreach = await createSweepableOutreach()
+    // Its own job id: the stats read is the console's, cached per job for
+    // the app's life, so a job an earlier test read would answer from there.
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { projectId: 'peerly-job-stats-down' },
+    })
+    getJobDetailedStats.mockRejectedValue(new Error('peerly down'))
+    fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101')])
+
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.respondedAt).not.toBeNull()
+    expect(
+      await service.prisma.outreachSmsDelivery.findUnique({
+        where: { outreachId: outreach.id },
+      }),
+    ).toBeNull()
   })
 
   it('records an opt-out for a revocation phrase with no stop keyword on its own', async () => {

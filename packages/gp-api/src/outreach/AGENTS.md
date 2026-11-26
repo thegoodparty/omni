@@ -666,7 +666,16 @@ false`: it hands back what was built, not a fresh build. A text holds the
   `outreachOptOutReconcile.prisma` (`OutreachOptOutReconcile`: `outreachId`
   primary key, `attemptedAt` — when the opt-out backup pass last asked Peerly
   for that send's flags, kept off the outreach row so it never bumps
-  `updatedAt`). Phone banking's own tables
+  `updatedAt`), `outreachSmsDelivery.prisma` (`OutreachSmsDelivery`:
+  `outreachId` primary key, a Win text's Peerly delivery receipts
+  `delivered` / `failed` / `unconfirmed` and `readAt`, upserted by the inbound
+  sweep after each job's replies (at most every 6 hours a job, through the
+  staff console's own `OutreachSmsAdminService.readDeliveryStats`, so both
+  share one cached, timeboxed read and its numbers; a failed read skips the
+  job's receipts until a later pass) because Peerly keeps a job's stats for about
+  90 days; off the outreach row for the same `updatedAt` reason.
+  `getSmsResults` reports `failed`, capped at the send, as `notDelivered`).
+  Phone banking's own tables
   (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
   `ContactInteractionPhoneBanking`, `PhoneBankingSuppressedPhone`) and
   controller/service live in a separate `src/phoneBanking/` module — this

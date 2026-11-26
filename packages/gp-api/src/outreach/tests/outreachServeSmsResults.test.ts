@@ -76,14 +76,24 @@ describe('GET /v1/outreach/serve/:id/results', () => {
     const res = await getResults(outreach.id)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ contacts: 3, responded: 1, optedOut: 1 })
+    expect(res.data).toEqual({
+      contacts: 3,
+      responded: 1,
+      optedOut: 1,
+      notDelivered: null,
+    })
   })
 
   it('falls back to the purchase-time count before any recipient rows exist', async () => {
     const res = await getResults(outreach.id)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ contacts: 400, responded: 0, optedOut: 0 })
+    expect(res.data).toEqual({
+      contacts: 400,
+      responded: 0,
+      optedOut: 0,
+      notDelivered: null,
+    })
   })
 
   it('404s a row that belongs to a different organization', async () => {

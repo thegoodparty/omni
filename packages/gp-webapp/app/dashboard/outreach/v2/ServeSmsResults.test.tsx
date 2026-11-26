@@ -81,7 +81,7 @@ const mockServeDrawer = (
   api.mock('GET /v1/outreach/serve/:id', { status: 200, data: serveDetail })
   api.mock('GET /v1/outreach/serve/:id/results', {
     status: 200,
-    data: { contacts: 400, responded: 62, optedOut: 8 },
+    data: { contacts: 400, responded: 62, optedOut: 8, notDelivered: null },
   })
   api.mock('GET /v1/outreach/serve/:id/replies', { status: 200, data: replies })
 }
@@ -134,11 +134,11 @@ describe('Serve SMS results — the Statistics card', () => {
   it('does not serve one surface its results for the other surface, same id', async () => {
     api.mock('GET /v1/outreach/serve/:id/results', {
       status: 200,
-      data: { contacts: 400, responded: 62, optedOut: 8 },
+      data: { contacts: 400, responded: 62, optedOut: 8, notDelivered: null },
     })
     api.mock('GET /v1/outreach/:id/results', {
       status: 200,
-      data: { contacts: 1204, responded: 186, optedOut: 9 },
+      data: { contacts: 1204, responded: 186, optedOut: 9, notDelivered: null },
     })
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -275,7 +275,12 @@ describe('Serve SMS results — the reply list', () => {
     api.mock('GET /v1/outreach/serve/:id', { status: 200, data: serveDetail })
     api.mock('GET /v1/outreach/serve/:id/results', {
       status: 200,
-      data: { contacts: 400, responded: TOTAL, optedOut: 8 },
+      data: {
+        contacts: 400,
+        responded: TOTAL,
+        optedOut: 8,
+        notDelivered: null,
+      },
     })
     api.mock('GET /v1/outreach/serve/:id/replies', ({ query }) => {
       const offset = Number(query.offset ?? 0)
@@ -340,7 +345,7 @@ describe('Serve SMS results — the collapsed history row', () => {
   it('summarises a completed SMS row as responded', async () => {
     api.mock('GET /v1/outreach/serve/:id/results', {
       status: 200,
-      data: { contacts: 400, responded: 62, optedOut: 8 },
+      data: { contacts: 400, responded: 62, optedOut: 8, notDelivered: null },
     })
 
     render(
@@ -360,7 +365,7 @@ describe('Serve SMS results — the collapsed history row', () => {
   it('fills the Win column from the Win results read', async () => {
     api.mock('GET /v1/outreach/:id/results', {
       status: 200,
-      data: { contacts: 1204, responded: 186, optedOut: 9 },
+      data: { contacts: 1204, responded: 186, optedOut: 9, notDelivered: null },
     })
 
     render(

@@ -241,7 +241,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     })
     api.mock('GET /v1/outreach/serve/:id/results', {
       status: 200,
-      data: { contacts: 40, responded: 7, optedOut: 1 },
+      data: { contacts: 40, responded: 7, optedOut: 1, notDelivered: null },
     })
     api.mock('GET /v1/outreach/serve/:id/replies', {
       status: 200,
@@ -284,7 +284,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     })
     api.mock('GET /v1/outreach/serve/:id/results', {
       status: 200,
-      data: { contacts: 40, responded: 0, optedOut: 0 },
+      data: { contacts: 40, responded: 0, optedOut: 0, notDelivered: null },
     })
     api.mock('GET /v1/outreach/serve/:id/replies', {
       status: 200,

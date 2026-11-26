@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   GatewayTimeoutException,
   Injectable,
+  Optional,
 } from '@nestjs/common'
 import {
   addDays,
@@ -46,6 +47,7 @@ import {
 } from '../../vendors/peerly/services/peerlyJobResults.service'
 import { PeerlyPhoneListCaptureService } from '../../vendors/peerly/services/peerlyPhoneListCapture.service'
 import { isOptOutMessage } from '../util/textOptOut.util'
+import { OutreachSmsAdminService } from './outreachSmsAdmin.service'
 
 // Peerly's AI and its texters flag opt-outs whose wording never contains a
 // stop word, and those flags exist only in the question-responses report.
@@ -207,6 +209,7 @@ interface SweepCounters {
   inboundRowsSeen: number
   unexpectedDirectionRows: number
   messagesWritten: number
+  deliveryStatsFailed: number
 }
 
 const emptySweepCounters = (): SweepCounters => ({
@@ -224,6 +227,7 @@ const emptySweepCounters = (): SweepCounters => ({
   inboundRowsSeen: 0,
   unexpectedDirectionRows: 0,
   messagesWritten: 0,
+  deliveryStatsFailed: 0,
 })
 
 // The candidate query below scopes to text/p2p rows, which are always
@@ -253,6 +257,11 @@ export type WinReplyBackfillSummary = {
 const sendAnchorOf = (outreach: Outreach): Date =>
   outreach.date ?? outreach.createdAt
 
+// Each job's receipts are copied at most this often. The read itself is the
+// staff console's (OutreachSmsAdminService.readDeliveryStats), so its cache,
+// timebox and failure cool-off bound what a slow Peerly costs the sweep.
+export const DELIVERY_STATS_INTERVAL_HOURS = 6
+
 // Padded a day on each side: Peerly evaluates the range in its account
 // timezone while these timestamps are server-local, and a boundary
 // mismatch would silently drop the job's first or last day of events.
@@ -277,6 +286,9 @@ export class OutreachInboundSweepService extends createPrismaBase(
     private readonly peerlyJobResults: PeerlyJobResultsService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly textInteractions: ContactInteractionTextService,
+    // Optional so scripts/backfill-win-sms-replies.ts, which builds a module
+    // with only the reply readers, still starts; it never reads receipts.
+    @Optional() private readonly smsAdmin?: OutreachSmsAdminService,
   ) {
     super()
   }
@@ -627,7 +639,44 @@ export class OutreachInboundSweepService extends createPrismaBase(
     counters.messagesWritten += await this.writeReplyMessages(
       this.buildReplyMessages(outreach.id, cdrRows, phoneToPersonIds, now),
     )
+    await this.recordDeliveryReceipts(outreach, now, counters)
     return true
+  }
+
+  // Last, and isolated, so a slow or failed stats read never costs the
+  // replies: it is counted in the sweep summary and read again next pass.
+  private async recordDeliveryReceipts(
+    outreach: SweepableOutreach,
+    now: Date,
+    counters: SweepCounters,
+  ): Promise<void> {
+    if (!this.smsAdmin) return
+    const last = await this.client.outreachSmsDelivery.findUnique({
+      where: { outreachId: outreach.id },
+      select: { readAt: true },
+    })
+    if (
+      last &&
+      isAfter(last.readAt, subHours(now, DELIVERY_STATS_INTERVAL_HOURS))
+    ) {
+      return
+    }
+    const stats = await this.smsAdmin.readDeliveryStats(outreach)
+    if (!stats) {
+      counters.deliveryStatsFailed += 1
+      return
+    }
+    const data = {
+      delivered: stats.delivered,
+      failed: stats.deliveryFailed,
+      unconfirmed: stats.deliveryUnconfirmed,
+      readAt: now,
+    }
+    await this.client.outreachSmsDelivery.upsert({
+      where: { outreachId: outreach.id },
+      create: { outreachId: outreach.id, ...data },
+      update: data,
+    })
   }
 
   // scripts/backfill-win-sms-replies.ts: the sweep's message writer over a
