@@ -48,6 +48,7 @@ import {
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
 import { getOutreachHistoryCopy } from './outreachHistoryCopy'
+import { OUTREACH_RESULTS_COPY } from './outreachResultsCopy'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { useEmailSend } from './email/emailApi'
 
@@ -351,26 +352,22 @@ const RowMetric = ({
 // missing-results placeholder. Social keeps it permanently (engagements are
 // cut from v1 by the social channel spec). nativePhoneBanking's results
 // (supporter count) are already computed on the detail, so it fills the slot.
-// A completed SMS row on the SERVE surface fills it too — see below.
+// A completed SMS row fills it on both surfaces — see below.
 
-// The design's collapsed SMS row: "{responses} responses · {unsub} unsub",
-// off the same three numbers the Statistics card reads.
-//
-// Serve-only, and that is a scope line rather than a design one. Win's
-// Results column is still the placeholder described above, and filling it
-// would add a results fetch per completed text row to a surface that has not
-// asked for one. Give this the Win fetcher the day Win's column should fill.
-const ServeSmsResponsesMetric = ({ id }: { id: number }) => {
-  const { data } = useSmsResults(id, true, 'serve')
+// A completed SMS row: "{responded} responded", off the same numbers the
+// Statistics card reads, from each surface's own results read.
+const SmsRespondedMetric = ({
+  id,
+  isServe,
+}: {
+  id: number
+  isServe: boolean
+}) => {
+  const { data } = useSmsResults(id, true, isServe ? 'serve' : 'win')
   if (!data) {
     return <span className="text-muted-foreground">—</span>
   }
-  return (
-    <>
-      {data.responded.toLocaleString()} responses ·{' '}
-      {data.optedOut.toLocaleString()} unsub
-    </>
-  )
+  return <>{OUTREACH_RESULTS_COPY.respondedCount(data.responded)}</>
 }
 
 // Which result metric a row shows, by channel and by surface.
@@ -384,12 +381,11 @@ const RowResults = ({
   isServe?: boolean
 }) => {
   if (
-    isServe &&
     row.status === 'completed' &&
     (row.outreachType === OUTREACH_TYPES.text ||
       row.outreachType === OUTREACH_TYPES.p2p)
   ) {
-    return <ServeSmsResponsesMetric id={row.id} />
+    return <SmsRespondedMetric id={row.id} isServe={Boolean(isServe)} />
   }
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
     return (

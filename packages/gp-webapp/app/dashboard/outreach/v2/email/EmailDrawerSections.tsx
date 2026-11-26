@@ -1,8 +1,9 @@
 import { StatusText } from '@styleguide'
-import { ChartColumnIcon, Loader2Icon } from '@styleguide/components/ui/icons'
+import { Loader2Icon } from '@styleguide/components/ui/icons'
 import { DetailsSection } from '../listDetails/ListDetailsMetric'
+import { OutreachResultsCard } from '../listDetails/OutreachResultsCard'
+import { OUTREACH_RESULTS_COPY } from '../outreachResultsCopy'
 import { useEmailSend } from './emailApi'
-import { formatCount } from './emailFlow.util'
 import { EmailPreview } from './EmailPreview'
 import { EMAIL_RESULT_ROWS } from './EmailStatus'
 
@@ -44,36 +45,20 @@ export const EmailDrawerSections = ({
   return (
     <>
       {counts && counts.sent > 0 && (
-        <DetailsSection title="Statistics">
-          <div
-            className="overflow-hidden rounded-lg border border-border"
-            data-testid="email-drawer-statistics"
-          >
-            <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-              <ChartColumnIcon className="size-4" />
-              Based on {formatCount(counts.sent)} email
-              {counts.sent === 1 ? '' : 's'} sent
-            </div>
-            {EMAIL_RESULT_ROWS.map((row) => {
-              const count = row.count(counts)
-              return (
-                <div
-                  key={row.label}
-                  className="flex items-center justify-between border-t border-border px-3 py-2"
-                >
-                  <span className="text-sm">{row.label}</span>
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-sm font-semibold">
-                      {formatCount(count)}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {Math.round((count / counts.sent) * 100)}%
-                    </span>
-                  </span>
-                </div>
-              )
-            })}
-          </div>
+        <DetailsSection title={OUTREACH_RESULTS_COPY.title}>
+          <OutreachResultsCard
+            testId="email-drawer-statistics"
+            basedOn={OUTREACH_RESULTS_COPY.basedOn(
+              counts.sent,
+              'email sent',
+              'emails sent',
+            )}
+            total={counts.sent}
+            rows={EMAIL_RESULT_ROWS.map((row) => ({
+              label: row.label,
+              count: row.count(counts),
+            }))}
+          />
         </DetailsSection>
       )}
       <DetailsSection title="Email">
