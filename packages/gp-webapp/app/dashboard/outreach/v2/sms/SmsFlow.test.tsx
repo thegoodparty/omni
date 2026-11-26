@@ -3101,6 +3101,21 @@ describe('SmsFlow', () => {
           )
           expect(onClose).not.toHaveBeenCalled()
           expectReview()
+
+          // A card's draft updates in place, so pressing again writes again
+          // under the same key rather than reopening the pitch unwritten.
+          await user.click(
+            screen.getByRole('button', { name: 'Join Pro to send' }),
+          )
+          expect(
+            await screen.findByRole('dialog', { name: GATE_TITLE }),
+          ).toBeInTheDocument()
+          expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledTimes(2)
+          for (const call of vi.mocked(createOutreachDraft).mock.calls) {
+            expect(call[0]).toEqual(
+              expect.objectContaining({ proposalKey: PROPOSAL_KEY }),
+            )
+          }
         })
 
         it('does not open the gate for a flow opened without it', async () => {
@@ -3174,6 +3189,42 @@ describe('SmsFlow', () => {
         expect(
           screen.queryByRole('button', { name: 'Back' }),
         ).not.toBeInTheDocument()
+      })
+
+      it('opens the pitch over the existing draft review when the save meets a 409', async () => {
+        vi.mocked(createOutreachDraft).mockResolvedValue({
+          draft: null,
+          conflictId: 55,
+        })
+        api.mock('GET /v1/outreach/:id', {
+          status: 200,
+          data: draftDetail({ id: 55 }),
+        })
+        const { onClose } = openFlow()
+        await user.click(await reachReview())
+
+        const dialog = await screen.findByRole('dialog', { name: GATE_TITLE })
+
+        expect(dialog).toBeInTheDocument()
+        expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+        expect(screen.getAllByText('Review and verify').length).toBeGreaterThan(
+          0,
+        )
+        expect(
+          screen.queryByText('When do you want to send it?'),
+        ).not.toBeInTheDocument()
+
+        await closePitch()
+
+        await waitFor(() =>
+          expect(
+            screen.queryByRole('dialog', { name: GATE_TITLE }),
+          ).not.toBeInTheDocument(),
+        )
+        expect(onClose).not.toHaveBeenCalled()
+        expect(
+          screen.getByRole('button', { name: 'Join Pro to send' }),
+        ).toBeInTheDocument()
       })
 
       describe('reopening a saved draft that needs Pro', () => {
