@@ -925,9 +925,11 @@ export const SmsFlow = ({
     resumeDraft,
     resumeCta,
     pitchAsDialog: planPitch.enabled,
-    // A card's draft is the candidate's to come back to on the review step
-    // they pressed it from; the hub's closes the sheet.
-    keepFlowOnDialogClose: proposalLink !== undefined,
+    // Reopening a saved draft puts the pitch over its review summary.
+    pitchOnResume: true,
+    resumeStartsOnWizard,
+    // A card's draft updates in place when it is saved again.
+    savesInPlace: proposalLink !== undefined,
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
@@ -962,7 +964,15 @@ export const SmsFlow = ({
 
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
-  const buildMode = gate.requirement !== null && !resumed
+  //
+  // A saved draft that still needs Pro is read the same way: the review
+  // summary with the gate over it, since its schedule step is for a send the
+  // candidate cannot make yet.
+  const awaitingPro = resumed && planPitch.enabled && gate.requirement === 'pro'
+  const buildMode = gate.requirement !== null && (!resumed || awaitingPro)
+  useEffect(() => {
+    if (open && awaitingPro && stepId === 'schedule') setStepId('review')
+  }, [open, awaitingPro, stepId])
 
   const { enabled: previewFlagOn } = useWinSmsPreviewEditFlag(
     surface === WIN_SMS_SURFACE,
@@ -2452,7 +2462,9 @@ export const SmsFlow = ({
                           onClick: () => {
                             void draftGate.saveDraft(reviewGateCta)
                           },
-                          disabled: !audience.selectedListId || image === null,
+                          disabled:
+                            !audience.selectedListId ||
+                            (image === null && !awaitingPro),
                           loading: draftGate.savingDraft,
                         }
                       : // The review step owns its button (Schedule outreach or
@@ -2637,7 +2649,13 @@ export const SmsFlow = ({
             // and compose were settled when the draft was saved, and compose
             // could never advance again (its Continue needs a local image file
             // the saved row cannot supply).
-            !scheduled && !gateOpen && !resumed && stepIndex > 0
+            !scheduled &&
+              !gateOpen &&
+              !resumed &&
+              stepIndex > 0 &&
+              // Closing the pitch keeps the saved row; stepping back to edit
+              // would leave it behind what the review shows.
+              !(savedDraft !== null && proposalLink === undefined)
             ? handleBack
             : undefined
       }
@@ -2766,7 +2784,9 @@ export const SmsFlow = ({
           open
           showInterstitial={
             (draftGate.gateOrigin === 'save' && !planPitch.enabled) ||
-            (draftGate.gateOrigin === 'resume' && !resumeStartsOnWizard)
+            (draftGate.gateOrigin === 'resume' &&
+              !resumeStartsOnWizard &&
+              !planPitch.enabled)
           }
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}

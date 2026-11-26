@@ -2928,6 +2928,56 @@ describe('RobocallFlow', () => {
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
     })
 
+    it('with per-campaign pricing on, the X returns to the compose step with the draft saved', async () => {
+      planFlagRef.enabled = true
+      gateRef.set(FREE_GATE)
+      const bodies = mockSaveDraft()
+      const onClose = vi.fn()
+
+      await buildToCompose(onClose)
+      await user.click(screen.getByRole('button', { name: 'Join Pro to send' }))
+      await user.click(
+        within(
+          await screen.findByRole('dialog', {
+            name: 'Join Pro to send this campaign',
+          }),
+        ).getByRole('button', { name: 'Close' }),
+      )
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('dialog', {
+            name: 'Join Pro to send this campaign',
+          }),
+        ).not.toBeInTheDocument(),
+      )
+      expect(onClose).not.toHaveBeenCalled()
+      expect(
+        screen.getByText(/Read the script below into your microphone/),
+      ).toBeInTheDocument()
+      expect(bodies).toHaveLength(1)
+      // What the saved row holds is what gets paid for, so it cannot be
+      // edited from here.
+      expect(
+        screen.queryByRole('button', { name: 'Back' }),
+      ).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(
+          screen.getByRole('textbox', { name: 'Robocall script' }),
+        ).toHaveAttribute('contenteditable', 'false'),
+      )
+
+      // The row is saved: the button opens the pitch for it again rather
+      // than writing a second draft.
+      await user.click(screen.getByRole('button', { name: 'Join Pro to send' }))
+      expect(
+        await screen.findByRole('dialog', {
+          name: 'Join Pro to send this campaign',
+        }),
+      ).toBeInTheDocument()
+      expect(bodies).toHaveLength(1)
+    })
+
     it('switches into resume mode when a draft already exists', async () => {
       gateRef.set(FREE_GATE)
       api.mock('POST /v1/outreach/drafts', {

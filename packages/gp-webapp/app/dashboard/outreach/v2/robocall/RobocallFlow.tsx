@@ -272,6 +272,10 @@ export const RobocallFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
+  // Closing the pitch keeps the saved row, and pressing the button again
+  // reopens the pitch for it without a write. What the row holds is what the
+  // candidate pays for, so nothing before it can be edited from here.
+  const draftKept = savedDraft !== null && !resumed
   const stepOrder = buildMode ? BUILD_STEP_ORDER : STEP_ORDER
 
   const recommendedListIntent = purpose
@@ -1132,7 +1136,7 @@ export const RobocallFlow = ({
         (resumed
           ? RESUME_BACK[stepId] !== undefined ||
             (stepId === 'audience' && audience.mode !== 'picker')
-          : stepIndex > 0)
+          : stepIndex > 0 && !draftKept)
           ? handleBack
           : undefined
       }
@@ -1307,36 +1311,40 @@ export const RobocallFlow = ({
         </>
       ) : stepId === 'compose' ? (
         <>
-          <RobocallComposeStep
-            tone={tone}
-            onToneChange={handleToneChange}
-            script={script}
-            onScriptChange={handleScriptChange}
-            protectedParts={protectedParts}
-            hasWrittenBody={hasWrittenBody}
-            aiAction={aiAction}
-            onAiAction={handleAiAction}
-            isDrafting={draftMutation.isPending}
-            isDraftError={draftMutation.isError}
-            callbackNumber={callbackNumber}
-            isRentingNumber={rentMutation.isPending}
-            rentError={rentMutation.isError}
-            onRetryNumber={rentCallbackNumber}
-            recorder={recorder}
-            maxSeconds={MAX_RECORDING_SECONDS}
-            onSaveRecording={handleSaveRecording}
-            scriptChangedSinceRecording={
-              (recorder.status === 'preview' || recorder.status === 'saved') &&
-              recordedScript !== null &&
-              script !== recordedScript
-            }
-            isUploading={audioUpload.isUploading}
-            uploadError={audioUpload.error}
-            complianceChecking={complianceMutation.isPending}
-            complianceVerdict={complianceMutation.data ?? null}
-            complianceError={complianceMutation.isError}
-            onRetryCompliance={retryCompliance}
-          />
+          <fieldset disabled={draftKept} className="contents">
+            <RobocallComposeStep
+              scriptLocked={draftKept}
+              tone={tone}
+              onToneChange={handleToneChange}
+              script={script}
+              onScriptChange={handleScriptChange}
+              protectedParts={protectedParts}
+              hasWrittenBody={hasWrittenBody}
+              aiAction={aiAction}
+              onAiAction={handleAiAction}
+              isDrafting={draftMutation.isPending}
+              isDraftError={draftMutation.isError}
+              callbackNumber={callbackNumber}
+              isRentingNumber={rentMutation.isPending}
+              rentError={rentMutation.isError}
+              onRetryNumber={rentCallbackNumber}
+              recorder={recorder}
+              maxSeconds={MAX_RECORDING_SECONDS}
+              onSaveRecording={handleSaveRecording}
+              scriptChangedSinceRecording={
+                (recorder.status === 'preview' ||
+                  recorder.status === 'saved') &&
+                recordedScript !== null &&
+                script !== recordedScript
+              }
+              isUploading={audioUpload.isUploading}
+              uploadError={audioUpload.error}
+              complianceChecking={complianceMutation.isPending}
+              complianceVerdict={complianceMutation.data ?? null}
+              complianceError={complianceMutation.isError}
+              onRetryCompliance={retryCompliance}
+            />
+          </fieldset>
           {buildMode && draftGate.draftSaveError && (
             <p className="mt-4 text-sm text-destructive">
               We couldn&apos;t save this draft. Try again.

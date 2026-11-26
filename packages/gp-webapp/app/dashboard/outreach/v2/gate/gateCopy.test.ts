@@ -49,20 +49,33 @@ describe('gateCopy plan copy', () => {
   it('names Team in the interstitial and explainer when recommended', () => {
     const pitch = buildPlanPitch(true, true, true)
 
-    expect(planInterstitialCopy(pitch).cta).toBe(`Join Team for ${pitch.price}`)
+    expect(planInterstitialCopy(pitch, 'sms').cta).toBe(
+      `Join Team for ${pitch.price}`,
+    )
     expect(EXPLAINER_COPY.titleFree('door', pitch.name)).toBe(
       'Join Team to start knocking',
     )
   })
 
   it('prices the Pro join button and has no "Maybe later"', () => {
-    const copy = planInterstitialCopy(buildPlanPitch(true, true, false))
+    const copy = planInterstitialCopy(buildPlanPitch(true, true, false), 'sms')
 
     expect(copy).toEqual({
       title: 'Join Pro to send this campaign',
       cta: 'Join Pro for $299',
       seeAllPlans: 'See all plans',
     })
+  })
+
+  it.each([
+    ['door', 'Join Pro to start knocking'],
+    ['phone-bank', 'Join Pro to call this list'],
+    ['sms', 'Join Pro to send this campaign'],
+    ['robocall', 'Join Pro to send this campaign'],
+  ] as const)('titles the %s pitch for what Pro unlocks', (channel, title) => {
+    expect(
+      planInterstitialCopy(buildPlanPitch(true, true, false), channel).title,
+    ).toBe(title)
   })
 
   it('names the free review button for what it opens', () => {
