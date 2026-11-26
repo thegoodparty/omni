@@ -1,3 +1,4 @@
+import { subMinutes } from 'date-fns'
 import { Readable } from 'node:stream'
 import {
   beforeAll,
@@ -4764,6 +4765,56 @@ describe('door-knocking routes', () => {
         non_supporter: 0,
       })
       expect(res.data.byWillVote.yes).toBe(1)
+    })
+
+    it('counts a knock once when the campaign has overlapping turfs', async () => {
+      const first = await postTurf({ name: 'Turf 1', campaignName: 'Fall' })
+      expect(first.status).toBe(201)
+      const anchor = await envelopeFor(first.data.id)
+      const second = await postTurf({
+        name: 'Turf 2',
+        campaignOutreachId: anchor.id,
+      })
+      expect(second.status).toBe(201)
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { doorKnockingTurfId: first.data.id } },
+        })
+      // The same resident is on the second, overlapping turf too.
+      expect(
+        await service.prisma.doorKnockingStopTarget.count({
+          where: {
+            personId: target.personId,
+            stop: { doorKnockingTurfId: second.data.id },
+          },
+        }),
+      ).toBeGreaterThan(0)
+
+      const knock = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+      })
+      expect(knock.status).toBe(201)
+      // An earlier knock from before the envelope id was stored is matched
+      // to one turf too, not both.
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: orgSlug,
+          personId: target.personId,
+          occurredAt: subMinutes(new Date(), 1),
+          outcome: 'not_home',
+        },
+      })
+
+      const res = await service.client.get(
+        `/v1/door-knocking/campaigns/${anchor.id}/results`,
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.doorsKnocked).toBe(1)
+      expect(res.data.byOutcome.answered).toBe(1)
     })
 
     it('404s results for a campaign that is not yours', async () => {
