@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EMAIL_CLASSIC_THEMES,
   EMAIL_LAYOUTS,
+  EMAIL_LETTER_THEMES,
   EMAIL_THEMES,
   EmailLayoutKeySchema,
   EmailThemeKeySchema,
@@ -20,6 +22,12 @@ describe('email template registry', () => {
     for (const layout of Object.values(EMAIL_LAYOUTS)) {
       expect(EMAIL_THEMES).toHaveProperty(layout.defaultTheme)
     }
+  })
+
+  it('splits every theme between the original picker and the letter colors', () => {
+    expect([...EMAIL_CLASSIC_THEMES, ...EMAIL_LETTER_THEMES].sort()).toEqual(
+      Object.keys(EMAIL_THEMES).sort(),
+    )
   })
 
   it('uses six-digit hex for every color', () => {

@@ -59,6 +59,7 @@ export const ShortCtaLayout = ({ colors, blocks, context }: LayoutProps) => {
             case 'divider':
               return <EmailDivider key={index} colors={colors} />
             case 'image':
+            case 'signature':
             case 'button':
               return null
           }

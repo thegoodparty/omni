@@ -49,6 +49,8 @@ export const PersonalLetterLayout = ({
             )
           case 'divider':
             return <EmailDivider key={index} colors={colors} />
+          case 'signature':
+            return null
         }
       })}
     </EmailBodyBlock>

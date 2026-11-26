@@ -1,6 +1,7 @@
 import { IS_PROD_DEPLOY, VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { OutreachEmail } from '../../generated/prisma'
 import { DEV_ALLOWED_EMAIL_DOMAINS } from '../emailOutreach.const'
+import type { OutreachEmailProfileService } from '../services/outreachEmailProfile.service'
 import { renderEmailTemplate } from '../templates/renderEmailTemplate'
 import { sendableContentOf } from './emailContent.util'
 
@@ -19,17 +20,19 @@ type RenderableSend = Pick<
 >
 
 // `sendDate` is the scheduled time, or now for a send-now email; the
-// long_update masthead shows it.
-export const renderOutreachEmail = (
+// long_update masthead shows it. A signature's profile link is the
+// organization owner's page as it is now, never the stored value.
+export const renderOutreachEmail = async (
   row: RenderableSend,
   senderName: string,
   sendDate: Date,
+  profiles: OutreachEmailProfileService,
+  organizationSlug: string,
 ) =>
-  renderEmailTemplate(sendableContentOf(row), {
-    senderName,
-    paidForBy: row.paidForBy,
-    sendDate,
-  })
+  renderEmailTemplate(
+    await profiles.withProfileUrl(organizationSlug, sendableContentOf(row)),
+    { senderName, paidForBy: row.paidForBy, sendDate },
+  )
 
 // SES wants a non-ASCII display name encoded as an RFC 2047 word.
 export const formatFrom = (displayName: string, address: string): string => {

@@ -4,6 +4,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { OutreachHoldState, OutreachStatus } from '../../generated/prisma'
 import { renderOutreachEmail } from '../util/renderOutreachEmail.util'
 import { OutreachEmailAudienceService } from './outreachEmailAudience.service'
+import { OutreachEmailProfileService } from './outreachEmailProfile.service'
 import { SesService, sesTemplateNameFor, sesTenantNameFor } from './ses.service'
 
 const PREPARE_TRANSACTION_TIMEOUT_MS = 60_000
@@ -16,6 +17,7 @@ export class OutreachEmailPrepareService extends createPrismaBase(
     private readonly ses: SesService,
     private readonly audiences: OutreachEmailAudienceService,
     private readonly jobs: JobsService,
+    private readonly profiles: OutreachEmailProfileService,
   ) {
     super()
   }
@@ -126,6 +128,8 @@ export class OutreachEmailPrepareService extends createPrismaBase(
         row,
         row.sender.displayName,
         row.outreach.date ?? new Date(),
+        this.profiles,
+        row.sender.organizationSlug,
       ),
     )
 

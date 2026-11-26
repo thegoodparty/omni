@@ -10,7 +10,11 @@ import {
 } from '@react-email/components'
 import type { ReactNode } from 'react'
 import type { EmailThemeColors } from '@goodparty_org/contracts'
-import { EMAIL_POSTAL_ADDRESS, EMAIL_VARIABLES } from './emailTemplate.const'
+import {
+  EMAIL_GOODPARTY_LOGO_URL,
+  EMAIL_POSTAL_ADDRESS,
+  EMAIL_VARIABLES,
+} from './emailTemplate.const'
 import { emailVariableToken } from './emailTemplate.const'
 import type { EmailTemplateContext } from './emailTemplate.types'
 
@@ -18,6 +22,10 @@ const FONT_STACK =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
 const CARD_WIDTH = 600
+
+// photo_letter's text column: the card less its 48px gutters.
+export const LETTER_GUTTER = 48
+const LETTER_COLUMN_WIDTH = CARD_WIDTH - 2 * LETTER_GUTTER
 
 type Align = 'left' | 'center'
 
@@ -275,30 +283,33 @@ export const EmailHeading = ({
 }
 
 // A blank line in the text starts a new paragraph and a single line break a
-// new line.
+// new line. `flush` drops the space under the last paragraph, for a layout
+// whose container alone spaces its parts.
 export const EmailParagraph = ({
   colors,
   text,
   align = 'left',
   fontSize = 16,
   lineHeight = 26,
+  flush = false,
 }: {
   colors: EmailThemeColors
   text: string
   align?: Align
   fontSize?: number
   lineHeight?: number
+  flush?: boolean
 }) => (
   <>
     {text
       .split(/\n{2,}/)
       .filter((paragraph) => paragraph.trim().length > 0)
-      .map((paragraph, index) => (
+      .map((paragraph, index, paragraphs) => (
         <Text
           key={index}
           className="em-body"
           style={{
-            margin: '0 0 16px',
+            margin: flush && index === paragraphs.length - 1 ? 0 : '0 0 16px',
             color: colors.body,
             fontSize,
             lineHeight: `${lineHeight}px`,
@@ -452,6 +463,204 @@ export const EmailDivider = ({ colors }: { colors: EmailThemeColors }) => (
       </tr>
     </tbody>
   </table>
+)
+
+// photo_letter's photo: the client crops it to 3:2, and it fills the text
+// column with rounded corners.
+export const EmailColumnImage = ({
+  url,
+  alt,
+}: {
+  url: string
+  alt: string
+}) => (
+  <Img
+    src={url}
+    alt={alt}
+    width={String(LETTER_COLUMN_WIDTH)}
+    style={{
+      display: 'block',
+      width: '100%',
+      maxWidth: LETTER_COLUMN_WIDTH,
+      height: 'auto',
+      borderRadius: 8,
+    }}
+  />
+)
+
+export const EmailLetterHeadline = ({
+  colors,
+  text,
+}: {
+  colors: EmailThemeColors
+  text: string
+}) => (
+  <Heading
+    as="h1"
+    className="em-headline"
+    style={{
+      margin: 0,
+      color: colors.headline,
+      fontSize: 24,
+      lineHeight: '29px',
+      fontWeight: 600,
+    }}
+  >
+    {text}
+  </Heading>
+)
+
+// photo_letter's button: filled with the template color, white text, 16px
+// semibold so a long label rarely wraps.
+export const EmailFilledButton = ({
+  colors,
+  label,
+  url,
+}: {
+  colors: EmailThemeColors
+  label: string
+  url: string
+}) => (
+  <table
+    role="presentation"
+    cellPadding={0}
+    cellSpacing={0}
+    border={0}
+    align="center"
+    style={{ margin: '0 auto' }}
+  >
+    <tbody>
+      <tr>
+        <td
+          align="center"
+          {...bgcolor(colors.cta)}
+          className="em-cta"
+          style={{ backgroundColor: colors.cta, borderRadius: 6 }}
+        >
+          <Link
+            href={url}
+            className="em-cta-text"
+            style={{
+              display: 'inline-block',
+              padding: '12px 24px',
+              color: colors.ctaText,
+              fontSize: 16,
+              fontWeight: 600,
+              lineHeight: '24px',
+              textDecoration: 'none',
+            }}
+          >
+            {label}
+          </Link>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+)
+
+const lines = (text: string) =>
+  text.split('\n').map((line, index, all) => (
+    <span key={index}>
+      {line}
+      {index < all.length - 1 ? <br /> : null}
+    </span>
+  ))
+
+// The sign-off: an optional signature image, the name, the office, then
+// the profile link beside the GoodParty.org logo in the template color.
+export const EmailSignature = ({
+  colors,
+  name,
+  office,
+  imageUrl,
+  profileUrl,
+}: {
+  colors: EmailThemeColors
+  name: string
+  office: string
+  imageUrl: string
+  profileUrl: string
+}) => (
+  <>
+    {imageUrl ? (
+      <Img
+        src={imageUrl}
+        alt={name ? `${name}’s signature` : 'Signature'}
+        height="48"
+        style={{
+          display: 'block',
+          height: 48,
+          width: 'auto',
+          maxWidth: 168,
+          margin: '0 0 4px',
+        }}
+      />
+    ) : null}
+    {name ? (
+      <Text
+        className="em-headline"
+        style={{
+          margin: '0 0 4px',
+          color: colors.headline,
+          fontSize: 16,
+          lineHeight: '24px',
+          fontWeight: 600,
+        }}
+      >
+        {name}
+      </Text>
+    ) : null}
+    {office ? (
+      <Text
+        className="em-body"
+        style={{
+          margin: '0 0 4px',
+          color: colors.body,
+          fontSize: 14,
+          lineHeight: '20px',
+        }}
+      >
+        {lines(office)}
+      </Text>
+    ) : null}
+    {profileUrl ? (
+      <table
+        role="presentation"
+        cellPadding={0}
+        cellSpacing={0}
+        border={0}
+        style={{ margin: '8px 0 0' }}
+      >
+        <tbody>
+          <tr>
+            <td style={{ paddingRight: 4, verticalAlign: 'middle' }}>
+              <Img
+                src={EMAIL_GOODPARTY_LOGO_URL}
+                alt="GoodParty.org"
+                width="15"
+                height="12"
+                style={{ display: 'block', width: 15, height: 12 }}
+              />
+            </td>
+            <td style={{ verticalAlign: 'middle' }}>
+              <Link
+                href={profileUrl}
+                className="em-cta-link"
+                style={{
+                  color: colors.cta,
+                  fontSize: 12,
+                  lineHeight: '16px',
+                  textDecoration: 'underline',
+                }}
+              >
+                My public profile
+              </Link>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    ) : null}
+  </>
 )
 
 export const EmailBodyBlock = ({

@@ -220,6 +220,82 @@ export const EMAIL_CONTENT_EXAMPLES = {
       ],
     },
   },
+  photo_letter: {
+    win: {
+      layout: 'photo_letter',
+      theme: 'cyan',
+      subject: 'Let’s fix Maplewood’s roads',
+      blocks: [
+        {
+          type: 'image',
+          url: EMAIL_SAMPLE_IMAGE_URLS.street,
+          alt: 'A cracked street in Maplewood',
+        },
+        {
+          type: 'heading',
+          text: 'Let’s fix Maplewood’s roads, together',
+          level: 1,
+        },
+        {
+          type: 'paragraph',
+          text: 'Hi {{first_name}}, I’m running for City Council because Maplewood’s roads have waited long enough. I’ll be knocking on doors this month and I’d love to hear what matters to you.',
+        },
+        {
+          type: 'image',
+          url: EMAIL_SAMPLE_IMAGE_URLS.hills,
+          alt: '',
+        },
+        {
+          type: 'paragraph',
+          text: 'Reply and tell me which street needs work first. I read every message, and I’ll walk it myself before the next town meeting.',
+        },
+        {
+          type: 'button',
+          label: 'Volunteer with Dana',
+          url: 'https://example.org/dana-ortiz/volunteer',
+        },
+        {
+          type: 'signature',
+          name: 'Dana Ortiz',
+          office: 'Candidate for City Council',
+          imageUrl: '',
+          profileUrl: 'https://goodparty.org/people/dana-ortiz-1a2b3c4d',
+        },
+      ],
+    },
+    serve: {
+      layout: 'photo_letter',
+      theme: 'indigo',
+      subject: 'Maple Ave and Lincoln Park on the December 8 agenda',
+      blocks: [
+        {
+          type: 'heading',
+          text: 'Two decisions coming to the council',
+          level: 1,
+        },
+        {
+          type: 'paragraph',
+          text: 'Hi {{first_name}}, at our December 8 meeting the city engineer presents the Maple Ave traffic calming study, and we decide on building the Lincoln Park splash pad. I’d love to hear what you think before then.',
+        },
+        {
+          type: 'image',
+          url: EMAIL_SAMPLE_IMAGE_URLS.street,
+          alt: 'Maple Ave near the elementary school',
+        },
+        {
+          type: 'paragraph',
+          text: 'The meeting starts at 7:00 PM at City Hall, 200 Main St, and public comment comes right after the consent agenda. If you can’t come, reply to this email and I’ll share your view with the council.',
+        },
+        {
+          type: 'signature',
+          name: 'Carla Reyes',
+          office: 'City Council Member\nMaplewood, District 4',
+          imageUrl: '',
+          profileUrl: '',
+        },
+      ],
+    },
+  },
 } as const satisfies Record<
   EmailLayoutPresetKey,
   Record<'win' | 'serve', EmailContent>

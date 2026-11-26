@@ -10,6 +10,7 @@ import {
 import { EmailShell } from './components'
 import { LongUpdateLayout } from './layouts/LongUpdateLayout'
 import { PersonalLetterLayout } from './layouts/PersonalLetterLayout'
+import { PhotoLetterLayout } from './layouts/PhotoLetterLayout'
 import { ShortCtaLayout } from './layouts/ShortCtaLayout'
 import type {
   EmailTemplateContext,
@@ -33,6 +34,7 @@ const LAYOUTS: Record<
   short_cta: { Component: ShortCtaLayout, page: 'bg' },
   long_update: { Component: LongUpdateLayout, page: 'bg' },
   personal_letter: { Component: PersonalLetterLayout, page: 'card' },
+  photo_letter: { Component: PhotoLetterLayout, page: 'bg' },
 }
 
 // A draft may still hold empty blocks; they render as nothing. A button
@@ -65,6 +67,18 @@ const protectBlock = (block: EmailBlockDraft): EmailBlockDraft[] => {
         : []
     case 'divider':
       return [block]
+    case 'signature':
+      return block.name || block.office || block.imageUrl
+        ? [
+            {
+              ...block,
+              name: protectUserText(block.name),
+              office: protectUserText(block.office),
+              imageUrl: block.imageUrl ? protectUrl(block.imageUrl) : '',
+              profileUrl: block.profileUrl ? protectUrl(block.profileUrl) : '',
+            },
+          ]
+        : []
   }
 }
 

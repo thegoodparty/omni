@@ -1,8 +1,10 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import {
+  EMAIL_BODY_MAX_LENGTH,
   EMAIL_HEADING_MAX_LENGTH,
   EMAIL_LAYOUT_PRESETS,
   EmailAiDraftFieldsSchema,
+  type EmailAiDraftFields,
   type EmailAiDraftRequest,
   type EmailAiDraftResponse,
 } from '@goodparty_org/contracts'
@@ -27,11 +29,35 @@ import {
   WIN_EMAIL_VOICE,
 } from '../util/emailVoice.util'
 
+// The original layouts ask for one body, exactly as before photo_letter.
+const ImproveFieldsSchema = EmailAiDraftFieldsSchema.omit({ body2: true })
+
 // A fresh draft always has a title, short enough for the Title field.
 // Improve keeps the author's choice, so it may still return null.
-const FreshDraftFieldsSchema = EmailAiDraftFieldsSchema.extend({
+const FreshDraftFieldsSchema = ImproveFieldsSchema.extend({
   headline: z.string().trim().min(1).max(EMAIL_HEADING_MAX_LENGTH),
 })
+
+// photo_letter has two texts with a photo between them, written together in
+// one request so they read as one message.
+const LetterFreshFieldsSchema = FreshDraftFieldsSchema.extend({
+  body2: z.string().trim().min(1).max(EMAIL_BODY_MAX_LENGTH),
+})
+const LetterImproveFieldsSchema = ImproveFieldsSchema.extend({
+  body2: z.string().trim().min(1).max(EMAIL_BODY_MAX_LENGTH).nullable(),
+})
+
+const LETTER_RULES = [
+  'This layout has two body texts with a photo between them. Also reply',
+  'with body2. body is the first text, under the headline, 50 to 120',
+  'words, and opens the email. body2 is the second text, 30 to 80 words: it',
+  'continues body without repeating it, so the two read as one message.',
+  'Neither one signs off: a signature block follows the email.',
+].join(' ')
+
+const LETTER_IMPROVE_RULE =
+  'body2 is the second text of the same email. Polish it the same way, ' +
+  'keep it consistent with body, and keep a null body2 null.'
 
 @Injectable()
 export class OutreachEmailGenerationService {
@@ -115,14 +141,25 @@ export class OutreachEmailGenerationService {
   ): Promise<EmailAiDraftResponse> {
     const preset = presetForLayout(input.layout)
     const layout = EMAIL_LAYOUT_PRESETS[preset]
+    const letter = preset === 'photo_letter'
     const context = [
       `${voice.nameLabel}: ${name || voice.subjectFallback}.`,
       `${voice.officeLabel}: ${office || 'local office'}.`,
       `Goal of this email: ${input.goal}`,
       `Tone: ${TONE_STYLES[input.tone]}`,
       `Layout: ${layout.label}. ${layout.description}`,
+      ...(letter
+        ? [input.currentDraft ? LETTER_IMPROVE_RULE : LETTER_RULES]
+        : []),
       ...composeContext,
     ]
+    const schema: z.ZodType<EmailAiDraftFields> = letter
+      ? input.currentDraft
+        ? LetterImproveFieldsSchema
+        : LetterFreshFieldsSchema
+      : input.currentDraft
+        ? ImproveFieldsSchema
+        : FreshDraftFieldsSchema
     const messages: LlmMessage[] = input.currentDraft
       ? [
           { role: 'system', content: voice.improveSystemPrompt },
@@ -149,9 +186,7 @@ export class OutreachEmailGenerationService {
     try {
       const { object } = await this.llm.jsonCompletion({
         messages,
-        schema: input.currentDraft
-          ? EmailAiDraftFieldsSchema
-          : FreshDraftFieldsSchema,
+        schema,
         // High enough that Regenerate re-rolls produce a different draft.
         temperature: 0.8,
         maxTokens: 1500,
@@ -180,9 +215,23 @@ export class OutreachEmailGenerationService {
               headline: null,
               body: object.body,
               imageUrl: null,
-              buttonLabel: object.buttonLabel,
+              buttonLabel: null,
               buttonUrl: null,
             }),
+            // The second text, in a photo_letter only, goes before the
+            // button like the fixed structure has it.
+            ...(object.body2
+              ? [{ type: 'paragraph' as const, text: object.body2 }]
+              : []),
+            ...(object.buttonLabel
+              ? [
+                  {
+                    type: 'button' as const,
+                    label: object.buttonLabel,
+                    url: '',
+                  },
+                ]
+              : []),
           ],
         },
       }

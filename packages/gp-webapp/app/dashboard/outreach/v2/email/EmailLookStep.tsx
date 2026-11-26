@@ -1,5 +1,7 @@
 import {
   EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH,
+  EMAIL_CLASSIC_LAYOUT_PRESETS,
+  EMAIL_CLASSIC_THEMES,
   EMAIL_LAYOUT_PRESETS,
   EMAIL_THEMES,
   EMAIL_URL_MAX_LENGTH,
@@ -89,7 +91,7 @@ export const EmailLookStep = ({
               if (parsed.success) pickLayout(parsed.data)
             }}
           >
-            {EmailLayoutPresetKeySchema.options.map((key) => (
+            {EMAIL_CLASSIC_LAYOUT_PRESETS.map((key) => (
               <FilterPill key={key} value={key}>
                 {EMAIL_LAYOUT_PRESETS[key].label}
               </FilterPill>
@@ -113,7 +115,7 @@ export const EmailLookStep = ({
               if (parsed.success) set('theme', parsed.data)
             }}
           >
-            {EmailThemeKeySchema.options.map((key: EmailThemeKey) => (
+            {EMAIL_CLASSIC_THEMES.map((key: EmailThemeKey) => (
               <FilterPill key={key} value={key}>
                 <span className="flex items-center gap-2">
                   {/* The swatch is the theme's own color, not a design
