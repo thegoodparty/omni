@@ -95,11 +95,13 @@ export const INTERSTITIAL_COPY = {
 // Flag on (win_per_campaign_pricing): the plan name and price come from the
 // PlanPitch, never literals. Flag off keeps the strings above. The dialog is
 // dismissed with its X only, so there is no "Maybe later" here, and "See all
-// plans" is its own stacked button under the CTA.
+// plans" is its own stacked button under the CTA. The title is the channel's
+// own explainer title, so the pitch reads like the button that opened it.
 export const planInterstitialCopy = (
   pitch: PlanPitch,
+  channel: GateChannel,
 ): { title: string; cta: string; seeAllPlans: string } => ({
-  title: `Join ${pitch.name} to send this campaign`,
+  title: EXPLAINER_COPY.titleFree(channel, pitch.name),
   cta: `Join ${pitch.name} for ${pitch.price}`,
   seeAllPlans: SEE_ALL_PLANS_LABEL,
 })
