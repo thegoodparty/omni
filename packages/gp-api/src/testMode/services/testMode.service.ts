@@ -15,6 +15,7 @@ import {
   ComplianceStage,
   CreateTestOrganizationRequest,
   PeerlyCvVerificationStatus,
+  TEST_MODE_CIVIC_PANEL_PRESET_VALUES,
   TEST_MODE_ELECTION_PRESET_VALUES,
   TEST_MODE_ONBOARDING_PRESET_VALUES,
   TEST_MODE_PRO_PRESET_VALUES,
@@ -58,6 +59,7 @@ import {
   TcrComplianceStatus,
   User,
 } from '../../generated/prisma'
+import { TestModeCivicPanelService } from './testModeCivicPanel.service'
 
 export const TEST_ORGANIZATION_CAP = 15
 export const DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS = 60_000
@@ -119,6 +121,7 @@ export class TestModeService {
     private readonly transitions: StateTransitionsService,
     private readonly contactUploadFiles: ContactUploadFilesService,
     private readonly revalidation: MarketingRevalidationService,
+    private readonly civicPanel: TestModeCivicPanelService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(TestModeService.name)
@@ -195,6 +198,13 @@ export class TestModeService {
         break
       case 'tenDlc':
         await this.applyTenDlc(user, this.requireCampaign(org), body.preset)
+        break
+      case 'civicPanel':
+        await this.civicPanel.apply(
+          this.requireOffice(org),
+          user.id,
+          body.preset,
+        )
         break
     }
 
@@ -372,6 +382,10 @@ export class TestModeService {
           term: {
             current: this.currentTerm(office, today),
             available: [...TEST_MODE_TERM_PRESET_VALUES],
+          },
+          civicPanel: {
+            current: await this.civicPanel.current(office),
+            available: [...TEST_MODE_CIVIC_PANEL_PRESET_VALUES],
           },
         },
       }

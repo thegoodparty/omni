@@ -16,6 +16,7 @@ export const TEST_MODE_FAMILY_VALUES = [
   'election',
   'term',
   'tenDlc',
+  'civicPanel',
 ] as const
 export type TestModeFamily = (typeof TEST_MODE_FAMILY_VALUES)[number]
 export const TestModeFamilySchema = z.enum(TEST_MODE_FAMILY_VALUES)
@@ -71,6 +72,25 @@ export const TestModeTenDlcPresetSchema = z.enum(
   TEST_MODE_TEN_DLC_PRESET_VALUES,
 )
 
+// One civic panel story, in order: the panel filling to each milestone the
+// panel page shows, then one priority asked of it and its answers coming in.
+export const TEST_MODE_CIVIC_PANEL_PRESET_VALUES = [
+  'none',
+  'building',
+  'first_yes',
+  'can_compare',
+  'halfway',
+  'full',
+  'asked',
+  'answers_coming',
+  'answers_in',
+] as const
+export type TestModeCivicPanelPreset =
+  (typeof TEST_MODE_CIVIC_PANEL_PRESET_VALUES)[number]
+export const TestModeCivicPanelPresetSchema = z.enum(
+  TEST_MODE_CIVIC_PANEL_PRESET_VALUES,
+)
+
 export const TestModeRaceSchema = z.object({
   zip: z.string().trim().min(1),
   office: z.string().trim().min(1),
@@ -115,6 +135,10 @@ export const ApplyTestModeRequestSchema = z.discriminatedUnion('family', [
     family: z.literal('tenDlc'),
     preset: TestModeTenDlcPresetSchema,
   }),
+  z.object({
+    family: z.literal('civicPanel'),
+    preset: TestModeCivicPanelPresetSchema,
+  }),
 ])
 export type ApplyTestModeRequest = z.infer<typeof ApplyTestModeRequestSchema>
 
@@ -133,7 +157,7 @@ export const TestModeOrganizationSchema = z.object({
 export type TestModeOrganization = z.infer<typeof TestModeOrganizationSchema>
 
 // A campaign org carries onboarding, pro, election and tenDlc; an elected
-// office org carries onboarding and term. Absent families do not apply.
+// office org carries onboarding, term and civicPanel. Absent families do not apply.
 export const TestModeActiveOrganizationSchema = z.object({
   slug: z.string(),
   type: TestModeOrganizationTypeSchema,
@@ -143,6 +167,7 @@ export const TestModeActiveOrganizationSchema = z.object({
     election: TestModeFamilyStateSchema.optional(),
     term: TestModeFamilyStateSchema.optional(),
     tenDlc: TestModeFamilyStateSchema.optional(),
+    civicPanel: TestModeFamilyStateSchema.optional(),
   }),
 })
 export type TestModeActiveOrganization = z.infer<

@@ -4,11 +4,17 @@ import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.ser
 import { ElectionsService } from '@/elections/services/elections.service'
 import { RacesService } from '@/elections/services/races.service'
 import { FeaturesService } from '@/features/services/features.service'
+import type { JobRun, ScheduleData } from '@/jobs/jobs.registry'
+import { JobsService } from '@/jobs/jobs.service'
+import { ManagedPanelWaveJobService } from '@/managedPanelWaves/managedPanelWaveJob.service'
+import { PriorityReadService } from '@/priorities/services/priorityRead.service'
 import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
+  answersNeeded,
   CreateTestOrganizationRequest,
+  panelGoalMembers,
   RaceListItem,
   TestModeState,
 } from '@goodparty_org/contracts'
@@ -16,13 +22,20 @@ import { BadGatewayException, HttpStatus } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  CivicPanelStatus,
+  ContactStatusField,
   DomainStatus,
+  ManagedCivicPanelStatus,
   OutreachStatus,
   OutreachType,
   PrioritySource,
   TcrComplianceStatus,
   WebsiteStatus,
 } from '../../generated/prisma'
+import {
+  CIVIC_PANEL_FIXTURE_PRIORITY,
+  CIVIC_PANEL_FIXTURE_THEMES,
+} from '../fixtures/civicPanel.fixture'
 import {
   DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS,
   TEST_ORGANIZATION_CAP,
@@ -475,6 +488,184 @@ describe('POST /v1/test-mode/apply', () => {
     const res = await apply(created.slug, { family: 'pro', preset: 'on' })
 
     expect(res.status).toBe(HttpStatus.CONFLICT)
+  })
+})
+
+describe('POST /v1/test-mode/apply civicPanel', () => {
+  const goal = panelGoalMembers(answersNeeded())
+
+  const members = (slug: string) =>
+    service.prisma.contactCurrentStatus.count({
+      where: {
+        organizationSlug: slug,
+        field: ContactStatusField.civic_panel,
+        value: CivicPanelStatus.member,
+      },
+    })
+
+  const fixturePriority = (slug: string) =>
+    service.prisma.priority.findFirst({
+      where: {
+        electedOffice: { organizationSlug: slug },
+        title: CIVIC_PANEL_FIXTURE_PRIORITY.title,
+      },
+    })
+
+  const replies = (priorityId: string) =>
+    service.prisma.pollIndividualMessage.count({
+      where: { outreach: { priorityId } },
+    })
+
+  it('walks the panel through each milestone with made-up members', async () => {
+    const created = await createOrg(officeBundle())
+
+    const building = await apply(created.slug, {
+      family: 'civicPanel',
+      preset: 'building',
+    })
+    expect(building.status).toBe(HttpStatus.OK)
+    expect(building.data.active?.families.civicPanel?.current).toBe('building')
+    expect(await members(created.slug)).toBe(0)
+
+    const halfway = await apply(created.slug, {
+      family: 'civicPanel',
+      preset: 'halfway',
+    })
+    expect(halfway.data.active?.families.civicPanel?.current).toBe('halfway')
+    expect(await members(created.slug)).toBe(Math.ceil(goal / 2))
+    const panel = await service.prisma.managedCivicPanel.findUniqueOrThrow({
+      where: { organizationSlug: created.slug },
+    })
+    expect(panel.status).toBe(ManagedCivicPanelStatus.building)
+    expect(panel.goalMembers).toBe(goal)
+
+    const full = await apply(created.slug, {
+      family: 'civicPanel',
+      preset: 'full',
+    })
+    expect(full.data.active?.families.civicPanel?.current).toBe('full')
+    expect(await members(created.slug)).toBe(goal)
+    const ready = await service.prisma.managedCivicPanel.findUniqueOrThrow({
+      where: { organizationSlug: created.slug },
+    })
+    expect(ready.status).toBe(ManagedCivicPanelStatus.ready)
+    expect(ready.readyAt).not.toBeNull()
+  })
+
+  it('asks one priority and lets its answers come in on the same page', async () => {
+    const created = await createOrg(officeBundle())
+
+    await apply(created.slug, { family: 'civicPanel', preset: 'full' })
+    const unasked = await fixturePriority(created.slug)
+    expect(unasked).not.toBeNull()
+
+    const coming = await apply(created.slug, {
+      family: 'civicPanel',
+      preset: 'answers_coming',
+    })
+    expect(coming.data.active?.families.civicPanel?.current).toBe(
+      'answers_coming',
+    )
+    const priority = await fixturePriority(created.slug)
+    expect(priority?.id).toBe(unasked?.id)
+    const someAnswers = await replies(priority!.id)
+    expect(someAnswers).toBeGreaterThan(0)
+    expect(someAnswers).toBeLessThan(answersNeeded())
+    expect(
+      await service.prisma.feedbackSynthesisRun.count({
+        where: { priorityId: priority!.id },
+      }),
+    ).toBe(0)
+
+    const answered = await apply(created.slug, {
+      family: 'civicPanel',
+      preset: 'answers_in',
+    })
+    expect(answered.data.active?.families.civicPanel?.current).toBe(
+      'answers_in',
+    )
+    expect(await replies(priority!.id)).toBe(answersNeeded())
+    expect(
+      await service.prisma.priorityAnswer.count({
+        where: { outreach: { priorityId: priority!.id } },
+      }),
+    ).toBe(answersNeeded())
+    const run = await service.prisma.feedbackSynthesisRun.findFirstOrThrow({
+      where: { priorityId: priority!.id },
+      include: { themes: { include: { members: true } } },
+    })
+    expect(run.themes).toHaveLength(CIVIC_PANEL_FIXTURE_THEMES.length)
+    expect(run.themes.every((theme) => theme.members.length > 0)).toBe(true)
+  })
+
+  it('clears only its own members and keeps one added by hand', async () => {
+    const created = await createOrg(officeBundle())
+    await service.prisma.contactCurrentStatus.create({
+      data: {
+        organizationSlug: created.slug,
+        personId: 'real-person',
+        field: ContactStatusField.civic_panel,
+        value: CivicPanelStatus.member,
+      },
+    })
+
+    await apply(created.slug, { family: 'civicPanel', preset: 'asked' })
+    const res = await apply(created.slug, {
+      family: 'civicPanel',
+      preset: 'none',
+    })
+
+    expect(res.data.active?.families.civicPanel?.current).toBe('none')
+    expect(await members(created.slug)).toBe(1)
+    expect(await fixturePriority(created.slug)).toBeNull()
+    expect(
+      await service.prisma.outreach.count({
+        where: { organizationSlug: created.slug },
+      }),
+    ).toBe(0)
+    expect(
+      await service.prisma.managedCivicPanel.count({
+        where: { organizationSlug: created.slug },
+      }),
+    ).toBe(0)
+  })
+
+  it('refuses a test campaign', async () => {
+    const created = await createOrg(campaignBundle())
+
+    const res = await apply(created.slug, {
+      family: 'civicPanel',
+      preset: 'full',
+    })
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+  })
+
+  it('never sends a test panel through the wave job', async () => {
+    const created = await createOrg(officeBundle())
+    await apply(created.slug, { family: 'civicPanel', preset: 'halfway' })
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+    const sendMany = vi
+      .spyOn(service.app.get(JobsService), 'sendMany')
+      .mockResolvedValue([])
+
+    await service.app
+      .get(ManagedPanelWaveJobService)
+      .fanOutWaves({ id: 'run-1' } as JobRun<ScheduleData>)
+
+    expect(sendMany).toHaveBeenCalledWith('managedPanelWaveAdvance', [])
+  })
+
+  it('stores no warehouse read for its answers', async () => {
+    const created = await createOrg(officeBundle())
+    await apply(created.slug, { family: 'civicPanel', preset: 'answers_in' })
+    const priority = await fixturePriority(created.slug)
+
+    const read = await service.app
+      .get(PriorityReadService)
+      .currentRead(priority!.id)
+
+    expect(read).toBeNull()
   })
 })
 
