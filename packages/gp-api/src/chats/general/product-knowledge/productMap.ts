@@ -465,7 +465,7 @@ const SERVE_AREAS: ProductArea[] = [
     modes: ['serve'],
     does: 'Commission a poll of the district and read the results. It is no longer in the left rail. New polls are created and opened from Outreach; past polls open from a constituent’s record.',
     inside: [
-      'Each poll in the list opens its own results page. Until a poll goes out it shows its message and send date; after that it shows how many were texted, how many responded, the response rate and the opt-out rate, and refreshes by itself',
+      'Each poll in the list opens its own results page. Until a poll goes out it shows its message and send date; after that it shows how many were texted, then how many responded, did not respond and opted out, each with its share of the texts sent, and refreshes by itself',
       'Under 20 responses it says Not enough responses yet and shows no themes. From 20 up it shows up to 5 top themes with their mentions and an "N new" tag for responses since the last read, plus an Other responses card for replies that fit no theme. Poll confidence, high or low, is worked out by GoodParty.org',
       'Opening a theme lists its responses. Filter them by All, Unread or Favorited, tap the heart to keep one, and open one to see when it arrived and, if the person is in your constituents, their status with a link to their record. A response counts as read once you open it',
       'Gather more feedback is on the results page for a poll that has gone out, and in the low-confidence and Not enough responses alerts. It asks how many more constituents to text: the minimum for a reliable sample, everyone you have not messaged yet, or a dollar amount. It never texts anyone the poll already reached',

@@ -30,6 +30,8 @@ import { GatherMoreFlow } from '../gather/GatherMoreFlow'
 import { PollCommentList } from './PollCommentList'
 import { PollThemeDetail } from './PollThemeDetail'
 import { PollThemeList } from './PollThemeList'
+import { OutreachResultsCard } from '../../listDetails/OutreachResultsCard'
+import { OUTREACH_RESULTS_COPY } from '../../outreachResultsCopy'
 import { SERVE_POLL_RESULTS_COPY } from './pollResultsCopy'
 import {
   pollDetailQueryOptions,
@@ -53,9 +55,6 @@ type View =
 // same rule gp-api applies when it refuses a second.
 const OPEN_EXPANSION_STATUSES = ['pending_payment', 'pending', 'in_progress']
 
-const percent = (fraction: number): string =>
-  `${(fraction * 100).toFixed(1).replace(/\.0$/, '')}%`
-
 const dateLabel = (value: Date | string | null): string | null => {
   if (!value) return null
   const date = new Date(value)
@@ -69,33 +68,30 @@ const dateLabel = (value: Date | string | null): string | null => {
       })
 }
 
-const Stat = ({ label, value }: { label: string; value: string }) => (
-  <div className="min-w-0">
-    <p className="text-xs text-muted-foreground">{label}</p>
-    <p className="text-xl font-semibold text-foreground">{value}</p>
-  </div>
-)
-
-const StatsCard = ({ results }: { results: PollResults }) => (
-  <Card className="grid grid-cols-2 gap-4 p-4 md:grid-cols-4">
-    <Stat
-      label={SERVE_POLL_RESULTS_COPY.stats.sent}
-      value={results.sent.toLocaleString()}
+// The shared results card, so a poll reads like every other text: counts with
+// their share of the texts sent. Opt-outs arrive as a rate over those same
+// sends, so the count is read back from it.
+const StatsCard = ({ results }: { results: PollResults }) => {
+  const optedOut = Math.round(results.optOutRate * results.sent)
+  return (
+    <OutreachResultsCard
+      basedOn={OUTREACH_RESULTS_COPY.basedOn(
+        results.sent,
+        'text sent',
+        'texts sent',
+      )}
+      total={results.sent}
+      rows={[
+        { label: OUTREACH_RESULTS_COPY.responded, count: results.responses },
+        {
+          label: OUTREACH_RESULTS_COPY.noResponse,
+          count: Math.max(0, results.sent - results.responses - optedOut),
+        },
+        { label: OUTREACH_RESULTS_COPY.optedOut, count: optedOut },
+      ]}
     />
-    <Stat
-      label={SERVE_POLL_RESULTS_COPY.stats.responses}
-      value={results.responses.toLocaleString()}
-    />
-    <Stat
-      label={SERVE_POLL_RESULTS_COPY.stats.responseRate}
-      value={percent(results.responseRate)}
-    />
-    <Stat
-      label={SERVE_POLL_RESULTS_COPY.stats.optOutRate}
-      value={percent(results.optOutRate)}
-    />
-  </Card>
-)
+  )
+}
 
 const ExpansionsCard = ({
   expansions,
