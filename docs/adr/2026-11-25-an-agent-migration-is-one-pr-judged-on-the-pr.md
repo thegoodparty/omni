@@ -6,7 +6,6 @@ date: 2026-11-25
 code: []
 scope:
   - packages/gp-api/deploy/agentsOnGpApi.ts
-  - docs/cap-consolidation.md
   - docs/agent-evals.md
 ---
 

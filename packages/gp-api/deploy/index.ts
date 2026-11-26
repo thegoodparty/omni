@@ -966,8 +966,7 @@ jwIDAQAB
       // candidate arm runs gp-api's engine; prod names only the agents the
       // Universal Judge has read as same or better, and dev adds the agents
       // whose dev-versus-preview comparison passed, so they accumulate real
-      // traffic there first (docs/cap-consolidation.md, docs/agent-evals.md,
-      // deploy/agentsOnGpApi.ts).
+      // traffic there first (docs/agent-evals.md, deploy/agentsOnGpApi.ts).
       AGENTS_ON_GP_API: agentsOnGpApi(environment),
     },
     permissions: [

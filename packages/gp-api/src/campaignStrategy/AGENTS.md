@@ -3,7 +3,7 @@
 The V2 campaign plan's two generated sections. `opposition_research` finds who is
 on the ballot; `opportunities_and_challenges` finds what the race offers and costs
 the candidate. Each is one background agent, and each can run on either engine
-while the consolidation is in progress (`docs/cap-consolidation.md`).
+(`deploy/agentsOnGpApi.ts`).
 
 `CampaignStrategy` is the plan row: `oppositionRunId` / `opportunitiesRunId` point
 at each section's run, `oppositionPersistedAt` / `opportunitiesPersistedAt` mark
