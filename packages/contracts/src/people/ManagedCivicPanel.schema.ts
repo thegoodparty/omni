@@ -22,6 +22,12 @@ export type ManagedCivicPanelStatus = z.infer<
   typeof ManagedCivicPanelStatusSchema
 >
 
+// How far ahead the official may set the day the first invites go out. Longer
+// than any other send's window, so an official elected but not yet sworn in
+// can start them after they take office: most local terms begin more than
+// 30 days after a November election.
+export const MANAGED_PANEL_FIRST_SEND_MAX_DAYS = 90
+
 // The approval. The invite must carry the locked JOIN line and the STOP
 // opt-out; gp-api checks both, since the words are what the reply reader
 // and the opt-out depend on.
@@ -30,7 +36,8 @@ export const ApproveManagedCivicPanelInputSchema = z
     inviteMessage: z.string().trim().min(1).max(SMS_COMPOSED_MAX_LENGTH),
     consentVersion: z.string().trim().min(1).max(100),
     // The day the first invites go out, yyyy-MM-dd: tomorrow at the
-    // earliest, no weekend, at most 30 days out. Omitted, two days out.
+    // earliest, no weekend, at most MANAGED_PANEL_FIRST_SEND_MAX_DAYS out.
+    // Omitted, two days out.
     firstSendDate: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/)

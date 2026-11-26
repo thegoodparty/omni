@@ -69,8 +69,9 @@ What makes a row due:
   `DRAFT_RETENTION_DAYS`, so `outreachDraftExpiry` deletes it.
 - `ddhq.result.won` (action) sets `didWin` on the caller's campaign the way
   gp-data-platform writes a DDHQ result, without the reconcile an in-app
-  result runs, so only `winOfficeSweep` creates the office. Test users and
-  mock mode only.
+  result runs, so only `winOfficeSweep` creates the office. An optional
+  `params.votesReceived` (a non-negative integer) is written with it as the
+  winner's vote count. Test users and mock mode only.
 
 Specs: `e2e-tests/tests/app/dashboard/outreach/outreach-draft-expiry.spec.ts`
 and `e2e-tests/tests/app/organizations/win-office-sweep.spec.ts`.

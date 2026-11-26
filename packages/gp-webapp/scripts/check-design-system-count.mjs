@@ -41,7 +41,12 @@ import { dirname, join, relative } from 'node:path'
 const BASELINES = {
   // +1: ImportedInFilter's View all pill copies PrecinctFilter's
   // (section 7, step 1).
-  rawElements: 135,
+  // +2: the Serve warm welcome (app/serve/onboarding/warmWelcome), from Olly
+  // Farshi's design. Its breadcrumb segment is a bar over a label, and a word
+  // of its date sentence is display type with a dotted underline; Button
+  // draws neither, and restyling one would hide the same gap in the other
+  // count. Both are listed in the PR as component proposals.
+  rawElements: 137,
   hexClasses: 25,
   lucideImporters: 62,
   // 2026-11-11: initial baseline, measured on main.

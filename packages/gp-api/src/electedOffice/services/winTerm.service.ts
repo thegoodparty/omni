@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { compareDesc, isAfter } from 'date-fns'
 import { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
+import { ElectionsService } from '@/elections/services/elections.service'
 
 export type WinTerm = { termStartDate: Date; termEndDate: Date }
 
@@ -9,19 +10,37 @@ const sameName = (a: string | null | undefined, b: string | null | undefined) =>
   !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
 
 /**
- * The term of a seat a candidate just won, when BallotReady already has the
- * winner's own office-holder record for it: the position the campaign ran
- * for, held by a person with the user's first and last name, with full start
- * and end dates that have not passed. Nothing is derived from an election
- * date and a term length; without such a record Serve onboarding asks.
+ * What is known about the term of a seat a candidate just won.
+ *
+ * `forWinner` is the term itself, when BallotReady already has the winner's
+ * own office-holder record for it: the position the campaign ran for, held by
+ * a person with the user's first and last name, with full start and end dates
+ * that have not passed.
+ *
+ * `termYears` is only the seat's term length. Nothing is derived from it and
+ * an election date: it turns the first meeting date a winner confirms in
+ * Serve onboarding into an end date (PUT /v1/elected-office/:id).
  */
 @Injectable()
 export class WinTermService {
   constructor(
     private readonly officeHolders: OfficeHoldersService,
+    private readonly elections: ElectionsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(WinTermService.name)
+  }
+
+  // The first gap in the race's election cadence (`Race.frequency`), keyed by
+  // the BallotReady race hash a campaign keeps on `details.raceId`. Null when
+  // the campaign names no race or the race carries no usable cadence.
+  async termYears(raceId: string | null | undefined): Promise<number | null> {
+    if (!raceId) return null
+    const cadence = await this.elections.getElectionFrequencyByBrHashId(raceId)
+    const [years] = cadence?.frequency ?? []
+    return years !== undefined && Number.isInteger(years) && years > 0
+      ? years
+      : null
   }
 
   async forWinner(

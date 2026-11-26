@@ -11,6 +11,12 @@ model CommunityIssue {
   detail   Json?                   @db.JsonB
   rank     Int?
 
+  // Null on a row no search has placed yet (a full run writes none).
+  firstWin       FirstWinHorizon? @map("first_win")
+  firstWinSource FocusFactSource? @map("first_win_source")
+  // Completes "We'll help you make progress on ___."
+  recapLine      String?          @map("recap_line")
+
   archivedAt         DateTime? @map("archived_at")
   lastRefreshedRunId String?   @map("last_refreshed_run_id")
 

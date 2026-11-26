@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { addMilliseconds } from 'date-fns'
 import { Prisma, PrioritySource } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -33,7 +34,10 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
   listActive(electedOfficeId: string) {
     return this.model.findMany({
       where: { electedOfficeId, archivedAt: null },
-      orderBy: { createdAt: Prisma.SortOrder.asc },
+      orderBy: [
+        { focusedAt: { sort: Prisma.SortOrder.desc, nulls: 'last' } },
+        { createdAt: Prisma.SortOrder.asc },
+      ],
     })
   }
 
@@ -159,26 +163,55 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
     return result
   }
 
+  // Copies what the candidate ran on into the office's priorities: every
+  // picked position, oldest first, then every typed issue in the order typed.
+  // Safe to call again: it adds only what is missing, so an office seeded
+  // when typed issues hid the positions gets those positions on its next
+  // call. A finished office keeps the list it has.
   async seedFromWin(electedOfficeId: string, tx?: TxClient): Promise<void> {
-    const client = tx ?? this.client
+    const missing = await this.missingWinRows(
+      tx ?? this.client,
+      electedOfficeId,
+    )
+    if (missing.length === 0) return
 
+    // The welcome's read and the onboarding job both seed, at once for a
+    // winner landing on the flow, and no unique key stops a second copy.
+    const write = async (inner: TxClient) => {
+      const lockKey = `priority_seed:${electedOfficeId}`
+      await inner.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
+      const rows = await this.missingWinRows(inner, electedOfficeId)
+      if (rows.length > 0) await inner.priority.createMany({ data: rows })
+    }
+    await (tx ? write(tx) : this.client.$transaction(write))
+  }
+
+  private async missingWinRows(
+    client: TxClient,
+    electedOfficeId: string,
+  ): Promise<Prisma.PriorityCreateManyInput[]> {
     const office = await client.electedOffice.findUnique({
       where: { id: electedOfficeId },
-      select: { campaignId: true },
+      select: { campaignId: true, onboardingCompletedAt: true },
     })
-    if (!office?.campaignId) return
+    if (!office?.campaignId) return []
 
-    const existing = await client.priority.findFirst({
+    // Archived rows count: one the official removed stays removed.
+    const seeded = await client.priority.findMany({
       where: { electedOfficeId, source: PrioritySource.win_import },
-      select: { id: true },
+      select: { sourceCampaignPositionId: true },
     })
-    if (existing) return
+    if (seeded.length > 0 && office.onboardingCompletedAt !== null) return []
 
     const campaign = await client.campaign.findUnique({
       where: { id: office.campaignId },
       select: {
         details: true,
         campaignPositions: {
+          orderBy: [
+            { createdAt: Prisma.SortOrder.asc },
+            { id: Prisma.SortOrder.asc },
+          ],
           select: {
             id: true,
             description: true,
@@ -188,28 +221,38 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
         },
       },
     })
-    if (!campaign) return
+    if (!campaign) return []
 
-    const customIssues = campaign.details?.customIssues ?? []
-    const rows: Prisma.PriorityCreateManyInput[] =
-      customIssues.length > 0
-        ? customIssues.map((issue) => ({
-            electedOfficeId,
-            title: issue.title,
-            description: issue.position,
-            source: PrioritySource.win_import,
-            sourceCampaignPositionId: null,
-          }))
-        : campaign.campaignPositions.map((cp) => ({
-            electedOfficeId,
-            title: cp.position.name ?? cp.topIssue?.name ?? '',
-            description: cp.description ?? '',
-            source: PrioritySource.win_import,
-            sourceCampaignPositionId: cp.id,
-          }))
+    const seededPositionIds = new Set(
+      seeded.map((row) => row.sourceCampaignPositionId),
+    )
+    // A typed issue has no id to match on, so they are copied together, once.
+    const typedSeeded = seededPositionIds.has(null)
+    const rows = [
+      ...campaign.campaignPositions
+        .filter((cp) => !seededPositionIds.has(cp.id))
+        .map((cp) => ({
+          title: cp.position.name ?? cp.topIssue?.name ?? '',
+          description: cp.description ?? '',
+          sourceCampaignPositionId: cp.id,
+        })),
+      ...(typedSeeded ? [] : (campaign.details?.customIssues ?? [])).map(
+        (issue) => ({
+          title: issue.title,
+          description: issue.position,
+          sourceCampaignPositionId: null,
+        }),
+      ),
+    ]
 
-    if (rows.length === 0) return
-
-    await client.priority.createMany({ data: rows })
+    // One insert stamps every row with the same time, which would leave the
+    // order they were added in undefined.
+    const now = new Date()
+    return rows.map((row, index) => ({
+      ...row,
+      electedOfficeId,
+      source: PrioritySource.win_import,
+      createdAt: addMilliseconds(now, index),
+    }))
   }
 }

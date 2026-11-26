@@ -9,8 +9,8 @@ office and everything either of them owns.
 | `services/electedOffice.service.ts`   | `create` (idempotent per user and per campaign, non-overlapping terms) and `update`            |
 | `services/winOffice.service.ts`       | Dormant offices for wins, offices prepared ahead of a result, the daily sweep                 |
 | `util/winOffice.util.ts`              | `campaignWinState`: what a campaign's result says and which source said it; `canPrepareOffice` |
-| `util/electedOffice.util.ts`          | `isPreparedOffice`: the one predicate for "prepared, so invisible"                             |
-| `services/winTerm.service.ts`         | A winner's term from their BallotReady office-holder record                                   |
+| `util/electedOffice.util.ts`          | `isPreparedOffice`: the one predicate for "prepared, so invisible"; `deriveIsActive`          |
+| `services/winTerm.service.ts`         | A winner's term from their BallotReady office-holder record; the seat's term length in years  |
 | `services/crmOfficeHolder.service.ts` | HubSpot Office Holder sync on every office write                                              |
 | `electedOffice.controller.ts`         | `/v1/elected-office`; `PUT /:id` with `onboardingCompletedAt` is the pledge                   |
 
@@ -24,6 +24,41 @@ an office created onboarded; `update` fires them when a write stamps
 `onboardingCompletedAt` on an office that had none. All three skip an org
 that already has a run, so a retry is safe. Leads, net-new onboarding and
 win offices all get their first runs at the pledge.
+
+## What the pledge needs of the term
+
+`PUT /:id` refuses `onboardingCompletedAt` on an office with no `campaignId`
+unless it has both term dates. A win office (`campaignId` set) finishes with
+whatever term it has, because a new winner often does not know it yet
+(`docs/adr/2026-11-25-a-win-office-finishes-without-term-dates.md`):
+
+- Serve onboarding sends the first meeting date the winner confirmed as
+  `termStartDate` on the finishing write. With a start and no end, in the body
+  or stored, gp-api sets `termEndDate` to the start plus the seat's term
+  length: `WinTermService.termYears`, the first gap of `Race.frequency` for
+  the campaign's `details.raceId`. With no length on file the end stays null.
+- If that term overlaps another office the user holds (a re-elected
+  incumbent's first meeting falls in the term they already have), the write
+  still finishes the office and leaves its term dates as they were. Any other
+  overlap is still a 409.
+- With no dates at all it finishes too.
+
+A finished win office with no end date reads as held: `deriveIsActive` (the
+API's `isActive`) and `isHeldOffice` (the org list's `status`, the order of
+`sortOrganizations`, and `EligibilityService`) all go through the same
+predicate. `sortOrganizations` still does not lead with an office whose
+`termStartDate` is ahead. Nothing on the server asks for the missing dates:
+the webapp's `ElectedOfficeTermDatesModalController` prompts on every
+dashboard load for a finished office missing either one.
+
+## Writes only the holder makes
+
+`onboardingCompletedAt`, `selfReported`, `onboardingStep` and
+`briefingTextReminder` are refused from an M2M token. `briefingTextReminder`
+(a boolean on `PUT /:id`) is the holder's yes to one text when their first
+Meeting Briefing is ready: true stamps `briefingTextReminderAt` and keeps the
+first stamp, false clears it. The text itself is HubSpot's
+(`src/meetings/AGENTS.md` § The text reminder).
 
 ## Every win gets one office
 
@@ -41,6 +76,15 @@ result was cleared) it is ignored and the campaign has no win.
 | Candidate | `PUT /v1/campaigns/mine` (`wonGeneral`), Pro handoff `POST /v1/elected-office` | `self_reported` |
 | Staff     | `PUT /v1/admin/campaigns/:id` (`didWin`), M2M `PUT /v1/campaigns/:id`          | `staff`         |
 | DDHQ      | Written to Postgres by `gp-data-platform`; found by the daily sweep            | `ddhq`          |
+
+Whoever records a win can send the winner's own vote count with it:
+`campaign.votes_received`, a nullable integer beside `did_win`
+(`docs/adr/2026-11-25-a-winners-vote-count-lives-on-the-campaign.md`).
+`gp-data-platform` writes it in the same statement as `did_win`; the M2M
+`PUT /v1/campaigns/:id` takes it as `votesReceived`. A result with no count
+leaves it null, and a new race clears it with `didWin`. `GET
+/v1/elected-office/current` and `/mine` return it as `votesReceived` from the
+office's linked campaign; no user route writes it.
 
 The in-app paths call `reconcile` right after the write; the daily sweep
 (the `winOfficeSweep` pg-boss schedule, 11:19 UTC) catches everything else

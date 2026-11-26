@@ -1,3 +1,6 @@
+import { clientRequest } from 'gpApi/typed-request'
+import { ORG_SLUG_HEADER } from '@shared/organizations/constants'
+
 // A campaign's party as Serve onboarding's party step values. The campaign
 // keeps whatever Win wrote: onboarding's lowercase values, the profile's
 // labels ("Non-partisan", "Green Party"), or "Other" with the name in
@@ -24,4 +27,25 @@ export const servePartyFromCampaign = (
   if (party.startsWith('democrat')) return 'democratic'
   if (party.startsWith('republican')) return 'republican'
   return 'independent'
+}
+
+// An office from a win with no party of its own still has the campaign's.
+// Best-effort: a miss leaves the party unknown.
+export const campaignParty = async (office: {
+  campaignId: number | null
+}): Promise<ServeParty | undefined> => {
+  if (office.campaignId == null) return undefined
+  try {
+    const res = await clientRequest(
+      'GET /v1/campaigns/mine',
+      {},
+      {
+        headers: { [ORG_SLUG_HEADER]: `campaign-${office.campaignId}` },
+        ignoreResponseError: true,
+      },
+    )
+    return res.ok ? servePartyFromCampaign(res.data.details) : undefined
+  } catch {
+    return undefined
+  }
 }

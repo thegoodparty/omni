@@ -1,4 +1,8 @@
-import { BriefingDispatchPreview } from '@goodparty_org/contracts'
+import {
+  BRIEFING_IMMINENCE_WINDOW_DAYS,
+  BriefingDispatchPreview,
+  type StatedFirstMeeting,
+} from '@goodparty_org/contracts'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { runsOnGpApi } from '@/agents/agents.registry'
 import { AgentsService } from '@/agents/agents.service'
@@ -6,6 +10,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import {
   MeetingBriefingFull,
   MeetingSchedule,
+  MeetingScheduleFound,
 } from '@/generated/agent-job-contracts'
 import { LlmService } from '@/llm/services/llm.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -32,7 +37,7 @@ import {
   MeetingResourceLocationType,
   Prisma,
 } from '../../generated/prisma'
-import { addDays, differenceInCalendarDays, isAfter } from 'date-fns'
+import { differenceInCalendarDays, isAfter } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
@@ -47,6 +52,15 @@ import {
   toMeetingSchedule,
 } from '../meetingScheduleAgent/meetingSchedule.schema'
 import { BriefingItemLinksService } from './briefingItemLinks.service'
+import { StatedFirstMeetingService } from './statedFirstMeeting.service'
+import {
+  dayInZone,
+  type MeetingOnDay,
+  meetingsInWindow,
+  recurrenceDays,
+  shiftDay,
+  stateTimezone,
+} from '../util/meetingWindow.util'
 
 const parseBriefingArtifact = (
   raw: string,
@@ -221,11 +235,13 @@ type DispatchContext = {
   lastVisitedMs?: number
 }
 
-// Briefings are dispatched only when the official's next scheduled meeting
-// falls inside this window. Outside the window we skip — the agent's
-// run would either bail to a placeholder (no packet published yet) or
-// repeat work we'll redo when the meeting gets closer.
-const IMMINENCE_WINDOW_DAYS = 3
+// Briefings are dispatched only when the official's next meeting falls
+// inside this window: it has not started, and its day is at most this many
+// calendar days after today on the meeting's own clock (meetingsInWindow).
+// Outside the window we skip — the agent's run would either bail to a
+// placeholder (no packet published yet) or repeat work we'll redo when the
+// meeting gets closer.
+const IMMINENCE_WINDOW_DAYS = BRIEFING_IMMINENCE_WINDOW_DAYS
 
 // Ungated manual dispatches ("brief now" / admin override) project this far
 // out instead, so an operator can pre-brief any office.
@@ -236,6 +252,13 @@ type TargetMeeting = {
   meetingTime?: string // HH:MM (optional — user-supplied agenda path leaves it to the agent)
   meetingTimezone?: string // IANA (optional — same reason)
   meetingName?: string // official meeting-body name from the schedule (same reason)
+}
+
+type MeetingPlan = {
+  electedOfficeId: string
+  schedule: MeetingScheduleFound | null
+  stated: StatedFirstMeeting | null
+  timezone: string
 }
 
 // One engine's newest completed schedule run. `read` is deferred so the reader
@@ -274,6 +297,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     private readonly dashboardCards: DashboardCardsService,
     private readonly briefingItemLinks: BriefingItemLinksService,
     private readonly jobs: JobsService,
+    private readonly statedFirstMeetings: StatedFirstMeetingService,
   ) {
     super()
   }
@@ -640,61 +664,126 @@ export class MeetingBriefingsService extends createPrismaBase(
   }
 
   /**
-   * Look up the official's latest meeting_schedule, project the next
-   * meeting from its RRULE, and return the target meeting payload — or
-   * null if no schedule exists, the schedule was not_found, or no
-   * meeting falls inside the window.
-   *
-   * Callers pass `windowDays` to bound how far out to project. The cron
-   * uses IMMINENCE_WINDOW_DAYS; manual dispatches use a wider window
-   * (e.g. 60) so a user clicking "brief now" can override the gate.
+   * The zone a meeting's clock is read in: the schedule's when it found one,
+   * else the predominant zone of the office's state (Eastern when the state
+   * is unknown). Only an official's stated first meeting can need the second.
    */
+  async meetingTimezone(
+    organizationSlug: string,
+    schedule: MeetingSchedule | null,
+  ): Promise<string> {
+    if (schedule?.status === 'found') return schedule.timezone
+    const organization = await this.client.organization.findUnique({
+      where: { slug: organizationSlug },
+    })
+    const serveContext = organization
+      ? await this.organizations.resolveServeContext(organization)
+      : null
+    return stateTimezone(serveContext?.state)
+  }
+
+  /**
+   * What an office's upcoming meetings are worked out from: its latest
+   * schedule, the first meeting the official stated, and the zone both are
+   * read in. Null when it has neither a found schedule nor a stated meeting.
+   */
+  private async loadMeetingPlan(
+    organizationSlug: string,
+    electedOfficeId: string,
+    // The schedule the caller already holds. onArtifact passes the run's own
+    // output, because a gp-api AgentRun is only marked completed after
+    // onArtifact returns and a reader would not see it yet.
+    knownSchedule?: MeetingSchedule,
+  ): Promise<MeetingPlan | null> {
+    const schedule =
+      knownSchedule ?? (await this.loadLatestScheduleForOrg(organizationSlug))
+    const found = schedule?.status === 'found' ? schedule : null
+    const stated = await this.statedFirstMeetings.forOffice(electedOfficeId)
+    if (!found && !stated) {
+      this.logger.info(
+        { electedOfficeId, scheduleStatus: schedule?.status ?? null },
+        'skipping briefing: no found meeting_schedule and no stated first meeting',
+      )
+      return null
+    }
+    return {
+      electedOfficeId,
+      schedule: found,
+      stated,
+      timezone: await this.meetingTimezone(organizationSlug, found),
+    }
+  }
+
+  /**
+   * The next meeting inside a window of `windowDays`, or null. The cron uses
+   * IMMINENCE_WINDOW_DAYS; manual dispatches use a wider window (60) so a
+   * user clicking "brief now" can override the gate.
+   */
+  private nextMeetingInWindow(
+    plan: MeetingPlan,
+    now: Date,
+    windowDays: number,
+  ): TargetMeeting | null {
+    const { schedule, stated, timezone, electedOfficeId } = plan
+    const next = this.meetingsAhead(plan, now, windowDays)[0]
+    if (!next) {
+      this.logger.info(
+        { electedOfficeId, windowDays, hasStated: stated !== null },
+        'skipping briefing: no meeting inside window',
+      )
+      return null
+    }
+    return {
+      ...next,
+      meetingTimezone: timezone,
+      meetingName: schedule?.meeting_name,
+    }
+  }
+
+  // A schedule whose recurrence or timezone cannot be read projects no
+  // meetings, so its office would never be briefed and nothing else would say
+  // so: the error line is what surfaces it. It must not throw, or one bad
+  // artifact would dead-letter that office's job every day.
+  private meetingsAhead(
+    { schedule, stated, timezone, electedOfficeId }: MeetingPlan,
+    now: Date,
+    windowDays: number,
+  ): MeetingOnDay[] {
+    try {
+      const today = dayInZone(now, timezone)
+      return meetingsInWindow({
+        scheduled: schedule
+          ? recurrenceDays(schedule, today, shiftDay(today, windowDays)).map(
+              (meetingDate) => ({ meetingDate, meetingTime: schedule.time }),
+            )
+          : [],
+        stated,
+        timezone,
+        now,
+        windowDays,
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, electedOfficeId, rrule: schedule?.rrule, timezone },
+        'meeting schedule could not be projected',
+      )
+      return []
+    }
+  }
+
   private async resolveTargetMeeting(
     organizationSlug: string,
     electedOfficeId: string,
     now: Date,
     windowDays: number,
-    // The schedule the caller already holds. onArtifact passes the run's own
-    // output, because a gp-api AgentRun is only marked completed after
-    // onArtifact returns and a reader would not see it yet.
     knownSchedule?: MeetingSchedule,
   ): Promise<TargetMeeting | null> {
-    const schedule =
-      knownSchedule ?? (await this.loadLatestScheduleForOrg(organizationSlug))
-    if (!schedule) {
-      this.logger.info(
-        { electedOfficeId },
-        'skipping briefing: no meeting_schedule available for org',
-      )
-      return null
-    }
-    if (schedule.status === 'not_found') {
-      this.logger.info(
-        { electedOfficeId },
-        'skipping briefing: meeting_schedule is not_found',
-      )
-      return null
-    }
-    const windowEnd = addDays(now, windowDays)
-    const upcoming = this.projectMeetingDates({
-      schedule,
-      from: now,
-      to: windowEnd,
-    })
-    const [meetingDate] = upcoming
-    if (!meetingDate) {
-      this.logger.info(
-        { electedOfficeId, windowDays },
-        'skipping briefing: no projected meeting inside window',
-      )
-      return null
-    }
-    return {
-      meetingDate,
-      meetingTime: schedule.time,
-      meetingTimezone: schedule.timezone,
-      meetingName: schedule.meeting_name,
-    }
+    const plan = await this.loadMeetingPlan(
+      organizationSlug,
+      electedOfficeId,
+      knownSchedule,
+    )
+    return plan ? this.nextMeetingInWindow(plan, now, windowDays) : null
   }
 
   async dispatchManual(
@@ -786,30 +875,23 @@ export class MeetingBriefingsService extends createPrismaBase(
       ? formatInTimeZone(futureBriefing.meetingDate, 'UTC', 'yyyy-MM-dd')
       : null
 
-    const schedule = ctx
-      ? await this.loadLatestScheduleForOrg(ctx.organizationSlug)
+    const plan = ctx
+      ? await this.loadMeetingPlan(ctx.organizationSlug, electedOfficeId)
       : null
-    const knownSchedule = schedule?.status === 'found' ? schedule : null
 
-    const imminentMeetingDate = knownSchedule
-      ? (this.projectMeetingDates({
-          schedule: knownSchedule,
-          from: now,
-          to: addDays(now, IMMINENCE_WINDOW_DAYS),
-        })[0] ?? null)
+    const imminentMeetingDate = plan
+      ? (this.nextMeetingInWindow(plan, now, IMMINENCE_WINDOW_DAYS)
+          ?.meetingDate ?? null)
       : null
-    const nextMeetingDate = knownSchedule
-      ? (this.projectMeetingDates({
-          schedule: knownSchedule,
-          from: now,
-          to: addDays(now, MANUAL_DISPATCH_WINDOW_DAYS),
-        })[0] ?? null)
+    const nextMeetingDate = plan
+      ? (this.nextMeetingInWindow(plan, now, MANUAL_DISPATCH_WINDOW_DAYS)
+          ?.meetingDate ?? null)
       : null
 
     return {
       contextOk: ctx !== null,
       isServeIcp: ctx?.isServeIcp ?? null,
-      scheduleKnown: knownSchedule !== null,
+      scheduleKnown: !!plan?.schedule,
       nextMeetingDate,
       imminentMeetingDate,
       coveredByBriefingDate,
@@ -1120,12 +1202,14 @@ export class MeetingBriefingsService extends createPrismaBase(
     // schedule is a gp-api AgentRun the moment the switch flips, and the cron
     // is the only path that retries after the one-time chain and the landing
     // catch-up: such an office would be briefed once and never again.
+    // A first meeting the official stated is a meeting to brief with or
+    // without a schedule, so it is a third way in.
     const offices = await this.client.electedOffice.findMany({
       where: {
         onboardingCompletedAt: { not: null },
-        organization: {
-          OR: [
-            {
+        OR: [
+          {
+            organization: {
               experimentRuns: {
                 some: {
                   experimentType: SCHEDULE_EXPERIMENT_TYPE,
@@ -1135,7 +1219,9 @@ export class MeetingBriefingsService extends createPrismaBase(
                 },
               },
             },
-            {
+          },
+          {
+            organization: {
               agentRuns: {
                 some: {
                   agentName: SCHEDULE_EXPERIMENT_TYPE,
@@ -1144,8 +1230,9 @@ export class MeetingBriefingsService extends createPrismaBase(
                 },
               },
             },
-          ],
-        },
+          },
+          { statedFirstMeeting: { isNot: null } },
+        ],
         meetingBriefings: { none: { meetingDate: { gte: now } } },
       },
       select: { id: true },
@@ -1598,6 +1685,7 @@ export class MeetingBriefingsService extends createPrismaBase(
 
     await this.trackAgendaPickedUp({
       userId: electedOffice.userId,
+      electedOfficeId,
       artifact,
       dateString,
       meetingTime,
@@ -1759,14 +1847,32 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
   }
 
+  // True once per office: on the first briefing-ready event after its holder
+  // asked for a text. HubSpot sends the text off that event, so the yes must
+  // not ride on a second one. One conditional write claims it, so two
+  // briefings finishing together cannot both carry it.
+  private async claimTextReminder(electedOfficeId: string): Promise<boolean> {
+    const { count } = await this.client.electedOffice.updateMany({
+      where: {
+        id: electedOfficeId,
+        briefingTextReminderAt: { not: null },
+        briefingTextReminderSentAt: null,
+      },
+      data: { briefingTextReminderSentAt: new Date() },
+    })
+    return count === 1
+  }
+
   private async trackAgendaPickedUp({
     userId,
+    electedOfficeId,
     artifact,
     dateString,
     meetingTime,
     meetingTimezone,
   }: {
     userId: number
+    electedOfficeId: string
     artifact: PrismaJson.MeetingBriefingArtifact
     dateString: string
     meetingTime: string
@@ -1793,11 +1899,14 @@ export class MeetingBriefingsService extends createPrismaBase(
           ).getTime()
         : null
 
+    const textReminder = await this.claimTextReminder(electedOfficeId)
+
     try {
       await this.analytics.track(
         userId,
         EVENTS.BriefingAssistant.AgendaCreated,
         {
+          textReminder,
           agendaId: dateString,
           meetingDate: parseIsoDateAsUTC(dateString).getTime(),
           ...(meetingDateTime !== null ? { meetingDateTime } : {}),

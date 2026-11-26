@@ -121,12 +121,32 @@ describe('the outreachDraftExpiry fixtures', () => {
 })
 
 describe('the winOfficeSweep fixtures', () => {
-  const ddhqWin = (campaignId: number) =>
+  const ddhqWin = (
+    campaignId: number,
+    params?: { votesReceived: number | string },
+  ) =>
     service.client.post(
       '/v1/test-fixtures/vendor-mocks/actions',
-      { campaignId, action: 'ddhq.result.won' },
+      { campaignId, action: 'ddhq.result.won', params },
       { validateStatus: () => true },
     )
+
+  it("writes the winner's vote count with the win when one is given", async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    expect((await ddhqWin(campaign.id, { votesReceived: 4821 })).status).toBe(
+      HttpStatus.CREATED,
+    )
+    expect(
+      await service.prisma.campaign.findUniqueOrThrow({
+        where: { id: campaign.id },
+      }),
+    ).toMatchObject({ didWin: true, votesReceived: 4821 })
+
+    expect((await ddhqWin(campaign.id, { votesReceived: 'many' })).status).toBe(
+      HttpStatus.BAD_REQUEST,
+    )
+  })
 
   it('creates the office for a DDHQ win only once the schedule runs', async () => {
     const campaign = await seedCampaign(service.user.id)

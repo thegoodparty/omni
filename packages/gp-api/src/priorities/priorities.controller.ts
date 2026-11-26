@@ -15,11 +15,13 @@ import {
   UsePipes,
 } from '@nestjs/common'
 import {
+  OnboardingFocusSchema,
   OnboardingPriorityOptionsSchema,
   PriorityReadStatusSchema,
   PriorityResultsSchema,
   PrioritySchema,
   PriorityThemeCommentsSchema,
+  SetOnboardingFocusResultSchema,
   parsePriorityStatus,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -44,6 +46,7 @@ import {
   PriorityIdParamDto,
   PriorityThemeCommentsExportQueryDto,
   PriorityThemeParamDto,
+  SetOnboardingFocusDto,
   SetOnboardingPrioritiesDto,
   UpdatePriorityDto,
 } from './schemas/priority.schema'
@@ -53,6 +56,7 @@ import {
   RoundTwoOutreachParamDto,
 } from './schemas/roundTwoDraw.schema'
 import { PrioritiesService } from './services/priorities.service'
+import { PriorityFocusService } from './services/priorityFocus.service'
 import { PriorityOnboardingService } from './services/priorityOnboarding.service'
 import { PriorityResultsService } from './services/priorityResults.service'
 import { PriorityRoundTwoDrawService } from './services/priorityRoundTwoDraw.service'
@@ -68,6 +72,7 @@ export class PrioritiesController {
   constructor(
     private readonly prioritiesService: PrioritiesService,
     private readonly onboarding: PriorityOnboardingService,
+    private readonly focus: PriorityFocusService,
     private readonly priorityResults: PriorityResultsService,
     private readonly features: FeaturesService,
     private readonly roundTwo: PriorityRoundTwoDrawService,
@@ -118,6 +123,23 @@ export class PrioritiesController {
     @Body() body: SetOnboardingPrioritiesDto,
   ) {
     await this.onboarding.set(electedOffice, body)
+  }
+
+  // The welcome's Priorities step: a few cards, one pick. No feature flag,
+  // like the welcome itself.
+  @Get('onboarding/focus')
+  @ResponseSchema(OnboardingFocusSchema)
+  onboardingFocus(@ReqElectedOffice() electedOffice: ElectedOffice) {
+    return this.focus.forOnboarding(electedOffice)
+  }
+
+  @Put('onboarding/focus')
+  @ResponseSchema(SetOnboardingFocusResultSchema)
+  setOnboardingFocus(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body() body: SetOnboardingFocusDto,
+  ) {
+    return this.focus.set(electedOffice, body)
   }
 
   @Get(':id/status')

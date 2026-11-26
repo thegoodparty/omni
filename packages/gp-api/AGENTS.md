@@ -228,6 +228,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md`                              |
 | Campaign plan PDF sharing                                | `src/campaignPlanShares/AGENTS.md`                   |
 | Voter file / L2 lookups                                  | `src/voters/AGENTS.md`                               |
+| Resident comments on the Serve welcome's map             | `src/residentVoices/AGENTS.md`                       |
 | Recommended lists (the audience picker's cards)          | `docs/features/recommended-lists.md`                 |
 | Candidate ideology classifier (feeds those cards)        | `docs/features/recommended-lists.md`                 |
 | Stripe payments / pro upgrades                           | `src/payments/AGENTS.md`                             |

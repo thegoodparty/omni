@@ -1,0 +1,18 @@
+// The first meeting an official gave in Serve onboarding when the one the
+// schedule projected was wrong. One per office. The date and time are on the
+// meeting's own clock; everything else about the meeting still comes from the
+// schedule.
+model StatedFirstMeeting {
+  id String @id @default(uuid(7))
+
+  electedOfficeId String        @unique @map("elected_office_id")
+  electedOffice   ElectedOffice @relation(fields: [electedOfficeId], references: [id], onDelete: Cascade)
+
+  meetingDate DateTime @map("meeting_date") @db.Date
+  meetingTime String   @map("meeting_time")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("stated_first_meeting")
+}

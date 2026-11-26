@@ -24,6 +24,7 @@ export const campaignFactory = generateFactory<Campaign>(() => {
     isPro: faker.datatype.boolean(0.5),
     isDemo: faker.datatype.boolean(0.1),
     didWin: faker.datatype.boolean(0.5),
+    votesReceived: null,
     primaryResult: faker.helpers.arrayElement(['won', 'lost', null]),
     ballotStatus: faker.helpers.arrayElement([
       'on-ballot',

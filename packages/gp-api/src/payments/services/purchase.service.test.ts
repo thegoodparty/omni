@@ -105,6 +105,7 @@ describe('PurchaseService', () => {
     isPro: true,
     isDemo: false,
     didWin: null,
+    votesReceived: null,
     primaryResult: null,
     ballotStatus: null,
     signupGoal: null,

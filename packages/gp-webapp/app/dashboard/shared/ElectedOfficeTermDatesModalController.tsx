@@ -9,13 +9,23 @@ import type { ElectedOffice } from 'gpApi/api-endpoints'
 import { buildDisabledRanges } from 'app/serve/onboarding/termDates.shared'
 import { ElectedOfficeTermDatesModal } from './ElectedOfficeTermDatesModal'
 
+// Someone who just won finishes the warm welcome without a term step: their
+// term starts on the first meeting they confirmed, or is not known yet. The
+// product asks them later, not the moment they land on the Serve home.
+const WELCOME_GRACE_MS = 24 * 60 * 60 * 1000
+
 // Prompt offices that finished serve onboarding but lack a term bound (legacy
-// and prefill offices we have no dates for). An office still mid-onboarding,
-// a Pro winner's included, gets both dates from onboarding's term step, and
-// the dashboard sends it back there, so prompting it here would double-prompt.
-const isMissingTermDates = (office: ElectedOffice): boolean =>
-  office.onboardingCompletedAt != null &&
-  (!office.termStartDate || !office.termEndDate)
+// and prefill offices, and a winner whose term the welcome could not fill).
+// An office still mid-onboarding is sent back there by the dashboard, so
+// prompting it here would double-prompt.
+const isMissingTermDates = (office: ElectedOffice): boolean => {
+  if (office.onboardingCompletedAt == null) return false
+  if (office.termStartDate && office.termEndDate) return false
+  const justWelcomed =
+    office.campaignId != null &&
+    Date.now() - Date.parse(office.onboardingCompletedAt) < WELCOME_GRACE_MS
+  return !justWelcomed
+}
 
 /**
  * Prompts a signed-in elected official to supply term dates when the office

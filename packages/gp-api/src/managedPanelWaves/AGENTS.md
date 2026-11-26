@@ -8,7 +8,7 @@ step, the confirmation text, the milestones), grouped by panel; a panel whose
 job throws retries and dead-letters on its own. Timing (two-day
 lead, the official's chosen first send date, 48-hour replies, waiting on a
 manual wave's upload, the stall alert and the five-day backstop):
-`docs/adr/2026-11-17-managed-panel-first-wave-on-the-chosen-day.md`. What each step does:
+`docs/adr/2026-11-25-managed-panel-first-wave-up-to-90-days-out.md`. What each step does:
 `src/contacts/AGENTS.md`, "The wave job"; the decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
 

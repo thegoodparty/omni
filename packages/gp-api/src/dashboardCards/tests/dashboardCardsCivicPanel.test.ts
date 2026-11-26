@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { addDays, subDays } from 'date-fns'
+import { addDays, format, subDays } from 'date-fns'
 import {
   DashboardCardType,
   ManagedCivicPanelStatus,
@@ -958,6 +958,25 @@ describe('GET /v1/dashboard/cards: the heads-up post card', () => {
       sourceItemId: null,
     })
     expect(card?.dueDate).toMatch(/T12:00:00\.000Z$/)
+    expect(await headsUpCards(orgSlug)).toHaveLength(1)
+  })
+
+  it('holds the post until the first invites are within 30 days', async () => {
+    const orgSlug = 'eo-heads-up-far'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    const setFirstSend = (days: number) =>
+      service.prisma.managedCivicPanel.update({
+        where: { organizationSlug: orgSlug },
+        data: {
+          firstSendDate: format(addDays(new Date(), days), 'yyyy-MM-dd'),
+        },
+      })
+
+    await setFirstSend(60)
+    expect(await headsUpCards(orgSlug)).toHaveLength(0)
+
+    await setFirstSend(20)
     expect(await headsUpCards(orgSlug)).toHaveLength(1)
   })
 

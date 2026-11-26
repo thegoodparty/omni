@@ -113,6 +113,15 @@ export {
   type PrioritySource,
   PRIORITY_SOURCE_VALUES,
   PrioritySourceSchema,
+  type ResidentInterest,
+  RESIDENT_INTEREST_VALUES,
+  ResidentInterestSchema,
+  type FirstWinHorizon,
+  FIRST_WIN_HORIZON_VALUES,
+  FirstWinHorizonSchema,
+  type PriorityFocusOptionKind,
+  PRIORITY_FOCUS_OPTION_KIND_VALUES,
+  PriorityFocusOptionKindSchema,
   type PriorityAnswerCode,
   PRIORITY_ANSWER_CODE_VALUES,
   PriorityAnswerCodeSchema,
@@ -242,6 +251,7 @@ export {
   MANAGED_CIVIC_PANEL_STATUSES,
   ManagedCivicPanelStatusSchema,
   type ManagedCivicPanelStatus,
+  MANAGED_PANEL_FIRST_SEND_MAX_DAYS,
   ApproveManagedCivicPanelInputSchema,
   type ApproveManagedCivicPanelInput,
   MANAGED_CIVIC_PANEL_ACTIONS,
@@ -637,6 +647,8 @@ export {
 export {
   ElectedOfficeSchema,
   type ElectedOffice,
+  CurrentElectedOfficeSchema,
+  type CurrentElectedOffice,
   MyElectedOfficeSchema,
   type MyElectedOffice,
 } from './campaigns/ElectedOffice.schema'
@@ -1010,6 +1022,24 @@ export {
 } from './priorities/PriorityOnboarding.schema'
 
 export {
+  FocusOptionSchema,
+  type FocusOption,
+  ONBOARDING_FOCUS_KINDS,
+  OnboardingFocusKindSchema,
+  type OnboardingFocusKind,
+  SavedFocusOptionSchema,
+  type SavedFocusOption,
+  SavedFocusSchema,
+  type SavedFocus,
+  OnboardingFocusSchema,
+  type OnboardingFocus,
+  SetOnboardingFocusInputSchema,
+  type SetOnboardingFocusInput,
+  SetOnboardingFocusResultSchema,
+  type SetOnboardingFocusResult,
+} from './priorities/PriorityFocus.schema'
+
+export {
   PRIORITY_RESULTS_CHANNELS,
   PriorityResultsChannelSchema,
   type PriorityResultsChannel,
@@ -1198,6 +1228,26 @@ export {
   BriefingDispatchPreviewSchema,
   type BriefingDispatchPreview,
 } from './meetings/MeetingAgentDispatch.schema'
+
+export {
+  BRIEFING_IMMINENCE_WINDOW_DAYS,
+  BRIEFING_DAILY_DISPATCH_HOUR_UTC,
+} from './meetings/BriefingDispatchTiming'
+
+export {
+  MEETING_SOURCE_VALUES,
+  MeetingSourceSchema,
+  type MeetingSource,
+  USER_AGENDA_STATUS_VALUES,
+  UserAgendaStatusSchema,
+  type UserAgendaStatus,
+  MeetingListItemSchema,
+  type MeetingListItem,
+  MeetingsListResponseSchema,
+  type MeetingsListResponse,
+  StatedFirstMeetingSchema,
+  type StatedFirstMeeting,
+} from './meetings/MeetingsList.schema'
 
 export {
   CommunityIssuesDispatchRequestSchema,
@@ -1625,6 +1675,14 @@ export {
   PeoplePrecinctsResponseSchema,
   type PeoplePrecinctsResponse,
 } from './people/PeoplePrecincts.schema'
+
+export {
+  RESIDENT_VOICES_MAX,
+  ResidentVoiceSchema,
+  type ResidentVoice,
+  ResidentVoicesResponseSchema,
+  type ResidentVoicesResponse,
+} from './residentVoices/ResidentVoices.schema'
 
 export {
   MAX_OVERLAP_SAVED_FILTER_SETS,

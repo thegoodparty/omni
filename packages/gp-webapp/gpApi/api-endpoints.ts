@@ -75,7 +75,12 @@ import type {
   UpdateOrdinanceRequest,
   Priority,
   CreatePriorityInput,
+  OnboardingFocus,
   OnboardingPriorityOptions,
+  ResidentVoicesResponse,
+  SetOnboardingFocusInput,
+  SetOnboardingFocusResult,
+  StatedFirstMeeting,
   SetOnboardingPrioritiesInput,
   UpdatePriorityInput,
   PriorityStatus,
@@ -245,6 +250,11 @@ export interface MeetingsListItemDto {
   meetingName: string
   location: string
   hasBriefing: boolean
+  /**
+   * Where the row's date and time came from: the office's meeting schedule,
+   * or the official, who stated their first meeting in the warm welcome.
+   */
+  source?: 'schedule' | 'official'
   /**
    * Status of an in-progress "user-uploaded agenda" briefing run for this
    * meeting. `null` when the user has never submitted an agenda. Mirrors
@@ -1543,6 +1553,25 @@ export type APIEndpoints = {
     Response: void
   }
 
+  // The warm welcome's Priorities step: the cards to pick one focus from,
+  // and the pick.
+  'GET /v1/priorities/onboarding/focus': {
+    Request: {}
+    Response: OnboardingFocus
+  }
+
+  'PUT /v1/priorities/onboarding/focus': {
+    Request: SetOnboardingFocusInput
+    Response: SetOnboardingFocusResult
+  }
+
+  // Resident comments for the warm welcome's map: at most six, empty when
+  // the district has none.
+  'GET /v1/resident-voices': {
+    Request: {}
+    Response: ResidentVoicesResponse
+  }
+
   'GET /v1/priorities/:id': {
     Request: {}
     Response: Priority
@@ -2226,6 +2255,18 @@ export type APIEndpoints = {
   'GET /v1/meetings': {
     Request: {}
     Response: MeetingsListResponseDto
+  }
+
+  // The first meeting as the official states it, when the schedule's is
+  // wrong. DELETE goes back to the schedule.
+  'PUT /v1/meetings/first-meeting': {
+    Request: StatedFirstMeeting
+    Response: StatedFirstMeeting
+  }
+
+  'DELETE /v1/meetings/first-meeting': {
+    Request: {}
+    Response: void
   }
 
   // Self-serve landing catch-up: called client-side after landing on the
@@ -3299,6 +3340,11 @@ export type ElectedOffice = {
   // dashboard does for a Pro campaign, while its onboardingCompletedAt is
   // still null.
   campaignId: number | null
+  // The winner's own vote count, when the result that recorded the win
+  // carried one.
+  votesReceived?: number | null
+  // When they asked for a text once their first Meeting Briefing is ready.
+  briefingTextReminderAt?: string | null
 }
 
 // `GET /v1/elected-office/mine` adds whether the office's linked Win campaign
@@ -3324,4 +3370,6 @@ export type ElectedOfficeInput = {
   onboardingStep?: string | null
   ballotReadyPositionId?: string | null
   customPositionName?: string | null
+  // True asks for a text when the first Meeting Briefing is ready.
+  briefingTextReminder?: boolean
 }

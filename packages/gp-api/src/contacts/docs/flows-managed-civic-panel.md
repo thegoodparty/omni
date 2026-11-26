@@ -45,7 +45,10 @@ close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 day the official chose, or `nextManagedSendDate` from the approval when
 they chose none), and the week it should be
 ready, two weeks of waves later) and shows `present_managed_panel`.
-Until the first wave sends, `read_managed_panel` also returns `headsUp`
+Until the first wave sends, `read_managed_panel` returns the first send date
+as `nextSendDate` and, once that date is within `MANAGED_HEADS_UP_LEAD_DAYS`
+(30, `managedHeadsUpIsDue`: the post says the invites come "over the next few
+weeks", and a first send can be 90 days out), also `headsUp`
 (the Chief of Staff only, which passes the official's name): contracts'
 `managedCivicPanelHeadsUpLine` (with the first send's weekday) and
 `managedCivicPanelHeadsUpPost`, built by
@@ -59,7 +62,9 @@ count 0), which opens the Serve social flow on it.
 contracts' `managedCivicPanelHeadsUpCardSourceId`, null `sourceItemId`),
 due noon UTC on the first send day: made while the panel is `building`
 with no wave sent and no social outreach saved by the org since
-`approvedAt`, completed once either happens. A pause leaves it open; a
+`approvedAt`, and only once the first send is within
+`MANAGED_HEADS_UP_LEAD_DAYS` (a panel waiting on a day further out gets it
+then), completed once either happens. A pause leaves it open; a
 stop deletes it while open, so approving again makes a fresh one. The
 per-priority sync keeps it
 out of its delete like the other managed cards. Skip works as on the other
@@ -166,9 +171,11 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   flow tell the official.
 - `POST { inviteMessage, consentVersion, firstSendDate? }` approves. The
   first send date (`assertManagedFirstSendDateAllowed`: tomorrow at the
-  earliest, at most 30 days out, never a weekend, 400 otherwise) is stored
-  on the enrollment; with none the first wave takes the two-day lead.
-  `docs/adr/2026-11-17-managed-panel-first-wave-on-the-chosen-day.md`.
+  earliest, at most contracts' `MANAGED_PANEL_FIRST_SEND_MAX_DAYS` (90) out
+  so an official not yet sworn in can start after they take office, never a
+  weekend, 400 otherwise) is stored on the enrollment; with none the first
+  wave takes the two-day lead. Every other send keeps the 30-day limit.
+  `docs/adr/2026-11-25-managed-panel-first-wave-up-to-90-days-out.md`.
   The invite must carry
   a JOIN line (the current `CIVIC_PANEL_JOIN_LINE`, "Reply JOIN to share
   your perspectives.", or an earlier civic panel wording a draft may
@@ -220,7 +227,9 @@ Monday. The exception is the official's chosen first send date: the job
 draws nothing until the day before it (`managedStartIsLater`), and while it
 is still ahead (`managedStartDate`) a wave goes out on it, an agent wave at
 11am local that day (`agentSendSlotOn`). That is a shorter lead than other Serve texts get, so the wave path
-does not call `assertServeSmsSendDateAllowed`.
+does not call `assertServeSmsSendDateAllowed`. A panel waiting on its day
+(up to 90 days) has no wave, so its hourly step returns `waiting` and
+nothing alerts as stalled or closes in the meantime.
 
 **The wave job** (`src/managedPanelWaves/`, `ManagedPanelWaveJobService`,
 the `managedPanelWaves` pg-boss schedule at :19 past every hour, dev and prod

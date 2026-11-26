@@ -11,6 +11,7 @@ const office = (
   ({
     termEndDate: termEndDate ? new Date(termEndDate) : null,
     termStartDate: termStartDate ? new Date(termStartDate) : null,
+    campaignId: null,
   }) as ElectedOffice
 
 const org = (slug: string, electedOffice: ElectedOffice | null = null) => ({
@@ -85,6 +86,21 @@ describe('sortOrganizations', () => {
     )
 
     expect(sorted.map((o) => o.slug)).toEqual(['campaign-1', 'eo-9'])
+  })
+
+  it('leads with a win office its winner finished, term dates or not', () => {
+    // A winner can finish Serve onboarding before they know their term.
+    const finishedWin = {
+      ...office(null),
+      campaignId: 7,
+      onboardingCompletedAt: new Date('2026-05-01T00:00:00Z'),
+    }
+    const sorted = sortOrganizations(
+      [org('campaign-1'), org('eo-9', finishedWin)],
+      NOW,
+    )
+
+    expect(sorted.map((o) => o.slug)).toEqual(['eo-9', 'campaign-1'])
   })
 
   it('promotes a held office from anywhere in the list', () => {

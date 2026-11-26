@@ -48,6 +48,13 @@ model ElectedOffice {
   // onboardingCompletedAt / selfReported).
   onboardingStep String? @map("onboarding_step")
 
+  // When the holder asked for one text the moment their first Meeting
+  // Briefing is ready, and when the briefing-ready event carrying that yes
+  // went out (it goes once). Set only by the authenticated holder, like
+  // onboardingStep.
+  briefingTextReminderAt     DateTime? @map("briefing_text_reminder_at")
+  briefingTextReminderSentAt DateTime? @map("briefing_text_reminder_sent_at")
+
   user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId Int   @map("user_id")
 
@@ -63,8 +70,10 @@ model ElectedOffice {
   pollIndividualMessages   PollIndividualMessage[]
   meetingBriefings         MeetingBriefing[]
   meetingResourceLocations MeetingResourceLocation[]
+  statedFirstMeeting       StatedFirstMeeting?
   userAgendaUploads        UserAgendaUpload[]
   priorities               Priority[]
+  priorityFocusChoice      PriorityFocusChoice?
   dashboardCards           DashboardCard[]
   onboardingCardDismissals OnboardingCardDismissal[]
   onboardingCardCompletions OnboardingCardCompletion[]

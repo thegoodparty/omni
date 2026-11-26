@@ -43,3 +43,25 @@ export const openSansBriefings = localFont({
   display: 'swap',
   variable: '--font-briefings',
 })
+
+// The two faces only the Serve warm welcome draws with: the handwritten name
+// on the Meeting Briefing folder, and the label under it. Static cuts from
+// @fontsource (`caveat` 700, `ibm-plex-mono` 500, latin), since only one
+// weight of each is on screen.
+export const caveat = localFont({
+  src: './caveat-latin-700-normal.woff2',
+  weight: '700',
+  style: 'normal',
+  display: 'swap',
+  variable: '--ww-caveat-font',
+  adjustFontFallback: false,
+})
+
+export const plexMono = localFont({
+  src: './ibm-plex-mono-latin-500-normal.woff2',
+  weight: '500',
+  style: 'normal',
+  display: 'swap',
+  variable: '--ww-plex-mono-font',
+  adjustFontFallback: false,
+})

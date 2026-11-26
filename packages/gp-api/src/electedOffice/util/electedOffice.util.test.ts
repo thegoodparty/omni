@@ -9,21 +9,41 @@ import { ElectedOffice } from '../../generated/prisma'
 describe('deriveIsActive', () => {
   const now = new Date('2026-06-15T00:00:00.000Z')
 
+  const office = (
+    termEndDate: string | null,
+    overrides: { campaignId?: number; onboardingCompletedAt?: Date } = {},
+  ) => ({
+    termEndDate: termEndDate ? new Date(termEndDate) : null,
+    campaignId: overrides.campaignId ?? null,
+    onboardingCompletedAt: overrides.onboardingCompletedAt ?? null,
+  })
+  const finishedWin = { campaignId: 7, onboardingCompletedAt: now }
+
   it('is active while now is before the exclusive term end', () => {
-    expect(deriveIsActive(new Date('2026-06-16T00:00:00.000Z'), now)).toBe(true)
+    expect(deriveIsActive(office('2026-06-16T00:00:00.000Z'), now)).toBe(true)
   })
 
   it('is inactive on/after the exclusive term-end boundary', () => {
-    expect(deriveIsActive(new Date('2026-06-15T00:00:00.000Z'), now)).toBe(
-      false,
-    )
-    expect(deriveIsActive(new Date('2020-01-01T00:00:00.000Z'), now)).toBe(
-      false,
-    )
+    expect(deriveIsActive(office('2026-06-15T00:00:00.000Z'), now)).toBe(false)
+    expect(deriveIsActive(office('2020-01-01T00:00:00.000Z'), now)).toBe(false)
   })
 
   it('is inactive when the term end date is missing', () => {
-    expect(deriveIsActive(null, now)).toBe(false)
+    expect(deriveIsActive(office(null), now)).toBe(false)
+  })
+
+  it('holds a finished win office that has no term end on file', () => {
+    expect(deriveIsActive(office(null, finishedWin), now)).toBe(true)
+  })
+
+  it('does not hold a win office its winner has not finished', () => {
+    expect(deriveIsActive(office(null, { campaignId: 7 }), now)).toBe(false)
+  })
+
+  it('ends a finished win office on its term end like any other', () => {
+    expect(
+      deriveIsActive(office('2026-06-15T00:00:00.000Z', finishedWin), now),
+    ).toBe(false)
   })
 })
 

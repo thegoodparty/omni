@@ -375,6 +375,15 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     tier: 'optional',
     default: 'win_agent_contact_overlay',
   },
+  // Resident comments for the Serve welcome's map, as catalog.schema.table.
+  // A sandbox table until the data team publishes it; the read answers
+  // empty while the people identity cannot select from it.
+  RESIDENT_VOICES_TABLE: {
+    tier: 'optional',
+    default: 'goodparty_data_catalog.sandbox.pro_district_resident_voices',
+  },
+  // How long that read may take before the welcome goes on without the map.
+  RESIDENT_VOICES_TIMEOUT_MS: { tier: 'optional', default: '4000' },
 
   STRIPE_PRO_INVOICE_ONLY: { tier: 'optional', default: 'false' },
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },

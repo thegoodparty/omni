@@ -332,6 +332,21 @@ alerting hazard.
 block group mart, Connecticut included. It is there for geographic
 targeting later; today only this read uses it.
 
+## Resident comments: one district's rows, from a table named in config
+
+`ResidentVoiceQueryService.findForDistrict` reads what residents of a
+district have said (`residentVoicesSql.util.ts`), for the Serve welcome's
+map. The table is the data team's and sits in a sandbox schema until they
+publish it, so its `catalog.schema.table` name comes from
+`RESIDENT_VOICES_TABLE` (default
+`goodparty_data_catalog.sandbox.pro_district_resident_voices`). Its
+`district_id` is the election database's district id, the same id every
+read here is scoped by. Only the columns that choose and show a comment are
+selected: never the table's user or campaign ids, topic or dates. It is not
+a voter read, so it writes no `people-db voter read` line. It throws like
+any read here; `src/residentVoices/` is the caller that turns a failure into
+an empty answer (`src/residentVoices/AGENTS.md`).
+
 ## Random samples: a seeded slice, not a sort
 
 `samplePeople` (`buildSampleSql`) cuts the population to a 1/divisor slice by
@@ -528,6 +543,8 @@ signatures rather than callers reaching into `databricks/` directly.
 | `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                                                                   |
 | `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition                                           |
 | `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups, model cells                           |
+| `databricks/residentVoicesSql.util.ts`          | Resident comments: the configured table, the statement and its row mapper                                  |
+| `services/residentVoiceQuery.service.ts`        | A district's resident comments, unpicked                                                                   |
 | `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)                                                 |
 | `services/electionDistrict.service.ts`          | District resolution/scoping, from `src/electionDb/`                                                        |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                                                                  |

@@ -67,6 +67,7 @@ import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { CampaignIdeologyModule } from '@/campaignIdeology/campaignIdeology.module'
 import { RecommendedListsModule } from '@/recommendedLists/recommendedLists.module'
+import { ResidentVoicesModule } from '@/residentVoices/residentVoices.module'
 import { PeerlyModule } from '@/vendors/peerly/peerly.module'
 import { SegmentModule } from '@/vendors/segment/segment.module'
 import { VotersModule } from '@/voters/voters.module'
@@ -154,6 +155,7 @@ import { AgentExperimentResultModule } from '@/queue/inbox/agentExperimentResult
     ContactNoteModule,
     ConstituentFeedbackModule,
     RecommendedListsModule,
+    ResidentVoicesModule,
     DoorKnockingModule,
     VendorDriftProbeModule,
     PhoneBankingModule,

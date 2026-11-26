@@ -4,6 +4,7 @@ import type {
   ServeBranch,
   ServeStoryStepId,
 } from './serveOnboardingConfig'
+import type { WarmWelcomeStepId } from './warmWelcome/warmWelcomeConfig'
 
 /**
  * Funnel events for the net-new (sales-sent magic link) elected-official
@@ -87,6 +88,37 @@ export const SERVE_STORY_EVENTS: Record<
   'story-grow': {
     viewed: EVENTS.ServeOnboarding.BuildAndGrowYourListViewed,
     completed: EVENTS.ServeOnboarding.BuildAndGrowYourListCompleted,
+  },
+}
+
+// One Viewed / Completed pair per warm welcome step.
+export const WARM_WELCOME_EVENTS: Record<
+  WarmWelcomeStepId,
+  { viewed: string; completed: string }
+> = {
+  'warm-won': {
+    viewed: EVENTS.ServeOnboarding.YouWonViewed,
+    completed: EVENTS.ServeOnboarding.YouWonCompleted,
+  },
+  'warm-meeting': {
+    viewed: EVENTS.ServeOnboarding.FirstMeetingViewed,
+    completed: EVENTS.ServeOnboarding.FirstMeetingCompleted,
+  },
+  'warm-briefing': {
+    viewed: EVENTS.ServeOnboarding.MeetingBriefingViewed,
+    completed: EVENTS.ServeOnboarding.MeetingBriefingCompleted,
+  },
+  'warm-residents': {
+    viewed: EVENTS.ServeOnboarding.ResidentsViewed,
+    completed: EVENTS.ServeOnboarding.ResidentsCompleted,
+  },
+  'warm-priorities': {
+    viewed: EVENTS.ServeOnboarding.FirstFocusViewed,
+    completed: EVENTS.ServeOnboarding.FirstFocusCompleted,
+  },
+  'warm-recap': {
+    viewed: EVENTS.ServeOnboarding.RecapViewed,
+    completed: EVENTS.ServeOnboarding.RecapCompleted,
   },
 }
 

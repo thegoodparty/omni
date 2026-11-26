@@ -22,6 +22,7 @@ const buildOffice = (
 ): Partial<ElectedOffice> => ({
   organizationSlug: 'office-slug',
   termEndDate: FUTURE_TERM_END,
+  campaignId: null,
   createdAt: new Date('2020-01-01'),
   ...overrides,
 })

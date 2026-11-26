@@ -230,6 +230,21 @@ export const EVENTS = {
     // The list could not offer anything: { reason: search_failed |
     // none_found, retried }.
     PrioritiesErrored: 'Serve Onboarding - Priorities Errored',
+    // The warm welcome (serve-warm-welcome), the onboarding a winner sees:
+    // one pair per step. First Meeting Completed carries meetingAnswer
+    // (confirmed, corrected or unknown) and the calendar they added it to.
+    YouWonViewed: 'Serve Onboarding - You Won Viewed',
+    YouWonCompleted: 'Serve Onboarding - You Won Completed',
+    FirstMeetingViewed: 'Serve Onboarding - First Meeting Viewed',
+    FirstMeetingCompleted: 'Serve Onboarding - First Meeting Completed',
+    MeetingBriefingViewed: 'Serve Onboarding - Meeting Briefing Viewed',
+    MeetingBriefingCompleted: 'Serve Onboarding - Meeting Briefing Completed',
+    ResidentsViewed: 'Serve Onboarding - Residents Viewed',
+    ResidentsCompleted: 'Serve Onboarding - Residents Completed',
+    FirstFocusViewed: 'Serve Onboarding - First Focus Viewed',
+    FirstFocusCompleted: 'Serve Onboarding - First Focus Completed',
+    RecapViewed: 'Serve Onboarding - Recap Viewed',
+    RecapCompleted: 'Serve Onboarding - Recap Completed',
   },
   Navigation: {
     Top: {

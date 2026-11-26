@@ -1,0 +1,23 @@
+/// One card the official was shown when they picked their focus, with both
+/// facts as the card showed them. `key` is a Priority id for `ran_on` and a
+/// CommunityIssue id for `community`, as on the onboarding options.
+model PriorityFocusOption {
+  id       String              @id @default(cuid())
+  choiceId String              @map("choice_id")
+  choice   PriorityFocusChoice @relation(fields: [choiceId], references: [id], onDelete: Cascade)
+
+  position Int
+  key      String
+  kind     PriorityFocusOptionKind
+  title    String
+
+  residentInterest       ResidentInterest @map("resident_interest")
+  residentInterestSource FocusFactSource  @map("resident_interest_source")
+  firstWin               FirstWinHorizon  @map("first_win")
+  firstWinSource         FocusFactSource  @map("first_win_source")
+
+  picked Boolean
+
+  @@unique([choiceId, key])
+  @@map("priority_focus_option")
+}

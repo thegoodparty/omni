@@ -1,6 +1,6 @@
 ---
 title: A managed civic panel's first wave goes out on the day the official picks, as early as tomorrow
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-11-17
 code: ['#3859']
@@ -12,7 +12,7 @@ scope:
   - packages/gp-api/prisma/schema/managedCivicPanel.prisma
   - packages/contracts/src/people/ManagedCivicPanel.schema.ts
 supersedes: [2026-11-10-managed-panel-wave-uploads-alert-before-the-backstop.md]
-superseded_by:
+superseded_by: 2026-11-25-managed-panel-first-wave-up-to-90-days-out.md
 ---
 
 # A managed civic panel's first wave goes out on the day the official picks, as early as tomorrow

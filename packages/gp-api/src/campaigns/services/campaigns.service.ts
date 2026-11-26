@@ -681,6 +681,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       }
       if (resetStaleResults) {
         campaignUpdateData.didWin = null
+        campaignUpdateData.votesReceived = null
       }
       if (data) {
         campaignUpdateData.data = deepMerge(campaign.data as object, data)

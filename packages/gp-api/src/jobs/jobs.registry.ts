@@ -2,6 +2,7 @@ import type { Type } from '@nestjs/common'
 import type { JobWithMetadata } from 'pg-boss'
 import { z } from 'zod'
 import {
+  BRIEFING_DAILY_DISPATCH_HOUR_UTC,
   FeedbackSynthesisCompleteEventSchema,
   PanelRepliesUploadedEventSchema,
 } from '@goodparty_org/contracts'
@@ -911,7 +912,7 @@ export const SCHEDULES = {
   // 07:00 UTC daily. One meetingBriefingDispatch job per office that could
   // be due a briefing.
   meetingBriefingsDaily: defineSchedule({
-    cron: '0 7 * * *',
+    cron: `0 ${BRIEFING_DAILY_DISPATCH_HOUR_UTC} * * *`,
     worker: (_job, { get }) =>
       get(MeetingBriefingsService).fanOutDailyBriefings(),
     alertAfterWaitingMinutes: 30,

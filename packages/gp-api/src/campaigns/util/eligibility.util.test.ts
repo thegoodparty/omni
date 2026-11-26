@@ -8,7 +8,12 @@ import {
 import { Campaign, ElectedOffice } from '../../generated/prisma'
 
 const office = (overrides: Partial<ElectedOffice>): ElectedOffice =>
-  ({ termEndDate: null, ...overrides }) as ElectedOffice
+  ({
+    termEndDate: null,
+    campaignId: null,
+    onboardingCompletedAt: null,
+    ...overrides,
+  }) as ElectedOffice
 
 const campaign = (overrides: Partial<Campaign>): Campaign =>
   ({
@@ -109,6 +114,18 @@ describe('isHeldOffice', () => {
     // isActive is derived from termEndDate, so a null end (missing term data)
     // is treated as not held until the holder supplies dates.
     expect(isHeldOffice(office({ termEndDate: null }), new Date())).toBe(false)
+  })
+
+  it('is held with no term end once a winner finished onboarding it', () => {
+    const win = { termEndDate: null, campaignId: 7 }
+
+    expect(isHeldOffice(office(win), new Date())).toBe(false)
+    expect(
+      isHeldOffice(
+        office({ ...win, onboardingCompletedAt: new Date() }),
+        new Date(),
+      ),
+    ).toBe(true)
   })
 })
 

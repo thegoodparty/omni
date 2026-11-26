@@ -12,6 +12,19 @@ progress bar; the step set and order live in `serveOnboardingConfig.ts`.
 | `districtStory/DistrictStoryMap.tsx`  | The one SVG map and its modes and motion                              |
 | `districtStory/DistrictBasemap.tsx`   | The street tiles behind a real district's dots                        |
 | `districtStory/DistrictStoryStep.tsx` | The story steps' data, copy and layout                                |
+| `warmWelcome/WarmWelcomeFlow.tsx`     | The warm welcome: who gets it, its data, checkpoints, saves and Done  |
+| `warmWelcome/warmWelcomeConfig.ts`    | Its step ids, which steps are in the flow, office wording, all copy   |
+| `warmWelcome/WarmWelcomeShell.tsx`    | Its frame: breadcrumb, stage, Back, and the footer's docked buttons   |
+| `warmWelcome/warmWelcome.css`         | The design's own stylesheet, scoped under `.ww`                       |
+| `warmWelcome/parts.tsx`               | The one raw `<button>` (`Tap`), `Btn`, the foil logo                  |
+| `warmWelcome/Reveal.tsx`              | Word-by-word reveal, rise, and the handoff between a step's states    |
+| `warmWelcome/firstMeeting.ts`         | The first meeting, the date sentence's values, and the calendar links |
+| `warmWelcome/DateSentence.tsx`        | "January 7th at 7:00 pm": three words, three menus, sheets on phones  |
+| `warmWelcome/maps.tsx`                | The meeting card's thumbnail and the residents map (maplibre)         |
+| `warmWelcome/voiceTour.ts`            | The camera that flies between resident comments                       |
+| `warmWelcome/Ocean.tsx`, `Sky.tsx`    | The bubble ocean behind the ask, the flying texts on "All set"        |
+| `warmWelcome/panelDays.ts`            | The days the first Civic Panel invites can go out                     |
+| `warmWelcome/confetti.ts`             | Its confetti: rigid bodies that pour, pile up and pop                 |
 
 ## Step order
 
@@ -27,6 +40,97 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
   `/post-auth-redirect?next=...&org=eo-<id>`; `org` names the office just
   finished so a user with several lands in it, not the first on the list.
 
+## The warm welcome
+
+The onboarding someone sees right after they win, from Olly Farshi's design
+(product-os, `docs/prototypes/serve-warm-welcome`). There is no flag.
+`ServeOnboardingFlow` renders `WarmWelcomeGate`, which opens the welcome for
+an office that came from a win (`campaignId`), is unfinished, and has a
+party that is not a major one (its own, else the campaign's); every other
+office gets the stepper below (`isWarmWelcomeOffice`). The welcome has no
+party step, which is why a major party or no party keeps the stepper.
+
+**It is the design's own look, not the styleguide's.** `warmWelcome.css` is
+the prototype's stylesheet carried over rule for rule and scoped under
+`.ww`, with its class names (three are respelled because Tailwind owns the
+originals: `.ol`, `.locked`, `.hring`). Colors, sizes and timings are the
+design's. Every control is `Tap` in `parts.tsx`, the flow's one raw
+`<button>`; do not swap in styleguide Buttons, Popovers or Calendars here.
+The handwritten folder name and its label use two fonts loaded only by
+`app/serve/onboarding/layout.tsx`.
+
+Steps, in order: `warm-won`, `warm-meeting`, `warm-briefing`,
+`warm-residents`, `warm-priorities`, `warm-recap`. A step with nothing to
+show leaves the flow and the breadcrumb (`warmWelcomeSteps`).
+
+- **You won**: the people who voted for them (`votesReceived` on the office
+  read, from the campaign), counted up in red, then the label and number
+  change in place to the people they now serve (`districtPopulation`). No
+  vote count on file shows the one number; neither leaves the card out.
+- **First meeting**: the first row of `GET /v1/meetings` still ahead
+  (`firstMeetingFrom`). They confirm it (then a card with six calendar
+  links built in the browser), change it in the date sentence, or say they
+  don't know yet. A changed date is saved (`PUT /v1/meetings/first-meeting`),
+  so gp-api briefs that meeting; it comes back with `source: 'official'`.
+  The card's small map is the address looked up with Geoapify on the map
+  key. No meeting found, and this step and the next leave the flow.
+- **Meeting Briefing**: "should be ready around 2 days before your
+  meeting". No day is promised: gp-api starts three days out and then needs
+  the agenda to be published. "Remind me" saves
+  `briefingTextReminder: true`; HubSpot sends the one text off the
+  briefing-ready event. Left out after "I don't know yet".
+- **Residents**: `GET /v1/resident-voices` (at most six comments; empty
+  until the data team publishes the table) drives a map that flies between
+  them, zones never pins, with an asterisk note when any are synthesized.
+  Then the Civic Panel: the ask names the district's own goal
+  (`GET /v1/contacts/civic-panel`), the invite is the design's wording
+  (greeting, the part they can edit, the nonpartisan promise, then the two
+  locked lines from `composeManagedInvite`), the day is one of
+  `sendOptions`, and "Set it up" posts
+  `/v1/contacts/civic-panel/managed` with its own `consentVersion`. An
+  invite sent on or after their first day in office drops "-elect". Both
+  reads sit behind `serve-citizen-panels` in gp-api; where they 404, the
+  panel is not offered and its recap row is left out. A panel already
+  being built skips the ask.
+- **Priorities**: `GET /v1/priorities/onboarding/focus` (the search behind
+  it is started when the flow opens). A tease, then the cards with Resident
+  interest and First win; picking one brings up a verdict
+  (`focusVerdict`) and "Start with this", which saves
+  `PUT /v1/priorities/onboarding/focus`. gp-api keeps what was shown and
+  what was picked.
+- **Recap**: three rows (the briefing, the focus, the Civic Panel), then
+  Done. A skipped panel's row carries a chevron back to the ask.
+
+**Done is the completion save**: `PUT /v1/elected-office/:id` with the
+party, `onboardingCompletedAt`, `onboardingStep: 'warm-recap'`, and, when
+the office has no term on file, `termStartDate` set to the first meeting
+they confirmed; gp-api works out the end from the race's term length, and
+lets a win office finish with no dates at all. It sends no `pledgedAt`. The
+frame then slides closed, the stage goes dark, and it leaves through
+`/post-auth-redirect` like the stepper. The dashboard's term-dates prompt
+waits a day before asking a winner for a date still missing.
+
+Each forward move writes its step id to `onboardingStep` behind the move.
+gp-api's `SERVE_ONBOARDING_STEPS` lists the `warm-*` ids; a checkpoint the
+warm welcome does not know (the stepper's `confirm`) starts at the win. A
+meeting confirmed on an earlier visit is not remembered unless they
+corrected it, so a resumed flow sends no term start.
+
+Motion follows the design's rule that nothing snaps: `Words` and `Rise`
+bring content in with buttons last, steps slide sideways, states inside a
+step hand off vertically (`useHandoff`), the frame slides open and closed,
+and reduced motion shows every end state at once. A step names its footer
+buttons with `useDock(id, delay, actions)`. Confetti is Matter.js rigid
+bodies on one canvas (`ConfettiLayer`), cleared whenever the step changes;
+`matter-js` and `maplibre-gl` load on first use.
+
+Events: one Viewed / Completed pair per step (`WARM_WELCOME_EVENTS`: You
+Won, First Meeting, Meeting Briefing, Residents, First Focus, Recap).
+Completed carries: `hasPopulation`, `hasVotes`; `meetingAnswer`,
+`calendar`; `textReminder`; `civicPanel` (set_up, skipped, unavailable),
+`sawComments`, `editedInvite`, `firstSendChoice`; `shown`, `kind`,
+`focusKind`, `residentInterest`, `firstWin`.
+
 ## Ever-Pro winners (the Win to Serve handoff)
 
 A candidate whose campaign was ever Pro (`campaignWasEverPro` in
@@ -34,9 +138,11 @@ A candidate whose campaign was ever Pro (`campaignWasEverPro` in
 created from the campaign org: `campaignId` set, the campaign's position on
 the new `eo-<id>` org, its party mapped to Serve's values when it has one,
 an `onboardingStep` of `confirm`, and no `onboardingCompletedAt` or term
-dates. So the flow resolves the prefill branch and lands on the term step
-(then `confirm`), or straight on `confirm` once dates are known; with no
-party it starts at `party`. The pledge stamps it like any other office.
+dates. With a party that is not a major one it opens the warm welcome
+above. Otherwise the stepper resolves the prefill branch and lands on the
+term step (then `confirm`), or straight on `confirm` once dates are known;
+with no party it starts at `party`. The pledge stamps it like any other
+office.
 What a win knows is filled in, and its steps still show:
 
 - **Party**: the campaign's party (`winParty.ts`, reading `details.party`,
