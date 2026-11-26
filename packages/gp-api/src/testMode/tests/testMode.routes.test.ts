@@ -5,6 +5,11 @@ import { ElectionsService } from '@/elections/services/elections.service'
 import { RacesService } from '@/elections/services/races.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { ManagedPanelFundingReconcileService } from '@/outreach/services/managedPanelFundingReconcile.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from '@/priorities/services/censusComposition'
 import { PriorityReadService } from '@/priorities/services/priorityRead.service'
 import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { useTestService } from '@/test-service'
@@ -643,12 +648,41 @@ describe('POST /v1/test-mode/apply civicPanel', () => {
     const created = await createOrg(officeBundle())
     await apply(created.slug, { family: 'civicPanel', preset: 'answers_in' })
     const priority = await fixturePriority(created.slug)
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'resolveEligibleDistrict',
+    ).mockResolvedValue({ districtId: 'district_1' } as Awaited<
+      ReturnType<ContactsService['resolveEligibleDistrict']>
+    >)
+    const readInputs = vi
+      .spyOn(
+        service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+        'readInputs',
+      )
+      .mockResolvedValue(null)
 
     const read = await service.app
       .get(PriorityReadService)
       .currentRead(priority!.id)
 
     expect(read).toBeNull()
+    expect(readInputs).not.toHaveBeenCalled()
+  })
+
+  it('reads back the preset it wrote when milestones coincide', async () => {
+    const created = await createOrg(officeBundle())
+    await apply(created.slug, { family: 'civicPanel', preset: 'building' })
+    await service.prisma.managedCivicPanel.update({
+      where: { organizationSlug: created.slug },
+      data: { goalMembers: 38 },
+    })
+
+    const res = await apply(created.slug, {
+      family: 'civicPanel',
+      preset: 'can_compare',
+    })
+
+    expect(res.data.active?.families.civicPanel?.current).toBe('can_compare')
   })
 
   it('never reports its unpaid question as an unfunded send', async () => {

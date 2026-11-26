@@ -200,18 +200,21 @@ export class TestModeCivicPanelService extends createPrismaBase(
       return replies < answersNeeded() ? 'answers_coming' : 'answers_in'
     }
 
-    const members = await this.client.contactCurrentStatus.count({
+    // Exactly the members a preset wrote, so members added by hand never
+    // shift it, and a small goal whose milestones coincide reads as the
+    // higher one.
+    const members = await this.client.contactStatusEvent.count({
       where: {
         organizationSlug,
         field: ContactStatusField.civic_panel,
-        value: CivicPanelStatus.member,
+        sourceId: { startsWith: FIXTURE_SOURCE_PREFIX },
       },
     })
     const goal = panel.goalMembers
     return (
       [...PANEL_PRESETS]
         .reverse()
-        .find((preset) => members >= membersFor(preset, goal)) ?? null
+        .find((preset) => members === membersFor(preset, goal)) ?? null
     )
   }
 
