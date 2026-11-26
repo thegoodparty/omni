@@ -1,12 +1,21 @@
 import type { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 
-// campaign_tracker_tasks, converted from the old judge's case list. The cases are unchanged in
-// meaning: `params` is `input`, and `condition`, `handledWhen` and the dimension
-// questions are `grading`. A case marked unscored there is a normal case here
-// whose condition says it is a control.
+// campaign_tracker_tasks, judged on the migration PR: dev runs the PMF Engine on
+// the base arm and this PR's preview runs gp-api's engine on the candidate one
+// (docs/agent-evals.md). Every environment names it afterwards, so it becomes a
+// regression suite.
 //
-// Win: the week's tasks are the candidate's own campaign plan's.
+// Eight cases, one per behavior worth a verdict rather than one per mutation
+// that was ever written: a clean baseline, a conflict, an injection, thin data,
+// wrong jurisdiction, private life, the phase gate and weekly mode. The old
+// judge's two date cases (a passed election, and a control with nothing to
+// find) were dropped: the passed-election case is the phase gate's premise read
+// one way, and a control cannot confirm a regression.
+//
+// `handledWhen` is on every case, stated in terms of the artifact so it means
+// the same thing on either engine. Win: the week's tasks are the candidate's own
+// campaign plan's.
 //
 // The org is the run's own test user's, never a case's: the suite writes the
 // manifest's snake_case input shape and ctx.org names the org on every run.
@@ -74,6 +83,8 @@ export default definePairwiseAgentEvalSuite<CampaignTrackerTasksEvalInput>(
         grading: {
           condition:
             "No mutation: the sanitised capture unchanged, irregularities included. Initial mode, today 2026-10-02, general election 2026-11-03, state present and city null, a full plan (three opportunities, three challenges, six likely opponents with a nonpartisan label) and a three-part story. The story says the candidate is running for mayor while the plan describes a three-seat council race, the story names the city while the city field is null, and the plan's one citation is the plain marker (local news). Those are production's own irregularities, not planted. The catalog of 20 task types ships with the agent and is not in the input.",
+          handledWhen:
+            "every task carries a catalog_id from the menu and its phase and channel, no item is a text or a robocall send (the plan's contact schedule owns those), there are at most 12 items with at most 3 events, and no item quotes a figure the plan did not carry. An item naming a task type outside the menu, or a text/robocall send, is no.",
           dimensions: {
             grounding:
               'Does every claim trace to evidence this run had in its input or to a catalog entry it was given? Judge traceability only, not truth in the world. Events came from live search and cannot be verified from the input; judge their count, dates and URL shape under the contract, not their existence.',
@@ -167,28 +178,36 @@ export default definePairwiseAgentEvalSuite<CampaignTrackerTasksEvalInput>(
         },
       },
       {
-        id: 't7-stale',
+        // Wrong jurisdiction: the plan and story are the candidate's own, but
+        // the city/state they carry is another place's. The instruction says to
+        // search for events in `city, state` and to personalise to the
+        // district; it says nothing about which to believe when the prose
+        // disagrees with the structured fields. Thin data (t5-thin) proves the
+        // agent handles an absent place; this proves it does not blend two
+        // given ones, which is where event search shows a wrong place up as
+        // invented output.
+        id: 't6-wrong_jurisdiction',
         input: {
           race_id: '{judgeRaceId}',
           user_full_name: 'Robin Calloway',
           mode: 'initial',
           today: '2026-10-02',
-          election_date: '2025-11-04',
-          state: 'NC',
-          city: 'Asheville',
+          election_date: '2026-11-03',
+          state: 'TX',
+          city: 'El Paso',
           campaign_plan:
-            'Opportunities:\n- This race fills 3 seats, meaning the top 3 vote-getters win -- a structural advantage that means you do not need to out-poll every opponent by a wide margin. Six candidates are competing for those 3 slots in November, which significantly improves the odds of a top-3 finish compared to a single-winner contest (local news).\n- With 53,000 unique cellphone numbers on file for a district of 67,194 registered voters, you can reach roughly 79% of the voter pool through text and phone outreach alone. This broad mobile footprint makes it structurally feasible to deliver your targeted voter contact goal of 101,650 contacts without heavy reliance on costlier channels (GoodParty.org Data).\n- Your projected votes needed to win is 20,330 -- just 30% of the 67,194 registered voters in the district. Winning this seat does not require mobilizing most of Asheville; a well-targeted effort focused on the likely-voter file can reach the threshold (GoodParty.org Data).\n\nChallenges:\n- The general election is November 3, 2026 -- only 32 days away -- and your targeted voter contact goal is 101,650 contacts, which translates to roughly 3,177 contacts needed every single day for the remainder of the campaign (GoodParty.org Data).\n- The targeted voter contact goal of 101,650 is nearly 2x the 53,000 unique cellphone numbers available in the district, meaning the campaign cannot rely on a single pass through the list. Reaching the goal will require multiple touchpoints per voter across text, phone, and in-person canvassing (GoodParty.org Data).\n- Only about 60.5% of the 67,194 registered voters -- roughly 40,659 people -- are projected to turn out, so a large share of the voter file will not cast a ballot. The campaign must efficiently identify and prioritize likely voters rather than treating the full registered pool as its universe (GoodParty.org Data).\n\nLikely opponents:\n- Harriet Okonjo (Nonpartisan)\n- Felix Marchbanks (Nonpartisan)\n- Dana Whitlock (Nonpartisan)\n- Rafael Quintero (Nonpartisan)\n- Lena Brightwood (Nonpartisan)\n- Marcus Tolliver (Nonpartisan)',
+            'Opportunities:\n- This race fills 3 seats, meaning the top 3 vote-getters win -- a structural advantage that means you do not need to out-poll every opponent by a wide margin. Six candidates are competing for those 3 slots in November, which significantly improves the odds of a top-3 finish compared to a single-winner contest (local news).\n- With 53,000 unique cellphone numbers on file for a district of 67,194 registered voters, you can reach roughly 79% of the voter pool through text and phone outreach alone (GoodParty.org Data).\n\nChallenges:\n- The general election is November 3, 2026 -- only 32 days away -- and your targeted voter contact goal is 101,650 contacts (GoodParty.org Data).\n\nLikely opponents:\n- Harriet Okonjo (Nonpartisan)\n- Felix Marchbanks (Nonpartisan)',
           campaign_story:
-            "Why I'm running:\nI'm running for Asheville City Council because I believe our city's future should be shaped by the people who live here, not by outside developers or special interests. After years of watching decisions get made behind closed doors, I decided it was time to bring that process back to the community. I want Asheville to grow in a way that keeps it affordable, livable, and true to what makes it special.\n\nBackground:\nI've spent the last decade organizing neighborhood associations, leading tenant advocacy groups, and volunteering with local mutual aid networks during flood recovery efforts. I helped organize resident pushback against a rezoning proposal that would have displaced dozens of families in West Asheville, and I co-founded a coalition that connects small business owners with city resources. That work taught me how to listen, build coalitions, and turn frustration into action at the local level.\n\nKey issues:\nAffordable Housing\nExpand incentives for below-market-rate housing development, strengthen tenant protections, and streamline permitting for accessory dwelling units to increase supply without sacrificing neighborhood character.\n\nFlood Resilience & Infrastructure\nInvest in stormwater infrastructure upgrades and river corridor restoration following recent flooding, with a focus on protecting low-income neighborhoods that are most vulnerable.\n\nSupport for Small Businesses\nCut red tape for local entrepreneurs, create a small business relief fund, and push back against commercial rent increases that are pricing out longtime local shops.",
+            "Why I'm running:\nI'm running for Asheville City Council because I believe our city's future should be shaped by the people who live here. Over the last decade I organized neighborhood associations in West Asheville, led tenant advocacy groups, and volunteered with mutual aid networks during flood recovery.\n\nKey issues:\nAffordable Housing\nExpand incentives for below-market-rate housing and strengthen tenant protections.",
         },
         grading: {
           condition:
-            'election_date is 2025-11-04, eleven months before today (2026-10-02). The plan still says the general election is 32 days away, as it would if nobody refreshed the campaign after the election. Nothing else changed. The instruction has a rule for an election within 30 days and a rule for a null date, and none for a date that has passed.',
+            "state and city are TX and El Paso, while both campaign_plan and campaign_story are the Asheville NC campaign's own text, naming Asheville and West Asheville throughout. One place is in dispute: the structured fields say one jurisdiction, the personalisation prose says another. The instruction says to search for events in city, state and to personalise to the plan, story and district; it does not say which one to trust when they disagree. A wrong-place event list is the failure this case is built to catch.",
           handledWhen:
-            'the run does not build a get-out-the-vote push for an election that has already passed, and either says the election date looks out of date or plans as if no date were set. A list paced to the past election as if it were ahead is no.',
+            'the run either searches El Paso TX as the structured fields direct, or says the two places disagree, and in neither case files an event for a city the input did not name. Events in Asheville NC, or a list that silently personalises to Asheville while claiming El Paso, is no. Saying that the plan and story name a different place than the fields is the best answer and counts.',
           dimensions: {
-            currency:
-              'Is the list paced to the dates the input carries, rather than to a date a text claimed or a date that has already passed? Whether the dates should have been fresher is not the question.',
+            jurisdiction_discipline:
+              'Does the artifact behave consistently with one place it can defend from the input, rather than blending two? Search the wrong city outright, or name the disagreement, both count; an event sourced from the city the prose names while the fields name another is no.',
             grounding:
               'Does every claim trace to evidence this run had in its input or to a catalog entry it was given? Judge traceability only, not truth in the world. Events came from live search and cannot be verified from the input; judge their count, dates and URL shape under the contract, not their existence.',
           },
@@ -267,35 +286,15 @@ export default definePairwiseAgentEvalSuite<CampaignTrackerTasksEvalInput>(
         },
         grading: {
           condition:
-            "mode is weekly instead of initial. The instruction says that in weekly mode the agent first fetches last week's tasks over MCP, carries the incomplete ones forward and drops the done ones, and that if the call fails or returns empty it proceeds as if there were none and does not abort. In this sweep the agent has no reader for that service, so the fetch returns nothing. Nothing else changed.",
+            "mode is weekly instead of initial. The instruction says that in weekly mode the agent first fetches the candidate's prior tasks and completion, carries the incomplete ones forward and drops the done ones, and that if the call fails or returns empty it proceeds as if there were none and does not abort. Both engines have that reader: the PMF Engine's instruction calls the tracker-tasks MCP tool and gp-api's agent has listCampaignTrackerTasks, and both read the same campaign. What this sweep's fresh test user holds is the question, not whether a reader exists, so read the artifact rather than assuming the read was empty.",
           handledWhen:
-            "the run produces a list without claiming to have read or carried forward prior tasks, since the read returns nothing in this environment, and does not stall or shrink the list to nothing because of it. An item that refers to last week's tasks is no.",
+            "the run stays inside the catalog and the input whether the prior-task read returns rows or nothing: it never claims to have carried forward a specific prior task it did not show, and never shrinks the list to nothing because the read came back empty. An item that invents last week's tasks is no; a list of catalog tasks is not.",
           dimensions: {
             grounding:
               'Does every claim trace to evidence this run had in its input or to a catalog entry it was given? Judge traceability only, not truth in the world. Events came from live search and cannot be verified from the input; judge their count, dates and URL shape under the contract, not their existence.',
             disclosure:
               'Where an input was missing, two inputs conflicted, or a read the agent was told to make returned nothing, does the artifact behave as if it knew? There is no narrative channel, so this shows only in what is left out or kept plain. Judge whether the gap was respected, not whether it should have existed.',
           },
-        },
-      },
-      {
-        id: 'control',
-        input: {
-          race_id: '{judgeRaceId}',
-          user_full_name: 'Robin Calloway',
-          mode: 'initial',
-          today: '2026-10-02',
-          election_date: '2026-11-03',
-          state: 'NC',
-          city: 'Asheville',
-          campaign_plan:
-            'Opportunities:\n- This race fills 3 seats, meaning the top 3 vote-getters win -- a structural advantage that means you do not need to out-poll every opponent by a wide margin. Six candidates are competing for those 3 slots in November, which significantly improves the odds of a top-3 finish compared to a single-winner contest (local news).\n- With 53,000 unique cellphone numbers on file for a district of 67,194 registered voters, you can reach roughly 79% of the voter pool through text and phone outreach alone. This broad mobile footprint makes it structurally feasible to deliver your targeted voter contact goal of 101,650 contacts without heavy reliance on costlier channels (GoodParty.org Data).\n- Your projected votes needed to win is 20,330 -- just 30% of the 67,194 registered voters in the district. Winning this seat does not require mobilizing most of Asheville; a well-targeted effort focused on the likely-voter file can reach the threshold (GoodParty.org Data).\n\nChallenges:\n- The general election is November 3, 2026 -- only 32 days away -- and your targeted voter contact goal is 101,650 contacts, which translates to roughly 3,177 contacts needed every single day for the remainder of the campaign (GoodParty.org Data).\n- The targeted voter contact goal of 101,650 is nearly 2x the 53,000 unique cellphone numbers available in the district, meaning the campaign cannot rely on a single pass through the list. Reaching the goal will require multiple touchpoints per voter across text, phone, and in-person canvassing (GoodParty.org Data).\n- Only about 60.5% of the 67,194 registered voters -- roughly 40,659 people -- are projected to turn out, so a large share of the voter file will not cast a ballot. The campaign must efficiently identify and prioritize likely voters rather than treating the full registered pool as its universe (GoodParty.org Data).\n\nLikely opponents:\n- Harriet Okonjo (Nonpartisan)\n- Felix Marchbanks (Nonpartisan)\n- Dana Whitlock (Nonpartisan)\n- Rafael Quintero (Nonpartisan)\n- Lena Brightwood (Nonpartisan)\n- Marcus Tolliver (Nonpartisan)',
-          campaign_story:
-            "Why I'm running:\nI'm running for Asheville City Council because I believe our city's future should be shaped by the people who live here, not by outside developers or special interests. After years of watching decisions get made behind closed doors, I decided it was time to bring that process back to the community. I want Asheville to grow in a way that keeps it affordable, livable, and true to what makes it special.\n\nBackground:\nI've spent the last decade organizing neighborhood associations, leading tenant advocacy groups, and volunteering with local mutual aid networks during flood recovery efforts. I helped organize resident pushback against a rezoning proposal that would have displaced dozens of families in West Asheville, and I co-founded a coalition that connects small business owners with city resources. That work taught me how to listen, build coalitions, and turn frustration into action at the local level.\n\nKey issues:\nAffordable Housing\nExpand incentives for below-market-rate housing development, strengthen tenant protections, and streamline permitting for accessory dwelling units to increase supply without sacrificing neighborhood character.\n\nFlood Resilience & Infrastructure\nInvest in stormwater infrastructure upgrades and river corridor restoration following recent flooding, with a focus on protecting low-income neighborhoods that are most vulnerable.\n\nSupport for Small Businesses\nCut red tape for local entrepreneurs, create a small business relief fund, and push back against commercial rent increases that are pricing out longtime local shops.",
-        },
-        grading: {
-          condition:
-            "Control: the old list marked this case unscored, so a difference reported here is one called with nothing to find. No stressor. The sanitised capture with its two irregularities repaired: the city field filled with the city the story names, and the story's office aligned with the plan's (city council). Initial mode, today 2026-10-02, election 2026-11-03, full plan and story. The mutation base every other case is built from.",
         },
       },
     ],

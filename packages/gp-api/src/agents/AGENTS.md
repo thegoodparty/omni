@@ -29,9 +29,11 @@ conversation: no stages. Chat agents stay on `src/chats` for now.
 Agents live with their product: `trending_issues` is
 `src/communityIssues/trendingIssuesAgent/`, `top_community_issues` is
 `src/communityIssues/topCommunityIssuesAgent/`, `meeting_schedule` is
-`src/meetings/meetingScheduleAgent/`, `opposition_research` is
-`src/campaignStrategy/oppositionResearch/`, and `opportunities_and_challenges`
-is `src/campaignStrategy/opportunitiesAndChallengesAgent/`.
+`src/meetings/meetingScheduleAgent/`, `campaign_tracker_tasks` is
+`src/campaigns/campaignTracker/campaignTrackerTasksAgent/`,
+`opposition_research` is `src/campaignStrategy/oppositionResearch/`, and
+`opportunities_and_challenges` is
+`src/campaignStrategy/opportunitiesAndChallengesAgent/`.
 
 ## Adding an agent
 

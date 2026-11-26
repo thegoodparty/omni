@@ -43,6 +43,8 @@ import {
   parseIsoDateAsUTC,
 } from 'src/shared/util/date.util'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { ModuleRef } from '@nestjs/core'
+import { isTestUser } from '@/users/util/users.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
@@ -57,6 +59,7 @@ import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
 import { CampaignStoryStateService } from '@/campaignStory/services/campaignStoryState.service'
 import { smsComplianceWindow } from '@/campaigns/util/eligibility.util'
 import {
+  TRACKER_GENERATION_ADVISORY_LOCK_KEY,
   TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY,
   VOTER_GOALS_ADVISORY_LOCK_KEY,
 } from '../../campaigns.consts'
@@ -90,7 +93,9 @@ const NOT_SCHEDULED_OUTREACH_STATUSES: OutreachStatus[] = [
 ]
 
 // Runtime guard over the CAP artifact — the manifest output_schema in Zod form.
-const trackerArtifactSchema = z.object({
+// Also the gp-api agent's output schema, so both engines' artifacts are held to
+// one contract.
+export const trackerArtifactSchema = z.object({
   generated_at: z.string(),
   tasks: z
     .array(
@@ -135,6 +140,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 ) {
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
+    private readonly moduleRef: ModuleRef,
     private readonly s3: S3Service,
     private readonly slack: SlackService,
     private readonly storyState: CampaignStoryStateService,
@@ -153,6 +159,40 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         { id: Prisma.SortOrder.asc },
       ],
     })
+  }
+
+  // The tracker read, for both readers: the GET endpoint and the weekly
+  // agent's prior-tasks tool. Work finished on other surfaces has to show up in
+  // both, so the rows are brought up to date on the way out. Each step is
+  // best-effort — a failure must not take the task list down with it.
+  async readTrackerTasks(campaign: Campaign) {
+    // The story is finished on other surfaces (the story page, the manager
+    // chat), so tick its task here rather than leaving the list disagreeing
+    // with them until the next generation. Costs one indexed count once the
+    // task is already ticked.
+    await this.completeCampaignStoryTaskIfDone(campaign).catch((err: unknown) =>
+      this.logger.error(
+        { err, campaignId: campaign.id },
+        'campaign story task sync failed, serving tasks as-is',
+      ),
+    )
+    // A task whose outreach has since been scheduled is done.
+    await this.completeTasksWithScheduledOutreach(campaign).catch(
+      (err: unknown) =>
+        this.logger.error(
+          { err, campaignId: campaign.id },
+          'scheduled outreach task sync failed, serving tasks as-is',
+        ),
+    )
+    // Rows dated before the plan became a timeline (or before the race
+    // changed) move onto it.
+    await this.alignTrackerTaskDates(campaign).catch((err: unknown) =>
+      this.logger.error(
+        { err, campaignId: campaign.id },
+        'tracker task date alignment failed, serving tasks as-is',
+      ),
+    )
+    return this.listCampaignTrackerTasks(campaign)
   }
 
   // Create the static (global) launch/pre-launch rows from the catalog so the
@@ -608,9 +648,64 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       campaign_story: campaignStory,
     }
 
+    await this.dispatchRun(campaign.organizationSlug, clerkUserId, params, mode)
+  }
+
+  // The run's engine, chosen the way every other migrated agent chooses it:
+  // gp-api's own agent when `runsOnGpApi` names this experiment, the PMF
+  // Engine's dispatchRun otherwise. The two need the same fields in different
+  // spellings — the manifest's snake_case params, gp-api's camelCase input —
+  // and the input also carries the run's owner.
+  private async dispatchRun(
+    organizationSlug: string,
+    clerkUserId: string,
+    params: TrackerParams,
+    mode: 'initial' | 'weekly',
+  ): Promise<void> {
+    // Both resolved at call time, not imported statically at module load:
+    // the agents registry imports this module's product agents (campaign
+    // strategy, community issues), so a static import back into it closes a
+    // cycle and leaves one side undefined whichever file loaded first.
+    const { runsOnGpApi } = await import('@/agents/agents.registry.js')
+    if (runsOnGpApi(CAMPAIGN_TRACKER_EXPERIMENT_TYPE)) {
+      // The PMF Engine's dispatchRun makes this check and `run` does not: a
+      // synthetic org must not spend a paid run on either engine.
+      const organization = await this.client.organization.findUnique({
+        where: { slug: organizationSlug },
+        select: { owner: { select: { email: true } }, testModeCreatedAt: true },
+      })
+      if (
+        isTestUser({ email: organization?.owner.email ?? '' }) ||
+        organization?.testModeCreatedAt
+      ) {
+        this.logger.info(
+          { organizationSlug },
+          'Skipping tracker agent run for test-user org',
+        )
+        return
+      }
+
+      const { AgentsService } = await import('@/agents/agents.service.js')
+      await this.moduleRef
+        .get(AgentsService)
+        .run(CAMPAIGN_TRACKER_EXPERIMENT_TYPE, {
+          organizationSlug,
+          raceId: params.race_id,
+          userFullName: params.user_full_name,
+          mode,
+          today: params.today,
+          electionDate: params.election_date,
+          state: params.state,
+          city: params.city,
+          campaignPlan: params.campaign_plan,
+          campaignStory: params.campaign_story,
+        })
+      return
+    }
+
     await this.experimentRuns.dispatchRun({
       type: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
-      organizationSlug: campaign.organizationSlug,
+      organizationSlug,
       clerkUserId,
       params,
     })
@@ -770,11 +865,123 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       // same week the digest filters on, rather than skewing a week past
       // windowStart when the run completes after UTC-midnight on Monday.
       const weekStart = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
+
+      await this.persistArtifact(campaign.id, run.runId, weekStart, tasks)
+    } catch (error) {
+      await this.experimentRuns.markFailed(
+        run.runId,
+        error instanceof Error ? error.message : String(error),
+      )
+      throw error
+    }
+  }
+
+  // The tracker's second completion path, for a run on gp-api's own agents: the
+  // artifact is the run's validated output rather than an object in S3, so the
+  // append is the same one the PMF Engine's result consumer makes. A throw here
+  // fails the run, which is the alert path on that engine (the agentRun queue's
+  // dead letter); there is no run row to `markFailed` from this side.
+  //
+  // It can run twice for one run, so it has to be an upsert: a crash after this
+  // and before the run is marked complete re-runs it from the stored artifact.
+  // The `sourceRunId` stamp is what makes the second call a no-op.
+  async onTrackerArtifact(
+    run: { runId: string; organizationSlug: string },
+    artifact: z.infer<typeof trackerArtifactSchema>,
+  ): Promise<void> {
+    const campaign = await this.client.campaign.findFirst({
+      where: { organizationSlug: run.organizationSlug },
+      select: { id: true },
+    })
+    if (!campaign) {
+      // Same no-op as the S3 path: an org with no campaign has no tasks to
+      // append, and the run itself is still a success.
+      this.logger.warn(
+        { runId: run.runId, organizationSlug: run.organizationSlug },
+        'tracker artifact for an organization with no campaign',
+      )
+      return
+    }
+
+    // The catalog excludes the deterministic text/robocall sends, and this is
+    // the same safety net the S3 path keeps: drop any the run emitted anyway,
+    // since the plan's contact schedule owns those rows.
+    const tasks = artifact.tasks.filter(
+      (task) => task.channel !== 'text' && task.channel !== 'robocall',
+    )
+    await this.persistArtifact(
+      campaign.id,
+      run.runId,
+      nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE),
+      tasks,
+    )
+  }
+
+  private async persistArtifact(
+    campaignId: number,
+    runId: string,
+    weekStart: Date,
+    tasks: z.infer<typeof trackerArtifactSchema>['tasks'],
+  ): Promise<void> {
+    const generation = await this.appendGeneration(
+      campaignId,
+      runId,
+      weekStart,
+      tasks,
+    )
+    // A run appends once. Nothing landed, so nothing to announce: this is the
+    // second delivery of a run whose rows the first one already committed.
+    if (generation === null) return
+
+    // Notify CAS with the week's tasks (Pro candidates only). Fires for the
+    // initial bootstrap (first week) and every weekly regen; the title
+    // reflects which. Best-effort: the rows are already committed, so a Slack
+    // failure must not reach the caller's failure path.
+    await this.notifyTasksGenerated(campaignId, weekStart, generation).catch(
+      (error: unknown) =>
+        this.logger.warn(
+          { error, campaignId },
+          'tracker Slack notification failed',
+        ),
+    )
+  }
+
+  // Append one run's tasks as the next dynamic generation, or return null when
+  // this run's rows are already here. The result job is at-least-once (an SQS
+  // redelivery, a retried consumer), so the same completed run can reach this
+  // twice and would otherwise append twice.
+  //
+  // Two things make that safe together, and neither does it alone. The
+  // advisory lock serializes the pair per campaign, so the second delivery
+  // waits rather than reading the same latest generation; the `sourceRunId`
+  // stamp then tells it plainly that its rows are on disk. Row ids are
+  // generated per attempt, so without the stamp the second delivery would
+  // compute the same next index and insert a duplicate generation.
+  private async appendGeneration(
+    campaignId: number,
+    runId: string,
+    weekStart: Date,
+    tasks: z.infer<typeof trackerArtifactSchema>['tasks'],
+  ): Promise<number | null> {
+    return this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRACKER_GENERATION_ADVISORY_LOCK_KEY}::integer, ${campaignId}::integer)`
+
+      const already = await tx.campaignTrackerTask.count({
+        where: { campaignId, sourceRunId: runId },
+      })
+      if (already > 0) {
+        this.logger.info(
+          { campaignId, runId },
+          'tracker generation already appended; skipping',
+        )
+        return null
+      }
+
       // `week` is the generation index: each run appends the next one, the
       // frontend renders only the highest (latest) dynamic generation, and
       // older generations persist for completion history + prior-task dedupe.
-      const latest = await this.model.findFirst({
-        where: { campaignId: campaign.id, isDefaultTask: false },
+      const latest = await tx.campaignTrackerTask.findFirst({
+        where: { campaignId, isDefaultTask: false },
         orderBy: { week: Prisma.SortOrder.desc },
         select: { week: true },
       })
@@ -795,7 +1002,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
             datelessOffset += 1
           }
           return {
-            campaignId: campaign.id,
+            campaignId,
             title: task.title,
             description: task.description,
             flowType: CHANNEL_TO_FLOW_TYPE[task.channel] ?? null,
@@ -807,34 +1014,21 @@ export class CampaignTrackerTasksService extends createPrismaBase(
             phase: task.phase,
             isDefaultTask: false,
             completed: false,
+            sourceRunId: runId,
           }
         },
       )
 
       if (rows.length > 0) {
-        await this.model.createMany({ data: rows })
-        // Notify CAS with the week's tasks (Pro candidates only). Fires for the
-        // initial bootstrap (first week) and every weekly regen; the title
-        // reflects which. Best-effort: the rows are already committed, so a Slack
-        // failure must not reach the catch below (markFailed + redeliver).
-        await this.notifyTasksGenerated(
-          campaign.id,
-          weekStart,
-          generation,
-        ).catch((error: unknown) =>
-          this.logger.warn(
-            { error, campaignId: campaign.id },
-            'tracker Slack notification failed',
-          ),
-        )
+        await tx.campaignTrackerTask.createMany({ data: rows })
+        return generation
       }
-    } catch (error) {
-      await this.experimentRuns.markFailed(
-        run.runId,
-        error instanceof Error ? error.message : String(error),
-      )
-      throw error
-    }
+
+      // An artifact with no tasks inserts nothing, so there is no row to carry
+      // the stamp and no generation to announce. A redelivery re-reads the same
+      // artifact and inserts nothing again, so it cannot duplicate work.
+      return null
+    })
   }
 
   // Post the week's tasks to the CAS Slack channel after a generation lands

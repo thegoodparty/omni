@@ -339,12 +339,33 @@ Output: up to **12** prioritized tasks plus up to **3** real local events, drawn
 from the ~20 non-outreach dynamic catalog (no text/robocall). The model selects,
 ranks, personalizes, and finds events; it does **not** set gates, caps, or the
 outreach schedule. The GOTV 30-day window and the Active phase's week span
-stay deterministic in gp-api / webapp.
+stay deterministic in gp-api / webapp. Two consequences for the prompt: an
+item's `phase` and `channel` are the catalog's labels copied verbatim (the
+prompt says so explicitly, because the 30-day rule is easy to mistake for a
+licence to relabel persuasion work as `gotv`), and the list is dated to the
+coming Monday-Sunday week on or after `today`, which the server enforces anyway
+by dating anything left null.
+
+The experiment runs on whichever engine `deploy/agentsOnGpApi.ts` names. On
+gp-api's own agents (`campaignTrackerTasksAgent/`) there is no attachment
+channel, so the prompt carries the same filtered menu inline, and
+`listCampaignTrackerTasks` replaces the MCP tool. Both engines read the same
+rows and append through the same code, so the switch changes where the run
+executes and nothing about what the candidate sees.
 
 `onExperimentRunCompleted` loads the artifact, drops any `text`/`robocall` rows
 (those are deterministic), computes the next generation index, and **appends**
 the rest (events keep their real date; dateless tasks dated across the upcoming
-week). Fail-closed: a bad artifact marks the run failed and rethrows.
+week). Fail-closed: a bad artifact marks the run failed and rethrows. On
+gp-api's engine the same append is reached through the agent's `onArtifact`
+(`onTrackerArtifact`), from the run's validated output instead of S3.
+
+A run appends once. Both engines' completion deliveries are at-least-once (an
+SQS redelivery, a retried consumer, `onArtifact` re-running from the stored
+artifact), so the append takes a per-campaign advisory lock and skips when any
+row already carries that run's `source_run_id`. The stamp is what makes the
+replay a no-op; the lock is what makes a concurrent replay wait instead of
+reading the same latest week and inserting a second generation.
 
 After the rows commit, `notifyTasksGenerated` posts the upcoming Monday-Sunday
 week's tasks to the `casClickupTasks` Slack channel for **Pro** candidates,
@@ -416,6 +437,7 @@ The table below is the cross-package file index:
 | Shared week-start helper                                                 | `gp-api/src/shared/util/date.util.ts` (`nextMondayUtcMidnight`)                             |
 | Catalog generator                                                        | `gp-api/scripts/generate-tracker-catalog.ts`                                                |
 | CAP experiment                                                           | `packages/runbooks/experiments/campaign_tracker_tasks/`                                     |
+| The same agent on gp-api's own engine                                    | `gp-api/src/campaigns/campaignTracker/campaignTrackerTasksAgent/`                           |
 | Task catalog (source of truth)                                           | `@goodparty_org/contracts` (`CampaignTaskCatalog`)                                          |
 | Frontend rendering                                                       | `gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/buildTrackerStrategy.ts` |
 | Frontend data hook                                                       | `…/campaignStrategy/useTrackerTasks.ts`                                                     |

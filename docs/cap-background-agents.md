@@ -213,6 +213,15 @@ dormant and dispatches nothing.
   (`services/raceOpponentRun.ts`) query both engines' run tables so a revert of
   the switch is a safe rollback. Read `deploy/agentsOnGpApi.ts` for the current
   per-environment state.
+- **Campaign Tracker** (`src/campaigns/campaignTracker/`) — `campaign_tracker_tasks`,
+  the weekly dynamic task list beside the deterministic static catalog. The
+  weekly cron (`campaignTrackerWeekly`) and the bootstrap both dispatch it;
+  `campaignTrackerTasks.service.ts` picks the engine from the switch, and the
+  weekly coverage gate (`services/campaignTrackerRun.ts`) reads both engines'
+  run tables so a revert cannot dispatch a duplicate paid run. Both completion
+  paths append through one per-campaign locked, `sourceRunId`-stamped insert, so
+  a redelivery of a completed run appends nothing. Details:
+  `src/campaigns/campaignTracker/AGENTS.md`.
 
 ### Admin / bulk-dispatch surface
 
