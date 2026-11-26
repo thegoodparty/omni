@@ -143,8 +143,8 @@ export const vercelAction = (
 ) => mockAction(client, campaignId, action)
 
 /**
- * Delivers a signed Stripe checkout.session.completed event to the payments
- * handler in-process, using a real test-mode Stripe session.
+ * Delivers a real test-mode paid subscription invoice or one-time checkout
+ * session to the payments handler in-process.
  */
 export const deliverStripeEvent = async (
   client: AxiosInstance,

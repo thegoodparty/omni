@@ -14,7 +14,7 @@ vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
 const desktopTable = () => screen.getAllByRole('table')[0] as HTMLElement
 
 describe('OutreachHistoryTable — unified history', () => {
-  it('shows how many emails were delivered in Results', async () => {
+  it('shows clicks and click-through rate in Results', async () => {
     api.mock('GET /v1/outreach/email/:id', {
       status: 200,
       data: {
@@ -53,6 +53,7 @@ describe('OutreachHistoryTable — unified history', () => {
           complained: 2,
           opened: 412,
           clicked: 87,
+          optedOut: 3,
         },
       },
     })
@@ -69,7 +70,7 @@ describe('OutreachHistoryTable — unified history', () => {
     render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
 
     expect(
-      await within(desktopTable()).findByText('978 delivered'),
+      await within(desktopTable()).findByText('87 clicked (9% CTR)'),
     ).toBeInTheDocument()
   })
 
@@ -215,6 +216,49 @@ describe('OutreachHistoryTable — unified history', () => {
     const table = within(desktopTable())
     expect(table.getByText('Door knocking')).toBeInTheDocument()
     expect(table.queryByText('NativeDoorKnocking')).not.toBeInTheDocument()
+  })
+
+  it('shows doors answered across the whole campaign, multi-turf included', async () => {
+    const anchorsAsked: string[] = []
+    api.mock(
+      'GET /v1/door-knocking/campaigns/:anchorId/results',
+      ({ params }) => {
+        anchorsAsked.push(String(params.anchorId))
+        return {
+          status: 200,
+          data: {
+            doorsKnocked: 40,
+            byOutcome: {
+              answered: 12,
+              not_home: 25,
+              refused_to_engage: 2,
+              inaccessible: 1,
+              not_a_voter: 0,
+            },
+            bySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+            byWillVote: { yes: 0, no: 0, unsure: 0, already_voted: 0 },
+            byFollowUp: { yes: 0, no: 0 },
+          },
+        }
+      },
+    )
+    const rows: HistoryRow[] = [
+      {
+        id: 7,
+        date: '2026-08-20',
+        outreachType: 'nativeDoorKnocking',
+        name: 'Elm & Cedar',
+        status: 'in_progress',
+        turfCount: 3,
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(
+      await within(desktopTable()).findByText('12 answered'),
+    ).toBeInTheDocument()
+    expect(anchorsAsked).toContain('7')
   })
 
   // in_progress means a canvasser is walking, not the non-p2p map's
@@ -440,6 +484,8 @@ describe('OutreachHistoryTable — unified history', () => {
           unsure: 1,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 2, unsure: 1, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -716,6 +762,8 @@ describe('OutreachHistoryTable — unified history', () => {
             unsure: 0,
             nonSupporters: 0,
             byFollowUp: { yes: 3, no: 1 },
+            callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+            callsByFollowUp: { yes: 3, no: 1 },
           },
         },
       })
@@ -791,6 +839,8 @@ describe('OutreachHistoryTable — unified history', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 1, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })

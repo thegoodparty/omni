@@ -92,10 +92,15 @@ export const candidateCountIn = (input: unknown): number | null => {
   )
 }
 
-// The section's run from the engine that will run it. `onGpApi` is the caller's
-// own `runsOnGpApi(section)`, so a reader and the dispatcher pick the same table
-// from one switch: a reader left on the other engine's table sees no run, the
-// section looks idle, and the endpoint re-dispatches.
+// The section's run, from whichever table holds its id. `onGpApi` is the
+// caller's own `runsOnGpApi(section)`, so the switch decides which table is
+// asked first, and the other table answers for a run dispatched before the
+// switch flipped: a plan's section or a race-opponent discovery can be queued,
+// running or awaiting resume on the other engine at the deploy, and its run id
+// lives in that engine's table. Without the fallback the section reads as idle
+// and a second paid run starts while the first lands nowhere the plan points at;
+// reverting the line has the same problem in reverse. The run that answers
+// carries its own `engine`, so the status vocabulary stays right.
 export const sectionRunFrom = async (
   prisma: PrismaClient,
   s3: S3Service,
@@ -105,22 +110,43 @@ export const sectionRunFrom = async (
   if (!runId) return null
 
   if (onGpApi) {
-    const run = await prisma.agentRun.findUnique({ where: { id: runId } })
-    if (!run) return null
-    return {
-      runId: run.id,
-      status: AGENT_SECTION_STATUS[run.status],
-      engine: 'gpApi',
-      createdAt: run.createdAt,
-      updatedAt: run.updatedAt,
-      candidateCountSeen:
-        run.status === AgentRunStatus.completed
-          ? candidateCountIn(run.input)
-          : null,
-      readArtifact: async () => run.artifact,
-    }
+    return (
+      (await gpApiSectionRun(prisma, runId)) ??
+      (await pmfSectionRun(prisma, s3, runId))
+    )
   }
 
+  return (
+    (await pmfSectionRun(prisma, s3, runId)) ??
+    (await gpApiSectionRun(prisma, runId))
+  )
+}
+
+const gpApiSectionRun = async (
+  prisma: PrismaClient,
+  runId: string,
+): Promise<SectionRun | null> => {
+  const run = await prisma.agentRun.findUnique({ where: { id: runId } })
+  if (!run) return null
+  return {
+    runId: run.id,
+    status: AGENT_SECTION_STATUS[run.status],
+    engine: 'gpApi',
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    candidateCountSeen:
+      run.status === AgentRunStatus.completed
+        ? candidateCountIn(run.input)
+        : null,
+    readArtifact: async () => run.artifact,
+  }
+}
+
+const pmfSectionRun = async (
+  prisma: PrismaClient,
+  s3: S3Service,
+  runId: string,
+): Promise<SectionRun | null> => {
   const run = await prisma.experimentRun.findUnique({ where: { runId } })
   if (!run) return null
   return {

@@ -97,7 +97,7 @@ const mockWinDrawer = (
   api.mock('GET /v1/outreach/:id', { status: 200, data: winDetail })
   api.mock('GET /v1/outreach/:id/results', {
     status: 200,
-    data: { contacts: 300, responded: 12, optedOut: 2 },
+    data: { contacts: 300, responded: 12, optedOut: 2, notDelivered: null },
   })
   api.mock('GET /v1/outreach/:id/replies', { status: 200, data: replies })
 }
@@ -165,7 +165,7 @@ describe('Win text drawer — Responses', () => {
     renderWinDrawer()
 
     expect(
-      await screen.findByText(/Based on 300 SMS contacts/),
+      await screen.findByText(/Based on 300 texts sent/),
     ).toBeInTheDocument()
     expect(screen.queryByText('Responses')).not.toBeInTheDocument()
   })

@@ -13,6 +13,7 @@ import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { CandidacyFilterDto } from '@/electionDb/candidacies/candidacies.schema'
 import { CandidaciesService } from '@/electionDb/candidacies/candidacies.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ElectionReadCacheInterceptor } from '@/elections/interceptors/electionReadCache.interceptor'
 import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
@@ -126,7 +127,11 @@ export const candidaciesResponseSchema = z.array(candidacySchema)
 
 @Controller('elections/candidacies')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
+@UseInterceptors(
+  ElectionReadCacheInterceptor,
+  ServiceReadConcurrencyInterceptor,
+  ZodResponseInterceptor,
+)
 export class ElectionCandidaciesController {
   constructor(private readonly candidaciesService: CandidaciesService) {}
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { usePlan } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
@@ -74,13 +75,21 @@ const ProUpgradeWizard = ({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { plan: heldPlan } = usePlan()
+  const { heldPlan, onSubscription } = usePlan()
+  const [campaign] = useCampaign()
   // Read once: later step URLs carry the same values back, but state is what
   // survives a step that was pushed without them.
   const [carry, setCarry] = useState<ProUpgradeCarry>(() =>
     parseProUpgradeCarry(searchParams),
   )
   const carryRef = useRef(carry)
+  // The entry sends a paid campaign that does not hold Team (a Pro holder, or a
+  // granted Pro with no plan) asking for Team straight to payment, alone.
+  const teamUpgrade =
+    carry.plan === 'team' &&
+    !onSubscription &&
+    heldPlan !== 'team' &&
+    (heldPlan === 'pro' || Boolean(campaign?.isPro))
   const markFromPro = useCallback(() => {
     carryRef.current = { ...carryRef.current, fromPro: true }
     setCarry(carryRef.current)
@@ -123,7 +132,9 @@ const ProUpgradeWizard = ({
       orderIndex === 0 ||
       (currentStep === PRO_UPGRADE_STEP.PAYMENT &&
         carryRef.current.plan === 'team' &&
-        heldPlan === 'pro')
+        !onSubscription &&
+        heldPlan !== 'team' &&
+        (heldPlan === 'pro' || Boolean(campaign?.isPro)))
     if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
       router.push(stepHref(PRO_UPGRADE_STEP.STATUS))
     } else if (!firstStep) {
@@ -131,7 +142,16 @@ const ProUpgradeWizard = ({
     } else {
       router.push(carryRef.current.backTo ?? '/dashboard')
     }
-  }, [currentStep, orderIndex, stepOrder, router, stepHref, heldPlan])
+  }, [
+    currentStep,
+    orderIndex,
+    stepOrder,
+    router,
+    stepHref,
+    heldPlan,
+    campaign?.isPro,
+    onSubscription,
+  ])
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
   const handleChromeExit = useCallback(() => {
@@ -149,6 +169,13 @@ const ProUpgradeWizard = ({
     () => router.push(smsClosed ? '/dashboard' : CAMPAIGN_VERIFICATION_PATH),
     [smsClosed, router],
   )
+
+  // gp-api refuses a plan purchase on a monthly subscription, so a direct visit
+  // to the Team checkout goes back instead of rendering it.
+  const blockedTeam = carry.plan === 'team' && onSubscription
+  useEffect(() => {
+    if (blockedTeam) router.replace(carry.backTo ?? '/dashboard')
+  }, [blockedTeam, router, carry.backTo])
 
   const contextValue = useMemo<ProUpgradeWizardContextValue>(
     () => ({
@@ -168,6 +195,8 @@ const ProUpgradeWizard = ({
     [carry, markFromPro],
   )
 
+  if (blockedTeam) return <></>
+
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
       <ProUpgradeCarryContext.Provider value={carryValue}>
@@ -177,9 +206,7 @@ const ProUpgradeWizard = ({
           }
           position={
             // Design: Pro to Team is one step, so there is no stepper.
-            carry.plan === 'team' && heldPlan === 'pro'
-              ? null
-              : stepPosition(currentStep)
+            teamUpgrade ? null : stepPosition(currentStep)
           }
           onExit={handleChromeExit}
         >

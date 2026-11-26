@@ -51,6 +51,22 @@ reads (`serviceReader` or `m2mToken`) run at once per gp-api task. The rest
 queue, and a read still waiting after 30s gets a 503. That leaves 20 of the 50
 election-db connections free for user-facing reads during a gp-marketing
 crawl. Human callers are not capped.
+
+In front of that cap sits `ElectionReadCacheInterceptor`, which answers an
+identical machine-caller read from memory for 30s and collapses the reads that
+are already in flight onto one downstream call — the crawl asks for the same
+documents ten times a minute, and until ENG-11791 every ask was a fresh set of
+SQL statements against the same 50 connections. A cached answer can be 30s
+stale, which is safe here and only here: the nightly swap is the only writer
+of these tables, so nothing a page renders can have changed in between. That is
+why `public-person-profiles` is not cached with them — an owner publishing a
+profile has to see it live.
+
+The cache is per task and the fleet routes by least outstanding requests, so
+how much the 30s saves depends on how many of a document's repeats land on the
+same task; the in-flight join does not. It logs its cumulative hit, join and
+miss counts every 1,000 decisions, and `docs/adr/2026-11-25-election-reads-answered-from-a-short-cache.md`
+is where that trade-off and the shared-cache alternative are recorded.
 Most of what the old service exposed has no HTTP surface at all any more — it
 is reached by direct injection from gp-api code.
 

@@ -8,8 +8,8 @@ import { definePairwiseAgentEvalSuite } from '@goodparty_org/judge'
 //
 // This suite judged the migration while the two engines still split the arms:
 // dev dispatched meeting_schedule to the PMF Engine and a preview named it in
-// AGENTS_ON_GP_API. Both now run gp-api's engine, so it is a regression suite
-// (docs/agent-evals.md).
+// AGENTS_ON_GP_API. Every environment runs gp-api's engine now, so it is a
+// regression suite (docs/agent-evals.md).
 //
 // Serve: the schedule is persisted for an elected official's office.
 //

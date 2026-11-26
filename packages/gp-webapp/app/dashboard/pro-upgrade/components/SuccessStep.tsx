@@ -97,9 +97,10 @@ const SuccessStep = (): React.JSX.Element => {
   const { channel, complete, exit } = useProUpgradeWizard()
   const router = useRouter()
   const { enabled: planPricing } = useWinPerCampaignPricingFlag(false)
-  const { plan: heldPlan } = usePlan()
+  const { plan: currentPlan } = usePlan()
   const carry = useProUpgradeCarry()
-  const isTeam = planPricing && (carry.plan === 'team' || heldPlan === 'team')
+  const isTeam =
+    planPricing && (carry.plan === 'team' || currentPlan === 'team')
   // A Pro holder who bought Team: verification and the credit are already
   // theirs, so only the new thing is listed.
   const fromPro = isTeam && carry.fromPro

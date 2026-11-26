@@ -30,6 +30,7 @@ describe('PausedSendsTable', () => {
                 complained: 2,
                 opened: 90,
                 clicked: 11,
+                optedOut: 0,
               },
             },
           ]}

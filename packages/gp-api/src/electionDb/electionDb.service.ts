@@ -36,6 +36,20 @@ const CONNECTION_LIMIT = process.env.IS_PREVIEW === 'true' ? '5' : '50'
 // tables. Only this client's sessions get it; the swap keeps its own.
 const LOCK_TIMEOUT = '200ms'
 
+// Exported so the lock-conflict test can build a client that gives up at the
+// same point without the retry extension, keeping the assertion tied to this
+// value rather than a copy of it.
+export const withLockTimeout = (databaseUrl: string): string => {
+  const url = new URL(databaseUrl)
+  url.searchParams.set(
+    'options',
+    [url.searchParams.get('options'), `-c lock_timeout=${LOCK_TIMEOUT}`]
+      .filter(Boolean)
+      .join(' '),
+  )
+  return url.toString()
+}
+
 type BaseElectionDbClient = PrismaClient<Prisma.PrismaClientOptions, 'query'>
 
 const withReadRetries = (client: BaseElectionDbClient) =>
@@ -98,11 +112,7 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
     // queue fast sheds the excess instead of holding it.
     url.searchParams.set('pool_timeout', '5')
     url.searchParams.set('connect_timeout', '5')
-    const options = url.searchParams.get('options')
-    url.searchParams.set(
-      'options',
-      [options, `-c lock_timeout=${LOCK_TIMEOUT}`].filter(Boolean).join(' '),
-    )
+    const clientUrl = withLockTimeout(url.toString())
 
     const client: BaseElectionDbClient = new PrismaClient<
       Prisma.PrismaClientOptions,
@@ -118,7 +128,7 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
         // Named `db` to match prisma-election/schema/schema.prisma, which keeps
         // that name so the 38 `@db.*` native-type attributes in the copied
         // model files resolve — Prisma namespaces them by datasource name.
-        db: { url: url.toString() },
+        db: { url: clientUrl },
       },
     })
 

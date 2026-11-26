@@ -250,6 +250,9 @@ export class PriorityReadService extends createPrismaBase(MODELS.PriorityRead) {
     answers: PersonAnswer[],
     attempt: { retriesLeft: boolean },
   ): Promise<PriorityGroupRead | null> {
+    // A test org's answers are Test mode's made-up people, whom the
+    // warehouse has never heard of: no read, so the count alone decides.
+    if (organization.testModeCreatedAt) return null
     // No district is a read with no census, like a failed one.
     const district = await this.resolveContacts()
       .resolveEligibleDistrict(organization)

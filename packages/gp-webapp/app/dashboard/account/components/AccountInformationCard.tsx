@@ -26,6 +26,7 @@ import {
   buildPlanPitch,
   formatPlanCents,
 } from 'app/dashboard/shared/plan/planPitch'
+import { plansHrefWithBackTo } from 'app/dashboard/pro-upgrade/proUpgradePlanParams'
 import { formatPlanEndDate } from 'app/dashboard/shared/plan/formatPlanEndDate'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { AccountSettingsButton } from 'app/dashboard/profile/components/AccountSettingsButton'
@@ -65,7 +66,7 @@ export const AccountInformationCard = ({
 }: AccountInformationCardProps): React.JSX.Element => {
   const userType = isElectedOffice ? 'Elected official' : 'Candidate'
   const { enabled: planPricingEnabled } = useWinPerCampaignPricingFlag()
-  const { plan, planEndsAt } = usePlan()
+  const { plan, heldPlan, onSubscription, planEndsAt } = usePlan()
   const [teamPitchOpen, setTeamPitchOpen] = useState(false)
   const [campaign] = useCampaign()
   const role = useOrganizationRole()
@@ -78,7 +79,8 @@ export const AccountInformationCard = ({
     !isElectedOffice &&
     campaign?.planPricingModel === 'one_time'
   const freePlan = planPricingEnabled && !isPro && !isElectedOffice
-  const canUpgradeToTeam = oneTimePlan && plan === 'pro' && role === 'owner'
+  const canUpgradeToTeam =
+    oneTimePlan && !onSubscription && heldPlan === 'pro' && role === 'owner'
   const planLabel = oneTimePlan
     ? `GoodParty.org ${paidPlan.name} Plan`
     : isPro
@@ -211,7 +213,9 @@ export const AccountInformationCard = ({
           </div>
           <div className="flex justify-end">
             <Button asChild>
-              <Link href="/dashboard/plans">See plans</Link>
+              <Link href={plansHrefWithBackTo('/dashboard/account')}>
+                See plans
+              </Link>
             </Button>
           </div>
           <Separator />

@@ -17,6 +17,7 @@ describe('usePlan', () => {
   it('reads a free campaign with no credit', () => {
     expect(planFor({ plan: 'free', isPro: false })).toEqual({
       plan: 'free',
+      heldPlan: 'free',
       isPaid: false,
       onSubscription: false,
       planEndsAt: null,
@@ -64,6 +65,59 @@ describe('usePlan', () => {
       planFor({ plan: 'pro', isPro: true, planPricingModel: 'one_time' })
         .onSubscription,
     ).toBe(false)
+  })
+
+  it('reads onSubscription the way gp-api reads onLiveSubscription', () => {
+    const subscriptionId = { subscriptionId: 'sub_1' }
+    // A legacy subscriber is seen through isPro and the subscription id.
+    expect(
+      planFor({ plan: 'free', isPro: true, details: subscriptionId })
+        .onSubscription,
+    ).toBe(true)
+    expect(
+      planFor({ plan: 'free', isPro: true, details: {} }).onSubscription,
+    ).toBe(false)
+    expect(
+      planFor({ plan: 'free', isPro: false, details: subscriptionId })
+        .onSubscription,
+    ).toBe(false)
+    // A one-time plan outranks a stray subscription on the same campaign.
+    expect(
+      planFor({
+        plan: 'pro',
+        isPro: true,
+        planPricingModel: 'one_time',
+        details: subscriptionId,
+      }).onSubscription,
+    ).toBe(false)
+    // Once the one-time plan has ended, the subscription is live again.
+    expect(
+      planFor({
+        plan: 'pro',
+        isPro: true,
+        planPricingModel: 'one_time',
+        planEndedAt: '2026-11-01T00:00:00.000Z',
+        details: subscriptionId,
+      }).onSubscription,
+    ).toBe(true)
+  })
+
+  it('reads heldPlan from the plan columns the way gp-api prices a purchase', () => {
+    expect(planFor({ plan: 'pro', isPro: true }).heldPlan).toBe('pro')
+    expect(planFor({ plan: 'team', isPro: true }).heldPlan).toBe('team')
+    // A legacy subscriber is pro for access, but holds no plan.
+    expect(planFor({ plan: 'free', isPro: true })).toMatchObject({
+      plan: 'pro',
+      heldPlan: 'free',
+    })
+    // An ended plan no longer counts as held.
+    expect(
+      planFor({
+        plan: 'pro',
+        isPro: true,
+        planEndedAt: '2026-11-01T00:00:00.000Z',
+      }).heldPlan,
+    ).toBe('free')
   })
 
   it('has no plan state without a campaign', () => {

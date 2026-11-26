@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Badge,
   Button,
@@ -48,6 +49,8 @@ import {
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
 import { getOutreachHistoryCopy } from './outreachHistoryCopy'
+import { OUTREACH_RESULTS_COPY } from './outreachResultsCopy'
+import { campaignResultsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { useEmailSend } from './email/emailApi'
 
@@ -189,8 +192,8 @@ const DoorKnockingPeopleMetric = ({
 }
 
 // An email's counts live on its own send, so like door knocking they come
-// off a per-row fetch. Nothing has been delivered before the send starts.
-const EmailDeliveredMetric = ({
+// off a per-row fetch. Nothing has been clicked before the send starts.
+const EmailClickedMetric = ({
   id,
   isServe,
 }: {
@@ -198,28 +201,21 @@ const EmailDeliveredMetric = ({
   isServe: boolean
 }) => {
   const { data } = useEmailSend(isServe, id)
-  const delivered = data?.deliveryCounts?.delivered
-  if (delivered === undefined) {
+  const counts = data?.deliveryCounts
+  if (!counts) {
     return <span className="text-muted-foreground">—</span>
   }
-  return <>{delivered.toLocaleString()} delivered</>
+  return <>{OUTREACH_RESULTS_COPY.clickedCount(counts.clicked, counts.sent)}</>
 }
 
-// "Logged", not "responses": a knock is logged whether or not anyone answered,
-// and the drawer already says "N of M people logged" off this same number.
-const DoorKnockingLoggedMetric = ({
-  id,
-  detailFetcher,
-}: {
-  id: number
-  detailFetcher: OutreachDetailFetcher
-}) => {
-  const { data } = useOutreachDetail(id, true, detailFetcher)
-  const count = data?.doorKnocking?.loggedCount
-  if (count === undefined) {
+// Doors answered across every turf in the campaign, off the same results the
+// drawer's Statistics card reads, so a multi-turf row has a number too.
+const DoorKnockingAnsweredMetric = ({ anchorId }: { anchorId: number }) => {
+  const { data } = useQuery(campaignResultsQueryOptions(anchorId))
+  if (!data) {
     return <span className="text-muted-foreground">—</span>
   }
-  return <>{count.toLocaleString()} logged</>
+  return <>{OUTREACH_RESULTS_COPY.answeredCount(data.byOutcome.answered)}</>
 }
 
 // A robocall's count lives on its satellite, not the spine's text counts,
@@ -351,26 +347,22 @@ const RowMetric = ({
 // missing-results placeholder. Social keeps it permanently (engagements are
 // cut from v1 by the social channel spec). nativePhoneBanking's results
 // (supporter count) are already computed on the detail, so it fills the slot.
-// A completed SMS row on the SERVE surface fills it too — see below.
+// A completed SMS row fills it on both surfaces — see below.
 
-// The design's collapsed SMS row: "{responses} responses · {unsub} unsub",
-// off the same three numbers the Statistics card reads.
-//
-// Serve-only, and that is a scope line rather than a design one. Win's
-// Results column is still the placeholder described above, and filling it
-// would add a results fetch per completed text row to a surface that has not
-// asked for one. Give this the Win fetcher the day Win's column should fill.
-const ServeSmsResponsesMetric = ({ id }: { id: number }) => {
-  const { data } = useSmsResults(id, true, 'serve')
+// A completed SMS row: "{responded} responded", off the same numbers the
+// Statistics card reads, from each surface's own results read.
+const SmsRespondedMetric = ({
+  id,
+  isServe,
+}: {
+  id: number
+  isServe: boolean
+}) => {
+  const { data } = useSmsResults(id, true, isServe ? 'serve' : 'win')
   if (!data) {
     return <span className="text-muted-foreground">—</span>
   }
-  return (
-    <>
-      {data.responded.toLocaleString()} responses ·{' '}
-      {data.optedOut.toLocaleString()} unsub
-    </>
-  )
+  return <>{OUTREACH_RESULTS_COPY.respondedCount(data.responded)}</>
 }
 
 // Which result metric a row shows, by channel and by surface.
@@ -384,12 +376,11 @@ const RowResults = ({
   isServe?: boolean
 }) => {
   if (
-    isServe &&
     row.status === 'completed' &&
     (row.outreachType === OUTREACH_TYPES.text ||
       row.outreachType === OUTREACH_TYPES.p2p)
   ) {
-    return <ServeSmsResponsesMetric id={row.id} />
+    return <SmsRespondedMetric id={row.id} isServe={Boolean(isServe)} />
   }
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
     return (
@@ -401,17 +392,12 @@ const RowResults = ({
     )
   }
   if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
-    // Anchor-only, exactly as above — and the dash is already this
-    // function's answer for a row with nothing to report.
-    if ((row.turfCount ?? 1) > 1) {
-      return <span className="text-muted-foreground">—</span>
-    }
     return (
-      <DoorKnockingLoggedMetric id={row.id} detailFetcher={detailFetcher} />
+      <DoorKnockingAnsweredMetric anchorId={row.campaignOutreachId ?? row.id} />
     )
   }
   if (isEmailRow(row) && row.status !== 'draft') {
-    return <EmailDeliveredMetric id={row.id} isServe={Boolean(isServe)} />
+    return <EmailClickedMetric id={row.id} isServe={Boolean(isServe)} />
   }
   return <span className="text-muted-foreground">—</span>
 }

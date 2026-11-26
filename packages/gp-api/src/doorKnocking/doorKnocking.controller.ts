@@ -34,6 +34,7 @@ import {
   DoorKnockingArchiveRequest,
   DoorKnockingArchiveRequestSchema,
   DoorKnockingRoutePayloadSchema,
+  DoorKnockingCampaignResultsSchema,
   DoorKnockingTurfSchema,
   UpdateDoorKnockingTurf,
   UpdateDoorKnockingTurfSchema,
@@ -57,6 +58,7 @@ import {
   User,
 } from '../generated/prisma'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
+import { DoorKnockingCampaignResultsService } from './services/doorKnockingCampaignResults.service'
 import { DoorKnockingCreateService } from './services/doorKnockingCreate.service'
 import { DoorKnockingServeService } from './services/doorKnockingServe.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
@@ -93,6 +95,7 @@ import {
 export class DoorKnockingController {
   constructor(
     private readonly turfService: DoorKnockingTurfService,
+    private readonly campaignResults: DoorKnockingCampaignResultsService,
     private readonly createService: DoorKnockingCreateService,
     private readonly serveService: DoorKnockingServeService,
     private readonly interactionService: DoorKnockingInteractionService,
@@ -259,6 +262,18 @@ export class DoorKnockingController {
   ) {
     await this.contacts.assertProAccess(organization)
     return this.turfService.listCampaign(anchorId, organization.slug)
+  }
+
+  // The campaign's outcomes across every turf, for the history drawer and row.
+  @Get('campaigns/:anchorId/results')
+  @UseOrganization()
+  @ResponseSchema(DoorKnockingCampaignResultsSchema)
+  async campaignResultsFor(
+    @Param('anchorId', ParseIntPipe) anchorId: number,
+    @ReqOrganization() organization: Organization,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.campaignResults.forCampaign(anchorId, organization.slug)
   }
 
   @Put('turfs/:id')

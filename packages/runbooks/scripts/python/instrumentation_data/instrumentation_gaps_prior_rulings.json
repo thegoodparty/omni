@@ -1,4 +1,16 @@
 {
+  "packages/gp-api/src/jobs/jobs.registry.ts#api_job#JOBS": {
+    "disposition": "new",
+    "id": "packages/gp-api/src/jobs/jobs.registry.ts#api_job#L464",
+    "reason": "",
+    "ruled_on": "2026-11-19"
+  },
+  "packages/gp-api/src/jobs/jobs.registry.ts#api_job#L497": {
+    "disposition": "new",
+    "id": "packages/gp-api/src/jobs/jobs.registry.ts#api_job#L464",
+    "reason": "",
+    "ruled_on": "2026-11-19"
+  },
   "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215": {
     "disposition": "accepted",
     "id": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit",
@@ -148,6 +160,18 @@
     "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L710",
     "reason": "",
     "ruled_on": "2026-10-08"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L758": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L715",
+    "reason": "",
+    "ruled_on": "2026-10-12"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L758.2": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L715",
+    "reason": "",
+    "ruled_on": "2026-10-12"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#RobocallPayForm": {
     "disposition": "new",

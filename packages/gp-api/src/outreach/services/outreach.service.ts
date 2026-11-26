@@ -1668,7 +1668,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         'Results are only available for text campaigns',
       )
     }
-    const [recipients, responded, optedOut] = await Promise.all([
+    const [recipients, responded, optedOut, delivery] = await Promise.all([
       this.client.contactInteractionText.count({ where: { outreachId } }),
       this.client.contactInteractionText.count({
         where: { outreachId, respondedAt: { not: null } },
@@ -1676,12 +1676,17 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       this.client.contactInteractionText.count({
         where: { outreachId, optedOutAt: { not: null } },
       }),
+      this.client.outreachSmsDelivery.findUnique({ where: { outreachId } }),
     ])
     const contacts =
       recipients > 0
         ? recipients
         : (outreach.billableTextCount ?? outreach.textCount ?? 0)
-    return { contacts, responded, optedOut }
+    // Peerly's receipts count messages, not people. A number whose first
+    // text failed is sent nothing more, so a failed receipt stands for one
+    // recipient; capped so a follow-up's failure can never exceed the send.
+    const notDelivered = delivery ? Math.min(delivery.failed, contacts) : null
+    return { contacts, responded, optedOut, notDelivered }
   }
 
   // Shared list query behind both scoped list readers below. Win rows carry

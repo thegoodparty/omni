@@ -8,6 +8,7 @@ import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
 import { DoorKnockingController } from './doorKnocking.controller'
+import { DoorKnockingCampaignResultsService } from './services/doorKnockingCampaignResults.service'
 import { DoorKnockingActivityService } from './services/doorKnockingActivity.service'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingCreateService } from './services/doorKnockingCreate.service'
@@ -44,6 +45,7 @@ import { DoorKnockingPreviewService } from './services/doorKnockingPreview.servi
   controllers: [DoorKnockingController],
   providers: [
     DoorKnockingActivityService,
+    DoorKnockingCampaignResultsService,
     DoorKnockingTurfService,
     DoorKnockingTurfCountsService,
     DoorKnockingCreateService,

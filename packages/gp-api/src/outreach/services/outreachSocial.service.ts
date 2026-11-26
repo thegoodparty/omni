@@ -384,6 +384,7 @@ export class OutreachSocialService extends createPrismaBase(
       nonSupporters,
       followUpGroups,
       calledEntries,
+      answeredCalls,
     ] = await Promise.all([
       this.client.phoneBankingListEntry.count({
         where: { phoneBankingListId: listId },
@@ -430,6 +431,35 @@ export class OutreachSocialService extends createPrismaBase(
           WHERE entry.phone_banking_list_id = ${listId}
           ORDER BY entry.id, interaction.occurred_at DESC, interaction.id DESC
         `),
+      // Calls, not people: a call counts toward an answer when anyone on it
+      // gave that answer, so every share sits over the same calls made.
+      this.client.$queryRaw<
+        {
+          supportAnswer: SupportAnswer | null
+          followUp: FollowUpAnswer | null
+          calls: number
+        }[]
+      >(Prisma.sql`
+          SELECT
+            interaction.support_answer AS "supportAnswer",
+            interaction.follow_up AS "followUp",
+            COUNT(DISTINCT entry.id)::int AS calls
+          FROM phone_banking_list_entry entry
+          JOIN phone_banking_list_entry_person person
+            ON person.phone_banking_list_entry_id = entry.id
+          JOIN contact_interaction_phone_banking interaction
+            ON interaction.person_id = person.person_id
+            AND interaction.phone_banking_list_id = entry.phone_banking_list_id
+          WHERE entry.phone_banking_list_id = ${listId}
+            AND (
+              interaction.support_answer IS NOT NULL
+              OR interaction.follow_up IS NOT NULL
+            )
+          GROUP BY GROUPING SETS (
+            (interaction.support_answer),
+            (interaction.follow_up)
+          )
+        `),
     ])
 
     const byOutcome: Record<PhoneBankCallOutcome, number> = {
@@ -457,6 +487,20 @@ export class OutreachSocialService extends createPrismaBase(
       if (group.followUp) byFollowUp[group.followUp] = group._count._all
     }
 
+    const callsBySupport: Record<SupportAnswer, number> = {
+      [SupportAnswer.supporter]: 0,
+      [SupportAnswer.unsure]: 0,
+      [SupportAnswer.non_supporter]: 0,
+    }
+    const callsByFollowUp: Record<FollowUpAnswer, number> = {
+      [FollowUpAnswer.yes]: 0,
+      [FollowUpAnswer.no]: 0,
+    }
+    for (const row of answeredCalls) {
+      if (row.supportAnswer) callsBySupport[row.supportAnswer] = row.calls
+      if (row.followUp) callsByFollowUp[row.followUp] = row.calls
+    }
+
     return {
       listId,
       entriesTotal,
@@ -468,6 +512,8 @@ export class OutreachSocialService extends createPrismaBase(
       supporters,
       unsure,
       nonSupporters,
+      callsBySupport,
+      callsByFollowUp,
     }
   }
 }

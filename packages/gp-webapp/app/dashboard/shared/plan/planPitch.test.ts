@@ -23,6 +23,24 @@ describe('buildPlanPitch', () => {
     })
   })
 
+  it('adds the page the pitch is on as backTo, after the highlight', () => {
+    expect(
+      buildPlanPitch(true, true, true, '/dashboard/contacts').allPlansHref,
+    ).toBe('/dashboard/plans?highlight=team&backTo=%2Fdashboard%2Fcontacts')
+  })
+
+  it.each([
+    null,
+    undefined,
+    '/dashboard/billing',
+    'https://evil.test',
+    '/dashboard/plans',
+  ])('drops %s as backTo', (backTo) => {
+    expect(buildPlanPitch(true, true, false, backTo).allPlansHref).toBe(
+      '/dashboard/plans',
+    )
+  })
+
   it('formats non-whole dollar amounts with cents', () => {
     expect(formatPlanCents(12550)).toBe('$125.50')
   })

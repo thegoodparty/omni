@@ -235,6 +235,9 @@ export const RobocallFlow = ({
     resumeDraft,
     resumeCta,
     pitchAsDialog: planPitch.enabled,
+    // Reopening a saved draft puts the pitch over its schedule step.
+    pitchOnResume: true,
+    resumeStartsOnWizard,
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
@@ -272,6 +275,13 @@ export const RobocallFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
+  // Closing the pitch keeps the saved row, and pressing the button again
+  // reopens the pitch for it without a write. What the row holds is what the
+  // candidate pays for, so nothing before it can be edited from here.
+  const draftKept = savedDraft !== null && !resumed
+  // A saved draft that still needs Pro keeps the step it resumes on behind
+  // the pitch, and its button reopens the pitch instead of going on to pay.
+  const awaitingPro = resumed && planPitch.enabled && gate.requirement === 'pro'
   const stepOrder = buildMode ? BUILD_STEP_ORDER : STEP_ORDER
 
   const recommendedListIntent = purpose
@@ -1041,25 +1051,32 @@ export const RobocallFlow = ({
     : stepId === 'audience'
       ? audienceCta
       : stepId === 'schedule'
-        ? {
-            label: 'Continue',
-            onClick: () => {
-              // A resume never re-enters compose: the recording and the
-              // script were settled when the draft was saved.
-              if (resumed) {
-                setStepId('review')
-                return
-              }
-              goToCompose()
-            },
-            disabled:
-              campaignName.trim().length === 0 ||
-              !isScheduleValid ||
-              // The resume prices and dials off this list: nothing to press
-              // until it resolves, and nothing at all if it has been deleted
-              // since the draft was saved.
-              (resumed && !audience.selectedList),
-          }
+        ? awaitingPro
+          ? {
+              label: planReviewGateCta(planPitch),
+              onClick: () => {
+                void draftGate.saveDraft(planReviewGateCta(planPitch))
+              },
+            }
+          : {
+              label: 'Continue',
+              onClick: () => {
+                // A resume never re-enters compose: the recording and the
+                // script were settled when the draft was saved.
+                if (resumed) {
+                  setStepId('review')
+                  return
+                }
+                goToCompose()
+              },
+              disabled:
+                campaignName.trim().length === 0 ||
+                !isScheduleValid ||
+                // The resume prices and dials off this list: nothing to press
+                // until it resolves, and nothing at all if it has been deleted
+                // since the draft was saved.
+                (resumed && !audience.selectedList),
+            }
         : stepId === 'compose'
           ? {
               label: composeCtaLabel,
@@ -1129,10 +1146,11 @@ export const RobocallFlow = ({
         // A resume walks back only as far as RESUME_BACK allows, plus the
         // audience builder's own sub-modes once it is there.
         !gateOpen &&
+        !awaitingPro &&
         (resumed
           ? RESUME_BACK[stepId] !== undefined ||
             (stepId === 'audience' && audience.mode !== 'picker')
-          : stepIndex > 0)
+          : stepIndex > 0 && !draftKept)
           ? handleBack
           : undefined
       }
@@ -1173,7 +1191,9 @@ export const RobocallFlow = ({
           open
           showInterstitial={
             (draftGate.gateOrigin === 'save' && !planPitch.enabled) ||
-            (draftGate.gateOrigin === 'resume' && !resumeStartsOnWizard)
+            (draftGate.gateOrigin === 'resume' &&
+              !resumeStartsOnWizard &&
+              !planPitch.enabled)
           }
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
@@ -1307,36 +1327,40 @@ export const RobocallFlow = ({
         </>
       ) : stepId === 'compose' ? (
         <>
-          <RobocallComposeStep
-            tone={tone}
-            onToneChange={handleToneChange}
-            script={script}
-            onScriptChange={handleScriptChange}
-            protectedParts={protectedParts}
-            hasWrittenBody={hasWrittenBody}
-            aiAction={aiAction}
-            onAiAction={handleAiAction}
-            isDrafting={draftMutation.isPending}
-            isDraftError={draftMutation.isError}
-            callbackNumber={callbackNumber}
-            isRentingNumber={rentMutation.isPending}
-            rentError={rentMutation.isError}
-            onRetryNumber={rentCallbackNumber}
-            recorder={recorder}
-            maxSeconds={MAX_RECORDING_SECONDS}
-            onSaveRecording={handleSaveRecording}
-            scriptChangedSinceRecording={
-              (recorder.status === 'preview' || recorder.status === 'saved') &&
-              recordedScript !== null &&
-              script !== recordedScript
-            }
-            isUploading={audioUpload.isUploading}
-            uploadError={audioUpload.error}
-            complianceChecking={complianceMutation.isPending}
-            complianceVerdict={complianceMutation.data ?? null}
-            complianceError={complianceMutation.isError}
-            onRetryCompliance={retryCompliance}
-          />
+          <fieldset disabled={draftKept} className="contents">
+            <RobocallComposeStep
+              scriptLocked={draftKept}
+              tone={tone}
+              onToneChange={handleToneChange}
+              script={script}
+              onScriptChange={handleScriptChange}
+              protectedParts={protectedParts}
+              hasWrittenBody={hasWrittenBody}
+              aiAction={aiAction}
+              onAiAction={handleAiAction}
+              isDrafting={draftMutation.isPending}
+              isDraftError={draftMutation.isError}
+              callbackNumber={callbackNumber}
+              isRentingNumber={rentMutation.isPending}
+              rentError={rentMutation.isError}
+              onRetryNumber={rentCallbackNumber}
+              recorder={recorder}
+              maxSeconds={MAX_RECORDING_SECONDS}
+              onSaveRecording={handleSaveRecording}
+              scriptChangedSinceRecording={
+                (recorder.status === 'preview' ||
+                  recorder.status === 'saved') &&
+                recordedScript !== null &&
+                script !== recordedScript
+              }
+              isUploading={audioUpload.isUploading}
+              uploadError={audioUpload.error}
+              complianceChecking={complianceMutation.isPending}
+              complianceVerdict={complianceMutation.data ?? null}
+              complianceError={complianceMutation.isError}
+              onRetryCompliance={retryCompliance}
+            />
+          </fieldset>
           {buildMode && draftGate.draftSaveError && (
             <p className="mt-4 text-sm text-destructive">
               We couldn&apos;t save this draft. Try again.

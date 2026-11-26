@@ -14,6 +14,7 @@ import { OfficeHolderFilterDto } from '@/electionDb/officeHolders/officeHolders.
 import { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
 import { PositionLevel } from '@/generated/election-prisma'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ElectionReadCacheInterceptor } from '@/elections/interceptors/electionReadCache.interceptor'
 import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
@@ -79,7 +80,11 @@ export const officeHolderListResponseSchema = z.array(
 
 @Controller('elections/officeholders')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
+@UseInterceptors(
+  ElectionReadCacheInterceptor,
+  ServiceReadConcurrencyInterceptor,
+  ZodResponseInterceptor,
+)
 export class ElectionOfficeHoldersController {
   constructor(private readonly officeHoldersService: OfficeHoldersService) {}
 

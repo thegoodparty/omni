@@ -158,6 +158,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 10,
           nonSupporters: 20,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 30, unsure: 10, non_supporter: 20 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -215,6 +217,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -295,6 +299,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 4,
           nonSupporters: 4,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 6, unsure: 3, non_supporter: 1 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -302,7 +308,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     render(<OutreachDetailsDrawer row={completedRow} onOpenChange={vi.fn()} />)
 
     expect(
-      await screen.findByText('Based on 10 phone banking contacts'),
+      await screen.findByText('Based on 10 calls made'),
     ).toBeInTheDocument()
     expect(screen.getByText('Answered')).toBeInTheDocument()
     expect(screen.getByText('Refused')).toBeInTheDocument()
@@ -311,6 +317,9 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     expect(screen.getByText('Support: Yes')).toBeInTheDocument()
     expect(screen.getByText('Support: Unsure')).toBeInTheDocument()
     expect(screen.getByText('Support: No')).toBeInTheDocument()
+    // Answers count calls, not the 16 people: 6 of 10 calls made.
+    expect(screen.getByText('60%')).toBeInTheDocument()
+    expect(screen.getByText('30%')).toBeInTheDocument()
 
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
     expect(
@@ -353,6 +362,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 4, no: 6 },
+          callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 4, no: 6 },
         },
       },
     })
@@ -366,11 +377,11 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     )
 
     expect(
-      await screen.findByText('Based on 10 phone banking contacts'),
+      await screen.findByText('Based on 10 calls made'),
     ).toBeInTheDocument()
     expect(screen.getByText('Needs follow-up: Yes')).toBeInTheDocument()
     expect(screen.getByText('Needs follow-up: No')).toBeInTheDocument()
-    // 4 and 6 of 10 people called.
+    // 4 and 6 of 10 calls made.
     expect(screen.getByText('40%')).toBeInTheDocument()
     expect(screen.getByText('60%')).toBeInTheDocument()
 
@@ -408,6 +419,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 16, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -462,6 +475,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 16, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -541,6 +556,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 16, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -826,6 +843,8 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056 / ENG-11059)', () => {
           unsure: 10,
           nonSupporters: 20,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 30, unsure: 10, non_supporter: 20 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -1688,15 +1707,16 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
 })
 
 describe('OutreachDetailsDrawer — SMS statistics', () => {
+  const completedSmsRow: HistoryRow = {
+    id: 51,
+    createdAt: '2026-08-20T00:00:00Z',
+    outreachType: 'p2p',
+    name: 'Likely voters — SMS',
+    status: 'completed',
+    phoneListId: 9,
+  }
+
   it('renders the Statistics card for a completed text campaign', async () => {
-    const completedSmsRow: HistoryRow = {
-      id: 51,
-      createdAt: '2026-08-20T00:00:00Z',
-      outreachType: 'p2p',
-      name: 'Likely voters — SMS',
-      status: 'completed',
-      phoneListId: 9,
-    }
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: {
@@ -1713,7 +1733,7 @@ describe('OutreachDetailsDrawer — SMS statistics', () => {
     })
     api.mock('GET /v1/outreach/:id/results', {
       status: 200,
-      data: { contacts: 1204, responded: 186, optedOut: 9 },
+      data: { contacts: 1204, responded: 186, optedOut: 9, notDelivered: null },
     })
 
     render(
@@ -1721,15 +1741,49 @@ describe('OutreachDetailsDrawer — SMS statistics', () => {
     )
 
     expect(
-      await screen.findByText(/Based on 1,204 SMS contacts/),
+      await screen.findByText(/Based on 1,204 texts sent/),
     ).toBeInTheDocument()
     expect(screen.getByText('Responded')).toBeInTheDocument()
     expect(screen.getByText('186')).toBeInTheDocument()
     expect(screen.getByText('15%')).toBeInTheDocument()
     expect(screen.getByText('No response')).toBeInTheDocument()
     expect(screen.getByText('1,009')).toBeInTheDocument()
-    expect(screen.getByText('Opted out')).toBeInTheDocument()
+    expect(screen.getAllByText('Opted out')).toHaveLength(2)
     expect(screen.getByText('1%')).toBeInTheDocument()
+  })
+  it('splits delivered from not delivered when the send has receipts', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        id: 51,
+        outreachType: 'p2p' as const,
+        status: 'completed' as const,
+        phoneListId: 9,
+      },
+    })
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 404,
+      data: { message: 'No receipt' },
+    })
+    api.mock('GET /v1/outreach/:id/results', {
+      status: 200,
+      data: { contacts: 1000, responded: 150, optedOut: 10, notDelivered: 40 },
+    })
+
+    render(
+      <OutreachDetailsDrawer row={completedSmsRow} onOpenChange={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/Based on 1,000 texts sent/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Delivered')).toBeInTheDocument()
+    expect(screen.getByText('960')).toBeInTheDocument()
+    expect(screen.getByText('Not delivered')).toBeInTheDocument()
+    expect(screen.getByText('40')).toBeInTheDocument()
+    // 960 delivered, less 150 responded and 10 opted out.
+    expect(screen.getByText('800')).toBeInTheDocument()
   })
 })
 
@@ -1930,7 +1984,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(screen.getByText('Payment details')).toBeInTheDocument()
     expect(screen.getByText('Cost per outreach')).toBeInTheDocument()
     expect(screen.getByText('$0.035')).toBeInTheDocument()
-    expect(screen.getByText('Unsubscribes')).toBeInTheDocument()
+    expect(screen.getByText('Opted out')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'View receipt' }))
     expect(open).toHaveBeenCalledWith(

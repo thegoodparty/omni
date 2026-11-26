@@ -1,4 +1,8 @@
 import { PLAN_PRICING } from '@goodparty_org/contracts'
+import {
+  PLANS_BACK_TO_PARAM,
+  parsePlansBackTo,
+} from 'app/dashboard/pro-upgrade/proUpgradePlanParams'
 
 export type PitchedPlan = 'pro' | 'team'
 
@@ -34,8 +38,16 @@ export const buildPlanPitch = (
   ready: boolean,
   enabled: boolean,
   recommendTeam: boolean,
+  // The page the pitch is on, so Back on the plans page returns to it. Pages
+  // the plans page does not return to are dropped.
+  backTo?: string | null,
 ): PlanPitch => {
   const plan: PitchedPlan = recommendTeam ? 'team' : 'pro'
+  const params = new URLSearchParams()
+  if (recommendTeam) params.set(ALL_PLANS_HIGHLIGHT_PARAM, 'team')
+  const origin = parsePlansBackTo(backTo)
+  if (origin) params.set(PLANS_BACK_TO_PARAM, origin)
+  const query = params.toString()
   return {
     ready,
     enabled,
@@ -45,9 +57,6 @@ export const buildPlanPitch = (
       plan === 'team' ? PLAN_PRICING.teamCents : PLAN_PRICING.proCents,
     ),
     credit: formatPlanCents(PLAN_PRICING.includedCreditCents),
-    allPlansHref:
-      plan === 'team'
-        ? `${ALL_PLANS_PATH}?${ALL_PLANS_HIGHLIGHT_PARAM}=team`
-        : ALL_PLANS_PATH,
+    allPlansHref: query ? `${ALL_PLANS_PATH}?${query}` : ALL_PLANS_PATH,
   }
 }

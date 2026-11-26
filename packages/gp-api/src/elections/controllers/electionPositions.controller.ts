@@ -17,6 +17,7 @@ import {
 } from '@/electionDb/positions/positions.schema'
 import { PositionsService } from '@/electionDb/positions/positions.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ElectionReadCacheInterceptor } from '@/elections/interceptors/electionReadCache.interceptor'
 import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
@@ -48,7 +49,11 @@ export const positionResponseSchema = z.object({
 
 @Controller('elections/positions')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
+@UseInterceptors(
+  ElectionReadCacheInterceptor,
+  ServiceReadConcurrencyInterceptor,
+  ZodResponseInterceptor,
+)
 export class ElectionPositionsController {
   constructor(private readonly positions: PositionsService) {}
 

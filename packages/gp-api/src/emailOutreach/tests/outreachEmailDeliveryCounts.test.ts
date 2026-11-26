@@ -101,6 +101,10 @@ const recordEvents = async (outreachEmailId: number) => {
     ...recipient(bounced),
     data: { status: OutreachEmailRecipientStatus.bounced, bouncedAt: at },
   })
+  await service.prisma.outreachEmail.update({
+    where: { id: outreachEmailId },
+    data: { unsubscribedCount: 2 },
+  })
 }
 
 const EXPECTED = {
@@ -110,6 +114,7 @@ const EXPECTED = {
   complained: 1,
   opened: 2,
   clicked: 1,
+  optedOut: 2,
 }
 
 describe('GET /v1/outreach/email/:id delivery counts', () => {
@@ -182,6 +187,7 @@ describe('GET /v1/outreach/email/:id delivery counts', () => {
       complained: 0,
       opened: 0,
       clicked: 0,
+      optedOut: 0,
     })
   })
 })
@@ -258,6 +264,7 @@ describe('GET /v1/admin/outreach/email/paused delivery counts', () => {
       complained: 0,
       opened: 0,
       clicked: 0,
+      optedOut: 0,
     })
   })
 })

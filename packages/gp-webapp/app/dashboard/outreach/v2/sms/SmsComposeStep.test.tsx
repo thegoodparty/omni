@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import {
@@ -7,7 +8,7 @@ import {
   type SmsRequiredPart,
   standardsFailureCopy,
 } from './SmsComposeStep'
-import { OPT_OUT_FOOTER } from './smsCompose.util'
+import { IMAGE_MAX_BYTES, OPT_OUT_FOOTER } from './smsCompose.util'
 
 const INTRO = 'this is Jane, your Mayor.'
 const PAID_FOR_BY = 'Paid for by Friends of Jane.'
@@ -20,34 +21,44 @@ const renderStep = (
   const onAddRequiredBack = vi.fn()
   const onImageChange = vi.fn()
   const onImageError = vi.fn()
-  const { container } = render(
-    <SmsComposeStep
-      isServe={false}
-      tone="warm"
-      onToneChange={vi.fn()}
-      standardsFailures={standardsFailures}
-      unfilledBrackets={[]}
-      identificationExample={INTRO}
-      paidForByText={paidForByText}
-      onAddRequiredBack={onAddRequiredBack}
-      message="Hello {first_name}, the park opens Saturday."
-      onMessageChange={vi.fn()}
-      mergeTagChannel="peerly"
-      hasWrittenBody
-      composedLength={composedLength}
-      aiAction="improve"
-      onAiAction={vi.fn()}
-      isDrafting={false}
-      isDraftError={false}
-      canUndo={false}
-      onUndo={vi.fn()}
-      imagePreviewUrl={null}
-      onImageChange={onImageChange}
-      imageError={null}
-      onImageError={onImageError}
-      continueAttempts={0}
-    />,
-  )
+  // The message under the image lives in the flow above the step, so the
+  // harness holds it there: a reported error has to render where a person
+  // would see it, not only reach the callback.
+  const Step = () => {
+    const [imageError, setImageError] = useState<string | null>(null)
+    return (
+      <SmsComposeStep
+        isServe={false}
+        tone="warm"
+        onToneChange={vi.fn()}
+        standardsFailures={standardsFailures}
+        unfilledBrackets={[]}
+        identificationExample={INTRO}
+        paidForByText={paidForByText}
+        onAddRequiredBack={onAddRequiredBack}
+        message="Hello {first_name}, the park opens Saturday."
+        onMessageChange={vi.fn()}
+        mergeTagChannel="peerly"
+        hasWrittenBody
+        composedLength={composedLength}
+        aiAction="improve"
+        onAiAction={vi.fn()}
+        isDrafting={false}
+        isDraftError={false}
+        canUndo={false}
+        onUndo={vi.fn()}
+        imagePreviewUrl={null}
+        onImageChange={onImageChange}
+        imageError={imageError}
+        onImageError={(message) => {
+          onImageError(message)
+          setImageError(message)
+        }}
+        continueAttempts={0}
+      />
+    )
+  }
+  const { container } = render(<Step />)
   return { onAddRequiredBack, onImageChange, onImageError, container }
 }
 
@@ -165,11 +176,55 @@ describe('SmsComposeStep required-line errors', () => {
   })
 })
 
-describe('SmsComposeStep image pick', () => {
+describe('SmsComposeStep image attach', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
   const pick = async (container: HTMLElement, file: File) => {
     const input = container.querySelector<HTMLInputElement>('input[type=file]')
     if (!input) throw new Error('no file input')
     await userEvent.upload(input, file)
+  }
+
+  const dropzone = (container: HTMLElement): HTMLElement => {
+    const zone = container.querySelector<HTMLElement>(
+      '[data-slot="sms-image-dropzone"]',
+    )
+    if (!zone) throw new Error('no drop zone')
+    return zone
+  }
+
+  const drop = (container: HTMLElement, file: File) =>
+    fireEvent.drop(dropzone(container), { dataTransfer: { files: [file] } })
+
+  const oversized = (name = 'photo.jpg', type = 'image/jpeg') =>
+    new File([new Uint8Array(IMAGE_MAX_BYTES + 1)], name, { type })
+
+  // jsdom cannot draw or encode, so the canvas answers with the sizes the
+  // test asks for, one per toBlob call, recording the canvas it drew from.
+  const stubCanvas = (sizes: number[]) => {
+    const calls: { width: number; height: number; quality?: number }[] = []
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillStyle: '',
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
+      function (this: HTMLCanvasElement, callback, _type, quality) {
+        calls.push({ width: this.width, height: this.height, quality })
+        const size = sizes[calls.length - 1] ?? 0
+        callback(new Blob([new Uint8Array(size)], { type: 'image/jpeg' }))
+      },
+    )
+    return calls
+  }
+
+  const stubBitmap = (width = 3000, height = 2000) => {
+    const bitmap = { width, height, close: vi.fn() }
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(bitmap))
+    return bitmap
   }
 
   it('hands on an in-memory copy, not the picked handle', async () => {
@@ -208,6 +263,103 @@ describe('SmsComposeStep image pick', () => {
         "We couldn't open that image. Choose it again or pick another.",
       ),
     )
+    expect(onImageChange).not.toHaveBeenCalled()
+  })
+
+  it('shrinks a picked photo that is over the cap instead of refusing it', async () => {
+    const { container, onImageChange, onImageError } = renderStep([])
+    const bitmap = stubBitmap()
+    // Over the cap at the first quality, under it at the second.
+    const calls = stubCanvas([IMAGE_MAX_BYTES + 1, 400_000])
+
+    await pick(container, oversized())
+
+    await vi.waitFor(() => expect(onImageChange).toHaveBeenCalledTimes(1))
+    const handedOn: File = onImageChange.mock.calls[0]?.[0]
+    expect(handedOn.type).toBe('image/jpeg')
+    expect(handedOn.size).toBe(400_000)
+    expect(handedOn.size).toBeLessThanOrEqual(IMAGE_MAX_BYTES)
+    expect(handedOn.name).toBe('photo.jpeg')
+    expect(bitmap.close).toHaveBeenCalled()
+    expect(onImageError).toHaveBeenLastCalledWith(null)
+    // The 1600px long edge the crop reads from, at the first two qualities.
+    expect(calls).toEqual([
+      { width: 1600, height: 1067, quality: 0.9 },
+      { width: 1600, height: 1067, quality: 0.75 },
+    ])
+  })
+
+  it('reads the drop zone as a drop target too', () => {
+    const { container } = renderStep([])
+    expect(
+      within(dropzone(container)).getByText(
+        'Click or drag an image here. Recipients see it in the message preview.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('attaches a dropped PNG through the picker path', async () => {
+    const { container, onImageChange, onImageError } = renderStep([])
+    const dropped = new File(['png-bytes'], 'flyer.png', { type: 'image/png' })
+
+    drop(container, dropped)
+
+    await vi.waitFor(() => expect(onImageChange).toHaveBeenCalledTimes(1))
+    const handedOn: File = onImageChange.mock.calls[0]?.[0]
+    expect(handedOn.name).toBe('flyer.png')
+    expect(handedOn.type).toBe('image/png')
+    expect(onImageError).toHaveBeenLastCalledWith(null)
+  })
+
+  it('shrinks a dropped photo the same way it shrinks a picked one', async () => {
+    const { container, onImageChange } = renderStep([])
+    stubBitmap()
+    stubCanvas([300_000])
+
+    drop(container, oversized('IMG_0042.jpg'))
+
+    await vi.waitFor(() => expect(onImageChange).toHaveBeenCalledTimes(1))
+    expect(onImageChange.mock.calls[0]?.[0].size).toBe(300_000)
+  })
+
+  it('says at the zone why a dropped file was refused', async () => {
+    const { container, onImageChange } = renderStep([])
+
+    drop(container, new File(['x'], 'notes.pdf', { type: 'application/pdf' }))
+
+    const error = await screen.findByRole('alert')
+    expect(error).toHaveTextContent('Use a JPG, PNG, or GIF image.')
+    // Beside the zone, not at the bottom of the step.
+    expect(dropzone(container).parentElement).toContainElement(error)
+    expect(onImageChange).not.toHaveBeenCalled()
+  })
+
+  it('says at the zone when an image will not shrink under the cap', async () => {
+    const { container, onImageChange } = renderStep([])
+    stubBitmap()
+    stubCanvas(Array<number>(9).fill(IMAGE_MAX_BYTES + 1))
+
+    await pick(container, oversized())
+
+    const error = await screen.findByRole('alert')
+    expect(error).toHaveTextContent(
+      'That image is too large for a text. Choose a smaller one.',
+    )
+    expect(dropzone(container).parentElement).toContainElement(error)
+    expect(onImageChange).not.toHaveBeenCalled()
+  })
+
+  it('asks for a smaller GIF rather than flatten it to one frame', async () => {
+    const { container, onImageChange } = renderStep([])
+    const createImageBitmap = vi.fn()
+    vi.stubGlobal('createImageBitmap', createImageBitmap)
+
+    drop(container, oversized('party.gif', 'image/gif'))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'That GIF is too large for a text. Choose one under 745 KB.',
+    )
+    expect(createImageBitmap).not.toHaveBeenCalled()
     expect(onImageChange).not.toHaveBeenCalled()
   })
 })

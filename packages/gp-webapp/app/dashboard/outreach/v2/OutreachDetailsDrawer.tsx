@@ -24,10 +24,6 @@ import {
   PhoneMessagePreview,
   Progress,
   StatusText,
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -35,7 +31,6 @@ import {
 import {
   ArchiveIcon,
   CalendarIcon,
-  ChartColumnIcon,
   CheckCircleIcon,
   ClockIcon,
   CreditCardIcon,
@@ -98,6 +93,11 @@ import {
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
+import { OUTREACH_RESULTS_COPY } from './outreachResultsCopy'
+import {
+  OutreachResultsCard,
+  type OutreachResultRow,
+} from './listDetails/OutreachResultsCard'
 import {
   EditSmsMessageSheet,
   savedCommitteeOf,
@@ -120,6 +120,7 @@ import {
 import { FollowUpOutstandingSection } from './FollowUpOutstandingSection'
 import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
+import { DoorKnockingResults } from './DoorKnockingResults'
 import { CampaignTurfList } from './CampaignTurfList'
 import { getOutreachHistoryCopy } from './outreachHistoryCopy'
 import {
@@ -156,22 +157,35 @@ const percentLabel = (count: number, total: number): string =>
   total > 0 ? `${Math.round((count / total) * 100)}%` : '0%'
 
 // The completed-results rows for whichever question this list's callers were
-// actually asked. Both surfaces state every answer even at zero — "nobody
-// needs following up" is an answer, and a row that disappeared when it
-// emptied would make the table's own shape a fact about the list.
+// actually asked, counted by call so every share is over calls made. Both
+// surfaces state every answer even at zero — "nobody needs following up" is
+// an answer, and a row that disappeared when it emptied would make the
+// card's own shape a fact about the list.
 const answerRows = (
   phoneBanking: PhoneBankingOutreachDetail,
   isServe: boolean,
-): Array<[string, number]> =>
+): OutreachResultRow[] =>
   isServe
     ? [
-        ['Needs follow-up: Yes', phoneBanking.byFollowUp.yes],
-        ['Needs follow-up: No', phoneBanking.byFollowUp.no],
+        {
+          label: 'Needs follow-up: Yes',
+          count: phoneBanking.callsByFollowUp.yes,
+        },
+        {
+          label: 'Needs follow-up: No',
+          count: phoneBanking.callsByFollowUp.no,
+        },
       ]
     : [
-        ['Support: Yes', phoneBanking.supporters],
-        ['Support: Unsure', phoneBanking.unsure],
-        ['Support: No', phoneBanking.nonSupporters],
+        {
+          label: 'Support: Yes',
+          count: phoneBanking.callsBySupport.supporter,
+        },
+        { label: 'Support: Unsure', count: phoneBanking.callsBySupport.unsure },
+        {
+          label: 'Support: No',
+          count: phoneBanking.callsBySupport.non_supporter,
+        },
       ]
 
 // The status the candidate is reading, mapped onto the canvas's three
@@ -448,24 +462,36 @@ export const OutreachDetailsDrawer = ({
     isServe ? 'serve' : 'win',
   )
   const results = resultsQuery.data ?? null
+  // With receipts, a text that never arrived is Not delivered rather than
+  // No response; without them (Serve, or a send not yet swept) the card
+  // keeps the three rows every text has.
+  const delivered =
+    results && results.notDelivered !== null
+      ? results.contacts - results.notDelivered
+      : null
   const statRows = results
     ? [
-        { label: 'Responded', count: results.responded },
+        ...(delivered !== null && results.notDelivered !== null
+          ? [
+              { label: OUTREACH_RESULTS_COPY.delivered, count: delivered },
+              {
+                label: OUTREACH_RESULTS_COPY.notDelivered,
+                count: results.notDelivered,
+              },
+            ]
+          : []),
+        { label: OUTREACH_RESULTS_COPY.responded, count: results.responded },
         {
-          label: 'No response',
+          label: OUTREACH_RESULTS_COPY.noResponse,
           count: Math.max(
             0,
-            results.contacts - results.responded - results.optedOut,
+            (delivered ?? results.contacts) -
+              results.responded -
+              results.optedOut,
           ),
         },
-        { label: 'Opted out', count: results.optedOut },
-      ].map((stat) => ({
-        ...stat,
-        pct:
-          results.contacts > 0
-            ? Math.round((stat.count / results.contacts) * 100)
-            : 0,
-      }))
+        { label: OUTREACH_RESULTS_COPY.optedOut, count: results.optedOut },
+      ]
     : null
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const cancelMutation = useMutation({
@@ -1320,7 +1346,7 @@ export const OutreachDetailsDrawer = ({
                     // cannot disagree. 0 until the send has results.
                     <Metric
                       icon={<UserMinusIcon />}
-                      label="Unsubscribes"
+                      label={OUTREACH_RESULTS_COPY.optedOut}
                       value={(results?.optedOut ?? 0).toLocaleString()}
                     />
                   )}
@@ -1363,30 +1389,16 @@ export const OutreachDetailsDrawer = ({
             )}
 
             {isSms && isCompleted && results && statRows && (
-              <DetailsSection title="Statistics">
-                <div className="overflow-hidden rounded-lg border border-border">
-                  <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                    <ChartColumnIcon className="size-4" />
-                    Based on {results.contacts.toLocaleString()} SMS contact
-                    {results.contacts === 1 ? '' : 's'}
-                  </div>
-                  {statRows.map((stat) => (
-                    <div
-                      key={stat.label}
-                      className="flex items-center justify-between border-t border-border px-3 py-2"
-                    >
-                      <span className="text-sm">{stat.label}</span>
-                      <span className="flex items-baseline gap-2">
-                        <span className="text-sm font-semibold">
-                          {stat.count.toLocaleString()}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {stat.pct}%
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
+              <DetailsSection title={OUTREACH_RESULTS_COPY.title}>
+                <OutreachResultsCard
+                  basedOn={OUTREACH_RESULTS_COPY.basedOn(
+                    results.contacts,
+                    'text sent',
+                    'texts sent',
+                  )}
+                  total={results.contacts}
+                  rows={statRows}
+                />
               </DetailsSection>
             )}
 
@@ -1552,11 +1564,10 @@ export const OutreachDetailsDrawer = ({
               </p>
             )}
 
-            {/* Unlike phone banking's, this section does not give way to a
-                Results table on a finished row: door knocking has no outcomes
-                surface here, and a walk is routinely ended with doors left
-                unlogged — so how much of the list was covered is the answer
-                on a done walk too, not only on a live one. */}
+            {/* Unlike phone banking's, the turfs' progress does not give way
+                to the results on a finished row: a walk is routinely ended
+                with doors left unlogged, so how much of the list was covered
+                is still worth showing beside its Statistics. */}
             {/* The campaign's own turfs: one row per turf, plus an "Add
                 another turf" affordance that lands on the create flow scoped
                 to this campaign. Rendered for every door-knocking row rather
@@ -1572,6 +1583,13 @@ export const OutreachDetailsDrawer = ({
                 numbers a second time on the one campaign shape it appeared
                 for. A campaign-wide rollup would need a real total rather
                 than the anchor's, and nothing computes one yet. */}
+            {isDoorKnocking && row && (
+              <DoorKnockingResults
+                anchorOutreachId={anchorOutreachId}
+                isServe={isServe}
+              />
+            )}
+
             {isDoorKnocking && row && (
               <CampaignTurfList
                 isServe={isServe}
@@ -1643,54 +1661,22 @@ export const OutreachDetailsDrawer = ({
             )}
 
             {isPhoneBanking && phoneBanking && isCompleted && (
-              <DetailsSection title="Results">
-                <p className="text-sm text-muted-foreground">
-                  Based on {phoneBanking.entriesCalled.toLocaleString()} phone
-                  banking contacts
-                </p>
-                <Card className="overflow-hidden p-0">
-                  <Table>
-                    <TableBody>
-                      {PHONE_BANKING_OUTCOME_ORDER.map((outcome) => (
-                        <TableRow key={outcome}>
-                          <TableCell>
-                            {PHONE_BANKING_OUTCOME_LABEL[outcome]}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {phoneBanking.byOutcome[outcome]}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {percentLabel(
-                              phoneBanking.byOutcome[outcome],
-                              phoneBanking.entriesCalled,
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {/* The conversation rows, in this list's own
-                          vocabulary. Serve never asks for a stance, so its
-                          support tallies are permanently zero — three rows
-                          reading "Support: Yes 0" is what this branch
-                          exists to stop an official seeing. Picked by
-                          surface and not by which tally is populated, so a
-                          completed list nobody answered still reads in the
-                          right words. */}
-                      {answerRows(phoneBanking, isServe).map(
-                        ([label, count]) => (
-                          <TableRow key={label}>
-                            <TableCell>{label}</TableCell>
-                            <TableCell className="text-right text-muted-foreground">
-                              {count}
-                            </TableCell>
-                            <TableCell className="text-right text-muted-foreground">
-                              {percentLabel(count, phoneBanking.peopleCalled)}
-                            </TableCell>
-                          </TableRow>
-                        ),
-                      )}
-                    </TableBody>
-                  </Table>
-                </Card>
+              <DetailsSection title={OUTREACH_RESULTS_COPY.title}>
+                <OutreachResultsCard
+                  basedOn={OUTREACH_RESULTS_COPY.basedOn(
+                    phoneBanking.entriesCalled,
+                    'call made',
+                    'calls made',
+                  )}
+                  total={phoneBanking.entriesCalled}
+                  rows={[
+                    ...PHONE_BANKING_OUTCOME_ORDER.map((outcome) => ({
+                      label: PHONE_BANKING_OUTCOME_LABEL[outcome],
+                      count: phoneBanking.byOutcome[outcome],
+                    })),
+                    ...answerRows(phoneBanking, isServe),
+                  ]}
+                />
               </DetailsSection>
             )}
             {/* Serve's actionable half of the results: the Needs follow-up

@@ -22,6 +22,190 @@ Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firi
 drop, active elevated · 3 anomaly drop, active/system · 4 intent divergence · 5 dormant
 elevated · 6 instrumented-never-observed · 7 dormant (collapsed to a tail line).
 
+## 2026-11-26
+
+Basis: complete weeks before 2026-11-23. 770 events — active 347, retired 235, dormant 69, instrumented_never_observed 41, system 39, code_unknown 37, deprecating 2. 130 flagged (81 priority in 5 cause(s), 49 dormant tail).
+
+### OKR anchors dormant (latched)
+
+| instrument | metric | broken since | pre-break level |
+| --- | --- | --- | --- |
+| Outreach - Campaign Completed[excluding method=manual, excluding product=serve] | win_activated_users | 2026-11-09 | 300.5 /wk |
+| Outreach - Door Knocking Door Logged[excluding product=serve] | win_activated_users | 2026-11-02 | 367.0 /wk |
+| Outreach - Door Knocking Door Logged[excluding product=win] | activated_serve_users | 2026-10-26 | 0.5 /wk |
+| Outreach - Phone Banking Call Logged[excluding product=serve] | win_activated_users | 2026-11-09 | 840.5 /wk |
+| Voter Outreach - Campaign Scheduled | win_activated_users | 2026-11-09 | 251.8 /wk |
+
+Clears on recovery, or when the metric's `anchored_on` changes in the semantic layer. There is no dismiss path.
+
+### Flagged (by cause)
+
+- **OKR anchor dormant** — 5 event(s) · elevated: Outreach - Campaign Completed[excluding method=manual, excluding product=serve], Outreach - Door Knocking Door Logged[excluding product=serve], Outreach - Door Knocking Door Logged[excluding product=win], Outreach - Phone Banking Call Logged[excluding product=serve], Voter Outreach - Campaign Scheduled
+  Outreach - Campaign Completed[excluding method=manual, excluding product=serve] · Outreach - Door Knocking Door Logged[excluding product=serve] · Outreach - Door Knocking Door Logged[excluding product=win] · Outreach - Phone Banking Call Logged[excluding product=serve] · Voter Outreach - Campaign Scheduled
+- **anomaly drop** — 17 event(s) · elevated: 10DLC - Schedule Banner Clicked, Outreach - Door Knocking Door Logged, Outreach - Phone Banking Call Logged, Voter Data - Note Added, Voter Outreach - 10DLC Compliance Completed, Voter Outreach - Campaign Approved
+  10DLC - Schedule Banner Clicked · Chief Of Staff - Attached Document Queried · Outreach - Door Knocking Door Logged · Outreach - Phone Banking Call Logged · Outreach - Phone Banking Call Sheet Downloaded · Outreach - Phone Banking Contact Viewed · Person Profile - Completion Requested · Pro Upgrade - SMS Cutoff Notice Viewed · Profile - Policy Priorities: Cancel Add · Profile - Policy Priorities: Click Edit · Voter Data - Note Added · Voter Guide - Featured Candidate Clicked · Voter Guide - Show More Clicked · Voter Outreach - 10DLC Compliance Completed · Voter Outreach - Campaign Approved · Voter Outreach - Free Texts Offer Redeemed · [Amplitude] Element Changed
+- **intent divergence** — 6 event(s)
+  AI Assistant - Response Completed · AI Assistant - Response Failed · Pro Upgrade - EIN: Hover help · Pro Upgrade - Value Prop Viewed · Pro Upgrade - Value Prop: Click Get Pro · Pro Upgrade - Value Prop: Click Maybe later
+- **dormant, elevated** — 20 event(s) · elevated: Poll - Results Synthesis Complete, Polls - Create Poll Clicked, Polls - Poll Question Completed, Polls - Poll Results Overview Viewed, Pro Upgrade - Banner: Click Get Pro, Pro Upgrade - Texting Setup Banner: Click Start, Serve Onboarding - Add Image Viewed, Serve Onboarding - Constituency Profile Viewed, Serve Onboarding - Getting Started Viewed, Serve Onboarding - Meet Your Constituents Viewed, Serve Onboarding - Poll Image Uploaded, Serve Onboarding - Poll Preview Viewed, Serve Onboarding - Poll Strategy Viewed, Serve Onboarding - Poll Value Props Viewed, Serve Onboarding - SMS Poll Creation Failed, Serve Onboarding - SMS Poll Sent, Serve Onboarding - Success Page Viewed, Serve Onboarding - Sworn In Completed, Serve Onboarding - Sworn In Viewed, Voter Data - Activity List Created
+  Poll - Results Synthesis Complete · Polls - Create Poll Clicked · Polls - Poll Question Completed · Polls - Poll Results Overview Viewed · Pro Upgrade - Banner: Click Get Pro · Pro Upgrade - Texting Setup Banner: Click Start · Serve Onboarding - Add Image Viewed · Serve Onboarding - Constituency Profile Viewed · Serve Onboarding - Getting Started Viewed · Serve Onboarding - Meet Your Constituents Viewed · Serve Onboarding - Poll Image Uploaded · Serve Onboarding - Poll Preview Viewed · Serve Onboarding - Poll Strategy Viewed · Serve Onboarding - Poll Value Props Viewed · Serve Onboarding - SMS Poll Creation Failed · Serve Onboarding - SMS Poll Sent · Serve Onboarding - Success Page Viewed · Serve Onboarding - Sworn In Completed · Serve Onboarding - Sworn In Viewed · Voter Data - Activity List Created
+- **instrumented, never observed** — 33 event(s) · elevated: Serve Onboarding - Priorities Errored
+  Constituent Data - Follow Up List Created · Constituent Feedback - Issue Captured · Constituent Feedback - Issue Confirmed · Constituent Feedback - Issue Skipped · Issue Capture - Memo Auto Confirmed · Issue Capture - Memo Queued Offline · Issue Capture - Memo Transcription Failed · Issue Capture - Memo Uploaded · Issue Capture - Theme Viewed · Ordinances - Bug Report Errored · Ordinances - Bug Report Submitted · Ordinances - Draft Details Deleted · Ordinances - New Ordinance Errored · Outreach - Door Knocking Do Not Knock Cleared · Outreach - Door Knocking List Deleted · Outreach - Door Knocking List Edited · Outreach - Door Knocking Not A Voter Reason Cleared · Outreach - SMS Cutoff Notice Completed · Outreach - SMS Cutoff Notice Viewed · Polls - Gather More Started · Priorities - Get Answers Clicked · Priorities - Plan Completed · Priorities - Report Back Sent · Priorities - Results Viewed · Questions - Fun Fact Completed · Questions - Fun Fact Viewed · Questions - Occupation Completed · Questions - Occupation Viewed · Questions - Past Experience Completed · Questions - Past Experience Viewed · Serve Onboarding - Priorities Errored · Win - Opponent Activity Viewed · Win - Self Research Completed
+
+<details><summary>Per-event detail (81)</summary>
+
+| rank | event | status | elev | evidence | divergence |
+| --- | --- | --- | --- | --- | --- |
+| 0 OKR anchor dormant (latched) | Voter Outreach - Campaign Scheduled | active | yes | 30d=432; last_seen 2026-11-23; PR https://github.com/thegoodparty/omni/pull/2124 |  |
+| 0 OKR anchor dormant (latched) | Outreach - Campaign Completed[excluding method=manual, excluding product=serve] | okr_anchor_dormant | yes | 30d=201 |  |
+| 0 OKR anchor dormant (latched) | Outreach - Phone Banking Call Logged[excluding product=serve] | okr_anchor_dormant | yes | 30d=195 |  |
+| 0 OKR anchor dormant (latched) | Outreach - Door Knocking Door Logged[excluding product=serve] | okr_anchor_dormant | yes | 30d=3 |  |
+| 0 OKR anchor dormant (latched) | Outreach - Door Knocking Door Logged[excluding product=win] | okr_anchor_dormant | yes | 30d=0 |  |
+| 3 anomaly drop, active (elevated) | Outreach - Phone Banking Call Logged | active | yes | 30d=761; week 12 vs base 840.5; last_seen 2026-11-21; PR https://github.com/thegoodparty/omni/pull/2215 |  |
+| 3 anomaly drop, active (elevated) | Voter Outreach - Campaign Approved | active | yes | 30d=288; week 1 vs base 139.0; last_seen 2026-11-20; PR https://github.com/thegoodparty/omni/pull/1642 |  |
+| 3 anomaly drop, active (elevated) | Outreach - Door Knocking Door Logged | active | yes | 30d=93; week 1 vs base 367.5; last_seen 2026-11-20; PR https://github.com/thegoodparty/omni/pull/2215 |  |
+| 3 anomaly drop, active (elevated) | Voter Outreach - 10DLC Compliance Completed | active | yes | 30d=10; week 1 vs base 21.2; last_seen 2026-11-19; PR https://github.com/thegoodparty/gp-api/pull/457 |  |
+| 3 anomaly drop, active (elevated) | Voter Data - Note Added | active | yes | 30d=1; week 1 vs base 39.0; last_seen 2026-10-29 |  |
+| 4 anomaly drop, active | [Amplitude] Element Changed | system |  | 30d=13044; week 1222 vs base 62220.2; last_seen 2026-11-25 |  |
+| 4 anomaly drop, active | Voter Guide - Show More Clicked | code_unknown |  | 30d=4280; week 55 vs base 1584.8; last_seen 2026-11-25 |  |
+| 4 anomaly drop, active | Outreach - Phone Banking Contact Viewed | active |  | 30d=3845; week 17 vs base 4381.0; last_seen 2026-11-21; PR https://github.com/thegoodparty/omni/pull/2215 |  |
+| 4 anomaly drop, active | Voter Guide - Featured Candidate Clicked | code_unknown |  | 30d=433; week 5 vs base 194.2; last_seen 2026-11-24 |  |
+| 4 anomaly drop, active | 10DLC - Schedule Banner Clicked | code_unknown | yes | 30d=130; week 1 vs base 55.5; last_seen 2026-11-20 |  |
+| 4 anomaly drop, active | Outreach - Phone Banking Call Sheet Downloaded | active |  | 30d=73; week 1 vs base 65.8; last_seen 2026-11-24 |  |
+| 4 anomaly drop, active | Profile - Policy Priorities: Click Edit | active |  | 30d=70; week 1 vs base 35.2; last_seen 2026-11-23; PR https://github.com/thegoodparty/gp-webapp/pull/1769 |  |
+| 4 anomaly drop, active | Chief Of Staff - Attached Document Queried | active |  | 30d=65; week 1 vs base 23.5; last_seen 2026-11-23; PR https://github.com/thegoodparty/omni/pull/2100 |  |
+| 4 anomaly drop, active | Profile - Policy Priorities: Cancel Add | active |  | 30d=60; week 1 vs base 25.0; last_seen 2026-11-23; PR https://github.com/thegoodparty/gp-webapp/pull/1769 |  |
+| 4 anomaly drop, active | Voter Outreach - Free Texts Offer Redeemed | active |  | 30d=30; week 1 vs base 48.5; last_seen 2026-11-06; PR https://github.com/thegoodparty/gp-api/pull/520 |  |
+| 4 anomaly drop, active | Pro Upgrade - SMS Cutoff Notice Viewed | active |  | 30d=29; week 1 vs base 32.0; last_seen 2026-11-10; PR https://github.com/thegoodparty/omni/pull/2747 |  |
+| 4 anomaly drop, active | Person Profile - Completion Requested | active |  | 30d=2; week 2 vs base 73.5; last_seen 2026-11-07; PR https://github.com/thegoodparty/omni/pull/1671 |  |
+| 5 intent divergence | Pro Upgrade - Value Prop Viewed | retired |  | 30d=0; week 1 vs base 27.0; last_seen 2026-10-23; PR https://github.com/thegoodparty/gp-webapp/pull/1983 | declared in-use but code removed + quiet |
+| 5 intent divergence | Pro Upgrade - Value Prop: Click Get Pro | retired |  | 30d=0; last_seen 2026-10-17; PR https://github.com/thegoodparty/gp-webapp/pull/1983 | declared in-use but code removed + quiet |
+| 5 intent divergence | Pro Upgrade - Value Prop: Click Maybe later | retired |  | 30d=0; last_seen 2026-10-17; PR https://github.com/thegoodparty/gp-webapp/pull/1983 | declared in-use but code removed + quiet |
+| 5 intent divergence | Pro Upgrade - EIN: Hover help | retired |  | 30d=0; last_seen 2026-10-11; PR https://github.com/thegoodparty/gp-webapp/pull/1987 | declared in-use but code removed + quiet |
+| 5 intent divergence | AI Assistant - Response Completed | deprecating |  | 30d=0; last_seen 2026-07-29; PR https://github.com/thegoodparty/omni/pull/171 | declared in-use but code removed + quiet |
+| 5 intent divergence | AI Assistant - Response Failed | deprecating |  | 30d=0; last_seen 2026-07-27; PR https://github.com/thegoodparty/omni/pull/171 | declared in-use but code removed + quiet |
+| 6 dormant (elevated) | Polls - Poll Question Completed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1230 |  |
+| 6 dormant (elevated) | Serve Onboarding - Poll Strategy Viewed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - Add Image Viewed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - Poll Preview Viewed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - Meet Your Constituents Viewed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - Sworn In Completed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1103 |  |
+| 6 dormant (elevated) | Serve Onboarding - SMS Poll Creation Failed | dormant | yes | 30d=0; last_seen 2026-06-17; PR https://github.com/thegoodparty/gp-webapp/pull/1374 |  |
+| 6 dormant (elevated) | Serve Onboarding - Sworn In Viewed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1098 |  |
+| 6 dormant (elevated) | Serve Onboarding - Constituency Profile Viewed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Poll - Results Synthesis Complete | dormant | yes | 30d=0; last_seen 2026-09-11; PR https://github.com/thegoodparty/gp-api/pull/636 |  |
+| 6 dormant (elevated) | Serve Onboarding - Success Page Viewed | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/gp-webapp/pull/1098 |  |
+| 6 dormant (elevated) | Serve Onboarding - Getting Started Viewed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - Poll Image Uploaded | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Polls - Create Poll Clicked | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1230 |  |
+| 6 dormant (elevated) | Serve Onboarding - Poll Value Props Viewed | dormant | yes | 30d=0; last_seen 2026-09-29; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - SMS Poll Sent | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Pro Upgrade - Banner: Click Get Pro | dormant | yes | 30d=0; last_seen 2026-10-21; PR https://github.com/thegoodparty/gp-webapp/pull/2001 |  |
+| 6 dormant (elevated) | Polls - Poll Results Overview Viewed | dormant | yes | 30d=0; last_seen 2026-10-07; PR https://github.com/thegoodparty/gp-webapp/pull/1135 |  |
+| 6 dormant (elevated) | Pro Upgrade - Texting Setup Banner: Click Start | dormant | yes | 30d=0; last_seen 2026-10-20; PR https://github.com/thegoodparty/omni/pull/1114 |  |
+| 6 dormant (elevated) | Voter Data - Activity List Created | dormant | yes | 30d=0; last_seen 2026-08-25; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Constituent Data - Follow Up List Created | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/1990 |  |
+| 7 instrumented, never observed | Constituent Feedback - Issue Captured | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2145 |  |
+| 7 instrumented, never observed | Constituent Feedback - Issue Confirmed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2145 |  |
+| 7 instrumented, never observed | Constituent Feedback - Issue Skipped | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2145 |  |
+| 7 instrumented, never observed | Issue Capture - Memo Auto Confirmed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/3232 |  |
+| 7 instrumented, never observed | Issue Capture - Memo Queued Offline | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2490 |  |
+| 7 instrumented, never observed | Issue Capture - Memo Transcription Failed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/3232 |  |
+| 7 instrumented, never observed | Issue Capture - Memo Uploaded | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2490 |  |
+| 7 instrumented, never observed | Issue Capture - Theme Viewed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/3232 |  |
+| 7 instrumented, never observed | Ordinances - Bug Report Errored | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2122 |  |
+| 7 instrumented, never observed | Ordinances - Bug Report Submitted | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2122 |  |
+| 7 instrumented, never observed | Ordinances - Draft Details Deleted | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/1039 |  |
+| 7 instrumented, never observed | Ordinances - New Ordinance Errored | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2122 |  |
+| 7 instrumented, never observed | Outreach - Door Knocking Do Not Knock Cleared | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2215 |  |
+| 7 instrumented, never observed | Outreach - Door Knocking List Deleted | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2215 |  |
+| 7 instrumented, never observed | Outreach - Door Knocking List Edited | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2215 |  |
+| 7 instrumented, never observed | Outreach - Door Knocking Not A Voter Reason Cleared | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2215 |  |
+| 7 instrumented, never observed | Outreach - SMS Cutoff Notice Completed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2747 |  |
+| 7 instrumented, never observed | Outreach - SMS Cutoff Notice Viewed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2747 |  |
+| 7 instrumented, never observed | Polls - Gather More Started | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2808 |  |
+| 7 instrumented, never observed | Priorities - Get Answers Clicked | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Priorities - Plan Completed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2538 |  |
+| 7 instrumented, never observed | Priorities - Report Back Sent | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/3249 |  |
+| 7 instrumented, never observed | Priorities - Results Viewed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Questions - Fun Fact Completed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2122 |  |
+| 7 instrumented, never observed | Questions - Fun Fact Viewed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2122 |  |
+| 7 instrumented, never observed | Questions - Occupation Completed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2122 |  |
+| 7 instrumented, never observed | Questions - Occupation Viewed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2122 |  |
+| 7 instrumented, never observed | Questions - Past Experience Completed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2122 |  |
+| 7 instrumented, never observed | Questions - Past Experience Viewed | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/2122 |  |
+| 7 instrumented, never observed | Serve Onboarding - Priorities Errored | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/3249 |  |
+| 7 instrumented, never observed | Win - Opponent Activity Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Win - Self Research Completed | instrumented_never_observed |  | 30d=0 |  |
+
+</details>
+
+**Dormant tail (49)** — code present, 0 fires/30d, not elevated: Polls - Audience Selection Viewed · Polls - Add Image Completed · Polls - Schedule Poll Viewed · Account - Pro Subscription Confirmed · Settings - Delete Account: Cancel Delete · Polls - Poll Results Issue Details Viewed · P2P Upgrade - Modal: Modal Shown · Polls - Poll Question Viewed · Polls - Low Confidence Modal Clicked · Content Builder: Generation Completed · Polls - Expand Poll Recommendations Completed · Polls - Schedule Poll Completed · Polls - Poll Preview Completed · Profile - Running Against: Click Add New · Pro Upgrade - Committee Check Page: Hover "EIN number" help · Profile - Running Against: Submit Edit · Pro Upgrade - Candidate Profile Viewed · Polls - Expand Poll Recommendations Viewed · Polls - Poll Bias Detection Shown · Profile - Running Against: Submit Add New · Polls - Poll Preview Viewed · Payment - Schedule and Pay Viewed · Polls - Expand Poll Review Viewed · question_complete · Candidate Website - Purchased domain · Payment - Review and Pay Screen Viewed · P2P Upgrade - Modal: Click Button · Pro Upgrade - Banner Viewed · Polls - Add Image Viewed · Profile - Running Against: Click Edit · Polls - Audience Selection Completed · Navigation - Dashboard: Click Polls · Profile - Running Against: Click Save · P2P Upgrade - Modal: Exit · Content Builder: Generation Started · Pro Upgrade - Texting Setup Banner Viewed · Payment - Completed · Ordinances - Draft Details Status Updated · Voter Outreach - 10DLC Compliance PIN Resent · Briefing Assistant - Attachment Clicked · Chief Of Staff - Citation Opened · Polls - Constituent Data Unavailable Viewed · Dashboard - Campaign Plan: Plan Shared · Voter Outreach - Recommended List Failed · Team - Member Removed · Constituent Data - List Boundary Saved · Outreach - Door Knocking Not A Voter Reason Set · Outreach - Door Knocking Route Build Failed · Constituent Data - Note Added
+
+**Too new to judge (8)**: instrumented in the last 30 days and not fired yet, so not flagged: Account - Paid Plan Updated · Contacts - Civic Panel Wave Errored · Contacts - Import Failed · Contacts - Import Undone · Contacts - Match Changed · Email - Send Completed · Outreach - SMS Message Updated · Polls - Poll Reply Favorited
+
+### Changes since last run
+
+- new: 21 (see flagged table)
+- escalated: Pro Upgrade - EIN: Hover help, Pro Upgrade - Value Prop Viewed, Pro Upgrade - Value Prop: Click Get Pro, Pro Upgrade - Value Prop: Click Maybe later
+- resolved: 33 (see flagged table)
+- still open: 105 event(s)
+
+### Metadata completeness (description field)
+
+- Non-system events with a description: 549/690 (80%). Remaining are blank pending the historical backfill.
+- Onboarding / activation / compliance missing a description (fill first): 10DLC - Compliance Submission Blocked · 10DLC - Schedule Banner Clicked · Door Knocking - List Created · Onboarding V2 - Manual Office Viewed · Onboarding V2 - Signup Goal Completed · Onboarding V2 - Signup Goal Viewed · Outreach - Campaign Completed · Outreach - Door Knocking Door Logged · Outreach - Phone Banking Call Logged · Pro Upgrade - Filing Details Submit Error · Robocall - Hold Failed · Robocall - Hold Placed · Robocall - Receipt · Robocall - Scheduled · Serve Onboarding - Office Status Completed · Serve Onboarding - Party Designation Completed · Serve Onboarding - Term Dates Completed · Serve Onboarding - Welcome Completed · Voter Data - Contact Searched · Voter Outreach - 10DLC Compliance Candidate Profile Submitted · Voter Outreach - 10DLC Compliance PIN Sent · Voter Outreach - 10DLC Compliance Rejected · Voter Outreach - Phone Banking Call List Created · Voter Outreach - Phone Banking Call Sheet Downloaded
+- Other non-system events missing a description: 117 (not listed).
+
+### Watchlist proposals (OKR legs)
+
+No OKR leg to add.
+
+44 new event(s) in watched families with no question; see the JSON report.
+
+### Labels
+
+41 event(s) with a missing or conflicting product label. Label each in Amplitude with the `event-metadata` skill, or add it to `dismissed:` in `monitored_events.yaml`:
+
+| event | finding | family | first seen |
+|---|---|---|---|
+| Contacts - Civic Panel Milestone Reached | product_label_conflict | win_contacts | 2026-11-12 |
+| Contacts - Civic Panel Invite Review Dismissed | product_label_conflict | win_contacts | 2026-10-28 |
+| Contacts - Civic Panel Invite Review Viewed | product_label_conflict | win_contacts | 2026-10-28 |
+| Contacts - Civic Panel Invite Submitted | product_label_conflict | win_contacts | 2026-10-28 |
+| Contacts - Civic Panel Viewed | product_label_conflict | win_contacts | 2026-10-28 |
+| Contacts - Civic Panel Invite Viewed | product_label_conflict | win_contacts | 2026-10-26 |
+| Contacts - Civic Panel Managed Invite Value Prop Completed | product_label_conflict | win_contacts | 2026-10-26 |
+| Contacts - Civic Panel Managed Invite Value Prop Viewed | product_label_conflict | win_contacts | 2026-10-26 |
+| Briefings - Click Download | product_label_conflict | win_briefings | 2026-04-13 |
+| Briefings - Feedback: Helpful | product_label_conflict | win_briefings | 2026-04-13 |
+| Briefings - Feedback: Not Helpful | product_label_conflict | win_briefings | 2026-04-13 |
+| Briefings - Briefing Viewed | product_label_conflict | win_briefings | 2026-04-10 |
+| Briefings - Click Read Full Briefing | product_label_conflict | win_briefings | 2026-04-10 |
+| Briefings - Issue Detail Viewed | product_label_conflict | win_briefings | 2026-04-10 |
+| Issue Capture - Synthesis Completed | no_product_label | other | 2026-11-12 |
+(26 more; see the JSON report.)
+
+### Watchlist removals
+
+14 watched event(s) retired in code. Remove each `events:` row in triage, or record a `kept:` row to keep watching it:
+
+| event | retired |
+|---|---|
+| onboarding_complete | 2026-05-05 |
+| Onboarding - Ballot Status Completed | 2026-07-13 |
+| Onboarding - Candidate Affiliation Completed | 2026-07-13 |
+| Onboarding - Candidate Pledge Completed | 2026-07-13 |
+| Onboarding - Know Your Voters Completed | 2026-07-13 |
+| Onboarding - Office Selection Completed | 2026-07-13 |
+| Onboarding - Party Selection Completed | 2026-07-13 |
+| Onboarding - Path To Victory Completed | 2026-07-13 |
+| Onboarding - Pledge Completed | 2026-07-13 |
+| Onboarding - Welcome Completed | 2026-07-13 |
+| Pro Upgrade - Splash Page: Click upgrade | 2026-07-13 |
+| Schedule Text Campaign: Submit | 2026-07-13 |
+| Voter Outreach - Phone Banking Call Sheet Downloaded | 2026-09-29 |
+| Onboarding - User Created | 2026-10-09 |
+
 ## 2026-11-19
 
 Basis: complete weeks before 2026-11-16. 768 events — active 348, retired 229, dormant 67, instrumented_never_observed 45, system 39, code_unknown 37, deprecating 3. 142 flagged (94 priority in 5 cause(s), 48 dormant tail).

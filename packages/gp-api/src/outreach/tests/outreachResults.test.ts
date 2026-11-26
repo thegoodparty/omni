@@ -82,14 +82,51 @@ describe('GET /v1/outreach/:id/results', () => {
 
     const res = await getResults(row.id)
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ contacts: 3, responded: 1, optedOut: 1 })
+    expect(res.data).toEqual({
+      contacts: 3,
+      responded: 1,
+      optedOut: 1,
+      notDelivered: null,
+    })
   })
 
   it('falls back to the purchase-time count when no rows exist', async () => {
     const row = await seedOutreach()
     const res = await getResults(row.id)
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ contacts: 1200, responded: 0, optedOut: 0 })
+    expect(res.data).toEqual({
+      contacts: 1200,
+      responded: 0,
+      optedOut: 0,
+      notDelivered: null,
+    })
+  })
+
+  it('reports failed receipts as not delivered, capped at the send', async () => {
+    const row = await seedOutreach()
+    await service.prisma.outreachSmsDelivery.create({
+      data: {
+        outreachId: row.id,
+        delivered: 1150,
+        failed: 40,
+        unconfirmed: 10,
+        readAt: new Date(),
+      },
+    })
+    const res = await getResults(row.id)
+    expect(res.data).toEqual({
+      contacts: 1200,
+      responded: 0,
+      optedOut: 0,
+      notDelivered: 40,
+    })
+
+    await service.prisma.outreachSmsDelivery.update({
+      where: { outreachId: row.id },
+      data: { failed: 5000 },
+    })
+    const capped = await getResults(row.id)
+    expect(capped.data.notDelivered).toBe(1200)
   })
 
   it('rejects non-text channels', async () => {

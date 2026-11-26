@@ -182,6 +182,9 @@ export class PriorityAnswerCodingService extends createPrismaBase(
       where: {
         ...PRIORITY_SEND_WHERE,
         createdAt: { gte: subDays(new Date(), SWEEP_WINDOW_DAYS) },
+        // Test mode's answers come coded; issue capture would spend a model
+        // call on each made-up reply.
+        organization: { testModeCreatedAt: null },
       },
       select: { id: true },
     })

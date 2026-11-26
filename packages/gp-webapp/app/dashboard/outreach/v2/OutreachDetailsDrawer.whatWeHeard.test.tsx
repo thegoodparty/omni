@@ -74,6 +74,8 @@ const PHONE_BANKING: PhoneBankingOutreachDetail = {
   unsure: 0,
   nonSupporters: 0,
   byFollowUp: { yes: 0, no: 0 },
+  callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+  callsByFollowUp: { yes: 0, no: 0 },
 }
 
 const row = (fields: Partial<HistoryRow>): HistoryRow => ({
@@ -241,7 +243,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     })
     api.mock('GET /v1/outreach/serve/:id/results', {
       status: 200,
-      data: { contacts: 40, responded: 7, optedOut: 1 },
+      data: { contacts: 40, responded: 7, optedOut: 1, notDelivered: null },
     })
     api.mock('GET /v1/outreach/serve/:id/replies', {
       status: 200,
@@ -284,7 +286,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     })
     api.mock('GET /v1/outreach/serve/:id/results', {
       status: 200,
-      data: { contacts: 40, responded: 0, optedOut: 0 },
+      data: { contacts: 40, responded: 0, optedOut: 0, notDelivered: null },
     })
     api.mock('GET /v1/outreach/serve/:id/replies', {
       status: 200,
@@ -322,7 +324,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     mockPhoneDetail()
     render(<OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} />)
 
-    await screen.findByText('Based on 10 phone banking contacts')
+    await screen.findByText('Based on 10 calls made')
     expect(link()).toBeNull()
   })
 
@@ -362,7 +364,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
     mockPhoneDetail()
     render(<OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} />)
 
-    await screen.findByText('Based on 10 phone banking contacts')
+    await screen.findByText('Based on 10 calls made')
     await waitFor(() => expect(link()).toBeNull())
   })
 

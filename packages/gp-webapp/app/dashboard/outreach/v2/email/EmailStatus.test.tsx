@@ -344,6 +344,7 @@ describe('EmailStatus', () => {
           complained: 1,
           opened: 80,
           clicked: 12,
+          optedOut: 5,
         },
       }),
     })
@@ -353,8 +354,9 @@ describe('EmailStatus', () => {
     expect(results).toHaveTextContent('Sent200')
     expect(results).toHaveTextContent('Delivered19095%')
     expect(results).toHaveTextContent('Opened (approximate)8040%')
-    expect(results).toHaveTextContent('Clicked126%')
-    expect(results).toHaveTextContent('Bounced105%')
+    expect(results).toHaveTextContent('Clicked126% CTR')
+    expect(results).toHaveTextContent('Not delivered105%')
+    expect(results).toHaveTextContent('Opted out53%')
     expect(results).toHaveTextContent('Marked as spam11%')
   })
 
@@ -370,6 +372,7 @@ describe('EmailStatus', () => {
           complained: 0,
           opened: 0,
           clicked: 0,
+          optedOut: 0,
         },
       }),
     })

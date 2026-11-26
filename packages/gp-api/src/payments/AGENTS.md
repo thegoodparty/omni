@@ -56,12 +56,14 @@ ambiguous or missing links must be investigated, not inferred from email.
 `setIsPro` commits the link, entitlement, plan columns and upgrade timestamp
 under the campaign row lock. Replays don’t create another upgrade.
 
-**Cutover:** Stripe’s test and live endpoints must deliver `invoice.paid` to
-`POST /v1/payments/events`. Verify a test checkout and a renewal before setting
-`stripeProInvoiceOnly=true` in the respective gp-api Pulumi stack. Until then,
-legacy Checkout/Subscription handlers still grant as a compatibility fallback.
-Once enabled, only `invoice.paid` grants subscription-backed Pro; one-time and
-staff grants are unaffected. Revert the stack setting if delivery breaks.
+**Cutover:** Dev and PR previews default to invoice-only Pro grants. Dev's
+release smoke test requires a real test-mode checkout webhook; previews
+exercise the same handler with the actual paid test invoice delivered
+in-process. Production keeps the legacy fallback until dev checkout and
+renewal pass and live Stripe delivers `invoice.paid` for both. Then set
+`stripeProInvoiceOnly=true` on the prod stack. Set it to `false` and redeploy
+through the release train to roll back. One-time and staff grants are
+unaffected.
 
 Where Pro state lives (there is no subscription table):
 

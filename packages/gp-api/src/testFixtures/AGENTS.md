@@ -57,6 +57,15 @@ redeem `signInToken` on a public page
 `sessionToken` / `token` cookie only authenticate direct gp-api calls — they
 do NOT log a browser into the webapp.
 
+## Stripe checkout fixtures
+
+`POST /v1/test-fixtures/vendor-mocks/stripe/events` runs the real payments
+handler in-process for Playwright previews with no Stripe webhook target.
+For a subscription it accepts the caller’s completed test-mode session,
+retrieves its paid invoice and dispatches `invoice.paid`. For a one-time
+purchase it still dispatches `checkout.session.completed`. Neither path
+creates a payment.
+
 ## Schedule runs
 
 The run-job route takes a pg-boss schedule's own name (`outreachDraftExpiry`,

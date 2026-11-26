@@ -3,7 +3,7 @@
 The V2 campaign plan's two generated sections. `opposition_research` finds who is
 on the ballot; `opportunities_and_challenges` finds what the race offers and costs
 the candidate. Each is one background agent, and each can run on either engine
-while the consolidation is in progress (`docs/cap-consolidation.md`).
+(`deploy/agentsOnGpApi.ts`).
 
 `CampaignStrategy` is the plan row: `oppositionRunId` / `opportunitiesRunId` point
 at each section's run, `oppositionPersistedAt` / `opportunitiesPersistedAt` mark
@@ -28,19 +28,19 @@ markers are set; a failed or stuck section re-dispatches on the next poll.
 
 `runsOnGpApi(OPPOSITION)` is per agent, and every path that touches a section's run
 reads it: `tryDispatch` picks `AgentsService.run` or the PMF Engine's
-`dispatchRun`, `sectionRunFrom` picks `AgentRun` or `ExperimentRun`, and each
+`dispatchRun`, `sectionRunFrom` asks that engine's table first, and each
 agent's `onArtifact` writes its section through the same `persistSection` the PMF
 Engine's result consumer calls. `sectionRunFor` is public
-so the race-opponent page's discovery status reads the same table the dispatcher
+so the race-opponent page's discovery status reads the same run the dispatcher
 wrote to.
 
-**The switch is not a hard cut, and one edge is accepted while it is dev-only.**
-`sectionRunFrom` reads the one table the switch names, so a section whose run is
-still on the other engine at the deploy reads as `redispatch`: the plan spends an
-attempt on a second paid run and the first one's artifact has no plan to land in.
-In dev that costs a duplicate run on one plan, which is what dev is for. Making
-the reader fall back to the other table is what turns reverting the line into a
-rollback, and it lands with the prod flip, not before.
+**The switch is not a hard cut, and both directions are read.** `sectionRunFrom`
+asks the table the switch names first and falls through to the other one, so a
+section dispatched before a flip — or after a revert — is read from the table
+that holds its run id rather than looking idle and starting a second paid run.
+The run that answers carries its own `engine`, so `sectionRunIsInFlight` still
+reads the right status vocabulary. That fallback is what makes reverting the
+list lines a real rollback.
 
 `superseded` is the one status the two engines disagree about, so a `SectionRun`
 carries its `engine` and `sectionRunIsInFlight` reads it. The PMF Engine's resume

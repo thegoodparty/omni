@@ -1,3 +1,4 @@
+import { subDays } from 'date-fns'
 import { Readable } from 'node:stream'
 import {
   beforeAll,
@@ -4715,6 +4716,147 @@ describe('door-knocking routes', () => {
           where: { organizationSlug: orgSlug },
         })
       expect(row.outreachId).toBe(envelope.id)
+    })
+
+    it('reports the campaign outcomes by door, not by person', async () => {
+      const turf = await createTurf()
+      const targets = await service.prisma.doorKnockingStopTarget.findMany({
+        where: { stop: { doorKnockingTurfId: turf.id } },
+        orderBy: { id: 'asc' },
+      })
+      const doorOf = (target: (typeof targets)[number]) =>
+        `${target.doorKnockingStopId}|${target.addressKey}`
+      const [first] = targets
+      expect(first).toBeDefined()
+      const firstDoor = doorOf(first!)
+      const doors = new Set(targets.map(doorOf))
+
+      for (const [index, target] of targets.entries()) {
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: `aaaaaaaa-bbbb-4ccc-8ddd-${String(index).padStart(12, '0')}`,
+          ...(index === 0
+            ? {
+                outcome: 'answered',
+                supportAnswer: 'supporter',
+                willVote: 'yes',
+              }
+            : { outcome: 'not_home' }),
+        })
+        expect(res.status).toBe(201)
+      }
+
+      const envelope = await envelopeFor(turf.id)
+      const res = await service.client.get(
+        `/v1/door-knocking/campaigns/${envelope.id}/results`,
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.doorsKnocked).toBe(doors.size)
+      // A housemate logged not home does not undo the door that opened.
+      expect(res.data.byOutcome.answered).toBe(1)
+      expect(res.data.byOutcome.not_home).toBe(
+        [...doors].filter((door) => door !== firstDoor).length,
+      )
+      expect(res.data.bySupport).toEqual({
+        supporter: 1,
+        unsure: 0,
+        non_supporter: 0,
+      })
+      expect(res.data.byWillVote.yes).toBe(1)
+    })
+
+    it('counts a knock once when the campaign has overlapping turfs', async () => {
+      const first = await postTurf({ name: 'Turf 1', campaignName: 'Fall' })
+      expect(first.status).toBe(201)
+      const anchor = await envelopeFor(first.data.id)
+      const second = await postTurf({
+        name: 'Turf 2',
+        campaignOutreachId: anchor.id,
+      })
+      expect(second.status).toBe(201)
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { doorKnockingTurfId: first.data.id } },
+        })
+      // The same resident is on the second, overlapping turf too.
+      expect(
+        await service.prisma.doorKnockingStopTarget.count({
+          where: {
+            personId: target.personId,
+            stop: { doorKnockingTurfId: second.data.id },
+          },
+        }),
+      ).toBeGreaterThan(0)
+
+      const knock = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+      })
+      expect(knock.status).toBe(201)
+      const res = await service.client.get(
+        `/v1/door-knocking/campaigns/${anchor.id}/results`,
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.doorsKnocked).toBe(1)
+      expect(res.data.byOutcome.answered).toBe(1)
+    })
+
+    it('counts an unstamped walk knock from after the campaign began, never a manual log or an older one', async () => {
+      const turf = await createTurf()
+      const envelope = await envelopeFor(turf.id)
+      const targets = await service.prisma.doorKnockingStopTarget.findMany({
+        where: { stop: { doorKnockingTurfId: turf.id } },
+        orderBy: { id: 'asc' },
+      })
+      const oneTargetPerDoor = [
+        ...new Map(
+          targets.map((target) => [
+            `${target.doorKnockingStopId}|${target.addressKey}`,
+            target,
+          ]),
+        ).values(),
+      ]
+      expect(oneTargetPerDoor.length).toBeGreaterThanOrEqual(3)
+      const [legacy, manual, older] = oneTargetPerDoor
+      const unstamped = (
+        personId: string,
+        occurredAt: Date,
+        isManual: boolean,
+      ) =>
+        service.prisma.contactInteractionDoorKnock.create({
+          data: {
+            organizationSlug: orgSlug,
+            personId,
+            occurredAt,
+            outcome: 'not_home',
+            manual: isManual,
+          },
+        })
+      await unstamped(legacy!.personId, new Date(), false)
+      await unstamped(manual!.personId, new Date(), true)
+      await unstamped(older!.personId, subDays(envelope.createdAt, 1), false)
+
+      const res = await service.client.get(
+        `/v1/door-knocking/campaigns/${envelope.id}/results`,
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.doorsKnocked).toBe(1)
+      expect(res.data.byOutcome.not_home).toBe(1)
+    })
+
+    it('404s results for a campaign that is not yours', async () => {
+      const res = await service.client.get(
+        '/v1/door-knocking/campaigns/999999/results',
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+      expect(res.status).toBe(404)
     })
 
     // What comes back recolors the dot on the phone without re-fetching the

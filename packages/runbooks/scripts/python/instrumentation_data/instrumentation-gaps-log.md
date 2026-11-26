@@ -1,3 +1,27 @@
+## 2026-11-26
+
+### Potential instrumentation gaps
+
+Coverage: 71 tracked — 19 new, 0 open, 12 accepted, 9 dismissed, 7 resolved, 24 retired.
+Scan: 516 surfaces enumerated, 126 already tracked, 390 candidates.
+
+| rank | surface | type | rubric rule | dashboard question | fix | location |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx#wizard_stage | wizard_stage | multi-step flow stages (URL-stable) | Of candidates who start the gather-more poll flow, what share complete each stage (size, when, paid) and where do the rest stop? | new event | packages/gp-webapp/app/dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off across the priorities setup steps? | new event | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/email/EmailStatusPage.tsx#wizard_stage | wizard_stage | multi-step flow / outcome | Of candidates who start an email outreach flow, what share actually send, and where do the rest stop? | new event | packages/gp-webapp/app/dashboard/outreach/v2/email/EmailStatusPage.tsx |
+| 1 | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage | wizard_stage | multi-step-flow-stage | Where do users drop off in the poll creation wizard, by step? | new event | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx |
+| 1 | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage | wizard_stage | multi-step flow viewed/completed | At which step of the Pro Upgrade wizard do users drop off? | new event | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx |
+| 1 | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx#wizard_stage | wizard_stage | multi-step flow Viewed/Completed | At which step of this full-screen wizard flow do users drop off? | new event | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx |
+| 2 | packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx#form_submit | form_submit | primary-cta-or-outcome | How many users successfully update their personal information (name) and how often does it fail? | new event | packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215 | form_submit | primary CTA / blocker-error | How many briefing error reports are submitted vs. abandoned? | new event | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit | form_submit | engagement — chat message sent | How many messages are sent in the Ordinance flow chat? | new event | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx |
+| 2 | packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#L112 | form_submit | form submit CTA / outcome | How many recommended audience lists are named and created via this drawer? | new event | packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx |
+
+(4 more new gaps — see the state file.)
+
+5 low-value gap(s) not listed (no question anyone asked needs them).
+
 ## 2026-11-19
 
 ### Potential instrumentation gaps

@@ -13,6 +13,7 @@ import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { GetPersonMergeParamsDTO } from '@/electionDb/personMerges/person-merges.schema'
 import { PersonMergesService } from '@/electionDb/personMerges/person-merges.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ElectionReadCacheInterceptor } from '@/elections/interceptors/electionReadCache.interceptor'
 import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
@@ -28,7 +29,11 @@ export const personMergeResponseSchema = z.object({
 
 @Controller('elections/person-merges')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
+@UseInterceptors(
+  ElectionReadCacheInterceptor,
+  ServiceReadConcurrencyInterceptor,
+  ZodResponseInterceptor,
+)
 export class ElectionPersonMergesController {
   constructor(private readonly personMerges: PersonMergesService) {}
 

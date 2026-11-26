@@ -628,7 +628,8 @@ change in the styleguide reaches every screen at once.
   Each channel has its own hue at the 200 step, so no two channels share a
   color; phone banking is red because every other hue is taken.
 - **Don't use the `secondary` variant** of `Button` or `Badge` (lavender)
-  in the product. A quieter button is `outline` or `ghost`.
+  in the product. A quieter button is `outline` or `ghost`; a quiet action in
+  blue or red (Regenerate, Remove) is `ghostPrimary` or `ghostDestructive`.
 - **Charts use the styleguide's `BarChart`, `BarList`, `DonutChart` or
   `PieChart`,** which color series from `data-chart-1` to `-7` in order.
   Never hand-color a chart.

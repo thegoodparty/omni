@@ -1028,6 +1028,8 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
       unsure: 0,
       nonSupporters: 0,
       byFollowUp: { yes: 0, no: 0 },
+      callsBySupport: { supporter: 1, unsure: 0, non_supporter: 0 },
+      callsByFollowUp: { yes: 0, no: 0 },
     })
   })
 
@@ -1072,6 +1074,12 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.phoneBanking.supporters).toBe(1)
     expect(res.data.phoneBanking.unsure).toBe(2)
+    // Two unsure housemates on one call are one call.
+    expect(res.data.phoneBanking.callsBySupport).toEqual({
+      supporter: 1,
+      unsure: 1,
+      non_supporter: 0,
+    })
     expect(res.data.phoneBanking.nonSupporters).toBe(0)
   })
 
@@ -1106,6 +1114,7 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
 
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.phoneBanking.byFollowUp).toEqual({ yes: 1, no: 2 })
+    expect(res.data.phoneBanking.callsByFollowUp).toEqual({ yes: 1, no: 1 })
     // The Win tallies stay empty — one vocabulary per list.
     expect(res.data.phoneBanking.supporters).toBe(0)
     expect(res.data.phoneBanking.unsure).toBe(0)

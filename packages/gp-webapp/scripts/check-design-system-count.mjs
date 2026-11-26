@@ -54,7 +54,7 @@ const BASELINES = {
   // components (DialogContent, DialogTitle, DialogDescription).
   // SidebarInset's bg-page in DashboardLayout is the layout's page surface
   // (docs/product-design.md section 9).
-  restyledComponents: 482,
+  restyledComponents: 477,
 }
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')

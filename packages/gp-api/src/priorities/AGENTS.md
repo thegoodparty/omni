@@ -84,7 +84,8 @@ invisible, so it is not flag-gated.
   confirmed (`constituentFeedback.service.ts`). The backstop is the
   `priorityAnswerCodingSweep` pg-boss schedule (`6,16,...,56` past the
   hour), which sends one `priorityAnswerCode` job per priority send created
-  in the last 30 days, grouped by the send. No deploy allowlist: it calls
+  in the last 30 days, grouped by the send, leaving out test orgs (Test
+  mode's answers come coded). No deploy allowlist: it calls
   the model only for replies on its own database.
 
 ## The read
@@ -154,7 +155,8 @@ old. Bump `READ_VERSION` with any change to the frame or how a read is
 built. The stored JSON keeps its groups under `result`, as the model's
 reads did, so a row stored before counts replaced the model (its groups
 also carry `mean`, `low` and `high`) reads correctly until its refresh
-rewrites it. A district the warehouse could not read is retried, then
+rewrites it. A test org (`testModeCreatedAt`) is always stored as no read: its answers
+are Test mode's made-up people. A district the warehouse could not read is retried, then
 stored as no read, which a view an hour later tries again
 (`docs/adr/2026-11-12-priority-read-computed-in-the-background.md`).
 

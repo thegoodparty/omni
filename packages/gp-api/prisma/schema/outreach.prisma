@@ -231,6 +231,7 @@ model Outreach {
   email                             OutreachEmail?
   paymentHold                       OutreachPaymentHold?
   optOutReconcile                   OutreachOptOutReconcile?
+  smsDelivery                       OutreachSmsDelivery?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]
   voterActivities                   VoterOutreachActivity[]

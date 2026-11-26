@@ -5,6 +5,10 @@ import { apiRoutes } from 'gpApi/routes'
 import { serverFetch } from 'gpApi/serverFetch'
 import candidateAccess from '../shared/candidateAccess'
 import { ALL_PLANS_HIGHLIGHT_PARAM } from '../shared/plan/planPitch'
+import {
+  PLANS_BACK_TO_PARAM,
+  parsePlansBackTo,
+} from '../pro-upgrade/proUpgradePlanParams'
 import PlansPage from './PlansPage'
 
 export const metadata = pageMetaData({
@@ -29,7 +33,12 @@ export default async function Page({
   }
   const params = await searchParams
 
+  const backTo = params[PLANS_BACK_TO_PARAM]
+
   return (
-    <PlansPage highlightTeam={params[ALL_PLANS_HIGHLIGHT_PARAM] === 'team'} />
+    <PlansPage
+      highlightTeam={params[ALL_PLANS_HIGHLIGHT_PARAM] === 'team'}
+      backTo={parsePlansBackTo(typeof backTo === 'string' ? backTo : null)}
+    />
   )
 }

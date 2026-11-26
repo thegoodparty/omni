@@ -89,6 +89,9 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
         status: { in: CLAIMED_STATUSES },
         createdAt: { gte: since },
         stripeCheckoutSessionId: null,
+        // Test mode's civic panel writes its priority question as a sent,
+        // unpaid text on the test org; it never reaches a vendor.
+        organization: { testModeCreatedAt: null },
       },
       select: {
         id: true,

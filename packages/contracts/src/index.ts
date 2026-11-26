@@ -1753,6 +1753,10 @@ export {
   DoorKnockingPurposeSchema,
   type DoorKnockingPurpose,
 } from './doorKnocking/DoorKnockingTurf.schema'
+export {
+  DoorKnockingCampaignResultsSchema,
+  type DoorKnockingCampaignResults,
+} from './doorKnocking/DoorKnockingCampaignResults.schema'
 
 export {
   DOOR_KNOCK_STATUSES,
@@ -2016,6 +2020,9 @@ export {
   TEST_MODE_TEN_DLC_PRESET_VALUES,
   TestModeTenDlcPresetSchema,
   type TestModeTenDlcPreset,
+  TEST_MODE_CIVIC_PANEL_PRESET_VALUES,
+  TestModeCivicPanelPresetSchema,
+  type TestModeCivicPanelPreset,
   TestModeRaceSchema,
   type TestModeRace,
   CreateTestOrganizationRequestSchema,
