@@ -233,6 +233,50 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     super()
   }
 
+  // A send's Peerly stats, the console's one read of them: single-flighted
+  // and cached per job, bounded, and cooled off after a failure the way
+  // Peerly asks. Public so the inbound sweep copies the same numbers through
+  // the same read rather than a second one. Null on a failed or stalled read.
+  readDeliveryStats(row: {
+    id: number
+    projectId: string | null
+    date: Date | null
+    createdAt: Date
+  }): Promise<Awaited<
+    ReturnType<PeerlyP2pJobService['getJobDetailedStats']>
+  > | null> {
+    const jobId = row.projectId
+    if (!jobId) return Promise.resolve(null)
+    return this.boundedRead(
+      this.singleFlightCached(
+        this.statsCache,
+        this.statsInFlight,
+        jobId,
+        (value) => value === null,
+        () =>
+          this.loggedVendorRead(
+            'detailed_stats',
+            { outreachId: row.id },
+            // Scoped to the row's lifetime: Peerly scans the requested
+            // span server-side, and the default THIS_YEAR over a busy
+            // account is what stalled this read for minutes. Window
+            // mirrors the inbound sweep's convention — padded a day each
+            // side (Peerly evaluates the range in its account timezone)
+            // and anchored on the send date (a backdated row's events
+            // can predate createdAt).
+            this.peerlyP2pJobService.getJobDetailedStats(jobId, {
+              startDate: format(
+                subDays(row.date ?? row.createdAt, 1),
+                DATE_FMT,
+              ),
+              endDate: format(addDays(new Date(), 1), DATE_FMT),
+            }),
+          ),
+        STATS_CACHE_TTL_MS,
+      ),
+    )
+  }
+
   // Null on a failed or stalled vendor read: the console header degrades
   // to "unavailable" the way the queue's readiness column does.
   getVendorBalance(): Promise<SmsVendorAccount | null> {
@@ -359,34 +403,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
             ),
         ),
       ),
-      this.boundedRead(
-        this.singleFlightCached(
-          this.statsCache,
-          this.statsInFlight,
-          jobId,
-          (value) => value === null,
-          () =>
-            this.loggedVendorRead(
-              'detailed_stats',
-              { outreachId },
-              // Scoped to the row's lifetime: Peerly scans the requested
-              // span server-side, and the default THIS_YEAR over a busy
-              // account is what stalled this read for minutes. Window
-              // mirrors the inbound sweep's convention — padded a day each
-              // side (Peerly evaluates the range in its account timezone)
-              // and anchored on the send date (a backdated row's events
-              // can predate createdAt).
-              this.peerlyP2pJobService.getJobDetailedStats(jobId, {
-                startDate: format(
-                  subDays(row.date ?? row.createdAt, 1),
-                  DATE_FMT,
-                ),
-                endDate: format(addDays(new Date(), 1), DATE_FMT),
-              }),
-            ),
-          STATS_CACHE_TTL_MS,
-        ),
-      ),
+      this.readDeliveryStats(row),
     ])
 
     return {

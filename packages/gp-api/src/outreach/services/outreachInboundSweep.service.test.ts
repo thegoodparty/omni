@@ -318,13 +318,18 @@ describe('outreachInboundSweep', () => {
 
   it("copies the job's delivery receipts at most every few hours", async () => {
     const outreach = await createSweepableOutreach()
+    // Its own job id, so no earlier test's read answers from the cache.
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { projectId: 'peerly-job-receipts' },
+    })
 
     await service.jobs.runSchedule('outreachInboundSweep')
     await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
     expect(getJobDetailedStats).toHaveBeenCalledWith(
-      JOB_ID,
+      'peerly-job-receipts',
       expect.objectContaining({ startDate: expect.any(String) }),
     )
     const delivery = await service.prisma.outreachSmsDelivery.findUnique({
@@ -335,6 +340,12 @@ describe('outreachInboundSweep', () => {
 
   it('keeps the replies when the stats read fails', async () => {
     const outreach = await createSweepableOutreach()
+    // Its own job id: the stats read is the console's, cached per job for
+    // the app's life, so a job an earlier test read would answer from there.
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { projectId: 'peerly-job-stats-down' },
+    })
     getJobDetailedStats.mockRejectedValue(new Error('peerly down'))
     fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101')])
 

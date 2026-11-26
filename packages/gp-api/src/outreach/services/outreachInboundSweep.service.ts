@@ -44,9 +44,9 @@ import {
   PeerlyJobResultsService,
   PeerlyReportDateWindow,
 } from '../../vendors/peerly/services/peerlyJobResults.service'
-import { PeerlyP2pJobService } from '../../vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyPhoneListCaptureService } from '../../vendors/peerly/services/peerlyPhoneListCapture.service'
 import { isOptOutMessage } from '../util/textOptOut.util'
+import { OutreachSmsAdminService } from './outreachSmsAdmin.service'
 
 // Peerly's AI and its texters flag opt-outs whose wording never contains a
 // stop word, and those flags exist only in the question-responses report.
@@ -256,12 +256,10 @@ export type WinReplyBackfillSummary = {
 const sendAnchorOf = (outreach: Outreach): Date =>
   outreach.date ?? outreach.createdAt
 
-// Peerly's job stats read has taken 45s to 4min (outreachSmsAdmin.service.ts),
-// so each job's receipts are read at most this often, and a read that runs
-// past the timeout is dropped until a later pass rather than holding the
-// sweep's budget for every job behind it.
+// Each job's receipts are copied at most this often. The read itself is the
+// staff console's (OutreachSmsAdminService.readDeliveryStats), so its cache,
+// timebox and failure cool-off bound what a slow Peerly costs the sweep.
 export const DELIVERY_STATS_INTERVAL_HOURS = 6
-const DELIVERY_STATS_TIMEOUT_MS = 15_000
 
 // Padded a day on each side: Peerly evaluates the range in its account
 // timezone while these timestamps are server-local, and a boundary
@@ -287,7 +285,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
     private readonly peerlyJobResults: PeerlyJobResultsService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly textInteractions: ContactInteractionTextService,
-    private readonly peerlyP2pJobs: PeerlyP2pJobService,
+    private readonly smsAdmin: OutreachSmsAdminService,
   ) {
     super()
   }
@@ -638,7 +636,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
     counters.messagesWritten += await this.writeReplyMessages(
       this.buildReplyMessages(outreach.id, cdrRows, phoneToPersonIds, now),
     )
-    await this.recordDeliveryReceipts(outreach, jobId, now, counters)
+    await this.recordDeliveryReceipts(outreach, now, counters)
     return true
   }
 
@@ -646,7 +644,6 @@ export class OutreachInboundSweepService extends createPrismaBase(
   // replies: it is counted in the sweep summary and read again next pass.
   private async recordDeliveryReceipts(
     outreach: SweepableOutreach,
-    jobId: string,
     now: Date,
     counters: SweepCounters,
   ): Promise<void> {
@@ -660,23 +657,9 @@ export class OutreachInboundSweepService extends createPrismaBase(
     ) {
       return
     }
-    let stats: Awaited<ReturnType<PeerlyP2pJobService['getJobDetailedStats']>>
-    try {
-      stats = await Promise.race([
-        this.peerlyP2pJobs.getJobDetailedStats(
-          jobId,
-          buildReportWindow(outreach, now),
-        ),
-        delay(DELIVERY_STATS_TIMEOUT_MS, undefined, { ref: false }).then(() => {
-          throw new GatewayTimeoutException('Peerly job stats read timed out')
-        }),
-      ])
-    } catch (err) {
+    const stats = await this.smsAdmin.readDeliveryStats(outreach)
+    if (!stats) {
       counters.deliveryStatsFailed += 1
-      this.logger.warn(
-        { err, outreachId: outreach.id, projectId: jobId },
-        '[Outreach Inbound] delivery stats read failed; will retry next sweep',
-      )
       return
     }
     const data = {

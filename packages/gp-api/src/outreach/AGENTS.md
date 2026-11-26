@@ -669,8 +669,10 @@ false`: it hands back what was built, not a fresh build. A text holds the
   `updatedAt`), `outreachSmsDelivery.prisma` (`OutreachSmsDelivery`:
   `outreachId` primary key, a Win text's Peerly delivery receipts
   `delivered` / `failed` / `unconfirmed` and `readAt`, upserted by the inbound
-  sweep after each job's replies (at most every 6 hours a job, a read cut
-  off at 15 seconds, a failure skipped until a later pass) because Peerly keeps a job's stats for about
+  sweep after each job's replies (at most every 6 hours a job, through the
+  staff console's own `OutreachSmsAdminService.readDeliveryStats`, so both
+  share one cached, timeboxed read and its numbers; a failed read skips the
+  job's receipts until a later pass) because Peerly keeps a job's stats for about
   90 days; off the outreach row for the same `updatedAt` reason.
   `getSmsResults` reports `failed`, capped at the send, as `notDelivered`).
   Phone banking's own tables
