@@ -3,7 +3,7 @@ title: The photo_letter email is a fixed structure with two photos and a signatu
 status: active
 decided_by: [eugenebazdyriev]
 date: 2026-11-25
-code: []
+code: ['#4095']
 scope:
   - packages/contracts/src/outreach/EmailBlock.schema.ts
   - packages/contracts/src/outreach/EmailContent.schema.ts
