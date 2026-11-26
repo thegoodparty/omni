@@ -51,15 +51,19 @@ charged through the other.
   `proUpgradeCarryContext` and re-appends them to every step URL, so a reload
   or a Stripe redirect return keeps them. `returnTo` is an exact-path
   allowlist (`proUpgradePlanParams.ts`); anything else is dropped.
-- **Pro to Team.** A Pro holder with `plan=team` derives to `payment` alone
+- **Pro to Team.** "Pro holder" means `usePlan().heldPlan === 'pro'`, the plan
+  columns gp-api prices on; a legacy $10/month subscriber (plan free, `isPro`)
+  is not one. `usePlan().onSubscription` mirrors gp-api's `onLiveSubscription`; when it is true the
+  wizard routes `plan=team` visits away and no surface offers Team. A Pro holder with `plan=team` derives to `payment` alone
   (no stepper, one line item for the difference). `from=pro` rides the
   success return URL so the success step knows only the difference was paid.
 - **Copy and navigation (Nov 23 boards).** Guidance's Payment row reads
   "...for $299, one payment for your whole race."; Back off it goes to the page
   that carried the candidate in (`back=<path>` on the entry URL, set by
   `planCheckoutHref`'s third argument from the plans page,
-  exact-path allowlist like `returnTo`; history cannot say, since every step
-  move is a push) instead of always `/dashboard`, which stays the fallback. Checkout's verification notice is
+  exact-path allowlist like `returnTo`, which also keeps a plans page's own
+  `backTo` so Plans, checkout, Back, Back reaches where the candidate started;
+  history cannot say, since every step move is a push) instead of always `/dashboard`, which stays the fallback. Checkout's verification notice is
   an info `Alert` (clock icon, `paymentVerificationTitle` / `Detail`), the
   closing-week warning stays; the footnote carries a lock icon and "no
   subscription". "Unlocked now" lists the outreach credit as a row, the PIN
@@ -366,8 +370,9 @@ this, and neither does the server-side `Account - Pro Subscription Confirmed`.
 
 ## Gotchas
 
-- **Webhook-latency seam (the recurring bug class).** `isPro` flips only via the async
-  `checkout.session.completed` webhook. The SSR-seeded `CAMPAIGN_QUERY_KEY` has a 5-min
+- **Webhook-latency seam (the recurring bug class).** `isPro` flips asynchronously
+  when gp-api processes `invoice.paid` for the subscription. The SSR-seeded
+  `CAMPAIGN_QUERY_KEY` has a 5-min
   `staleTime`, so a just-paid candidate reads stale `isPro=false`. `SuccessStep`
   therefore **polls** the shared campaign query (refetch on mount, then every 2s until
   `isPro` flips, capped ~30s) so the banner/derivation pick up the flip without a manual
@@ -462,10 +467,9 @@ the closed banner and no PIN row on guidance, still walks status, EIN and
 filing details, and payment shows no verification line). The `v2` in the names
 is historical.
 
-Only the happy path is `@dev-only`, for the inbound Stripe
-`checkout.session.completed` webhook a preview cannot receive. Everything
-else stops before payment (a pre-payment filing submit creates the record
-but defers the compliance agent), so it runs on every PR preview.
+The happy path runs on PR previews by delivering the real paid test invoice
+in-process. Its additional `@dev-only` variant does not inject the event: it
+requires Stripe to deliver `invoice.paid` to dev's endpoint and activate Pro.
 
 Traps learned fixing the permanently-red main gate (PR #1009):
 

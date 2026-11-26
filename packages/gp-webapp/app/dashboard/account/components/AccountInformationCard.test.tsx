@@ -157,6 +157,29 @@ describe('AccountInformationCard plans', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows no Team upgrade to a one-time Pro plan that has ended', () => {
+    mockCampaign.mockReturnValue({
+      isPro: true,
+      plan: 'pro',
+      planPricingModel: 'one_time',
+      planEndedAt: '2026-11-01T00:00:00.000Z',
+    })
+    renderCard(true)
+    expect(screen.queryByText(/Upgrade for/)).not.toBeInTheDocument()
+  })
+
+  it('shows a legacy monthly subscriber no Team upgrade', () => {
+    mockCampaign.mockReturnValue({
+      isPro: true,
+      plan: 'free',
+      planPricingModel: null,
+      details: { subscriptionId: 'sub_1' },
+    })
+    renderCard(true, 'sub_1')
+    expect(screen.queryByText(/Upgrade for/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Need team logins/)).not.toBeInTheDocument()
+  })
+
   it('hides the Team upgrade from non-owners', () => {
     mockRole.mockReturnValue('campaignAdmin')
     mockCampaign.mockReturnValue({
@@ -197,7 +220,7 @@ describe('AccountInformationCard plans', () => {
     expect(screen.getByText('$175 outreach credit')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'See plans' })).toHaveAttribute(
       'href',
-      '/dashboard/plans',
+      '/dashboard/plans?backTo=%2Fdashboard%2Faccount',
     )
   })
 

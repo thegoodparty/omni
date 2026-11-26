@@ -848,10 +848,10 @@ jwIDAQAB
         dev: 'robocall-free-offer-2026-11',
         prod: 'robocall-free-offer-2026-11',
       }),
-      // The nightly case scout (src/caseScout/AGENTS.md). On in dev and prod.
       STRIPE_PRO_INVOICE_ONLY: String(
-        config.getBoolean('stripeProInvoiceOnly') ?? false,
+        config.getBoolean('stripeProInvoiceOnly') ?? environment !== 'prod',
       ),
+      // The nightly case scout (src/caseScout/AGENTS.md). On in dev and prod.
       // The bucket belongs to gp-ai's case-scout module. Dev and prod send
       // each night's handoff to Delegate; previews never run it or send, and
       // hold no webhook keys (deploy/gp-api-secret-keys.ts).
@@ -962,12 +962,10 @@ jwIDAQAB
         ? { DRIFT_PROBE_PEERLY_IDENTITY_ID: driftProbePeerlyIdentityId }
         : {}),
       // Background agents that dispatch to gp-api's own agents instead of
-      // the PMF Engine. A preview names every agent gp-api has, so the judge's
-      // candidate arm runs gp-api's engine; prod names only the agents the
-      // Universal Judge has read as same or better, and dev adds the agents
-      // whose dev-versus-preview comparison passed, so they accumulate real
-      // traffic there first (docs/cap-consolidation.md, docs/agent-evals.md,
-      // deploy/agentsOnGpApi.ts).
+      // the PMF Engine. Every environment names every agent gp-api has; a
+      // preview must, because it is the judge's candidate arm and an agent it
+      // left out would run the PMF Engine on both arms
+      // (docs/agent-evals.md, deploy/agentsOnGpApi.ts).
       AGENTS_ON_GP_API: agentsOnGpApi(environment),
     },
     permissions: [

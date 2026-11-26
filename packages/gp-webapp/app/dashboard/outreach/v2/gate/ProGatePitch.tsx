@@ -13,7 +13,7 @@ interface ProGatePitchProps {
   onDismiss: () => void
 }
 
-// The "join Pro to send this campaign" pitch a draft save opens over the
+// The "join Pro" pitch, titled for the channel, that a draft save opens over the
 // flow's step (win_per_campaign_pricing): the successor to the wizard's
 // inline InterstitialStep, which it shares its three events with.
 export const ProGatePitch = ({
@@ -23,7 +23,7 @@ export const ProGatePitch = ({
 }: ProGatePitchProps): React.JSX.Element => {
   const planPitch = useContextualPlanPitch()
   const { plan } = usePlan()
-  const copy = planInterstitialCopy(planPitch)
+  const copy = planInterstitialCopy(planPitch, channel)
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, {

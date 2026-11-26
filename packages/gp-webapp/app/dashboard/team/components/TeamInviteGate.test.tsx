@@ -38,7 +38,7 @@ vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
   useWinPerCampaignPricingFlag: () => ({ ready: true, enabled: state.flagOn }),
 }))
 vi.mock('app/dashboard/shared/membership/deriveMembershipState', () => ({
-  usePlan: () => ({ plan: state.plan }),
+  usePlan: () => ({ plan: state.plan, heldPlan: state.plan }),
 }))
 
 const PITCH_TITLE = 'Join Team to invite your campaign team'

@@ -45,10 +45,17 @@ interface UseDraftGateParams {
   // the Pro pitch as a dialog over the step they pressed it on, not as the
   // wizard's inline interstitial in place of it.
   pitchAsDialog?: boolean
-  // Closing the pitch dialog leaves the candidate on the step it is over,
-  // with the saved draft kept, instead of closing the flow. For a flow a chat
-  // card opened, whose review step is where the candidate was.
-  keepFlowOnDialogClose?: boolean
+  // Reopening a saved draft that needs Pro puts the pitch dialog over the
+  // flow's step, as a fresh save does, instead of the wizard in place of the
+  // step. The flow has to render a step for the dialog to sit over.
+  pitchOnResume?: boolean
+  // The draft drawer's "Upgrade to Pro" already made the pitch, so that
+  // resume opens the wizard itself.
+  resumeStartsOnWizard?: boolean
+  // The channel's draft write updates the saved row when it is pressed again
+  // (a chat card's keyed text). Without it a second press would meet the
+  // channel's one-draft cap, so the hook reopens the pitch for the row it has.
+  savesInPlace?: boolean
 }
 
 export interface DraftGate {
@@ -94,7 +101,9 @@ export const useDraftGate = ({
   onClose,
   resumeCta,
   pitchAsDialog = false,
-  keepFlowOnDialogClose = false,
+  pitchOnResume = false,
+  resumeStartsOnWizard = false,
+  savesInPlace = false,
 }: UseDraftGateParams): DraftGate => {
   // The saved draft row this flow is working against: the one the hub
   // resumed, the one a 409 says already exists, or the one just written.
@@ -110,6 +119,9 @@ export const useDraftGate = ({
   const [gateOrigin, setGateOrigin] = useState<GateOrigin>(null)
   const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [pitchOpen, setPitchOpen] = useState(false)
+  // The wizard was reached through the pitch dialog, so Back off its first
+  // step has a pitch to return to.
+  const [viaPitch, setViaPitch] = useState(false)
   const [explainerOpen, setExplainerOpen] = useState(false)
 
   // Reopening starts fresh, exactly as the rest of the flow state does.
@@ -123,8 +135,13 @@ export const useDraftGate = ({
     setGateOrigin(null)
     setGateCta(undefined)
     setPitchOpen(false)
+    setViaPitch(false)
     setExplainerOpen(false)
   }, [open, resumeDraft])
+
+  // A free candidate's Pro pitch is a dialog over the flow's step; every
+  // other requirement is a screen that stands in for it.
+  const proPitchGate = pitchAsDialog && gate.requirement === 'pro'
 
   // The gate screens stand in for a resumed flow until the candidate can
   // send. Open-only: the requirement clears the moment payment lands, while
@@ -147,17 +164,38 @@ export const useDraftGate = ({
       gate.requirement !== null &&
       gate.requirement !== 'closed'
     ) {
-      setGateOpen(true)
       setGateOrigin('resume')
       setGateCta(resumeCta)
+      if (proPitchGate && pitchOnResume && !resumeStartsOnWizard) {
+        setPitchOpen(true)
+      } else {
+        setGateOpen(true)
+      }
     }
-  }, [open, resumed, gate.requirement, resumeCta])
+  }, [
+    open,
+    resumed,
+    gate.requirement,
+    resumeCta,
+    proPitchGate,
+    pitchOnResume,
+    resumeStartsOnWizard,
+  ])
 
   // Build mode's one write: the draft the candidate comes back to. A 409
   // means they already have one, so the flow switches to that row instead of
   // reporting a failure they can do nothing about.
   const saveDraft = async (cta?: string): Promise<void> => {
     if (savingDraft) return
+    // Closing the pitch left the candidate on the step with the row saved, so
+    // pressing the button again opens the pitch for that row. Writing again
+    // would only meet the one-draft cap.
+    if (savedDraft !== null && proPitchGate && !savesInPlace) {
+      setGateOrigin('save')
+      setGateCta(cta)
+      setPitchOpen(true)
+      return
+    }
     setSavingDraft(true)
     setDraftSaveError(false)
     const result = await createDraft()
@@ -179,7 +217,7 @@ export const useDraftGate = ({
       setGateCta(cta)
       // Only the free tier's pitch is a dialog; a Pro candidate who still has
       // to verify goes straight to the verification screens.
-      if (pitchAsDialog && gate.requirement === 'pro') setPitchOpen(true)
+      if (proPitchGate) setPitchOpen(true)
       else setGateOpen(true)
       setSavingDraft(false)
       // The row exists once the 201 lands; a failed history refetch here is
@@ -200,7 +238,8 @@ export const useDraftGate = ({
         // a resume starts. Leaving it on review would put it one enabled
         // button away from checkout the moment the gate steps aside.
         goToResumeStep()
-        setGateOpen(true)
+        if (proPitchGate && pitchOnResume) setPitchOpen(true)
+        else setGateOpen(true)
         return
       } catch {
         setDraftSaveError(true)
@@ -219,6 +258,7 @@ export const useDraftGate = ({
   // they were on, with everything they had typed still in it.
   const handleGateComplete = (): void => {
     setGateOpen(false)
+    setViaPitch(false)
     const origin = gateOrigin
     setGateOrigin(null)
     if (origin === 'explainer' && savedDraft === null) return
@@ -226,25 +266,32 @@ export const useDraftGate = ({
     goToResumeStep()
   }
 
-  // Leaving the gate. With a draft behind it, "Finish later" means what it
-  // always did: the row is safe in history and the sheet closes. With
-  // nothing saved there is nothing to come back to, so leaving the gate can
-  // only mean returning to the step the candidate was building — which is
-  // also what Back on the upgrade wizard's first step calls.
+  // Leaving the gate. A Pro pitch the flow put over a step closes with that
+  // dialog alone: the candidate is back on the step they were on, with the
+  // draft saved and everything they typed still there. A gate screen that
+  // stood in for the step has nothing to go back to: with a draft behind it,
+  // "Finish later" means the row is safe in history and the sheet closes, and
+  // with nothing saved it can only mean returning to the step the candidate
+  // was building — which is also what Back on the upgrade wizard's first step
+  // calls.
   const handleGateExit = (): void => {
-    const dialogClosed = pitchOpen
+    const stepStaysUp =
+      proPitchGate &&
+      (gateOrigin === 'save' || (gateOrigin === 'resume' && pitchOnResume))
     setGateOpen(false)
     setPitchOpen(false)
+    setViaPitch(false)
     const origin = gateOrigin
     setGateOrigin(null)
     if (origin === 'explainer' || savedDraft === null) return
-    if (dialogClosed && keepFlowOnDialogClose) return
+    if (stepStaysUp) return
     onClose()
   }
 
   const joinPitch = useCallback((): void => {
     setPitchOpen(false)
     setGateOpen(true)
+    setViaPitch(true)
   }, [])
 
   const backToPitch = useCallback((): void => {
@@ -268,8 +315,7 @@ export const useDraftGate = ({
     gateCta,
     pitchOpen,
     joinPitch,
-    wizardBack:
-      pitchAsDialog && gateOrigin === 'save' ? backToPitch : undefined,
+    wizardBack: viaPitch ? backToPitch : undefined,
     explainerOpen,
     setExplainerOpen,
     savingDraft,

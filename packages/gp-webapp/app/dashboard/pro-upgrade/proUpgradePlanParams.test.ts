@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   carryQueryString,
   parseProUpgradeCarry,
+  parsePlansBackTo,
   parseReturnTo,
+  plansHrefWithBackTo,
 } from './proUpgradePlanParams'
 
 describe('parseReturnTo', () => {
@@ -25,6 +27,69 @@ describe('parseReturnTo', () => {
     '',
   ])('ignores %s', (value) => {
     expect(parseReturnTo(value)).toBeNull()
+  })
+})
+
+describe('parsePlansBackTo', () => {
+  it.each([
+    '/dashboard',
+    '/dashboard/team',
+    '/dashboard/outreach',
+    '/dashboard/contacts',
+    '/dashboard/account',
+    '/dashboard/race-opponent',
+  ])('keeps %s', (path) => {
+    expect(parsePlansBackTo(path)).toBe(path)
+  })
+
+  it.each([
+    '/dashboard/plans',
+    '/dashboard/billing',
+    'https://evil.example/dashboard',
+    '//evil.example',
+    '',
+    null,
+    undefined,
+  ])('ignores %s', (value) => {
+    expect(parsePlansBackTo(value)).toBeNull()
+  })
+})
+
+describe('plans round trip through checkout', () => {
+  it('keeps the original page on the plans page a Back off checkout returns to', () => {
+    const plans = plansHrefWithBackTo('/dashboard/contacts')
+    expect(plans).toBe('/dashboard/plans?backTo=%2Fdashboard%2Fcontacts')
+
+    const carry = parseProUpgradeCarry(new URLSearchParams({ back: plans }))
+    expect(carry.backTo).toBe(plans)
+    const plansUrl = new URL(carry.backTo ?? '', 'http://x.test')
+    expect(parsePlansBackTo(plansUrl.searchParams.get('backTo'))).toBe(
+      '/dashboard/contacts',
+    )
+  })
+
+  it('re-appends the original page to every step URL', () => {
+    const plans = plansHrefWithBackTo('/dashboard/team')
+    const carry = parseProUpgradeCarry(new URLSearchParams({ back: plans }))
+    const next = parseProUpgradeCarry(
+      new URLSearchParams(carryQueryString(carry)),
+    )
+    expect(next.backTo).toBe(plans)
+  })
+
+  it('drops a nested backTo that is not allowed', () => {
+    const carry = parseProUpgradeCarry(
+      new URLSearchParams({
+        back: '/dashboard/plans?backTo=https://evil.test',
+      }),
+    )
+    expect(carry.backTo).toBe('/dashboard/plans')
+  })
+
+  it('does not nest plans inside plans', () => {
+    expect(parseReturnTo('/dashboard/plans?backTo=/dashboard/plans')).toBe(
+      '/dashboard/plans',
+    )
   })
 })
 

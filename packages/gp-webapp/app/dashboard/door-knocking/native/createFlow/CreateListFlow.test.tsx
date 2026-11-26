@@ -2602,7 +2602,7 @@ describe('CreateListFlow — the Pro gate', () => {
     rerender(<CreateListFlow {...baseProps} step="draw" />)
     expect(screen.queryByText(GATE_LINE)).toBeNull()
     expect(
-      screen.queryByRole('dialog', { name: 'Join Pro to send this campaign' }),
+      screen.queryByRole('dialog', { name: 'Join Pro to start knocking' }),
     ).toBeNull()
     expect(screen.queryByRole('button', { name: 'Create campaign' })).toBeNull()
 
@@ -2611,7 +2611,7 @@ describe('CreateListFlow — the Pro gate', () => {
     )
 
     const dialog = await screen.findByRole('dialog', {
-      name: 'Join Pro to send this campaign',
+      name: 'Join Pro to start knocking',
     })
     expect(document.querySelector('.lucide-lock')).toBeNull()
     expect(
@@ -2628,7 +2628,7 @@ describe('CreateListFlow — the Pro gate', () => {
     expect(screen.queryByTestId('pro-upgrade-flow')).toBeNull()
     expect(
       await screen.findByRole('dialog', {
-        name: 'Join Pro to send this campaign',
+        name: 'Join Pro to start knocking',
       }),
     ).toBeInTheDocument()
   })

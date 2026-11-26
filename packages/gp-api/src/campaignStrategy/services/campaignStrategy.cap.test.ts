@@ -92,6 +92,7 @@ describe('CampaignStrategyService', () => {
     }
     campaign: { findUnique: ReturnType<typeof vi.fn> }
     experimentRun: { findUnique: ReturnType<typeof vi.fn> }
+    agentRun: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
 
@@ -154,6 +155,11 @@ describe('CampaignStrategyService', () => {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
       },
       experimentRun: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+      // The section reader falls back to this table for a run id the PMF
+      // Engine's table does not hold.
+      agentRun: {
         findUnique: vi.fn().mockResolvedValue(null),
       },
       // Supports both the array form and the interactive (callback) form,

@@ -5,7 +5,7 @@ import type {
   SmsComplianceWindow,
 } from '@goodparty_org/contracts'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import type { TcrCompliance } from 'helpers/types'
+import type { Campaign, TcrCompliance } from 'helpers/types'
 import { isPinIssued } from 'app/dashboard/profile/texting-compliance/shared/useCvPinGate'
 
 export type MembershipTier = 'free' | 'pro' | 'team'
@@ -85,14 +85,40 @@ export const deriveMembershipState = ({
 
 export interface PlanState {
   plan: CampaignPlanName
+  // The plan the campaign holds on its plan columns, the signal gp-api prices
+  // a Team purchase on (heldPlan in campaignPlanPurchase.service): a legacy
+  // $10/month subscriber reads free here even though `plan` reads pro. Only
+  // 'pro' here earns the Team upgrade price.
+  heldPlan: CampaignPlanName
   isPaid: boolean
-  // The $10/month Stripe subscription: never offered a plan purchase.
+  // The $10/month Stripe subscription: never offered a plan purchase. Matches
+  // gp-api's onLiveSubscription, so a legacy subscriber counts too.
   onSubscription: boolean
   planEndsAt: Date | null
   creditCents: number
   // True above the race-size threshold, where Team is the pitched plan. Stays
   // false when the voter count is missing, so pitches fall back to Pro.
   recommendTeam: boolean
+}
+
+// Mirrors onLiveSubscription in gp-api's campaignPlanPurchase.service, which
+// refuses a plan purchase on these campaigns: a one-time plan outranks a stray
+// subscription, a cancelled subscription has ended, and a subscriber from
+// before the plan columns shipped is seen only through isPro and the
+// subscription id.
+const onLiveSubscription = (campaign: Campaign | null | undefined): boolean => {
+  if (!campaign) return false
+  if (
+    campaign.planPricingModel === 'one_time' &&
+    !campaign.planEndedAt &&
+    campaign.plan !== 'free'
+  ) {
+    return false
+  }
+  if (campaign.planPricingModel === 'subscription' && !campaign.planEndedAt) {
+    return true
+  }
+  return Boolean(campaign.isPro && campaign.details?.subscriptionId)
 }
 
 // The one place new code reads plan state, so a live resolver can replace
@@ -111,12 +137,9 @@ export const usePlan = (): PlanState => {
   const voters = campaign?.raceTargetMetrics?.registeredVoters
   return {
     plan,
+    heldPlan: campaign?.planEndedAt ? 'free' : (campaign?.plan ?? 'free'),
     isPaid: plan !== 'free',
-    // A cancelled subscription keeps its pricing model but has ended.
-    onSubscription:
-      campaign?.planPricingModel === 'subscription' &&
-      !campaign.planEndedAt &&
-      Boolean(campaign.isPro),
+    onSubscription: onLiveSubscription(campaign),
     planEndsAt: campaign?.planEndsAt ? new Date(campaign.planEndsAt) : null,
     creditCents: campaign?.outreachCreditCents ?? 0,
     recommendTeam:

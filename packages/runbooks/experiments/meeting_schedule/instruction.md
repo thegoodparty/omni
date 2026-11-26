@@ -18,7 +18,7 @@ The position name (`office`) usually contains the jurisdiction (e.g. `"Burnsvill
 1. Read `PARAMS_FILE`. Capture `state`, `office`. Derive the jurisdiction (city / town / county) from `office`; if `office` is generic, WebSearch `office` + `state` to identify it before any other step. If `known_schedule_location` is present, hold it as the channel-0 hint for Step 2.
 2. Try the channel-0 hint first when present; otherwise discover the official government site via `WebSearch` (city/county domain, ideally `.gov` or `.us`).
 3. Fetch the agendas / meetings / city council page via `pmf_runtime.http.get` and confirm a recurring schedule is stated.
-4. If no recurring schedule appears on a top-level page, search for and fetch the municipal code section (often searchable as `<jurisdiction> <state> municipal code council meetings`).
+4. If the page does not state a recurrence for the requested body, search the municipal code for that body's meeting rules.
 5. Determine local meeting time, IANA timezone, and typical duration.
 6. Capture the official `meeting_name` (e.g. "City Council") and customary `location` (e.g. "City Hall Council Chambers, 200 Main St") from the same official source.
 7. Encode the recurrence as an iCalendar RFC 5545 RRULE string. Do **not** include `DTSTART`.
@@ -28,7 +28,7 @@ The position name (`office`) usually contains the jurisdiction (e.g. `"Burnsvill
 11. Run `python3 /workspace/validate_output.py` (schema).
 12. Perform the spot-check.
 
-If after STEP 4 you cannot find an explicit recurring schedule from an official source, set `status: "not_found"` with empty string / `0` defaults for all schedule fields. **You SHOULD still populate `sources` with the URLs you searched** so a reviewer can audit the search trail — `sources` is optional but useful for `not_found`. **Do not invent a schedule.**
+If after STEP 4 you cannot find an explicit recurring schedule from an official source **for the office's own body**, set `status: "not_found"` with empty string / `0` defaults for all schedule fields. A recurrence that belongs to another body in the same jurisdiction is not a schedule for this office, however easy it was to find. **You SHOULD still populate `sources` with the URLs you searched** so a reviewer can audit the search trail — `sources` is optional but useful for `not_found`. **Do not invent a schedule.**
 
 ## CRITICAL RULES
 
@@ -107,7 +107,7 @@ Bind the derived jurisdiction to `CITY` for use in subsequent steps. All later `
 
 ### Step 2 — Find the official site
 
-**Channel 0 (when `known_schedule_location` is present).** Try the hint first. It may be a URL or prose describing how to reach the schedule page. Fetch the URL with `pmf_runtime.http.get`; if prose, parse out a URL and fetch that. If the page still states the recurring schedule, you are done with discovery — proceed to Step 5. If the hint 404s, redirects to a generic landing page, or no longer states a recurrence, **do not bail** — record a `run_decision`-style note ("known_schedule_location stale: <reason>") and fall through to channel 1. The hint is a starting point, not an authority.
+**Channel 0 (when `known_schedule_location` is present).** Try the hint first. It may be a URL or prose describing how to reach the schedule page. Fetch the URL with `pmf_runtime.http.get`; if prose, parse out a URL and fetch that. If the page states the recurring schedule **for the office's own body** (Step 2b), you are done with discovery — proceed to Step 5. A page a prior run left behind can be the wrong body's too, so check it the same way. If the hint 404s, redirects to a generic landing page, states no recurrence, or states one for another body, **do not bail** — record a `run_decision`-style note ("known_schedule_location stale: <reason>") and fall through to channel 1. The hint is a starting point, not an authority.
 
 **Channel 1 (default discovery).**
 
@@ -123,6 +123,18 @@ Walk the search hits looking for:
 - City government domain (often `.gov`, `.us`, or `cityof<name>.com`)
 - An "Agendas & Minutes" / "Meetings" / "City Council" page on that domain
 - A municipal code section that codifies the meeting schedule
+
+### Step 2b — Confirm the schedule belongs to the office's own body
+
+**The rule: `status: "found"` needs positive evidence that the body `office` names is the one holding the meetings you found — same body, same jurisdiction. A page stating that some body in this jurisdiction meets says nothing about this office, however prominently the city or county site presents it.**
+
+- **Do not decide from the title whether the office holds meetings.** A title that reads like one officer can be a body (`"Commissioners Court"`, `"Board of Supervisors"`, `"Board of Elections"`), and a single officeholder can preside over a regular public session. Read the office's own page and the municipal code, then decide. Nothing in this step names a title that never meets.
+- **Never substitute another body.** The county board, the city council, the school board and the planning commission each keep their own schedule, and a site that hosts one hosts the others. Another body's rule, time, location and name are not this office's, even when the office shares the county, the building, the chambers, the clerk or the site.
+- **No recurrence for this office's own body ⇒ `not_found`.** Not a borrowed one, not the nearest one, not the one the site puts in front of you. The adjacent body's page is the trap: it is easy to find, states a clean recurrence, and answers a question nobody asked.
+- **A renamed body is the same body, not another one.** `"Common Council"` for `"City Council"`, `"Board of Trustees"` for `"Village Board"`, `"Board of Aldermen"` / `"Board of Alderpersons"` for a city council, `"Town Board"` for `"Town Council"`, `"Commissioners Court"` for a county commission — same body, same jurisdiction, different word. Match on what the body is and who sits on it; never report `not_found` for a body the source spells under another name it uses for itself.
+- **A shared room cuts both ways.** Council chambers host the council, the planning board and sometimes the county board on different nights, so a shared location never proves two bodies are one — and never disqualifies a real schedule either. Test the body, not the address.
+
+If no recurrence for the office's own body turns up, go to Step 8 and emit `status: "not_found"` with every schedule field empty, recording the trail in `sources` — the other body's page included, with a `note` saying it belongs to a different body.
 
 ### Step 3 — Confirm a recurring schedule
 
@@ -153,14 +165,14 @@ Examples that do NOT qualify (do not use these alone):
 If the agendas page doesn't state the recurrence explicitly, search for the municipal code:
 
 ```python
-# WebSearch: f"{CITY} {STATE} municipal code council meetings"
+# WebSearch: f"{CITY} {STATE} {OFFICE} municipal code regular meetings"
 # Then http.get the most credible *.gov result
 r = http.get("https://library.municode.com/<state>/<city>/codes/...")
 ```
 
 The municipal code is authoritative when present.
 
-If after a thorough search no recurring schedule is found on any official source, go to STEP 8 and emit `status: "not_found"`.
+If after a thorough search no recurring schedule is found on any official source for the office's own body, go to STEP 8 and emit `status: "not_found"`.
 
 ### Step 5 — Time, timezone, duration
 
@@ -191,7 +203,7 @@ gp-api persists this string and passes it back as `known_schedule_location` on t
 - **Prose is allowed when no single URL captures it.** Multi-step paths ("Top nav → Government → City Council → §2.04.010") are useful when the schedule is buried under accordions or behind an interstitial. Lead with a URL and append the navigation prose when both add value.
 - **When the hint worked.** If you arrived at the schedule via the channel-0 hint and it is still accurate, write the hint back unchanged (this confirms it for the next run).
 - **When the hint was stale.** Replace it with whatever location you found instead. Do not chain "hint X is stale, try Y" into the prose — record the current best location only.
-- **For `status: "not_found"`.** Set to a URL of the most likely future location (the city's meetings page, even if it currently lacks a stated recurrence) so the next run starts there. Set to `null` only when no plausible lead exists.
+- **For `status: "not_found"`.** Save a plausible future lead for the requested body, even if it currently lacks a stated recurrence. Do not save a page dedicated to another body. If no plausible lead exists, use `null`.
 
 ### Step 9 — Write the artifact
 
@@ -263,6 +275,8 @@ If schema validation fails, read the error, fix the artifact, re-run. Do NOT dec
 Validator-passing JSON can still be garbage. Before declaring success, manually verify:
 
 - **`status: "found"` requires an official source.** If `sources` contains only news outlets, blogs, or aggregator sites, downgrade to `status: "not_found"` and clear the schedule fields. Re-run validation.
+- **The body is the office's own.** Read `meeting_name` against `office`. If they name two different bodies, the answer is `not_found` with every schedule field empty. A recurrence on the same site, in the same building or from the same clerk belongs to the other body until the page you cite says this office's body is the one that meets. Otherwise use the artifact as-is — a genuinely shared name is a match, not a substitution.
+- **A renamed body is not a different body.** Before downgrading to `not_found`, check that the name you read is genuinely another body and not this one under another word — `"Common Council"` for `"City Council"`, `"Board of Trustees"` for `"Village Board"`, `"Commissioners Court"` for a county commission.
 - **The `human` field matches the `rrule` literally.** Read your `human` description aloud; mechanically construct the RRULE from it and confirm it equals the value you wrote. Common bug: source says "second Monday" but agent writes `FREQ=WEEKLY;BYDAY=MO` (every Monday) instead of `FREQ=MONTHLY;BYDAY=2MO`.
 - **`timezone` is an IANA name, not an abbreviation.** `America/Denver` not `MST`. `America/Phoenix` not `America/Denver` for Arizona cities.
 - **`time` is 24-hour with leading zero on the hour.** `19:00` not `7:00 PM`. `09:00` not `9:00`.
@@ -282,3 +296,5 @@ Validator-passing JSON can still be garbage. Before declaring success, manually 
 | `timezone` pattern violation                                       | Used an abbreviation like `MST` or a UTC offset like `-07:00` | Use IANA name: `America/Denver`                                                        |
 | `sources` minItems violation when `status: "found"`                | Forgot to record source URLs                                  | Add every URL you touched with a one-sentence `note`                                   |
 | Found a calendar listing but no recurrence statement               | Confused upcoming-meetings calendar with recurrence rule      | A calendar of dates is not a rule — go to municipal code or downgrade to `not_found`   |
+| An adjacent body's schedule is reported for this office             | The nearest page that states a recurrence belongs to a body   | A schedule belongs to the body that holds it — `not_found`, every field empty, the trail in `sources` |
+| `not_found` for a body the source spells differently               | Read a rename as a different body                             | Same jurisdiction, same seat, different word — `"Common Council"` for `"City Council"` is a match |

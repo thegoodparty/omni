@@ -213,7 +213,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     await screen.findAllByText('Your call sheet is ready')
     expect(screen.queryByText(GATE_LINE)).toBeNull()
     expect(
-      screen.queryByRole('dialog', { name: 'Join Pro to send this campaign' }),
+      screen.queryByRole('dialog', { name: 'Join Pro to call this list' }),
     ).toBeNull()
 
     await user.click(
@@ -221,7 +221,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     )
 
     const dialog = await screen.findByRole('dialog', {
-      name: 'Join Pro to send this campaign',
+      name: 'Join Pro to call this list',
     })
     expect(document.querySelector('.lucide-lock')).toBeNull()
     // The ready screen is still there behind the dialog.
@@ -243,7 +243,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
     expect(
       await screen.findByRole('dialog', {
-        name: 'Join Pro to send this campaign',
+        name: 'Join Pro to call this list',
       }),
     ).toBeInTheDocument()
     expect(createCalls).toHaveLength(0)
