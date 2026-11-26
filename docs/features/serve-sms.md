@@ -249,7 +249,8 @@ theme store. `PollIssue` stays on the legacy `Poll` table.
 
 `GET /v1/outreach/serve/:id/poll-results` (flag `serve-self-serve-polls`)
 reads that run: `sent` is the `OutreachTextRecipient` count, `responses` is
-distinct non-opt-out constituents, and confidence uses `sent` as the
+constituents whose latest message is not an opt-out (each person counts once,
+by their last status), and confidence uses `sent` as the
 population. Under `POLL_MIN_RESPONSES` (20, in contracts) it returns no themes
 and no confidence. `lastAnalysisAt` is stamped when an effort-scope run
 completes. The pipeline publishes at most 3 themes today (`publish_top_n`),

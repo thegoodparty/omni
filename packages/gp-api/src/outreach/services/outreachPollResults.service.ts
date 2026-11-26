@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { isBefore } from 'date-fns'
 import {
   isHighConfidence,
   POLL_MIN_RESPONSES,
@@ -72,7 +73,13 @@ export class OutreachPollResultsService extends createPrismaBase(
       this.client.outreachTextRecipient.count({ where: { outreachId } }),
       this.client.pollIndividualMessage.findMany({
         where: { outreachId, sender: PollIndividualMessageSender.CONSTITUENT },
-        select: { id: true, personId: true, isOptOut: true, createdAt: true },
+        select: {
+          id: true,
+          personId: true,
+          isOptOut: true,
+          createdAt: true,
+          sentAt: true,
+        },
       }),
       this.client.feedbackSynthesisRun.findMany({
         where: { outreachId },
@@ -82,12 +89,20 @@ export class OutreachPollResultsService extends createPrismaBase(
     ])
 
     const answers = messages.filter((message) => message.isOptOut !== true)
-    const responses = new Set(answers.map((message) => message.personId)).size
-    const optOuts = new Set(
-      messages
-        .filter((message) => message.isOptOut === true)
-        .map((message) => message.personId),
-    ).size
+    // One status per person, from their latest message: someone who answered
+    // and then opted out counts as opted out, never as both.
+    const latestByPerson = new Map<string, (typeof messages)[number]>()
+    for (const message of messages) {
+      const seen = latestByPerson.get(message.personId)
+      if (!seen || !isBefore(message.sentAt, seen.sentAt)) {
+        latestByPerson.set(message.personId, message)
+      }
+    }
+    const lastMessages = [...latestByPerson.values()]
+    const optOuts = lastMessages.filter(
+      (message) => message.isOptOut === true,
+    ).length
+    const responses = lastMessages.length - optOuts
     const notEnoughResponses = responses < POLL_MIN_RESPONSES
     const lastAnalysisAt = outreach.pollDetails?.lastAnalysisAt ?? null
 

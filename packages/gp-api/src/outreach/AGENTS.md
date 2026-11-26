@@ -674,7 +674,11 @@ false`: it hands back what was built, not a fresh build. A text holds the
   share one cached, timeboxed read and its numbers; a failed read skips the
   job's receipts until a later pass) because Peerly keeps a job's stats for about
   90 days; off the outreach row for the same `updatedAt` reason.
-  `getSmsResults` reports `failed`, capped at the send, as `notDelivered`).
+  `getSmsResults` reports `notDelivered` as the failed share of receipts
+  applied to the people texted, capped at those with no reply and no opt-out,
+  because Peerly counts receipts per message for the whole job and never per
+  person. It also counts each person once by their last status: anyone who
+  opted out is Opted out, never Responded).
   Phone banking's own tables
   (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
   `ContactInteractionPhoneBanking`, `PhoneBankingSuppressedPhone`) and
