@@ -73,6 +73,7 @@ export const NO_DELIVERIES: EmailDeliveryCounts = {
   complained: 0,
   opened: 0,
   clicked: 0,
+  optedOut: 0,
 }
 
 @Injectable()
@@ -202,8 +203,11 @@ export class OutreachEmailService extends createPrismaBase(
           WHERE complained_at IS NOT NULL OR status = 'complained'
         )::int AS complained,
         COUNT(*) FILTER (WHERE first_opened_at IS NOT NULL)::int AS opened,
-        COUNT(*) FILTER (WHERE first_clicked_at IS NOT NULL)::int AS clicked
+        COUNT(*) FILTER (WHERE first_clicked_at IS NOT NULL)::int AS clicked,
+        MAX(outreach_email.unsubscribed_count)::int AS "optedOut"
       FROM outreach_email_recipient
+      JOIN outreach_email
+        ON outreach_email.id = outreach_email_recipient.outreach_email_id
       WHERE outreach_email_id = ANY(${outreachEmailIds})
       GROUP BY outreach_email_id
     `

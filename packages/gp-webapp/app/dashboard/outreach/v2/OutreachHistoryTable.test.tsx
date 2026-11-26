@@ -14,7 +14,7 @@ vi.mock('@shared/experiments/winPerCampaignPricingFlag', () => ({
 const desktopTable = () => screen.getAllByRole('table')[0] as HTMLElement
 
 describe('OutreachHistoryTable — unified history', () => {
-  it('shows how many emails were delivered in Results', async () => {
+  it('shows clicks and click-through rate in Results', async () => {
     api.mock('GET /v1/outreach/email/:id', {
       status: 200,
       data: {
@@ -53,6 +53,7 @@ describe('OutreachHistoryTable — unified history', () => {
           complained: 2,
           opened: 412,
           clicked: 87,
+          optedOut: 3,
         },
       },
     })
@@ -69,7 +70,7 @@ describe('OutreachHistoryTable — unified history', () => {
     render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
 
     expect(
-      await within(desktopTable()).findByText('978 delivered'),
+      await within(desktopTable()).findByText('87 clicked (9% CTR)'),
     ).toBeInTheDocument()
   })
 

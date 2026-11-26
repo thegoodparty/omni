@@ -38,6 +38,7 @@ import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { EmailPreview } from './EmailPreview'
 import { EmailSummary } from './EmailSummary'
 import { formatCount } from './emailFlow.util'
+import { OUTREACH_RESULTS_COPY } from '../outreachResultsCopy'
 import type { EmailSurface } from './emailSurface'
 
 const SELF_CLEARING_PAUSES = ['ses_account', 'daily_quota']
@@ -146,11 +147,17 @@ const CANCELABLE = ['pending_payment', 'pending', 'in_progress']
 export const EMAIL_RESULT_ROWS: {
   label: string
   count: (counts: EmailDeliveryCounts) => number
+  percentSuffix?: string
 }[] = [
-  { label: 'Delivered', count: (c) => c.delivered },
+  { label: OUTREACH_RESULTS_COPY.delivered, count: (c) => c.delivered },
+  { label: OUTREACH_RESULTS_COPY.notDelivered, count: (c) => c.bounced },
+  {
+    label: OUTREACH_RESULTS_COPY.clicked,
+    count: (c) => c.clicked,
+    percentSuffix: OUTREACH_RESULTS_COPY.ctr,
+  },
+  { label: OUTREACH_RESULTS_COPY.optedOut, count: (c) => c.optedOut },
   { label: 'Opened (approximate)', count: (c) => c.opened },
-  { label: 'Clicked', count: (c) => c.clicked },
-  { label: 'Bounced', count: (c) => c.bounced },
   { label: 'Marked as spam', count: (c) => c.complained },
 ]
 
@@ -176,6 +183,7 @@ const EmailResults = ({ counts }: { counts: EmailDeliveryCounts }) => (
               <span className="font-semibold">{formatCount(count)}</span>
               <span className="text-xs text-muted-foreground">
                 {Math.round((count / counts.sent) * 100)}%
+                {row.percentSuffix ? ` ${row.percentSuffix}` : ''}
               </span>
             </span>
           </div>

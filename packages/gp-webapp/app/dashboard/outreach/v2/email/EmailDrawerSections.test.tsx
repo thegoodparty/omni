@@ -42,6 +42,7 @@ const send = (over: Partial<EmailSend> = {}): EmailSend => ({
     complained: 1,
     opened: 80,
     clicked: 12,
+    optedOut: 5,
   },
   content,
   ...over,
@@ -61,6 +62,8 @@ describe('EmailDrawerSections', () => {
     expect(stats).toHaveTextContent('Delivered19095%')
     expect(stats).toHaveTextContent('Opened (approximate)8040%')
     expect(stats).toHaveTextContent('Marked as spam11%')
+    expect(stats).toHaveTextContent('Clicked126% CTR')
+    expect(stats).toHaveTextContent('Opted out53%')
     expect(screen.getByTestId('email-preview-subject')).toHaveTextContent(
       'Subject: October update',
     )
