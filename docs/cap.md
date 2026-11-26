@@ -133,5 +133,6 @@ to ask and how to read the verdict: `docs/agent-evals.md`.
 | Understanding / changing a background agent             | [`cap-background-agents.md`](cap-background-agents.md)                                       |
 | Understanding / changing an interactive chat            | [`cap-interactive-agents.md`](cap-interactive-agents.md)                                     |
 | The gp-api transport layer for runs                     | `packages/gp-api/src/agentExperiments/AGENTS.md`                                             |
+| Agents that run inside gp-api, not the PMF Engine       | `packages/gp-api/src/agents/AGENTS.md`                                                       |
 | Writing/running an eval, changing a prompt safely       | `packages/runbooks/books/pmf-eval-system.md`                                                 |
 | The agent runtime, broker, dispatch internals           | `packages/gp-ai/pmf_engine/control_plane/README.md`, `packages/gp-ai/broker/ARCHITECTURE.md` |
