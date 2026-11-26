@@ -4717,6 +4717,63 @@ describe('door-knocking routes', () => {
       expect(row.outreachId).toBe(envelope.id)
     })
 
+    it('reports the campaign outcomes by door, not by person', async () => {
+      const turf = await createTurf()
+      const targets = await service.prisma.doorKnockingStopTarget.findMany({
+        where: { stop: { doorKnockingTurfId: turf.id } },
+        orderBy: { id: 'asc' },
+      })
+      const doorOf = (target: (typeof targets)[number]) =>
+        `${target.doorKnockingStopId}|${target.addressKey}`
+      const [first] = targets
+      expect(first).toBeDefined()
+      const firstDoor = doorOf(first!)
+      const doors = new Set(targets.map(doorOf))
+
+      for (const [index, target] of targets.entries()) {
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: `aaaaaaaa-bbbb-4ccc-8ddd-${String(index).padStart(12, '0')}`,
+          ...(index === 0
+            ? {
+                outcome: 'answered',
+                supportAnswer: 'supporter',
+                willVote: 'yes',
+              }
+            : { outcome: 'not_home' }),
+        })
+        expect(res.status).toBe(201)
+      }
+
+      const envelope = await envelopeFor(turf.id)
+      const res = await service.client.get(
+        `/v1/door-knocking/campaigns/${envelope.id}/results`,
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.doorsKnocked).toBe(doors.size)
+      // A housemate logged not home does not undo the door that opened.
+      expect(res.data.byOutcome.answered).toBe(1)
+      expect(res.data.byOutcome.not_home).toBe(
+        [...doors].filter((door) => door !== firstDoor).length,
+      )
+      expect(res.data.bySupport).toEqual({
+        supporter: 1,
+        unsure: 0,
+        non_supporter: 0,
+      })
+      expect(res.data.byWillVote.yes).toBe(1)
+    })
+
+    it('404s results for a campaign that is not yours', async () => {
+      const res = await service.client.get(
+        '/v1/door-knocking/campaigns/999999/results',
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+      expect(res.status).toBe(404)
+    })
+
     // What comes back recolors the dot on the phone without re-fetching the
     // route, so it has to answer for the PERSON the way every other surface
     // does. Deriving it from the row just written made this the last place

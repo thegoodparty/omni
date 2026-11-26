@@ -1753,6 +1753,10 @@ export {
   DoorKnockingPurposeSchema,
   type DoorKnockingPurpose,
 } from './doorKnocking/DoorKnockingTurf.schema'
+export {
+  DoorKnockingCampaignResultsSchema,
+  type DoorKnockingCampaignResults,
+} from './doorKnocking/DoorKnockingCampaignResults.schema'
 
 export {
   DOOR_KNOCK_STATUSES,

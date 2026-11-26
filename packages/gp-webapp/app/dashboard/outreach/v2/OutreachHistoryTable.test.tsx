@@ -218,6 +218,49 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(table.queryByText('NativeDoorKnocking')).not.toBeInTheDocument()
   })
 
+  it('shows doors answered across the whole campaign, multi-turf included', async () => {
+    const anchorsAsked: string[] = []
+    api.mock(
+      'GET /v1/door-knocking/campaigns/:anchorId/results',
+      ({ params }) => {
+        anchorsAsked.push(String(params.anchorId))
+        return {
+          status: 200,
+          data: {
+            doorsKnocked: 40,
+            byOutcome: {
+              answered: 12,
+              not_home: 25,
+              refused_to_engage: 2,
+              inaccessible: 1,
+              not_a_voter: 0,
+            },
+            bySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+            byWillVote: { yes: 0, no: 0, unsure: 0, already_voted: 0 },
+            byFollowUp: { yes: 0, no: 0 },
+          },
+        }
+      },
+    )
+    const rows: HistoryRow[] = [
+      {
+        id: 7,
+        date: '2026-08-20',
+        outreachType: 'nativeDoorKnocking',
+        name: 'Elm & Cedar',
+        status: 'in_progress',
+        turfCount: 3,
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(
+      await within(desktopTable()).findByText('12 answered'),
+    ).toBeInTheDocument()
+    expect(anchorsAsked).toContain('7')
+  })
+
   // in_progress means a canvasser is walking, not the non-p2p map's
   // "Scheduled" — the same call nativePhoneBanking already makes.
   it('renders in_progress as In progress for a nativeDoorKnocking row', () => {

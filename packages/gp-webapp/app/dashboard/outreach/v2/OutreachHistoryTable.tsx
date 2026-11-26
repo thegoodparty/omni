@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Badge,
   Button,
@@ -49,6 +50,7 @@ import {
 import { useSmsResults } from './useOutreachResults'
 import { getOutreachHistoryCopy } from './outreachHistoryCopy'
 import { OUTREACH_RESULTS_COPY } from './outreachResultsCopy'
+import { campaignResultsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
 import { useWinPerCampaignPricingFlag } from '@shared/experiments/winPerCampaignPricingFlag'
 import { useEmailSend } from './email/emailApi'
 
@@ -206,21 +208,14 @@ const EmailClickedMetric = ({
   return <>{OUTREACH_RESULTS_COPY.clickedCount(counts.clicked, counts.sent)}</>
 }
 
-// "Logged", not "responses": a knock is logged whether or not anyone answered,
-// and the drawer already says "N of M people logged" off this same number.
-const DoorKnockingLoggedMetric = ({
-  id,
-  detailFetcher,
-}: {
-  id: number
-  detailFetcher: OutreachDetailFetcher
-}) => {
-  const { data } = useOutreachDetail(id, true, detailFetcher)
-  const count = data?.doorKnocking?.loggedCount
-  if (count === undefined) {
+// Doors answered across every turf in the campaign, off the same results the
+// drawer's Statistics card reads, so a multi-turf row has a number too.
+const DoorKnockingAnsweredMetric = ({ anchorId }: { anchorId: number }) => {
+  const { data } = useQuery(campaignResultsQueryOptions(anchorId))
+  if (!data) {
     return <span className="text-muted-foreground">—</span>
   }
-  return <>{count.toLocaleString()} logged</>
+  return <>{OUTREACH_RESULTS_COPY.answeredCount(data.byOutcome.answered)}</>
 }
 
 // A robocall's count lives on its satellite, not the spine's text counts,
@@ -397,13 +392,8 @@ const RowResults = ({
     )
   }
   if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
-    // Anchor-only, exactly as above — and the dash is already this
-    // function's answer for a row with nothing to report.
-    if ((row.turfCount ?? 1) > 1) {
-      return <span className="text-muted-foreground">—</span>
-    }
     return (
-      <DoorKnockingLoggedMetric id={row.id} detailFetcher={detailFetcher} />
+      <DoorKnockingAnsweredMetric anchorId={row.campaignOutreachId ?? row.id} />
     )
   }
   if (isEmailRow(row) && row.status !== 'draft') {
