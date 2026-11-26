@@ -1721,14 +1721,14 @@ describe('OutreachDetailsDrawer — SMS statistics', () => {
     )
 
     expect(
-      await screen.findByText(/Based on 1,204 SMS contacts/),
+      await screen.findByText(/Based on 1,204 texts sent/),
     ).toBeInTheDocument()
     expect(screen.getByText('Responded')).toBeInTheDocument()
     expect(screen.getByText('186')).toBeInTheDocument()
     expect(screen.getByText('15%')).toBeInTheDocument()
     expect(screen.getByText('No response')).toBeInTheDocument()
     expect(screen.getByText('1,009')).toBeInTheDocument()
-    expect(screen.getByText('Opted out')).toBeInTheDocument()
+    expect(screen.getAllByText('Opted out')).toHaveLength(2)
     expect(screen.getByText('1%')).toBeInTheDocument()
   })
 })
@@ -1930,7 +1930,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
     expect(screen.getByText('Payment details')).toBeInTheDocument()
     expect(screen.getByText('Cost per outreach')).toBeInTheDocument()
     expect(screen.getByText('$0.035')).toBeInTheDocument()
-    expect(screen.getByText('Unsubscribes')).toBeInTheDocument()
+    expect(screen.getByText('Opted out')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'View receipt' }))
     expect(open).toHaveBeenCalledWith(

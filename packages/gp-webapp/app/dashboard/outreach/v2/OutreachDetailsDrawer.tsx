@@ -35,7 +35,6 @@ import {
 import {
   ArchiveIcon,
   CalendarIcon,
-  ChartColumnIcon,
   CheckCircleIcon,
   ClockIcon,
   CreditCardIcon,
@@ -98,6 +97,8 @@ import {
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
+import { OUTREACH_RESULTS_COPY } from './outreachResultsCopy'
+import { OutreachResultsCard } from './listDetails/OutreachResultsCard'
 import {
   EditSmsMessageSheet,
   savedCommitteeOf,
@@ -450,22 +451,16 @@ export const OutreachDetailsDrawer = ({
   const results = resultsQuery.data ?? null
   const statRows = results
     ? [
-        { label: 'Responded', count: results.responded },
+        { label: OUTREACH_RESULTS_COPY.responded, count: results.responded },
         {
-          label: 'No response',
+          label: OUTREACH_RESULTS_COPY.noResponse,
           count: Math.max(
             0,
             results.contacts - results.responded - results.optedOut,
           ),
         },
-        { label: 'Opted out', count: results.optedOut },
-      ].map((stat) => ({
-        ...stat,
-        pct:
-          results.contacts > 0
-            ? Math.round((stat.count / results.contacts) * 100)
-            : 0,
-      }))
+        { label: OUTREACH_RESULTS_COPY.optedOut, count: results.optedOut },
+      ]
     : null
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const cancelMutation = useMutation({
@@ -1320,7 +1315,7 @@ export const OutreachDetailsDrawer = ({
                     // cannot disagree. 0 until the send has results.
                     <Metric
                       icon={<UserMinusIcon />}
-                      label="Unsubscribes"
+                      label={OUTREACH_RESULTS_COPY.optedOut}
                       value={(results?.optedOut ?? 0).toLocaleString()}
                     />
                   )}
@@ -1363,30 +1358,16 @@ export const OutreachDetailsDrawer = ({
             )}
 
             {isSms && isCompleted && results && statRows && (
-              <DetailsSection title="Statistics">
-                <div className="overflow-hidden rounded-lg border border-border">
-                  <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                    <ChartColumnIcon className="size-4" />
-                    Based on {results.contacts.toLocaleString()} SMS contact
-                    {results.contacts === 1 ? '' : 's'}
-                  </div>
-                  {statRows.map((stat) => (
-                    <div
-                      key={stat.label}
-                      className="flex items-center justify-between border-t border-border px-3 py-2"
-                    >
-                      <span className="text-sm">{stat.label}</span>
-                      <span className="flex items-baseline gap-2">
-                        <span className="text-sm font-semibold">
-                          {stat.count.toLocaleString()}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {stat.pct}%
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
+              <DetailsSection title={OUTREACH_RESULTS_COPY.title}>
+                <OutreachResultsCard
+                  basedOn={OUTREACH_RESULTS_COPY.basedOn(
+                    results.contacts,
+                    'text sent',
+                    'texts sent',
+                  )}
+                  total={results.contacts}
+                  rows={statRows}
+                />
               </DetailsSection>
             )}
 

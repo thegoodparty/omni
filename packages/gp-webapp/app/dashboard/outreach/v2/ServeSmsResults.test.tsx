@@ -103,14 +103,14 @@ describe('Serve SMS results — the Statistics card', () => {
     renderServeDrawer()
 
     expect(
-      await screen.findByText(/Based on 400 SMS contacts/),
+      await screen.findByText(/Based on 400 texts sent/),
     ).toBeInTheDocument()
     expect(screen.getByText('Responded')).toBeInTheDocument()
     expect(screen.getByText('62')).toBeInTheDocument()
     expect(screen.getByText('No response')).toBeInTheDocument()
     expect(screen.getByText('330')).toBeInTheDocument()
-    expect(screen.getByText('Opted out')).toBeInTheDocument()
-    // Once in Statistics, once in the Unsubscribes tile: one count, so the
+    expect(screen.getAllByText('Opted out')).toHaveLength(2)
+    // Once in Statistics, once in the Opted out tile: one count, so the
     // two can never disagree.
     expect(screen.getAllByText('8')).toHaveLength(2)
   })
@@ -122,7 +122,7 @@ describe('Serve SMS results — the Statistics card', () => {
     renderServeDrawer()
 
     expect(
-      await screen.findByText(/Based on 400 SMS contacts/),
+      await screen.findByText(/Based on 400 texts sent/),
     ).toBeInTheDocument()
   })
 
@@ -154,9 +154,7 @@ describe('Serve SMS results — the Statistics card', () => {
         isServe
       />,
     )
-    expect(
-      await screen.findByText('62 responses · 8 unsub'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('62 responded')).toBeInTheDocument()
     cleanup()
 
     // Same id, same cache, Win drawer. It must read Win's own numbers.
@@ -165,7 +163,7 @@ describe('Serve SMS results — the Statistics card', () => {
     )
 
     expect(
-      await screen.findByText(/Based on 1,204 SMS contacts/),
+      await screen.findByText(/Based on 1,204 texts sent/),
     ).toBeInTheDocument()
     expect(screen.getByText('186')).toBeInTheDocument()
     expect(screen.queryByText('62')).not.toBeInTheDocument()
@@ -339,7 +337,7 @@ describe('Serve SMS results — the reply list', () => {
 describe('Serve SMS results — the collapsed history row', () => {
   const desktopTable = () => screen.getAllByRole('table')[0] as HTMLElement
 
-  it('summarises a completed SMS row as responses and unsubs', async () => {
+  it('summarises a completed SMS row as responded', async () => {
     api.mock('GET /v1/outreach/serve/:id/results', {
       status: 200,
       data: { contacts: 400, responded: 62, optedOut: 8 },
@@ -355,15 +353,22 @@ describe('Serve SMS results — the collapsed history row', () => {
     )
 
     expect(
-      await within(desktopTable()).findByText('62 responses · 8 unsub'),
+      await within(desktopTable()).findByText('62 responded'),
     ).toBeInTheDocument()
   })
 
-  it('leaves the Win column on its placeholder', () => {
+  it('fills the Win column from the Win results read', async () => {
+    api.mock('GET /v1/outreach/:id/results', {
+      status: 200,
+      data: { contacts: 1204, responded: 186, optedOut: 9 },
+    })
+
     render(
       <OutreachHistoryTable rows={[completedSmsRow]} onRowClick={vi.fn()} />,
     )
 
-    expect(within(desktopTable()).getByText('—')).toBeInTheDocument()
+    expect(
+      await within(desktopTable()).findByText('186 responded'),
+    ).toBeInTheDocument()
   })
 })

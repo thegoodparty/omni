@@ -165,7 +165,7 @@ describe('Win text drawer — Responses', () => {
     renderWinDrawer()
 
     expect(
-      await screen.findByText(/Based on 300 SMS contacts/),
+      await screen.findByText(/Based on 300 texts sent/),
     ).toBeInTheDocument()
     expect(screen.queryByText('Responses')).not.toBeInTheDocument()
   })

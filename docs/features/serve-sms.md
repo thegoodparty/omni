@@ -84,28 +84,28 @@ retire, and it inherits an opt-out bug polls has today.
 
 ## Goals
 
-* A Serve SMS send that goes out and comes back, end to end, with counts the
+- A Serve SMS send that goes out and comes back, end to end, with counts the
   official can see.
-* A delivery layer whose interface survives replacing Slack with a real
+- A delivery layer whose interface survives replacing Slack with a real
   vendor, and which polls can move onto without reshaping.
-* Polls and SMS distinct at every level above delivery: separate compose,
+- Polls and SMS distinct at every level above delivery: separate compose,
   separate result semantics, separate storage for anything product-specific.
-* Opt-out honored at send time, which polls does not do today.
-* Reply content stored where the constituent record can read it, so an SMS
+- Opt-out honored at send time, which polls does not do today.
+- Reply content stored where the constituent record can read it, so an SMS
   send appears on the Serve timeline the way a poll does.
-* A data shape that makes polls-into-outreach a re-key rather than a rewrite.
+- A data shape that makes polls-into-outreach a re-key rather than a rewrite.
 
 ## Non-goals (v1)
 
-* Any Peerly involvement. The Serve path never touches
+- Any Peerly involvement. The Serve path never touches
   `resolveP2pCreateInputs`, no identity, no phone list, no job, no CAS console.
-* Running an SMS send through the poll analysis pipeline (confidence,
+- Running an SMS send through the poll analysis pipeline (confidence,
   expansion, `PollIssue` rows). Its replies are themed by issue capture
   instead; see Layer 2.
-* Migrating existing poll data or retiring the polls page. This build makes
+- Migrating existing poll data or retiring the polls page. This build makes
   that possible; it does not do it.
-* Two-way reply threads. See Out of scope.
-* Scheduling precision. See Send timing.
+- Two-way reply threads. See Out of scope.
+- Scheduling precision. See Send timing.
 
 ## The three layers
 
@@ -124,18 +124,18 @@ already outreach-scoped.
 
 ### What lives where
 
-| Concern | Layer |
-|---|---|
-| Resolve a saved filter or a random sample into recipients | Delivery |
-| Opt-out scrub, phone dedupe, recipient cap | Delivery |
-| Recipient capture (phone ↔ person ↔ outreach) | Delivery |
-| Handoff (Slack CSV now, vendor API later) | Delivery |
-| Raw reply ingest, opt-out detection, CRM write-back | Delivery |
-| Reply flags (favorite, read) and, later, threads | Delivery |
-| Tone and purpose compose, engagement counts, reply list | SMS |
-| Replies grouped into themes on "What we heard" (issue capture's synthesis, triggered by the results upload) | SMS |
-| Question compose, bias analysis, sample sizing | Polls |
-| Poll clustering run, issues, confidence, expansion | Polls |
+| Concern                                                                                                     | Layer    |
+| ----------------------------------------------------------------------------------------------------------- | -------- |
+| Resolve a saved filter or a random sample into recipients                                                   | Delivery |
+| Opt-out scrub, phone dedupe, recipient cap                                                                  | Delivery |
+| Recipient capture (phone ↔ person ↔ outreach)                                                               | Delivery |
+| Handoff (Slack CSV now, vendor API later)                                                                   | Delivery |
+| Raw reply ingest, opt-out detection, CRM write-back                                                         | Delivery |
+| Reply flags (favorite, read) and, later, threads                                                            | Delivery |
+| Tone and purpose compose, engagement counts, reply list                                                     | SMS      |
+| Replies grouped into themes on "What we heard" (issue capture's synthesis, triggered by the results upload) | SMS      |
+| Question compose, bias analysis, sample sizing                                                              | Polls    |
+| Poll clustering run, issues, confidence, expansion                                                          | Polls    |
 
 The test for whether something belongs in delivery: would it still be true if
 we swapped Slack for Twilio? Scrubbing opt-outs, yes. Ranking themes, no.
@@ -270,14 +270,14 @@ with a per-outreach message group, so two deliveries serialize.
 
 **Audience resolution.** Two branches behind one spec:
 
-* *Saved filter* (SMS today, polls later). Use the paging loop from
+- _Saved filter_ (SMS today, polls later). Use the paging loop from
   `P2pPhoneListUploadService.buildPhoneList`
   (`gp-api/src/vendors/peerly/services/p2pPhoneListUpload.service.ts:178`),
   which already forces `hasCellPhone`, pages with `skipCount`, dedupes by phone
   across pages, skips rows with no usable phone, and caps
   recipients. Lift it into the delivery service; the Peerly caller keeps its own
   CSV shape.
-* *Random sample* (polls). `ContactsService.sampleContacts`, which is
+- _Random sample_ (polls). `ContactsService.sampleContacts`, which is
   district-wide with `hasCellPhone` forced and takes `excludeIds`. Wire it now
   even though nothing calls it, per the guard above.
 
@@ -355,9 +355,9 @@ format.
 **Routing is server-side**, keyed on the outreach type, and the human never
 knows there are two paths:
 
-* *SMS* → parse and call `ingestReplies` directly. No S3 object, no Lambda, no
+- _SMS_ → parse and call `ingestReplies` directly. No S3 object, no Lambda, no
   Fargate, no LLM, and no dependency on the AI pipeline for basic counts.
-* *Poll* → write the file to `input/<pollId>.csv` in
+- _Poll_ → write the file to `input/<pollId>.csv` in
   `SERVE_ANALYSIS_BUCKET_NAME`. The existing S3 notification fires the Lambda,
   which launches the Fargate task, which runs
   `packages/gp-ai/serve/v1_pipeline` and publishes to SQS. **Nothing in that
@@ -476,14 +476,14 @@ estimated completion. Polls in the product does the same with
 **Decided 2026-09-21: mimic what polls already ships.** Not the design's looser
 version, the live one, so the two Serve products make the same promise:
 
-* No time picker. Fixed 11am local, stated rather than chosen.
-* Date only, at least **2 business days** out, no more than **30 days**, and
+- No time picker. Fixed 11am local, stated rather than chosen.
+- Date only, at least **2 business days** out, no more than **30 days**, and
   weekends disabled. The predicate is `getDisabledState` in
   `PollScheduledDateSelector.tsx`; lift it rather than re-deriving it.
-* Copy is `POLLS_SCHEDULING_COPY`: "All polls are sent at 11am local time. You
+- Copy is `POLLS_SCHEDULING_COPY`: "All polls are sent at 11am local time. You
   can schedule at least 2 business days in advance, and no more than 30 days
   out." Reword the noun for SMS, keep the shape.
-* Estimated completion is `addBusinessDays(scheduledDate, 3)`, matching
+- Estimated completion is `addBusinessDays(scheduledDate, 3)`, matching
   `polls.service.ts`.
 
 **Every newly scheduled Serve campaign gets the ops lead.** Ops schedules
@@ -586,12 +586,12 @@ shortfall is not refunded automatically.
 
 Not built here. What it will add, once it moves in:
 
-* Question compose with the existing bias analysis
+- Question compose with the existing bias analysis
   (`pollBiasAnalysis.service.ts`), sample sizing, and the audience-size
   purchase math.
-* The clustering trigger (the S3 drop) and the theme payload consumer.
-* Confidence, the low-response terminal state, and "gather more feedback".
-* The themes and issue-detail UI.
+- The clustering trigger (the S3 drop) and the theme payload consumer.
+- Confidence, the low-response terminal state, and "gather more feedback".
+- The themes and issue-detail UI.
 
 The migration, once the delivery layer exists: add the `poll` outreach type and
 the `OutreachPoll` satellite, backfill an `Outreach` row per `Poll`, flip
@@ -604,7 +604,8 @@ per-person rows are already in the shared table.
 Transcribed so the data requirements are explicit; line ranges in parentheses.
 
 **Collapsed row** (`resultsText`, ~115). A poll reads `"{responses}
-responses"`. An SMS row reads `"{responses} responses · {unsub} unsub"`.
+responses"`. An SMS row reads `"{responded} responded"` on Win and Serve
+alike (the shared results vocabulary, `v2/outreachResultsCopy.ts`).
 
 **Row drawer, done** (~4780-4900), in order: Audience (list name and filter
 pills), Overview (start, end, name, sample), Statistics, Top issues (polls
@@ -638,13 +639,13 @@ are addressed under Out of scope.
 **Two things from the design's own fixtures** worth noting, because they
 validate the layering:
 
-* The design already targets saved lists for polls, not only random samples.
+- The design already targets saved lists for polls, not only random samples.
   Rows h17, h21 and h22 carry audience names "Renters — housing cost
   concerns", "Northside residents" and "Library card holders" with real filter
   pills; only the onboarding poll uses "500 randomly selected residents". Both
   audience branches are real product, which is why the delivery layer takes a
   spec rather than a size.
-* Small sends are contemplated. h22 is 240 contacts and 41 responses, resolving
+- Small sends are contemplated. h22 is 240 contacts and 41 responses, resolving
   to two low-confidence themes with 5 and 3 mentions. The design does not
   assume poll-scale volume.
 
@@ -723,14 +724,14 @@ the bulk blast.
 **The thread and composer are deferred for v1** (decided 2026-09-21).
 Recorded by cost, since they come back at different times:
 
-* **Favorites and read state** shipped with polls (`OutreachReplyFlag`, one
+- **Favorites and read state** shipped with polls (`OutreachReplyFlag`, one
   row per user and reply). `PUT /v1/outreach/serve/:id/replies/:replyId/flags`
   sets them and `GET :id/replies` returns the session user's own, with
   `filter=unread|favorited`, `themeId`, `nonClustered` and a `crm` block
   (contact id and status label only).
-* **The Unread filter** comes with that table. Responded today and Awaiting
+- **The Unread filter** comes with that table. Responded today and Awaiting
   reply are meaningless without the thread.
-* **The reply thread** needs per-person outbound SMS, which Slack fulfillment
+- **The reply thread** needs per-person outbound SMS, which Slack fulfillment
   does not have. A vendor decision, not a slice. Do not design around it.
 
 The reply list has no thread or composer: first name, content, CRM panel,
@@ -799,20 +800,20 @@ build ships.
 
 **Polls layer, slices 4-6, not on the customer path:**
 
-* Theme count: keep 3 or raise to 5 (slice 5).
-* Whether the non-clustered bucket ships or the card is cut (slice 5).
-* One confidence rule, and that it lives on the satellite (slice 5).
-* Whether polls' opt-out gap is fixed inside slice 4 or tracked separately.
+- Theme count: keep 3 or raise to 5 (slice 5).
+- Whether the non-clustered bucket ships or the card is cut (slice 5).
+- One confidence rule, and that it lives on the satellite (slice 5).
+- Whether polls' opt-out gap is fixed inside slice 4 or tracked separately.
 
 **Settled (all 2026-09-21 unless noted):**
 
-* *All slices* — **the whole feature ships behind `serve-sms-outreach`**, an
+- _All slices_ — **the whole feature ships behind `serve-sms-outreach`**, an
   Amplitude Experiment flag resolved server-side by gp-api
   (`packages/gp-webapp/docs/feature-flags.md`). Two gates, not ten:
-  * **gp-api**: both Serve SMS routes on `outreachServeSms.controller.ts`
+  - **gp-api**: both Serve SMS routes on `outreachServeSms.controller.ts`
     (`sms/draft` and `sms`) check `FeaturesService.isFeatureEnabled` and 404
     when off.
-  * **webapp**: a wrapper hook in `app/shared/experiments/serveSmsFlag.ts`,
+  - **webapp**: a wrapper hook in `app/shared/experiments/serveSmsFlag.ts`,
     consumed where the channel card mounts.
 
   **Everything downstream is deliberately ungated.** Delivery, ingest, the
@@ -834,7 +835,7 @@ build ships.
   It changes fulfilment's workflow rather than a candidate-facing surface, so
   it is a coordination question more than a flag one.
 
-* *SMS, slice 0* — **merge tokens follow polls, not Peerly.** Use
+- _SMS, slice 0_ — **merge tokens follow polls, not Peerly.** Use
   `{{first_name}}` (double braces), the format fulfilment's tool already
   merges for poll messages, with `[Name]` as the authoring affordance the way
   `CreatePoll.tsx` offers it. Win keeps Peerly's single-brace `{first_name}`,
@@ -852,17 +853,17 @@ build ships.
   promises a preview shows the words a constituent reads. It is display only:
   the script that reaches the Slack handoff always carries the literal
   `{{first_name}}`.
-* *SMS, slice 0* — **minimum audience is 25 recipients**, enforced server-side
+- _SMS, slice 0_ — **minimum audience is 25 recipients**, enforced server-side
   on create and surfaced on the audience step, not only in the picker.
   Arithmetic floor is 15: `textPricing.util.ts` charges 35 tenth-cents each,
   so 14 recipients is 49 cents and Stripe's minimum is 50. 25 sits above the
   edge with headroom if pricing moves, and a 14-person list is not a campaign.
   Polls does not transfer here — its only floor is 500 constituents in the
-  *district* to use the feature at all, which is meaningless for a saved list
+  _district_ to use the feature at all, which is meaningless for a saved list
   that is deliberately narrower. The free-texts offer does not rescue a small
   send either: that is a Win campaign benefit and a zero-amount purchase takes
   the separate free path without touching Stripe.
-* *Delivery* — **fulfilment already filters opt-outs on their side and tracks
+- _Delivery_ — **fulfilment already filters opt-outs on their side and tracks
   them separately; the product records them anyway.** Two consequences. The
   in-product scrub is defense in depth rather than the only gate, which is
   what makes A6's deliberately strict predicate the right trade: a false
@@ -872,16 +873,16 @@ build ships.
   product can never learn who opted out. That is a requirement to confirm in
   the slice 2 conversation, not an implementation detail.
 
-* *SMS, slice 0* — send timing mimics the live polls rule: 11am local fixed,
+- _SMS, slice 0_ — send timing mimics the live polls rule: 11am local fixed,
   2 business days minimum, 30 days maximum, no weekends, completion at
   +3 business days. See Send timing.
-* *SMS, slice 0* — the opt-out footer **stays** in the composed Serve message.
+- _SMS, slice 0_ — the opt-out footer **stays** in the composed Serve message.
   Paid-for-by does not, since it is a campaign-finance line and an elected
   official is not a campaign.
-* *SMS, slice 3* — favorites and read state are **deferred**, along with the
+- _SMS, slice 3_ — favorites and read state are **deferred**, along with the
   reply thread they share a screen with. The v1 reply list is read-only: first
   name, content, CRM panel, "All" only. See Out of scope.
-* *Delivery, slice 2* — fulfillment is briefed on the new upload flow and
+- _Delivery, slice 2_ — fulfillment is briefed on the new upload flow and
   confirms before B2 merges. Owner: Stephen. This is the only slice visible
   outside the team on the day it lands.
 
@@ -896,20 +897,20 @@ anything observed.
 
 Same labelling.
 
-* *Delivery, the unification follow-up* — one Slack channel for both products
+- _Delivery, the unification follow-up_ — one Slack channel for both products
   or two? The reason to split them was the divergent return path. Slice 2 no
   longer removes it: until polls moves onto the upload surface, fulfillment
   has the CLI command for polls and the upload button for Serve SMS. Answer
   this in the follow-up, once the return paths actually converge.
-* *Delivery, slice 2* — a send whose results never arrive. Polls has no sweep
+- _Delivery, slice 2_ — a send whose results never arrive. Polls has no sweep
   and the row sits in progress indefinitely. The results inbox probably
   answers this by making an outstanding send visible in a work queue rather
   than absent; if so it becomes a slice 2 acceptance criterion rather than an
   open question.
-* *Delivery, pre-final-merge* — how Prisma handles a migration folder
+- _Delivery, pre-final-merge_ — how Prisma handles a migration folder
   timestamped earlier than ones dev has already applied. `serve-sms` will sit
   while main moves. Low risk, additive-only, but verify rather than assume.
-* *Polls, slice 6* — does clustering run usefully at list-targeted volumes?
+- _Polls, slice 6_ — does clustering run usefully at list-targeted volumes?
   The design contemplates 41 responses; the pipeline searches k=5 to k=50 and
   will not cluster under 10 messages. It may change the poll product's own
   audience guidance. **Nothing here reaches SMS**, whose themes come from
@@ -920,28 +921,28 @@ Turnaround is no longer open: the estimate is `addBusinessDays(scheduledDate,
 
 ## Appendix: codebase touchpoints (paths under `omni/packages/`)
 
-| What | Where |
-|---|---|
-| Poll send to model delivery on | `gp-api/src/queue/consumer/queueConsumer.service.ts:1210` |
-| Slack block payload to copy | `gp-api/src/polls/utils/polls.utils.ts:10` |
-| Outbound CSV shape | `gp-api/src/queue/consumer/queueConsumer.service.ts:1415` |
-| Filter paging + dedupe to lift | `gp-api/src/vendors/peerly/services/p2pPhoneListUpload.service.ts:178` |
-| Random-sample branch | `gp-api/src/contacts/services/contacts.service.ts:1218` |
-| Opt-out scrub | `gp-api/src/contactInteraction/services/contactInteractionText.service.ts:55` |
-| Inbound write-back | same file, `applyInboundEvent` |
-| Poll ingest to generalize | `gp-api/src/queue/consumer/queueConsumer.service.ts:626` |
-| Event schemas to split | `gp-api/src/queue/queue.types.ts:117` |
-| Message rows to generalize | `gp-api/prisma/schema/pollIndividualMessage.prisma` |
-| Results contract | `contracts/src/outreach/OutreachResults.schema.ts` |
-| Counts service to org-scope | `gp-api/src/outreach/services/outreach.service.ts:1002` |
-| Serve controller precedent | `gp-api/src/outreach/outreachServeSocial.controller.ts` |
-| Purchase handler to fork | `gp-api/src/outreach/services/outreachPurchase.service.ts:246` |
-| Org-capable checkout | `gp-api/src/payments/purchase.controller.ts:236` |
-| Serve surface precedent (UI) | `gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx:201` |
-| Serve hub | `gp-webapp/app/dashboard/constituent-outreach/` |
-| Admin console to host the upload | `gp-admin/src/app/dashboard/sms-outreach/` |
-| Current upload instruction to retire | `gp-api/src/polls/utils/polls.utils.ts:210` |
-| Slack client (outbound only, no inbound) | `gp-api/src/vendors/slack/` |
-| Constituent timeline | `gp-api/src/contactEngagement/contactEngagement.service.ts:452` |
-| Analysis pipeline (polls only) | `gp-ai/serve/v1_pipeline/` |
-| S3 trigger infra (polls only) | `gp-ai/infrastructure/modules/serve-analyze-fargate/` |
+| What                                     | Where                                                                         |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| Poll send to model delivery on           | `gp-api/src/queue/consumer/queueConsumer.service.ts:1210`                     |
+| Slack block payload to copy              | `gp-api/src/polls/utils/polls.utils.ts:10`                                    |
+| Outbound CSV shape                       | `gp-api/src/queue/consumer/queueConsumer.service.ts:1415`                     |
+| Filter paging + dedupe to lift           | `gp-api/src/vendors/peerly/services/p2pPhoneListUpload.service.ts:178`        |
+| Random-sample branch                     | `gp-api/src/contacts/services/contacts.service.ts:1218`                       |
+| Opt-out scrub                            | `gp-api/src/contactInteraction/services/contactInteractionText.service.ts:55` |
+| Inbound write-back                       | same file, `applyInboundEvent`                                                |
+| Poll ingest to generalize                | `gp-api/src/queue/consumer/queueConsumer.service.ts:626`                      |
+| Event schemas to split                   | `gp-api/src/queue/queue.types.ts:117`                                         |
+| Message rows to generalize               | `gp-api/prisma/schema/pollIndividualMessage.prisma`                           |
+| Results contract                         | `contracts/src/outreach/OutreachResults.schema.ts`                            |
+| Counts service to org-scope              | `gp-api/src/outreach/services/outreach.service.ts:1002`                       |
+| Serve controller precedent               | `gp-api/src/outreach/outreachServeSocial.controller.ts`                       |
+| Purchase handler to fork                 | `gp-api/src/outreach/services/outreachPurchase.service.ts:246`                |
+| Org-capable checkout                     | `gp-api/src/payments/purchase.controller.ts:236`                              |
+| Serve surface precedent (UI)             | `gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx:201`  |
+| Serve hub                                | `gp-webapp/app/dashboard/constituent-outreach/`                               |
+| Admin console to host the upload         | `gp-admin/src/app/dashboard/sms-outreach/`                                    |
+| Current upload instruction to retire     | `gp-api/src/polls/utils/polls.utils.ts:210`                                   |
+| Slack client (outbound only, no inbound) | `gp-api/src/vendors/slack/`                                                   |
+| Constituent timeline                     | `gp-api/src/contactEngagement/contactEngagement.service.ts:452`               |
+| Analysis pipeline (polls only)           | `gp-ai/serve/v1_pipeline/`                                                    |
+| S3 trigger infra (polls only)            | `gp-ai/infrastructure/modules/serve-analyze-fargate/`                         |
