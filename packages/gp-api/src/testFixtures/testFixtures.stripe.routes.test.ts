@@ -11,8 +11,8 @@ import {
 // Route-level coverage for POST /v1/test-fixtures/vendor-mocks/stripe/events.
 // The fixture endpoint retrieves a checkout session from Stripe, wraps it in a
 // Stripe.Event, and calls PaymentEventsService.handleEvent in-process so
-// Playwright specs can deliver signed checkout.session.completed events to a
-// preview environment without a public Stripe webhook target.
+// Playwright specs can exercise a paid invoice or a completed one-time
+// checkout on a preview without a public Stripe webhook target.
 //
 // The test verifies the plumbing — right event type delivered to handleEvent,
 // correct response shape — rather than re-testing payment-handler business
@@ -89,6 +89,70 @@ describe('POST /v1/test-fixtures/vendor-mocks/stripe/events', () => {
     expect((event as Stripe.CheckoutSessionCompletedEvent).data.object.id).toBe(
       FAKE_SESSION_ID,
     )
+  })
+
+  it.each([
+    ['paid', 201],
+    ['open', 503],
+  ] as const)(
+    'dispatches a subscription invoice only when its status is %s',
+    async (status, expectedStatus) => {
+      const stripe = service.app.get(StripeService)
+      vi.spyOn(stripe, 'retrieveCheckoutSession').mockResolvedValue({
+        ...fakeSession,
+        mode: 'subscription',
+        metadata: { userId: String(service.user.id) },
+        subscription: 'sub_fixture',
+      })
+      const invoice = { id: 'in_fixture', status } as Stripe.Invoice
+      const retrieve = vi
+        .spyOn(stripe, 'retrieveSubscription')
+        .mockResolvedValue({
+          id: 'sub_fixture',
+          latest_invoice: invoice,
+          lastResponse: { headers: {}, requestId: 'req_test', statusCode: 200 },
+        } as Stripe.Response<Stripe.Subscription>)
+
+      const res = await service.client.post(
+        FIXTURE_ROUTE,
+        { type: 'checkout.session.completed', sessionId: FAKE_SESSION_ID },
+        { validateStatus: () => true },
+      )
+      expect(res.status).toBe(expectedStatus)
+      expect(retrieve).toHaveBeenCalledWith('sub_fixture', {
+        expand: ['latest_invoice'],
+      })
+      if (status === 'paid') {
+        expect(handleEvent).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            type: 'invoice.paid',
+            data: { object: invoice },
+          }),
+        )
+      } else {
+        expect(handleEvent).not.toHaveBeenCalled()
+      }
+    },
+  )
+
+  it('does not dispatch a subscription for another user', async () => {
+    vi.spyOn(
+      service.app.get(StripeService),
+      'retrieveCheckoutSession',
+    ).mockResolvedValue({
+      ...fakeSession,
+      mode: 'subscription',
+      metadata: { userId: String(service.user.id + 1) },
+      subscription: 'sub_fixture',
+    })
+
+    const res = await service.client.post(
+      FIXTURE_ROUTE,
+      { type: 'checkout.session.completed', sessionId: FAKE_SESSION_ID },
+      { validateStatus: () => true },
+    )
+    expect(res.status).toBe(403)
+    expect(handleEvent).not.toHaveBeenCalled()
   })
 
   it('retrieves the session by sessionId', async () => {

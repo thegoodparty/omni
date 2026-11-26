@@ -1183,9 +1183,12 @@ export class StripeService {
     )
   }
 
-  async retrieveSubscription(subscriptionId: string) {
+  async retrieveSubscription(
+    subscriptionId: string,
+    params?: Stripe.SubscriptionRetrieveParams,
+  ) {
     try {
-      return await this.stripe.subscriptions.retrieve(subscriptionId)
+      return await this.stripe.subscriptions.retrieve(subscriptionId, params)
     } catch (e) {
       if (e instanceof Error) {
         this.logger.error(

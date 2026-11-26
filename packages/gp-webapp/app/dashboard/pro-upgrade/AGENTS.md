@@ -370,8 +370,9 @@ this, and neither does the server-side `Account - Pro Subscription Confirmed`.
 
 ## Gotchas
 
-- **Webhook-latency seam (the recurring bug class).** `isPro` flips only via the async
-  `checkout.session.completed` webhook. The SSR-seeded `CAMPAIGN_QUERY_KEY` has a 5-min
+- **Webhook-latency seam (the recurring bug class).** `isPro` flips asynchronously
+  when gp-api processes `invoice.paid` for the subscription. The SSR-seeded
+  `CAMPAIGN_QUERY_KEY` has a 5-min
   `staleTime`, so a just-paid candidate reads stale `isPro=false`. `SuccessStep`
   therefore **polls** the shared campaign query (refetch on mount, then every 2s until
   `isPro` flips, capped ~30s) so the banner/derivation pick up the flip without a manual
@@ -466,10 +467,9 @@ the closed banner and no PIN row on guidance, still walks status, EIN and
 filing details, and payment shows no verification line). The `v2` in the names
 is historical.
 
-Only the happy path is `@dev-only`, for the inbound Stripe
-`checkout.session.completed` webhook a preview cannot receive. Everything
-else stops before payment (a pre-payment filing submit creates the record
-but defers the compliance agent), so it runs on every PR preview.
+The happy path runs on PR previews by delivering the real paid test invoice
+in-process. Its additional `@dev-only` variant does not inject the event: it
+requires Stripe to deliver `invoice.paid` to dev's endpoint and activate Pro.
 
 Traps learned fixing the permanently-red main gate (PR #1009):
 
