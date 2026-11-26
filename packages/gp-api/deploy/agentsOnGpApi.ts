@@ -2,9 +2,9 @@
 // the task definition, not a secret: `runsOnGpApi` reads it and an agent left
 // out runs on the PMF Engine (packages/gp-api/src/agents/agents.registry.ts).
 //
-// Every environment names every agent gp-api has. A preview must, because it is the judge's candidate arm and an agent it left
-// out would run the PMF Engine on both arms — comparing that engine with itself
-// (docs/agent-evals.md). Dev and prod name them all because each one's judge
+// Every environment names every agent gp-api has. A preview must, because it
+// is the judge's candidate arm and an agent it left out would run the PMF
+// Engine on both arms — comparing that engine with itself (docs/agent-evals.md). Dev and prod name them all because each one's judge
 // read it as no worse than the PMF Engine on its migration PR, except
 // `top_community_issues`, whose sweep #3880 deferred and which leans on dev
 // traffic instead. An agent added here without that bar belongs in the dev list
