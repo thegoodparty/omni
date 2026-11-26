@@ -75,6 +75,47 @@ describe('PhoneBankingListSchema', () => {
     }
     expect(() => PhoneBankingListSchema.parse(list)).not.toThrow()
   })
+
+  // Answers counted by call are what the drawer's shares sit over, so the
+  // contract guarantees every key the same way it does for byFollowUp.
+  it('requires every key of the per-call answer tallies', () => {
+    const detail = {
+      listId: 1,
+      entriesTotal: 10,
+      entriesCalled: 4,
+      peopleTotal: 16,
+      peopleCalled: 6,
+      byOutcome: {
+        answered: 2,
+        no_answer: 1,
+        voicemail: 1,
+        wrong_number: 0,
+        refused: 0,
+        disconnected: 0,
+        hung_up: 0,
+      },
+      supporters: 0,
+      unsure: 0,
+      nonSupporters: 0,
+      byFollowUp: { yes: 0, no: 0 },
+      callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+      callsByFollowUp: { yes: 0, no: 0 },
+    }
+
+    expect(() => PhoneBankingOutreachDetailSchema.parse(detail)).not.toThrow()
+    expect(() =>
+      PhoneBankingOutreachDetailSchema.parse({
+        ...detail,
+        callsBySupport: { supporter: 0 },
+      }),
+    ).toThrow()
+    expect(() =>
+      PhoneBankingOutreachDetailSchema.parse({
+        ...detail,
+        callsByFollowUp: { yes: 0 },
+      }),
+    ).toThrow()
+  })
 })
 
 describe('PhoneBankingOutreachDetailSchema', () => {
@@ -98,6 +139,8 @@ describe('PhoneBankingOutreachDetailSchema', () => {
       unsure: 0,
       nonSupporters: 0,
       byFollowUp: { yes: 0, no: 0 },
+      callsBySupport: { supporter: 1, unsure: 0, non_supporter: 0 },
+      callsByFollowUp: { yes: 0, no: 0 },
     }
     expect(() => PhoneBankingOutreachDetailSchema.parse(detail)).not.toThrow()
   })
@@ -138,6 +181,8 @@ describe('PhoneBankingOutreachDetailSchema', () => {
       supporters: 0,
       unsure: 0,
       nonSupporters: 0,
+      callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+      callsByFollowUp: { yes: 1, no: 1 },
     }
 
     expect(() =>
@@ -151,5 +196,46 @@ describe('PhoneBankingOutreachDetailSchema', () => {
         PhoneBankingOutreachDetailSchema.parse({ ...detail, byFollowUp }),
       ).toThrow()
     }
+  })
+
+  // Answers counted by call are what the drawer's shares sit over, so the
+  // contract guarantees every key the same way it does for byFollowUp.
+  it('requires every key of the per-call answer tallies', () => {
+    const detail = {
+      listId: 1,
+      entriesTotal: 10,
+      entriesCalled: 4,
+      peopleTotal: 16,
+      peopleCalled: 6,
+      byOutcome: {
+        answered: 2,
+        no_answer: 1,
+        voicemail: 1,
+        wrong_number: 0,
+        refused: 0,
+        disconnected: 0,
+        hung_up: 0,
+      },
+      supporters: 0,
+      unsure: 0,
+      nonSupporters: 0,
+      byFollowUp: { yes: 0, no: 0 },
+      callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+      callsByFollowUp: { yes: 0, no: 0 },
+    }
+
+    expect(() => PhoneBankingOutreachDetailSchema.parse(detail)).not.toThrow()
+    expect(() =>
+      PhoneBankingOutreachDetailSchema.parse({
+        ...detail,
+        callsBySupport: { supporter: 0 },
+      }),
+    ).toThrow()
+    expect(() =>
+      PhoneBankingOutreachDetailSchema.parse({
+        ...detail,
+        callsByFollowUp: { yes: 0 },
+      }),
+    ).toThrow()
   })
 })

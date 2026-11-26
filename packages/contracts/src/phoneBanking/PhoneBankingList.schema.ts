@@ -111,6 +111,11 @@ export const PhoneBankingOutreachDetailSchema = z.object({
   // non-zero — the drawer picks by surface rather than by which is populated,
   // so a list with no calls yet still reads in its own vocabulary.
   byFollowUp: z.record(FollowUpAnswerSchema, z.number().int()),
+  // The same two answers counted by call rather than by person: a call counts
+  // toward an answer when anyone on it gave it. The drawer's results read
+  // these, so every share there is over `entriesCalled`.
+  callsBySupport: z.record(SupportAnswerSchema, z.number().int()),
+  callsByFollowUp: z.record(FollowUpAnswerSchema, z.number().int()),
 })
 export type PhoneBankingOutreachDetail = z.infer<
   typeof PhoneBankingOutreachDetailSchema

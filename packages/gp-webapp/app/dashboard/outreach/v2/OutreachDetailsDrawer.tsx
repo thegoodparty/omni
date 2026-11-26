@@ -24,10 +24,6 @@ import {
   PhoneMessagePreview,
   Progress,
   StatusText,
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -98,7 +94,10 @@ import {
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
 import { OUTREACH_RESULTS_COPY } from './outreachResultsCopy'
-import { OutreachResultsCard } from './listDetails/OutreachResultsCard'
+import {
+  OutreachResultsCard,
+  type OutreachResultRow,
+} from './listDetails/OutreachResultsCard'
 import {
   EditSmsMessageSheet,
   savedCommitteeOf,
@@ -157,22 +156,35 @@ const percentLabel = (count: number, total: number): string =>
   total > 0 ? `${Math.round((count / total) * 100)}%` : '0%'
 
 // The completed-results rows for whichever question this list's callers were
-// actually asked. Both surfaces state every answer even at zero — "nobody
-// needs following up" is an answer, and a row that disappeared when it
-// emptied would make the table's own shape a fact about the list.
+// actually asked, counted by call so every share is over calls made. Both
+// surfaces state every answer even at zero — "nobody needs following up" is
+// an answer, and a row that disappeared when it emptied would make the
+// card's own shape a fact about the list.
 const answerRows = (
   phoneBanking: PhoneBankingOutreachDetail,
   isServe: boolean,
-): Array<[string, number]> =>
+): OutreachResultRow[] =>
   isServe
     ? [
-        ['Needs follow-up: Yes', phoneBanking.byFollowUp.yes],
-        ['Needs follow-up: No', phoneBanking.byFollowUp.no],
+        {
+          label: 'Needs follow-up: Yes',
+          count: phoneBanking.callsByFollowUp.yes,
+        },
+        {
+          label: 'Needs follow-up: No',
+          count: phoneBanking.callsByFollowUp.no,
+        },
       ]
     : [
-        ['Support: Yes', phoneBanking.supporters],
-        ['Support: Unsure', phoneBanking.unsure],
-        ['Support: No', phoneBanking.nonSupporters],
+        {
+          label: 'Support: Yes',
+          count: phoneBanking.callsBySupport.supporter,
+        },
+        { label: 'Support: Unsure', count: phoneBanking.callsBySupport.unsure },
+        {
+          label: 'Support: No',
+          count: phoneBanking.callsBySupport.non_supporter,
+        },
       ]
 
 // The status the candidate is reading, mapped onto the canvas's three
@@ -1642,54 +1654,22 @@ export const OutreachDetailsDrawer = ({
             )}
 
             {isPhoneBanking && phoneBanking && isCompleted && (
-              <DetailsSection title="Results">
-                <p className="text-sm text-muted-foreground">
-                  Based on {phoneBanking.entriesCalled.toLocaleString()} phone
-                  banking contacts
-                </p>
-                <Card className="overflow-hidden p-0">
-                  <Table>
-                    <TableBody>
-                      {PHONE_BANKING_OUTCOME_ORDER.map((outcome) => (
-                        <TableRow key={outcome}>
-                          <TableCell>
-                            {PHONE_BANKING_OUTCOME_LABEL[outcome]}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {phoneBanking.byOutcome[outcome]}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {percentLabel(
-                              phoneBanking.byOutcome[outcome],
-                              phoneBanking.entriesCalled,
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {/* The conversation rows, in this list's own
-                          vocabulary. Serve never asks for a stance, so its
-                          support tallies are permanently zero — three rows
-                          reading "Support: Yes 0" is what this branch
-                          exists to stop an official seeing. Picked by
-                          surface and not by which tally is populated, so a
-                          completed list nobody answered still reads in the
-                          right words. */}
-                      {answerRows(phoneBanking, isServe).map(
-                        ([label, count]) => (
-                          <TableRow key={label}>
-                            <TableCell>{label}</TableCell>
-                            <TableCell className="text-right text-muted-foreground">
-                              {count}
-                            </TableCell>
-                            <TableCell className="text-right text-muted-foreground">
-                              {percentLabel(count, phoneBanking.peopleCalled)}
-                            </TableCell>
-                          </TableRow>
-                        ),
-                      )}
-                    </TableBody>
-                  </Table>
-                </Card>
+              <DetailsSection title={OUTREACH_RESULTS_COPY.title}>
+                <OutreachResultsCard
+                  basedOn={OUTREACH_RESULTS_COPY.basedOn(
+                    phoneBanking.entriesCalled,
+                    'call made',
+                    'calls made',
+                  )}
+                  total={phoneBanking.entriesCalled}
+                  rows={[
+                    ...PHONE_BANKING_OUTCOME_ORDER.map((outcome) => ({
+                      label: PHONE_BANKING_OUTCOME_LABEL[outcome],
+                      count: phoneBanking.byOutcome[outcome],
+                    })),
+                    ...answerRows(phoneBanking, isServe),
+                  ]}
+                />
               </DetailsSection>
             )}
             {/* Serve's actionable half of the results: the Needs follow-up

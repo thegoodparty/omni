@@ -441,6 +441,8 @@ describe('OutreachHistoryTable — unified history', () => {
           unsure: 1,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 2, unsure: 1, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -717,6 +719,8 @@ describe('OutreachHistoryTable — unified history', () => {
             unsure: 0,
             nonSupporters: 0,
             byFollowUp: { yes: 3, no: 1 },
+            callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+            callsByFollowUp: { yes: 3, no: 1 },
           },
         },
       })
@@ -792,6 +796,8 @@ describe('OutreachHistoryTable — unified history', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 1, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })

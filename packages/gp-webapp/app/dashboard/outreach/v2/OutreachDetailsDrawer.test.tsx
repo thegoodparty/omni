@@ -158,6 +158,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 10,
           nonSupporters: 20,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 30, unsure: 10, non_supporter: 20 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -215,6 +217,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -295,6 +299,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 4,
           nonSupporters: 4,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 6, unsure: 3, non_supporter: 1 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -302,7 +308,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     render(<OutreachDetailsDrawer row={completedRow} onOpenChange={vi.fn()} />)
 
     expect(
-      await screen.findByText('Based on 10 phone banking contacts'),
+      await screen.findByText('Based on 10 calls made'),
     ).toBeInTheDocument()
     expect(screen.getByText('Answered')).toBeInTheDocument()
     expect(screen.getByText('Refused')).toBeInTheDocument()
@@ -311,6 +317,9 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     expect(screen.getByText('Support: Yes')).toBeInTheDocument()
     expect(screen.getByText('Support: Unsure')).toBeInTheDocument()
     expect(screen.getByText('Support: No')).toBeInTheDocument()
+    // Answers count calls, not the 16 people: 6 of 10 calls made.
+    expect(screen.getByText('60%')).toBeInTheDocument()
+    expect(screen.getByText('30%')).toBeInTheDocument()
 
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
     expect(
@@ -353,6 +362,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 4, no: 6 },
+          callsBySupport: { supporter: 0, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 4, no: 6 },
         },
       },
     })
@@ -366,11 +377,11 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     )
 
     expect(
-      await screen.findByText('Based on 10 phone banking contacts'),
+      await screen.findByText('Based on 10 calls made'),
     ).toBeInTheDocument()
     expect(screen.getByText('Needs follow-up: Yes')).toBeInTheDocument()
     expect(screen.getByText('Needs follow-up: No')).toBeInTheDocument()
-    // 4 and 6 of 10 people called.
+    // 4 and 6 of 10 calls made.
     expect(screen.getByText('40%')).toBeInTheDocument()
     expect(screen.getByText('60%')).toBeInTheDocument()
 
@@ -408,6 +419,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 16, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -462,6 +475,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 16, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -541,6 +556,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           unsure: 0,
           nonSupporters: 0,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 16, unsure: 0, non_supporter: 0 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -826,6 +843,8 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056 / ENG-11059)', () => {
           unsure: 10,
           nonSupporters: 20,
           byFollowUp: { yes: 0, no: 0 },
+          callsBySupport: { supporter: 30, unsure: 10, non_supporter: 20 },
+          callsByFollowUp: { yes: 0, no: 0 },
         },
       },
     })

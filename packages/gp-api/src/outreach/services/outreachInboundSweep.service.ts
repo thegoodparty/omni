@@ -261,6 +261,9 @@ const sendAnchorOf = (outreach: Outreach): Date =>
 // staff console's (OutreachSmsAdminService.readDeliveryStats), so its cache,
 // timebox and failure cool-off bound what a slow Peerly costs the sweep.
 export const DELIVERY_STATS_INTERVAL_HOURS = 6
+// Aged sends are swept only every 6 hours, so a pass starting a moment early
+// would otherwise find the last read just inside the interval and wait 12.
+const DELIVERY_STATS_INTERVAL_SLACK_MINUTES = 30
 
 // Padded a day on each side: Peerly evaluates the range in its account
 // timezone while these timestamps are server-local, and a boundary
@@ -657,7 +660,13 @@ export class OutreachInboundSweepService extends createPrismaBase(
     })
     if (
       last &&
-      isAfter(last.readAt, subHours(now, DELIVERY_STATS_INTERVAL_HOURS))
+      isAfter(
+        last.readAt,
+        addMinutes(
+          subHours(now, DELIVERY_STATS_INTERVAL_HOURS),
+          DELIVERY_STATS_INTERVAL_SLACK_MINUTES,
+        ),
+      )
     ) {
       return
     }

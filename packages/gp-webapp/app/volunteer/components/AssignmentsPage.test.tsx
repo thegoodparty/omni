@@ -39,6 +39,8 @@ const phoneBankingAssignment: MyAssignment = {
     unsure: 5,
     nonSupporters: 15,
     byFollowUp: { yes: 0, no: 0 },
+    callsBySupport: { supporter: 10, unsure: 5, non_supporter: 15 },
+    callsByFollowUp: { yes: 0, no: 0 },
   },
 }
 
@@ -85,6 +87,8 @@ const completedAssignment: MyAssignment = {
     unsure: 5,
     nonSupporters: 15,
     byFollowUp: { yes: 0, no: 0 },
+    callsBySupport: { supporter: 20, unsure: 5, non_supporter: 15 },
+    callsByFollowUp: { yes: 0, no: 0 },
   },
 }
 
