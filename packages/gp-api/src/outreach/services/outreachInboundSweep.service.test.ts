@@ -21,6 +21,7 @@ import {
   PeerlyReportDateWindow,
   PeerlyReportRequestOptions,
 } from '@/vendors/peerly/services/peerlyJobResults.service'
+import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import {
   Campaign,
   OutreachType,
@@ -53,6 +54,22 @@ const fetchQuestionResponseRows =
       window: PeerlyReportDateWindow,
       request?: PeerlyReportRequestOptions,
     ) => Promise<PeerlyQuestionResponsesCsvRow[]>
+  >()
+
+const DETAILED_STATS = {
+  sentTotal: 3,
+  receivedTotal: 1,
+  delivered: 2,
+  deliveryFailed: 1,
+  deliveryUnconfirmed: 0,
+  totalCost: 0.1,
+}
+const getJobDetailedStats =
+  vi.fn<
+    (
+      jobId: string,
+      range: { startDate: string; endDate: string },
+    ) => Promise<typeof DETAILED_STATS>
   >()
 
 const JOB_ID = 'peerly-job-1'
@@ -235,6 +252,11 @@ beforeEach(async () => {
   vi.spyOn(resultsService, 'fetchQuestionResponseRows').mockImplementation(
     fetchQuestionResponseRows,
   )
+  getJobDetailedStats.mockReset().mockResolvedValue(DETAILED_STATS)
+  vi.spyOn(
+    service.app.get(PeerlyP2pJobService),
+    'getJobDetailedStats',
+  ).mockImplementation(getJobDetailedStats)
 
   sweepService = service.app.get(OutreachInboundSweepService)
 
@@ -292,6 +314,29 @@ describe('outreachInboundSweep', () => {
       expect(row.optedOutAt).toBeNull()
       expect(row.sourceEventId).toBeNull()
     }
+  })
+
+  it("copies the job's delivery receipts, and keeps the replies when the stats read fails", async () => {
+    const outreach = await createSweepableOutreach()
+
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    expect(getJobDetailedStats).toHaveBeenCalledWith(
+      JOB_ID,
+      expect.objectContaining({ startDate: expect.any(String) }),
+    )
+    const delivery = await service.prisma.outreachSmsDelivery.findUnique({
+      where: { outreachId: outreach.id },
+    })
+    expect(delivery).toMatchObject({ delivered: 2, failed: 1, unconfirmed: 0 })
+
+    getJobDetailedStats.mockRejectedValue(new Error('peerly down'))
+    fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101')])
+
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.respondedAt).not.toBeNull()
   })
 
   it('records an opt-out for a revocation phrase with no stop keyword on its own', async () => {

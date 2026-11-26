@@ -1,0 +1,15 @@
+// A Win text send's delivery receipts as Peerly last reported them. Peerly
+// keeps a job's stats for about 90 days, so the inbound sweep copies them here
+// while the send is in its window. Kept off the outreach row for the same
+// reason as OutreachOptOutReconcile: a write there bumps outreach.updatedAt,
+// which would hold the send inside the sweep's window forever.
+model OutreachSmsDelivery {
+  outreachId  Int      @id @map("outreach_id")
+  outreach    Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  delivered   Int
+  failed      Int
+  unconfirmed Int
+  readAt      DateTime @map("read_at")
+
+  @@map("outreach_sms_delivery")
+}

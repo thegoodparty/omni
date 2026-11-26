@@ -115,7 +115,7 @@ describe('PastOutreachCard', () => {
     }))
     api.mock('GET /v1/outreach/serve/:id/results', {
       status: 200,
-      data: { contacts: 310, responded: 22, optedOut: 1 },
+      data: { contacts: 310, responded: 22, optedOut: 1, notDelivered: null },
     })
 
     renderCard({
@@ -158,7 +158,7 @@ describe('PastOutreachCard', () => {
       }))
       api.mock('GET /v1/outreach/serve/:id/results', {
         status: 200,
-        data: { contacts: 310, responded: 22, optedOut: 1 },
+        data: { contacts: 310, responded: 22, optedOut: 1, notDelivered: null },
       })
 
       renderCard({
@@ -190,7 +190,7 @@ describe('PastOutreachCard', () => {
     }))
     api.mock('GET /v1/outreach/:id/results', {
       status: 200,
-      data: { contacts: 310, responded: 22, optedOut: 1 },
+      data: { contacts: 310, responded: 22, optedOut: 1, notDelivered: null },
     })
 
     renderCard({

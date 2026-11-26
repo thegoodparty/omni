@@ -52,9 +52,12 @@ beforeEach(async () => {
     excludedOptedOutCount: 3,
     excludedDuplicateCount: 7,
   })
-  getSmsResults
-    .mockReset()
-    .mockResolvedValue({ contacts: 480, responded: 61, optedOut: 4 })
+  getSmsResults.mockReset().mockResolvedValue({
+    contacts: 480,
+    responded: 61,
+    optedOut: 4,
+    notDelivered: null,
+  })
   listReplies.mockReset().mockResolvedValue({ total: 0, replies: [] })
   isFeatureEnabled.mockReset().mockResolvedValue(true)
 
@@ -364,7 +367,12 @@ describe('Serve SMS results and replies routes', () => {
     const res = await getResults(12)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ contacts: 480, responded: 61, optedOut: 4 })
+    expect(res.data).toEqual({
+      contacts: 480,
+      responded: 61,
+      optedOut: 4,
+      notDelivered: null,
+    })
     // campaignId: null is the ENG-10976 guard — an org holding both a
     // Campaign and an ElectedOffice must not read Win results here.
     expect(getSmsResults).toHaveBeenCalledWith(12, {

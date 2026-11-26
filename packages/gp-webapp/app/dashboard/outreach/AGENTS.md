@@ -29,7 +29,10 @@ and `v2/outreachResultsCopy.ts` (Sent, Delivered, Not delivered, Responded,
 No response, Opted out). A stat that means the same thing on two channels
 reads the same on both, so never say "unsub" or "Unsubscribes" for an opt-out.
 A completed text row's history Results column reads "N responded" on Win and
-Serve. An email's card reads Delivered, Not delivered (bounced), Clicked with
+Serve. A Win text whose delivery receipts have been read adds Delivered and
+Not delivered ahead of Responded (`notDelivered` on the results read; null on
+Serve, whose fulfilment file carries replies only), and No response counts
+from Delivered. An email's card reads Delivered, Not delivered (bounced), Clicked with
 its share marked CTR, Opted out (the send's unsubscribes), Opened
 (approximate) and Marked as spam.
 

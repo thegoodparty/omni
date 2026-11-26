@@ -1688,15 +1688,16 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
 })
 
 describe('OutreachDetailsDrawer — SMS statistics', () => {
+  const completedSmsRow: HistoryRow = {
+    id: 51,
+    createdAt: '2026-08-20T00:00:00Z',
+    outreachType: 'p2p',
+    name: 'Likely voters — SMS',
+    status: 'completed',
+    phoneListId: 9,
+  }
+
   it('renders the Statistics card for a completed text campaign', async () => {
-    const completedSmsRow: HistoryRow = {
-      id: 51,
-      createdAt: '2026-08-20T00:00:00Z',
-      outreachType: 'p2p',
-      name: 'Likely voters — SMS',
-      status: 'completed',
-      phoneListId: 9,
-    }
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: {
@@ -1713,7 +1714,7 @@ describe('OutreachDetailsDrawer — SMS statistics', () => {
     })
     api.mock('GET /v1/outreach/:id/results', {
       status: 200,
-      data: { contacts: 1204, responded: 186, optedOut: 9 },
+      data: { contacts: 1204, responded: 186, optedOut: 9, notDelivered: null },
     })
 
     render(
@@ -1730,6 +1731,40 @@ describe('OutreachDetailsDrawer — SMS statistics', () => {
     expect(screen.getByText('1,009')).toBeInTheDocument()
     expect(screen.getAllByText('Opted out')).toHaveLength(2)
     expect(screen.getByText('1%')).toBeInTheDocument()
+  })
+  it('splits delivered from not delivered when the send has receipts', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        id: 51,
+        outreachType: 'p2p' as const,
+        status: 'completed' as const,
+        phoneListId: 9,
+      },
+    })
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 404,
+      data: { message: 'No receipt' },
+    })
+    api.mock('GET /v1/outreach/:id/results', {
+      status: 200,
+      data: { contacts: 1000, responded: 150, optedOut: 10, notDelivered: 40 },
+    })
+
+    render(
+      <OutreachDetailsDrawer row={completedSmsRow} onOpenChange={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/Based on 1,000 texts sent/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Delivered')).toBeInTheDocument()
+    expect(screen.getByText('960')).toBeInTheDocument()
+    expect(screen.getByText('Not delivered')).toBeInTheDocument()
+    expect(screen.getByText('40')).toBeInTheDocument()
+    // 960 delivered, less 150 responded and 10 opted out.
+    expect(screen.getByText('800')).toBeInTheDocument()
   })
 })
 

@@ -44,6 +44,7 @@ import {
   PeerlyJobResultsService,
   PeerlyReportDateWindow,
 } from '../../vendors/peerly/services/peerlyJobResults.service'
+import { PeerlyP2pJobService } from '../../vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyPhoneListCaptureService } from '../../vendors/peerly/services/peerlyPhoneListCapture.service'
 import { isOptOutMessage } from '../util/textOptOut.util'
 
@@ -277,6 +278,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
     private readonly peerlyJobResults: PeerlyJobResultsService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly textInteractions: ContactInteractionTextService,
+    private readonly peerlyP2pJobs: PeerlyP2pJobService,
   ) {
     super()
   }
@@ -627,7 +629,32 @@ export class OutreachInboundSweepService extends createPrismaBase(
     counters.messagesWritten += await this.writeReplyMessages(
       this.buildReplyMessages(outreach.id, cdrRows, phoneToPersonIds, now),
     )
+    await this.recordDeliveryReceipts(outreach, jobId, now)
     return true
+  }
+
+  // Last, so a stats failure never costs the replies already written: the
+  // job counts as failed and is read again next pass.
+  private async recordDeliveryReceipts(
+    outreach: SweepableOutreach,
+    jobId: string,
+    now: Date,
+  ): Promise<void> {
+    const stats = await this.peerlyP2pJobs.getJobDetailedStats(
+      jobId,
+      buildReportWindow(outreach, now),
+    )
+    const data = {
+      delivered: stats.delivered,
+      failed: stats.deliveryFailed,
+      unconfirmed: stats.deliveryUnconfirmed,
+      readAt: now,
+    }
+    await this.client.outreachSmsDelivery.upsert({
+      where: { outreachId: outreach.id },
+      create: { outreachId: outreach.id, ...data },
+      update: data,
+    })
   }
 
   // scripts/backfill-win-sms-replies.ts: the sweep's message writer over a
