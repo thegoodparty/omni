@@ -1,4 +1,4 @@
-import { subMinutes } from 'date-fns'
+import { subDays } from 'date-fns'
 import { Readable } from 'node:stream'
 import {
   beforeAll,
@@ -4796,17 +4796,6 @@ describe('door-knocking routes', () => {
         outcome: 'answered',
       })
       expect(knock.status).toBe(201)
-      // An earlier knock from before the envelope id was stored is matched
-      // to one turf too, not both.
-      await service.prisma.contactInteractionDoorKnock.create({
-        data: {
-          organizationSlug: orgSlug,
-          personId: target.personId,
-          occurredAt: subMinutes(new Date(), 1),
-          outcome: 'not_home',
-        },
-      })
-
       const res = await service.client.get(
         `/v1/door-knocking/campaigns/${anchor.id}/results`,
         orgHeaders(),
@@ -4815,6 +4804,51 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(200)
       expect(res.data.doorsKnocked).toBe(1)
       expect(res.data.byOutcome.answered).toBe(1)
+    })
+
+    it('counts an unstamped walk knock from after the campaign began, never a manual log or an older one', async () => {
+      const turf = await createTurf()
+      const envelope = await envelopeFor(turf.id)
+      const targets = await service.prisma.doorKnockingStopTarget.findMany({
+        where: { stop: { doorKnockingTurfId: turf.id } },
+        orderBy: { id: 'asc' },
+      })
+      const oneTargetPerDoor = [
+        ...new Map(
+          targets.map((target) => [
+            `${target.doorKnockingStopId}|${target.addressKey}`,
+            target,
+          ]),
+        ).values(),
+      ]
+      expect(oneTargetPerDoor.length).toBeGreaterThanOrEqual(3)
+      const [legacy, manual, older] = oneTargetPerDoor
+      const unstamped = (
+        personId: string,
+        occurredAt: Date,
+        isManual: boolean,
+      ) =>
+        service.prisma.contactInteractionDoorKnock.create({
+          data: {
+            organizationSlug: orgSlug,
+            personId,
+            occurredAt,
+            outcome: 'not_home',
+            manual: isManual,
+          },
+        })
+      await unstamped(legacy!.personId, new Date(), false)
+      await unstamped(manual!.personId, new Date(), true)
+      await unstamped(older!.personId, subDays(envelope.createdAt, 1), false)
+
+      const res = await service.client.get(
+        `/v1/door-knocking/campaigns/${envelope.id}/results`,
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.doorsKnocked).toBe(1)
+      expect(res.data.byOutcome.not_home).toBe(1)
     })
 
     it('404s results for a campaign that is not yours', async () => {

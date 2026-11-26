@@ -83,9 +83,10 @@ export class DoorKnockingCampaignResultsService extends createPrismaBase(
       }
     }
 
-    // Knocks logged before the envelope id was stored carry none, so those
-    // are matched on a resident of this campaign knocked after it began, and
-    // counted on that resident's first turf only.
+    // Knocks the walk logged before the envelope id was stored carry none, so
+    // those are matched on a resident of this campaign knocked after it began,
+    // and counted on that resident's first turf only. A manual CRM log has no
+    // envelope either, and belongs to no campaign, so it is left out.
     const startedAt = turfs.flatMap((turf) =>
       turf.outreach ? [turf.outreach.createdAt] : [],
     )
@@ -99,6 +100,7 @@ export class DoorKnockingCampaignResultsService extends createPrismaBase(
                 { outreachId: { in: [...turfByEnvelope.keys()] } },
                 {
                   outreachId: null,
+                  manual: false,
                   personId: { in: [...firstTurfByPerson.keys()] },
                   occurredAt: { gte: min(startedAt) },
                 },
