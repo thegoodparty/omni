@@ -28,6 +28,7 @@ import {
   PollIndividualMessageSender,
 } from '../../generated/prisma'
 import {
+  DELIVERY_STATS_INTERVAL_HOURS,
   INBOUND_SWEEP_AGED_HOUR_INTERVAL,
   INBOUND_SWEEP_FRESH_WINDOW_DAYS,
   OPT_OUT_FINAL_READ_DAYS,
@@ -318,24 +319,58 @@ describe('outreachInboundSweep', () => {
 
   it("copies the job's delivery receipts at most every few hours", async () => {
     const outreach = await createSweepableOutreach()
-    // Its own job id, so no earlier test's read answers from the cache.
-    await service.prisma.outreach.update({
-      where: { id: outreach.id },
-      data: { projectId: 'peerly-job-receipts' },
-    })
+    // Each read gets a job id of its own, so the console's per-job stats
+    // cache can never be what holds a second read back: only the readAt
+    // interval can.
+    const pointAt = (projectId: string) =>
+      service.prisma.outreach.update({
+        where: { id: outreach.id },
+        data: { projectId },
+      })
+    await pointAt('peerly-job-receipts-1')
 
-    await service.jobs.runSchedule('outreachInboundSweep')
     await service.jobs.runSchedule('outreachInboundSweep')
 
     expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
     expect(getJobDetailedStats).toHaveBeenCalledWith(
-      'peerly-job-receipts',
+      'peerly-job-receipts-1',
       expect.objectContaining({ startDate: expect.any(String) }),
     )
-    const delivery = await service.prisma.outreachSmsDelivery.findUnique({
-      where: { outreachId: outreach.id },
+    const findDelivery = () =>
+      service.prisma.outreachSmsDelivery.findUnique({
+        where: { outreachId: outreach.id },
+      })
+    expect(await findDelivery()).toMatchObject({
+      delivered: 2,
+      failed: 1,
+      unconfirmed: 0,
     })
-    expect(delivery).toMatchObject({ delivered: 2, failed: 1, unconfirmed: 0 })
+
+    await pointAt('peerly-job-receipts-2')
+    await service.jobs.runSchedule('outreachInboundSweep')
+    expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
+
+    await service.prisma.outreachSmsDelivery.update({
+      where: { outreachId: outreach.id },
+      data: {
+        readAt: subHours(new Date(), DELIVERY_STATS_INTERVAL_HOURS + 1),
+      },
+    })
+    getJobDetailedStats.mockResolvedValue({
+      ...DETAILED_STATS,
+      delivered: 5,
+      deliveryFailed: 4,
+      deliveryUnconfirmed: 1,
+    })
+    await pointAt('peerly-job-receipts-3')
+    await service.jobs.runSchedule('outreachInboundSweep')
+
+    expect(getJobDetailedStats).toHaveBeenCalledTimes(2)
+    expect(await findDelivery()).toMatchObject({
+      delivered: 5,
+      failed: 4,
+      unconfirmed: 1,
+    })
   })
 
   it('keeps the replies when the stats read fails', async () => {

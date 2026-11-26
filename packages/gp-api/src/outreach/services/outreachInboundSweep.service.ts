@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   GatewayTimeoutException,
   Injectable,
+  Optional,
 } from '@nestjs/common'
 import {
   addDays,
@@ -285,7 +286,9 @@ export class OutreachInboundSweepService extends createPrismaBase(
     private readonly peerlyJobResults: PeerlyJobResultsService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly textInteractions: ContactInteractionTextService,
-    private readonly smsAdmin: OutreachSmsAdminService,
+    // Optional so scripts/backfill-win-sms-replies.ts, which builds a module
+    // with only the reply readers, still starts; it never reads receipts.
+    @Optional() private readonly smsAdmin?: OutreachSmsAdminService,
   ) {
     super()
   }
@@ -647,6 +650,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
     now: Date,
     counters: SweepCounters,
   ): Promise<void> {
+    if (!this.smsAdmin) return
     const last = await this.client.outreachSmsDelivery.findUnique({
       where: { outreachId: outreach.id },
       select: { readAt: true },
