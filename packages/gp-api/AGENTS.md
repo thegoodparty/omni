@@ -250,6 +250,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | One-off / build scripts                                  | `scripts/AGENTS.md`                                  |
 | Seed data / factories / scenarios                        | `seed/AGENTS.md`                                     |
 | QA test-user fixtures (dev/preview only)                 | `src/testFixtures/AGENTS.md`                         |
+| Decision models (typed yes/no, choice, score judgments)  | `src/decisionModels/AGENTS.md`                       |
 | The nightly case scout (judge cases from real chats)     | `src/caseScout/AGENTS.md`                            |
 | Local `.env` vending (dev only, GitHub-gated)            | `src/devEnv/AGENTS.md`                               |
 

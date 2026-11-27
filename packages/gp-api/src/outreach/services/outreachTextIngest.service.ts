@@ -5,6 +5,7 @@ import { v5 as uuidv5 } from 'uuid'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { DecisionModelService } from '@/decisionModels/services/decisionModel.service'
 import {
   CivicPanelStatus,
   ContactStatusField,
@@ -18,6 +19,11 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { phoneDigitsKey } from '@/shared/util/strings.util'
 import { isCivicPanelJoinMessage } from '../util/civicPanelJoin.util'
 import { isCivicPanelLeaveMessage } from '../util/civicPanelLeave.util'
+import {
+  classifyReplyIntent,
+  REPLY_INTENT_LABELS,
+  type ReplyIntentDecide,
+} from '../util/replyIntent.util'
 import { isOptOutMessage } from '../util/textOptOut.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 
@@ -75,6 +81,15 @@ const PEOPLE_LOOKUP_CONCURRENCY = 20
 // transaction; match the poll handler's ceiling rather than the 5s default.
 const INGEST_TRANSACTION_TIMEOUT_MS = 20_000
 
+// The reply-intent shadow (src/decisionModels/AGENTS.md): after a committed
+// ingest, a decision model reads each reply beside the regex and only the
+// comparison is logged. Off unless "true". Sending reply text to a model
+// vendor is a product call that has not been made, so nothing turns it on.
+const replyIntentShadowEnabled = (): boolean =>
+  process.env.REPLY_INTENT_DECISION_SHADOW === 'true'
+
+const REPLY_INTENT_SHADOW_CONCURRENCY = 4
+
 // One reply, after the analysis pipeline has split a compound message into
 // atoms. A direct upload always produces groups of one.
 interface ReplyGroup {
@@ -102,6 +117,7 @@ export class OutreachTextIngestService extends createPrismaBase(
     private readonly textInteractions: ContactInteractionTextService,
     private readonly contactsService: ContactsService,
     private readonly contactStatus: ContactStatusService,
+    private readonly decisionModels: DecisionModelService,
   ) {
     super()
   }
@@ -345,6 +361,17 @@ export class OutreachTextIngestService extends createPrismaBase(
       '[Outreach Ingest] replies committed',
     )
 
+    // Not awaited: the shadow must not add a model round trip per reply to
+    // the upload or the queue message, and a failure must not reach either.
+    if (replyIntentShadowEnabled()) {
+      void this.runReplyIntentShadow(outreachId, messages).catch((err: Error) =>
+        this.logger.warn(
+          { err: serializeError(err), outreachId },
+          '[Outreach Ingest] reply intent shadow failed',
+        ),
+      )
+    }
+
     return {
       rowsParsed: rows.length,
       matched,
@@ -410,6 +437,74 @@ export class OutreachTextIngestService extends createPrismaBase(
       if (event && toValue === CivicPanelStatus.member) joins += 1
     }
     return joins
+  }
+
+  /**
+   * Shadow only: logs what a decision model reads in each reply next to the
+   * regex reading, and writes nothing. Never logs the reply text. A model
+   * failure is a warn line for that reply and nothing more, since no user
+   * or stored row depends on it.
+   */
+  private async runReplyIntentShadow(
+    outreachId: number,
+    messages: Prisma.PollIndividualMessageCreateManyInput[],
+  ): Promise<void> {
+    await pmap(
+      messages.filter((message) => message.content?.trim()),
+      async (message) => {
+        const call: {
+          model?: string
+          provider?: string
+          costUsd?: number | null
+          inputTokens?: number
+        } = {}
+        const decide: ReplyIntentDecide = async (request) => {
+          const result = await this.decisionModels.decide(request)
+          call.model = result.model
+          call.provider = result.provider
+          call.costUsd = result.costUsd
+          call.inputTokens = result.usage.inputTokens
+          return result
+        }
+        try {
+          const [regex, model] = await Promise.all([
+            classifyReplyIntent(message.content, null, 'text'),
+            classifyReplyIntent(message.content, decide, 'text'),
+          ])
+          const disagreeingLabels = REPLY_INTENT_LABELS.filter(
+            (label) => model[label].value !== regex[label].value,
+          )
+          this.logger.info(
+            {
+              outreachId,
+              messageId: message.id,
+              labels: Object.fromEntries(
+                REPLY_INTENT_LABELS.map((label) => [label, model[label].value]),
+              ),
+              probabilities: Object.fromEntries(
+                REPLY_INTENT_LABELS.map((label) => [
+                  label,
+                  model[label].probabilities?.true ?? null,
+                ]),
+              ),
+              regexLabels: Object.fromEntries(
+                REPLY_INTENT_LABELS.map((label) => [label, regex[label].value]),
+              ),
+              disagreesWithRegex: disagreeingLabels.length > 0,
+              disagreeingLabels,
+              ...call,
+            },
+            '[Outreach Ingest] reply intent shadow',
+          )
+        } catch (err) {
+          this.logger.warn(
+            { err: serializeError(err), outreachId, messageId: message.id },
+            '[Outreach Ingest] reply intent shadow failed',
+          )
+        }
+      },
+      { concurrency: REPLY_INTENT_SHADOW_CONCURRENCY },
+    )
   }
 
   /**

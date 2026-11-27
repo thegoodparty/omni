@@ -231,3 +231,23 @@ The pipeline's `is_opt_out` flag is a hint, never the source of truth:
 producers hand this layer the text and the predicate decides. Both failure
 directions are real — a missed opt-out leaves somebody on the next send, and
 an invented one silences a constituent org-wide and forever.
+
+**Reply intent shadow.** `util/replyIntent.util.ts`'s `classifyReplyIntent`
+reads a reply as three labels, `optOut`, `civicPanelJoin` and
+`civicPanelLeave`, each `{ value, probabilities? }`. It takes the channel
+(`text` by default, ingest passes it; `email`, `door`, `call`) and words the
+model's questions for it: a reply the person sent, or a canvasser's note of
+what they said. With no decision client
+it is exactly the three regex predicates above. With one
+(`src/decisionModels/`), the model answers each label (true at
+`REPLY_INTENT_YES_THRESHOLD`), except that a regex opt-out is never
+overruled. `util/replyIntent.eval.ts` scores both readers on invented
+replies (`AGENTS.md`, "Reply intent before and after"). In product code only
+`ingestReplies` calls it with a client, and only when
+`REPLY_INTENT_DECISION_SHADOW=true`: after a committed ingest it logs
+`[Outreach Ingest] reply intent shadow` per reply (message and outreach ids,
+labels, P(yes), the regex's labels, disagreement, model, tokens, cost) and
+writes nothing. It never logs reply text, is not awaited, and a model
+failure is a `reply intent shadow failed` warn. The flag is off everywhere:
+turning it on sends reply text to the model provider, which has not been
+approved.

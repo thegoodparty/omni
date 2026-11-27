@@ -1,10 +1,11 @@
-import { NotFoundException } from '@nestjs/common'
+import { HttpStatus, NotFoundException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { DecisionModelService } from '@/decisionModels/services/decisionModel.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { useTestService } from '@/test-service'
@@ -116,6 +117,7 @@ beforeEach(async () => {
           resolvePeopleDataset,
         },
       },
+      DecisionModelService,
       { provide: PinoLogger, useValue: createMockLogger() },
     ],
   }).compile()
@@ -903,5 +905,139 @@ describe('OutreachTextIngestService civic panel', () => {
         where: { field: 'civic_panel' },
       }),
     ).toBe(0)
+  })
+})
+
+describe('OutreachTextIngestService reply intent shadow', () => {
+  const SHADOW_LINE = '[Outreach Ingest] reply intent shadow'
+  const SHADOW_FAILED_LINE = '[Outreach Ingest] reply intent shadow failed'
+  const OPT_OUT_TEXT = 'STOP'
+  const FEEDBACK_TEXT = 'The new crosswalk on Elm is a big help'
+
+  // A Gemini decisions body that reads every reply as an opt-out, so the
+  // feedback reply disagrees with the regex and STOP does not.
+  const geminiReadsOptOut = () =>
+    new Response(
+      JSON.stringify({
+        answers: {
+          optOut: { type: 'noul', noul: 0.8, confidence: 0.6 },
+          civicPanelJoin: { type: 'noul', noul: 0.01, confidence: 0.9 },
+          civicPanelLeave: { type: 'noul', noul: 0.02, confidence: 0.9 },
+        },
+        usage: { total_input_tokens: 500 },
+      }),
+      { status: HttpStatus.OK },
+    )
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  const infoCalls = () => vi.mocked(ingest.logger.info).mock.calls
+  const warnCalls = () => vi.mocked(ingest.logger.warn).mock.calls
+  const linesNamed = (calls: ReturnType<typeof infoCalls>, name: string) =>
+    calls.filter((call) => call[1] === name).map((call) => call[0])
+
+  const ingestBoth = (dryRun = false) =>
+    ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      dryRun,
+      rows: [
+        row(PERSON_1.phone, OPT_OUT_TEXT),
+        row(PERSON_2.phone, FEEDBACK_TEXT),
+      ],
+    })
+
+  const expectNoReplyTextLogged = () => {
+    const logged = JSON.stringify([...infoCalls(), ...warnCalls()])
+    expect(logged).not.toContain(FEEDBACK_TEXT)
+    expect(logged).not.toContain(`"${OPT_OUT_TEXT}"`)
+  }
+
+  it('makes no model call when the flag is off, which is the default', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    const result = await ingestBoth()
+
+    expect(result.committed).toBe(true)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(linesNamed(infoCalls(), SHADOW_LINE)).toEqual([])
+  })
+
+  it('logs labels and disagreement per reply and changes nothing stored', async () => {
+    vi.stubEnv('REPLY_INTENT_DECISION_SHADOW', 'true')
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(geminiReadsOptOut()))
+
+    const result = await ingestBoth()
+    await vi.waitFor(() =>
+      expect(linesNamed(infoCalls(), SHADOW_LINE)).toHaveLength(2),
+    )
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(result.optOuts).toBe(1)
+    const messages = await messagesForOutreach()
+    expect(messages.map((message) => message.isOptOut)).toEqual([true, false])
+
+    const byMessage = new Map(
+      linesNamed(infoCalls(), SHADOW_LINE).map((line) => [
+        (line as { messageId: string }).messageId,
+        line,
+      ]),
+    )
+    const [stop, feedback] = messages
+    if (!stop || !feedback) throw new Error('expected two message rows')
+    expect(byMessage.get(stop.id)).toMatchObject({
+      outreachId: outreach.id,
+      labels: { optOut: true, civicPanelJoin: false, civicPanelLeave: false },
+      probabilities: { optOut: 0.99 },
+      disagreesWithRegex: false,
+      disagreeingLabels: [],
+      model: 'gemini-decision-1',
+      provider: 'gemini',
+      inputTokens: 500,
+      costUsd: (500 / 1_000_000) * 0.1,
+    })
+    expect(byMessage.get(feedback.id)).toMatchObject({
+      labels: { optOut: true },
+      regexLabels: { optOut: false },
+      probabilities: { optOut: 0.8 },
+      disagreesWithRegex: true,
+      disagreeingLabels: ['optOut'],
+    })
+    expectNoReplyTextLogged()
+  })
+
+  it('logs a model failure and never fails the ingest', async () => {
+    vi.stubEnv('REPLY_INTENT_DECISION_SHADOW', 'true')
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        new Response('unavailable', {
+          status: HttpStatus.SERVICE_UNAVAILABLE,
+        }),
+      ),
+    )
+
+    const result = await ingestBoth()
+    await vi.waitFor(() =>
+      expect(linesNamed(warnCalls(), SHADOW_FAILED_LINE)).toHaveLength(2),
+    )
+
+    expect(result.committed).toBe(true)
+    expect(linesNamed(infoCalls(), SHADOW_LINE)).toEqual([])
+    expect(await messagesForOutreach()).toHaveLength(2)
+    expectNoReplyTextLogged()
+  })
+
+  it('makes no model call on a dry run', async () => {
+    vi.stubEnv('REPLY_INTENT_DECISION_SHADOW', 'true')
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    await ingestBoth(true)
+
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

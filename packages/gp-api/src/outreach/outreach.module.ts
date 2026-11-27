@@ -12,6 +12,7 @@ import { PurchaseService } from 'src/payments/services/purchase.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { CallhubModule } from 'src/vendors/callhub/callhub.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
+import { DecisionModelsModule } from '@/decisionModels/decisionModels.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
@@ -134,6 +135,7 @@ import { OutreachP2pSmsPromoService } from './services/outreachP2pSmsPromo.servi
     // edge so Nest can complete bootstrap.
     forwardRef(() => VotersModule),
     GoogleModule,
+    DecisionModelsModule,
     AiModule,
     LlmModule,
     SlackModule,
