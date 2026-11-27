@@ -8,11 +8,12 @@ into the code-form chat suites and opens the PR. Design: the Universal Judge
 Case Iteration TDD; decision record:
 `docs/adr/2026-11-19-case-scout-hands-off-to-delegate.md`.
 
-**On in dev and prod; sending is off everywhere.** Nothing runs unless
+**On in dev and prod, and both send to Delegate.** Nothing runs unless
 `CASE_SCOUT_ENABLED=true`, which dev and prod set; previews ship it `false`.
 Nothing is sent to Delegate unless `CASE_SCOUT_SEND_TO_DELEGATE=true`, which
-no environment sets: until then each night's handoff is held in the bucket for
-a person to read, and the Slack note still posts.
+dev and prod set and previews do not. With it off, each night's handoff is
+held in the bucket for a person to read; either way the Slack note posts.
+Decision record: `docs/adr/2026-11-25-case-scout-sends-to-delegate-in-prod.md`.
 
 **gp-api never opens a PR or holds a GitHub key.** It reads transcripts, so
 the one thing that leaves it is the handoff: gated, de-identified strings and
@@ -150,7 +151,7 @@ that carries account facts belongs in that list too.
 | `runs/<runId>/manifest.json`                              | nightly, create-only                  | score, draft                                                |
 | `runs/<runId>/scores/<sessionId>.json`                    | score, create-only                    | score (spend total), draft                                  |
 | `runs/<runId>/sources.json`, `record.json`, `bundle.json` | draft                                 | draft (handoff and Slack note); a person, for `held` drafts |
-| `runs/<runId>/handoff.json`                               | draft: the exact bytes held or sent   | a person, before sending is on                              |
+| `runs/<runId>/handoff.json`                               | draft: the exact bytes held or sent   | a person, to see what a night held or sent                  |
 | `runs/<runId>/delivery.json`                              | draft, after the webhook answered 2xx | draft: never send a night twice                             |
 | `ledger/<yyyy-mm>.jsonl`                                  | draft                                 | draft                                                       |
 
@@ -230,7 +231,7 @@ capped session is never marked processed, so a later night reads it.
 
 ## Config
 
-`CASE_SCOUT_ENABLED`, `CASE_SCOUT_SEND_TO_DELEGATE` (off everywhere),
+`CASE_SCOUT_ENABLED`, `CASE_SCOUT_SEND_TO_DELEGATE` (on in dev and prod),
 `CASE_SCOUT_BUCKET`, `CASE_SCOUT_SPEND_CAP_USD` (per environment),
 `CASE_SCOUT_SESSION_CAP`, `CASE_SCOUT_NIGHTLY_CAP` (1 to 25; unset, blank or
 out of range keeps the merge-share ladder) and
@@ -239,10 +240,10 @@ anything else reads 24); no environment sets those two. The rest are set in
 `deploy/index.ts`, with the task role's grants on the bucket; each environment's bucket is its own gp-ai root
 (`environments/<env>/case-scout`). The webhook URL and signing secret
 (`CASE_SCOUT_DELEGATE_WEBHOOK_URL`, `CASE_SCOUT_DELEGATE_WEBHOOK_SECRET`) are
-read only when sending, so no environment declares them yet: the change that
-turns sending on adds them to `deploy/gp-api-secret-keys.ts`, after their
-values are in that environment's secret, since a deploy stops on a declared key
-the secret lacks (`docs/secrets.md`). Only prod drops
+read only when sending, and `deploy/gp-api-secret-keys.ts` declares them for
+dev and prod (`GP_API_DEV`, `GP_API_PROD`), never previews: a preview runs any
+open PR's code and never sends, so it must not hold the signing secret. A
+deploy stops on a declared key the secret lacks (`docs/secrets.md`). Only prod drops
 staff and test accounts and labels its handoff `prod`
 (`OTEL_SERVICE_ENVIRONMENT`).
 
@@ -283,11 +284,13 @@ suites included, so always pass the path. Both need `ANTHROPIC_API_KEY`, and
 the model calls honor `ANTHROPIC_BASE_URL`, so unset it if your shell points it
 at a proxy. A full run of both takes about six minutes and an estimated $4.
 
-**Sending stays off until** the de-identifier suite shows zero leaks, raw
-and released, on three consecutive full runs; the gate suite is fully green;
-the quality bench's released-case count is no lower than its last run; and a
-person reads the first 20 prod cases (`runs/<runId>/handoff.json` in
-`case-scout-prod`) before `CASE_SCOUT_SEND_TO_DELEGATE` turns on.
+**Sending is on in dev and prod, and the bar it cleared holds.** It turned
+on once the de-identifier suite showed zero leaks, raw and released, on three
+consecutive full runs; the gate suite was fully green; the quality bench's
+released-case count was no lower than its last run; and a person had read the
+first 20 prod cases (`runs/<runId>/handoff.json` in `case-scout-prod`). A
+change to the drafter, the gate or the de-identifier must keep all three suite
+results there.
 
 **Every session and draft in both files is invented.** omni is public, so a
 name, a town and a number there are fiction: 555-01xx numbers, example.com

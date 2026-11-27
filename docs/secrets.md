@@ -33,7 +33,9 @@ string keys. There is no per-key secret and no SSM parameter for app secrets.
 
 preview stacks share the `*_DEV` secrets — there is no preview secret. gp-api
 previews get every `GP_API_DEV` key except `OTEL_EXPORTER_OTLP_HEADERS`, so they
-send nothing to Grafana (`packages/gp-api/deploy/gp-api-secret-keys.ts`).
+send nothing to Grafana, and the case scout's Delegate webhook URL and signing
+secret, since a preview runs any open PR's code and never sends
+(`packages/gp-api/deploy/gp-api-secret-keys.ts`).
 
 ### `LOCAL_DEV_ENV`
 
