@@ -1052,13 +1052,35 @@ describe('DatabricksVoterService', () => {
     }
     const noFilters = (): FilterData => filtersSchema.parse({})
 
-    it('countForFilter takes a resolved district, no lookup', async () => {
-      query.mockResolvedValueOnce({ columns: ['voter_count'], rows: [['42']] })
+    it('countsForFilters takes a resolved district, no lookup', async () => {
+      query.mockResolvedValueOnce({ columns: ['count_0'], rows: [['42']] })
 
-      const count = await service.countForFilter(DISTRICT, noFilters())
+      const counts = await service.countsForFilters(DISTRICT, [
+        { filters: noFilters() },
+      ])
 
-      expect(count).toBe(42)
+      expect(counts).toEqual([42])
       expect(findDistrictById).not.toHaveBeenCalled()
+    })
+
+    it('reads one count per variant, in the order given', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['count_0', 'count_1'],
+        rows: [['42', '7']],
+      })
+
+      const counts = await service.countsForFilters(DISTRICT, [
+        { filters: noFilters() },
+        { filters: noFilters() },
+      ])
+
+      expect(counts).toEqual([42, 7])
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+
+    it('asks the warehouse nothing when there is no variant to size', async () => {
+      await expect(service.countsForFilters(DISTRICT, [])).resolves.toEqual([])
+      expect(query).not.toHaveBeenCalled()
     })
 
     // The cut is the SQL's LIMIT, so this only has to sum what came back --

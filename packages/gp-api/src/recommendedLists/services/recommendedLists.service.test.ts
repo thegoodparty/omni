@@ -59,12 +59,37 @@ describe('RecommendedListsService.recommend', () => {
   let bucketForCampaign: ReturnType<typeof vi.fn>
   let findByOrganizationSlug: ReturnType<typeof vi.fn>
   let resolveDistrict: ReturnType<typeof vi.fn>
-  let countForFilter: ReturnType<typeof vi.fn>
+  let countsForFilters: ReturnType<typeof vi.fn>
   let rankPrecincts: ReturnType<typeof vi.fn>
   let getRaceContext: ReturnType<typeof vi.fn>
   let fetchMilestones: ReturnType<typeof vi.fn>
   let resolveOffer: ReturnType<typeof vi.fn>
   let service: RecommendedListsService
+
+  // Every count comes back from one read now, so a test that only cares about
+  // a variant's size sets it for every scope the read is handed.
+  const countEveryVariant = (count: number) =>
+    countsForFilters.mockImplementation(
+      async (_district: DbxDistrict, scopes: unknown[]) =>
+        scopes.map(() => count),
+    )
+
+  // The id'd-supporter universes are the ones whose resolution carries an
+  // idOverrides set, which is how these tests tell them apart from the
+  // exclusion-list variants without naming either.
+  const countEveryVariantUnlessSupporter = (
+    supporterCount: number,
+    otherCount: number,
+  ) =>
+    countsForFilters.mockImplementation(
+      async (
+        _district: DbxDistrict,
+        scopes: Array<{ idOverrides?: { include: string[] } }>,
+      ) =>
+        scopes.map(({ idOverrides }) =>
+          idOverrides ? supporterCount : otherCount,
+        ),
+    )
 
   beforeEach(() => {
     resolveEligibleDistrict = vi.fn().mockResolvedValue({
@@ -82,7 +107,13 @@ describe('RecommendedListsService.recommend', () => {
     bucketForCampaign = vi.fn().mockResolvedValue(null)
     findByOrganizationSlug = vi.fn().mockResolvedValue([])
     resolveDistrict = vi.fn().mockResolvedValue(district)
-    countForFilter = vi.fn().mockResolvedValue(2_000)
+    // Every variant's count comes from one read now, so the mock answers for
+    // every scope it is handed. `countEveryVariant` is how a test sets a flat
+    // size across them.
+    countsForFilters = vi.fn(
+      async (_district: DbxDistrict, scopes: unknown[]) =>
+        scopes.map(() => 2_000),
+    )
     rankPrecincts = vi.fn().mockResolvedValue({
       precincts: rankedPrecincts(DOOR_PRECINCT_COUNT),
       totalVoters: 100 * DOOR_PRECINCT_COUNT,
@@ -107,7 +138,7 @@ describe('RecommendedListsService.recommend', () => {
       { findByOrganizationSlug } as never,
       {
         resolveDistrict,
-        countForFilter,
+        countsForFilters,
         rankPrecincts,
       } as never,
       { getRaceContext } as never,
@@ -254,7 +285,7 @@ describe('RecommendedListsService.recommend', () => {
 
   describe('the vote-goal size floor', () => {
     it('omits a variant one voter under a quarter of the vote goal', async () => {
-      countForFilter.mockResolvedValue(FLOOR - 1)
+      countEveryVariant(FLOOR - 1)
 
       const results = await service.recommend(
         organization,
@@ -267,7 +298,7 @@ describe('RecommendedListsService.recommend', () => {
     })
 
     it('keeps a variant sitting exactly on a quarter of the vote goal', async () => {
-      countForFilter.mockResolvedValue(FLOOR)
+      countEveryVariant(FLOOR)
 
       const results = await service.recommend(
         organization,
@@ -284,7 +315,7 @@ describe('RecommendedListsService.recommend', () => {
     // of 250 and shipped a card; against a 4,000-vote goal it is 7.5% of what
     // the race needs, and no longer worth one.
     it('omits a list that is comfortably over 250 but under the share', async () => {
-      countForFilter.mockResolvedValue(300)
+      countEveryVariant(300)
 
       const results = await service.recommend(
         organization,
@@ -329,10 +360,7 @@ describe('RecommendedListsService.recommend', () => {
             : undefined,
         }),
       )
-      countForFilter.mockImplementation(
-        (_district, _filters, idOverrides?: { include: string[] }) =>
-          Promise.resolve(idOverrides ? 300 : 2_000),
-      )
+      countEveryVariantUnlessSupporter(300, 2_000)
 
       const results = await service.recommend(
         organization,
@@ -361,10 +389,7 @@ describe('RecommendedListsService.recommend', () => {
             : undefined,
         }),
       )
-      countForFilter.mockImplementation(
-        (_district, _filters, idOverrides?: { include: string[] }) =>
-          Promise.resolve(idOverrides ? 0 : 2_000),
-      )
+      countEveryVariantUnlessSupporter(0, 2_000)
 
       const results = await service.recommend(
         organization,
@@ -393,7 +418,7 @@ describe('RecommendedListsService.recommend', () => {
     // A race we cannot price still gets its recommendations.
     it('applies no floor when the vote goal cannot be resolved', async () => {
       getRaceContext.mockRejectedValue(new Error('election-api down'))
-      countForFilter.mockResolvedValue(3)
+      countEveryVariant(3)
 
       const results = await service.recommend(
         organization,
@@ -407,7 +432,7 @@ describe('RecommendedListsService.recommend', () => {
     })
 
     it('applies no floor when the campaign has no raceId', async () => {
-      countForFilter.mockResolvedValue(3)
+      countEveryVariant(3)
 
       const results = await service.recommend(
         organization,
@@ -428,7 +453,7 @@ describe('RecommendedListsService.recommend', () => {
         winNumberEffective: 0,
         electionCode: ElectionCode.General,
       })
-      countForFilter.mockResolvedValue(3)
+      countEveryVariant(3)
 
       const [first] = await service.recommend(
         organization,
@@ -443,7 +468,7 @@ describe('RecommendedListsService.recommend', () => {
 
     it('still empties when every variant is merely too small', async () => {
       bucketForCampaign.mockResolvedValue('progressive')
-      countForFilter.mockResolvedValue(FLOOR - 1)
+      countEveryVariant(FLOOR - 1)
 
       const results = await service.recommend(
         organization,
@@ -458,7 +483,7 @@ describe('RecommendedListsService.recommend', () => {
 
   describe('voteGoalShare', () => {
     it('divides the count by the vote goal', async () => {
-      countForFilter.mockResolvedValue(2_500)
+      countEveryVariant(2_500)
 
       const [first] = await service.recommend(
         organization,
@@ -474,7 +499,7 @@ describe('RecommendedListsService.recommend', () => {
     // A list can hold several times the votes a race needs, so the share is
     // not a percentage of anything and must not be clamped.
     it('reports a share above one rather than clamping it', async () => {
-      countForFilter.mockResolvedValue(VOTES_NEEDED * 3)
+      countEveryVariant(VOTES_NEEDED * 3)
 
       const [first] = await service.recommend(
         organization,
@@ -527,7 +552,7 @@ describe('RecommendedListsService.recommend', () => {
 
   describe('estimatedCostCents', () => {
     it('prices an sms list at the text rate the checkout charges', async () => {
-      countForFilter.mockResolvedValue(2_000)
+      countEveryVariant(2_000)
 
       const [first] = await service.recommend(
         organization,
@@ -545,7 +570,7 @@ describe('RecommendedListsService.recommend', () => {
     // estimate — so pricing off the total would make this card the only
     // surface that disagrees with the robocall review step.
     it('prices a robocall list per call, without the number fee', async () => {
-      countForFilter.mockResolvedValue(2_000)
+      countEveryVariant(2_000)
 
       const [first] = await service.recommend(
         organization,
@@ -608,10 +633,14 @@ describe('RecommendedListsService.recommend', () => {
     // quoted is what it costs to text the people who can be texted, not the
     // whole universe.
     it('prices the channel-refined count, not the raw universe', async () => {
-      countForFilter.mockImplementation((_district, filters: FilterData) =>
-        Promise.resolve(
-          filters.filters.includes('hasCellPhone') ? 1_000 : 9_999,
-        ),
+      countsForFilters.mockImplementation(
+        async (
+          _district: DbxDistrict,
+          scopes: Array<{ filters: FilterData }>,
+        ) =>
+          scopes.map(({ filters }) =>
+            filters.filters.includes('hasCellPhone') ? 1_000 : 9_999,
+          ),
       )
 
       const [first] = await service.recommend(
@@ -656,21 +685,16 @@ describe('RecommendedListsService.recommend', () => {
       expect(peak).toBe(2)
     })
 
-    it('fans the variant counts out together', async () => {
+    // The counts used to go out one statement per variant, which put a page
+    // view's whole fan-out on the warehouse at once. They now share one scan,
+    // so the read has to be asked once and carry every variant.
+    it('sizes every variant from a single count read', async () => {
       bucketForCampaign.mockResolvedValue('progressive')
-      let inFlight = 0
-      let peak = 0
-      countForFilter.mockImplementation(async () => {
-        inFlight += 1
-        peak = Math.max(peak, inFlight)
-        await new Promise((resolve) => setTimeout(resolve, 1))
-        inFlight -= 1
-        return 2_000
-      })
 
       await service.recommend(organization, campaign, 'sms', 'persuade')
 
-      expect(peak).toBe(3)
+      expect(countsForFilters).toHaveBeenCalledTimes(1)
+      expect(countsForFilters.mock.calls[0]?.[1]).toHaveLength(3)
     })
   })
 
@@ -796,14 +820,22 @@ describe('RecommendedListsService.recommend', () => {
     expect(first?.existingFilterId).toBeNull()
   })
 
-  it('drops a failed variant without losing the others', async () => {
+  // Scope resolution is still one draft at a time, so a variant whose own
+  // resolution fails still costs only its card. The counts share a scan and
+  // therefore a fate; that is the price of not asking the warehouse the same
+  // question three times.
+  it('drops a variant whose own resolution fails, keeping the others', async () => {
     bucketForCampaign.mockResolvedValue('progressive')
-    // Keyed on the universe rather than call order, so the rejection lands
-    // on the affinity variant however the concurrent calls interleave.
-    countForFilter.mockImplementation((_district, filters: FilterData) =>
-      filters.filters.includes('independentAffinity')
-        ? Promise.reject(new Error('warehouse timeout'))
-        : Promise.resolve(2_000),
+    resolveSavedFilterForQuery.mockImplementation(
+      async (_organization: Organization, filter: VoterFilterBase) => {
+        if (filter.independentAffinity !== undefined) {
+          throw new Error('contact statuses are unavailable')
+        }
+        return {
+          filters: convertVoterFileFilterToFilters(filter),
+          empty: false,
+        }
+      },
     )
 
     const results = await service.recommend(
@@ -825,7 +857,7 @@ describe('RecommendedListsService.recommend', () => {
   it('rethrows when every variant fails, rather than emptying', async () => {
     bucketForCampaign.mockResolvedValue('progressive')
     const outage = new BadGatewayException('Voter data is unavailable')
-    countForFilter.mockRejectedValue(outage)
+    countsForFilters.mockRejectedValue(outage)
 
     await expect(
       service.recommend(organization, campaign, 'sms', 'persuade'),
@@ -847,7 +879,7 @@ describe('RecommendedListsService.recommend', () => {
           ? { filters: {}, empty: true }
           : { filters: convertVoterFileFilterToFilters(filter), empty: false },
     )
-    countForFilter.mockRejectedValue(outage)
+    countsForFilters.mockRejectedValue(outage)
 
     await expect(
       service.recommend(organization, campaign, 'sms', 'event'),
@@ -868,7 +900,7 @@ describe('RecommendedListsService.recommend', () => {
     )
 
     expect(results).toEqual([])
-    expect(countForFilter).not.toHaveBeenCalled()
+    expect(countsForFilters).not.toHaveBeenCalled()
   })
 
   // The classifier is an LLM call, and `introduce` has no variant that could
@@ -962,7 +994,7 @@ describe('RecommendedListsService.recommend', () => {
     })
 
     it('still holds non-exempt variants to the vote-goal floor', async () => {
-      countForFilter.mockResolvedValue(FLOOR - 1)
+      countEveryVariant(FLOOR - 1)
 
       const results = await service.recommend(
         organization,
@@ -1027,7 +1059,7 @@ describe('RecommendedListsService.recommend', () => {
       )
 
       expect(results[0]?.filter.precincts).toHaveLength(DOOR_PRECINCT_COUNT)
-      expect(countForFilter).not.toHaveBeenCalled()
+      expect(countsForFilters).not.toHaveBeenCalled()
     })
 
     // The candidate already chose this list on the voter data page, where
@@ -1035,7 +1067,7 @@ describe('RecommendedListsService.recommend', () => {
     // the floor (SMS keeps 58%-74% of a list), and dropping it here would open
     // the flow with nothing — the one thing a carried preselection must not do.
     it('is held to no size floor, only the zero check', async () => {
-      countForFilter.mockResolvedValue(FLOOR - 1)
+      countEveryVariant(FLOOR - 1)
 
       const results = await service.recommend(
         organization,
@@ -1051,7 +1083,7 @@ describe('RecommendedListsService.recommend', () => {
     })
 
     it('still drops a variant that counts nobody', async () => {
-      countForFilter.mockResolvedValue(0)
+      countEveryVariant(0)
 
       const results = await service.recommend(
         organization,
@@ -1092,7 +1124,7 @@ describe('RecommendedListsService.recommend', () => {
         independentAffinity: true,
         votedStatus: ['unknown'],
       })
-      expect(countForFilter).not.toHaveBeenCalled()
+      expect(countsForFilters).not.toHaveBeenCalled()
     })
 
     it('returns null for an ideology variant with no bucket', async () => {
@@ -1132,7 +1164,7 @@ describe('RecommendedListsService.recommend', () => {
         'ALLEGHENY|P1',
         'ALLEGHENY|P2',
       ])
-      expect(countForFilter).not.toHaveBeenCalled()
+      expect(countsForFilters).not.toHaveBeenCalled()
     })
 
     // The whole door rule, and the mutation it guards: a district-wide
@@ -1154,7 +1186,7 @@ describe('RecommendedListsService.recommend', () => {
       expect(rankPrecincts).toHaveBeenCalledTimes(1)
       // district, filters, idOverrides, affinityColumn: no widening argument.
       expect(rankPrecincts.mock.calls[0]).toHaveLength(4)
-      expect(countForFilter).not.toHaveBeenCalled()
+      expect(countsForFilters).not.toHaveBeenCalled()
       expect(first?.count).toBe(100)
       expect(first?.filter.precincts).toEqual(['ALLEGHENY|P0'])
     })
@@ -1236,7 +1268,7 @@ describe('RecommendedListsService.recommend', () => {
 
     it('serves the offer list on its treatment precincts, unpriced', async () => {
       resolveOffer.mockResolvedValue(TREATMENT)
-      countForFilter.mockResolvedValue(40)
+      countEveryVariant(40)
 
       const results = await service.recommend(
         organization,
@@ -1272,7 +1304,7 @@ describe('RecommendedListsService.recommend', () => {
       expect(resolveEligibleDistrict).not.toHaveBeenCalled()
       expect(findByOrganizationSlug).not.toHaveBeenCalled()
       expect(getRaceContext).not.toHaveBeenCalled()
-      expect(countForFilter).not.toHaveBeenCalled()
+      expect(countsForFilters).not.toHaveBeenCalled()
     })
 
     it('fails a request for the offer when the offer cannot resolve', async () => {
