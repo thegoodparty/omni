@@ -1,6 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import ImpersonatePageContent from './ImpersonatePageContent'
+
+// `isClerkAPIResponseError` matches when the error's constructor exposes
+// `kind === 'ClerkAPIResponseError'`, so this stand-in is recognized as a real
+// Clerk API error by the component's error-classification helper.
+class FakeClerkAPIResponseError extends Error {
+  static kind = 'ClerkAPIResponseError'
+  clerkError = true
+  errors: { code: string; message: string; longMessage: string }[]
+  constructor(
+    errors: { code: string; message: string; longMessage: string }[],
+  ) {
+    super(errors[0]?.message ?? 'clerk api response error')
+    this.name = 'ClerkAPIResponseError'
+    this.errors = errors
+  }
+}
+
+const makeClerkApiError = (code: string, longMessage: string) =>
+  new FakeClerkAPIResponseError([{ code, message: longMessage, longMessage }])
 
 const mockClearElectionResultDismissed = vi.fn()
 vi.mock('app/dashboard/election-result/dismissal', () => ({
@@ -130,5 +149,35 @@ describe('ImpersonatePageContent', () => {
 
     await waitFor(() => expect(window.location.href).toBe('/dashboard'))
     expect(mockSetCookie).not.toHaveBeenCalled()
+  })
+
+  it("names the Clerk ban instead of printing Clerk's raw message", async () => {
+    mockSignInCreate.mockRejectedValue(
+      makeClerkApiError(
+        'user_banned',
+        'You have been banned. If you think this was by mistake, please contact support.',
+      ),
+    )
+
+    render(<ImpersonatePageContent />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Clerk has this account banned/),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/please contact support/)).toBeNull()
+  })
+
+  it('shows the underlying failure for an error that is not a ban', async () => {
+    mockSignInCreate.mockRejectedValue(
+      makeClerkApiError('ticket_invalid', 'This ticket is invalid.'),
+    )
+
+    render(<ImpersonatePageContent />)
+
+    await waitFor(() =>
+      expect(screen.getByText(/This ticket is invalid/)).toBeInTheDocument(),
+    )
   })
 })

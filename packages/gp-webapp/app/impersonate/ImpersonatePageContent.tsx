@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
+import { isClerkAPIResponseError } from '@clerk/nextjs/errors'
 import { useSearchParams } from 'next/navigation'
 import { clearElectionResultDismissed } from 'app/dashboard/election-result/dismissal'
 import { clientRequest } from 'gpApi/typed-request'
@@ -19,6 +20,14 @@ const isSafeRelativePath = (s: string | null): s is string => {
 // returnTo is a gp-webapp path, so restrict it to the dashboard.
 const isSafeReturnTo = (s: string | null): s is string =>
   isSafeRelativePath(s) && s.startsWith('/dashboard/')
+
+const BANNED_TARGET_MESSAGE =
+  'Clerk has this account banned, so it refused the impersonation ' +
+  'session. Unban the account in the Clerk dashboard, then try again.'
+
+const isBannedTargetError = (err: unknown): boolean =>
+  isClerkAPIResponseError(err) &&
+  err.errors.some((clerkError) => clerkError.code === 'user_banned')
 
 // adminReturnTo is a gp-admin portal path (handed to GP_ADMIN_URL on stop), so
 // it must NOT be held to gp-webapp's /dashboard/ allowlist — any safe relative
@@ -107,9 +116,14 @@ export default function ImpersonatePageContent() {
           ? returnTo
           : '/dashboard'
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
         console.error('[impersonate] Failed:', err)
-        setError(msg)
+        setError(
+          isBannedTargetError(err)
+            ? BANNED_TARGET_MESSAGE
+            : err instanceof Error
+              ? err.message
+              : String(err),
+        )
       }
     }
 

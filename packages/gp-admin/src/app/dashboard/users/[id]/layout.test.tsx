@@ -37,7 +37,11 @@ import { SdkError } from '@/shared/gpApi'
 // callback with a stub client so we verify the real SDK call (users.get) runs
 // with the right id, not just that gpAction was reached.
 const mockUsersGet = vi.fn()
-const mockClient = { users: { get: mockUsersGet } }
+const mockGetClerkBanStatus = vi.fn()
+const mockClient = {
+  users: { get: mockUsersGet },
+  admin: { getClerkBanStatus: mockGetClerkBanStatus },
+}
 const mockGpAction = vi.fn()
 vi.mock('@/shared/util/gpClient.util', () => ({
   gpAction: (fn: (client: unknown) => unknown) => mockGpAction(fn),
@@ -61,6 +65,7 @@ beforeEach(() => {
   mockHas.mockReturnValue(true)
   mockAuth.mockReturnValue({ has: mockHas })
   mockUsersGet.mockResolvedValue({ id: 1, email: 'u@example.com' })
+  mockGetClerkBanStatus.mockResolvedValue({ banned: false })
   mockGpAction.mockImplementation((fn: (client: unknown) => unknown) =>
     fn(mockClient)
   )
@@ -91,8 +96,26 @@ describe('UserLayout authorization', () => {
 
   it('fetches the user by numeric id once the caller is authorized', async () => {
     await render('42')
-    expect(mockGpAction).toHaveBeenCalledTimes(1)
     expect(mockUsersGet).toHaveBeenCalledWith(42)
+  })
+
+  it('tells the header when Clerk has the account banned', async () => {
+    mockGetClerkBanStatus.mockResolvedValue({ banned: true })
+
+    const element = await render('42')
+
+    expect(mockGetClerkBanStatus).toHaveBeenCalledWith(42)
+    expect(element).toMatchObject({ props: { clerkBanned: true } })
+  })
+
+  it('still renders the user when the Clerk status cannot be read', async () => {
+    mockGetClerkBanStatus.mockRejectedValue(
+      new SdkError(status.BadGateway, 'Bad Gateway')
+    )
+
+    const element = await render('42')
+
+    expect(element).toMatchObject({ props: { clerkBanned: false } })
   })
 
   it('calls notFound() when the API returns a 404 SdkError', async () => {

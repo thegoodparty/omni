@@ -107,7 +107,15 @@ export const updateUser = async (
   }
 }
 
-export const createImpersonationToken = async (targetUserId: number) => {
+interface ImpersonationTicket {
+  token: string | null
+  webappUrl: string
+  error: string | null
+}
+
+export const createImpersonationToken = async (
+  targetUserId: number
+): Promise<ImpersonationTicket> => {
   const { orgId, has } = await auth()
   const user = await currentUser()
 
@@ -122,10 +130,23 @@ export const createImpersonationToken = async (targetUserId: number) => {
   const env = resolveEnvironment(orgId)
   const webappUrl = getWebappUrl(env)
 
-  const { token } = await gpAction((client) =>
-    client.admin.impersonateUser(targetUserId, actorEmail)
-  )
-  return { token, webappUrl }
+  try {
+    const { token } = await gpAction((client) =>
+      client.admin.impersonateUser(targetUserId, actorEmail)
+    )
+    return { token, webappUrl, error: null }
+  } catch (error) {
+    return {
+      token: null,
+      webappUrl,
+      error:
+        error instanceof SdkError
+          ? extractApiErrorMessage(error, 'Failed to impersonate user')
+          : error instanceof Error
+            ? error.message
+            : 'Failed to impersonate user',
+    }
+  }
 }
 
 // No getWebappUrl here: gp-api builds the absolute URL from its own APP_ROOT,

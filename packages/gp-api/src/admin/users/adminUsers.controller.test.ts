@@ -58,6 +58,7 @@ describe('AdminUsersController', () => {
       createUser: vi.fn(),
       deleteUser: vi.fn(),
       impersonateUser: vi.fn(),
+      getClerkBanStatus: vi.fn(),
       createSignInLink: vi.fn(),
     }
     usersService = usersServiceMock as UsersService
@@ -79,6 +80,11 @@ describe('AdminUsersController', () => {
 
     it('protects searchByEmail with AdminOrM2MGuard', () => {
       const guards = getGuards('searchByEmail')
+      expect(guards).toContain(AdminOrM2MGuard)
+    })
+
+    it('protects clerkBanStatus with AdminOrM2MGuard', () => {
+      const guards = getGuards('clerkBanStatus')
       expect(guards).toContain(AdminOrM2MGuard)
     })
   })
@@ -243,6 +249,19 @@ describe('AdminUsersController', () => {
         99,
         mockUser.clerkId,
       )
+    })
+  })
+
+  describe('clerkBanStatus', () => {
+    it("returns the target user's Clerk ban status", async () => {
+      vi.spyOn(usersService, 'getClerkBanStatus').mockResolvedValue({
+        banned: true,
+      })
+
+      const result = await controller.clerkBanStatus(42)
+
+      expect(usersService.getClerkBanStatus).toHaveBeenCalledWith(42)
+      expect(result).toEqual({ banned: true })
     })
   })
 
