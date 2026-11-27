@@ -63,6 +63,11 @@ export class OutreachEmailAudienceService extends createPrismaBase(
     super()
   }
 
+  // The clock a delivery measures its budget on. A test moves this one, not
+  // the process's Date, so pg-boss and Postgres keep the real time they
+  // schedule and stamp on.
+  now: () => Date = () => new Date()
+
   async assertListBelongs(
     organizationSlug: string,
     voterFileFilterId: number,
@@ -206,7 +211,7 @@ export class OutreachEmailAudienceService extends createPrismaBase(
       row.organizationSlug,
     )
     const deadline = addMilliseconds(
-      new Date(),
+      this.now(),
       EMAIL_AUDIENCE_DELIVERY_BUDGET_MS,
     )
     const checkedDomains = new Map<string, boolean>()
@@ -224,7 +229,7 @@ export class OutreachEmailAudienceService extends createPrismaBase(
         )
         break
       }
-      if (isAfter(new Date(), deadline) || signal?.aborted) return 'more'
+      if (isAfter(this.now(), deadline) || signal?.aborted) return 'more'
 
       const people: AudiencePerson[] = fixture
         ? fixture

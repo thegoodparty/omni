@@ -41,6 +41,8 @@ beforeEach(async () => {
   ).mockResolvedValue(new Set<string>())
 })
 
+// This file drives the real job queue, and pg-boss reads the same Date this
+// process does, so no test may leave a faked clock behind for it.
 afterEach(() => {
   vi.useRealTimers()
 })
@@ -206,16 +208,16 @@ describe('prepare resolves the audience', () => {
   })
 
   it('pages by cursor across deliveries until the cap is reached', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    const start = new Date()
-    vi.setSystemTime(start)
+    const audience = service.app.get(OutreachEmailAudienceService)
+    let now = new Date()
+    const clock = vi.spyOn(audience, 'now').mockImplementation(() => now)
     const { pages } = stubAudience(AUDIENCE_PAST_ONE_PAGE)
     vi.spyOn(
       service.app.get(ContactsService),
       'findContactsForFilter',
     ).mockImplementationOnce(async (_filter, pagination) => {
       // The first page takes this delivery past its time budget.
-      vi.setSystemTime(addMinutes(start, 3))
+      now = addMinutes(now, 3)
       pages.push({ afterId: pagination.afterId, length: 10_000 })
       return page(
         Array.from({ length: 10_000 }, (_, i) =>
@@ -229,7 +231,11 @@ describe('prepare resolves the audience', () => {
       warmingStep: 2,
     })
 
-    await prepare(outreachEmailId)
+    try {
+      await prepare(outreachEmailId)
+    } finally {
+      clock.mockRestore()
+    }
 
     // The first delivery stopped after one page and sent the next.
     expect(
