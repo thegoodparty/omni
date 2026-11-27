@@ -29,6 +29,13 @@ is now and the label an accept would write. An event that fires from several are
 no single proposal, so "Relabel it" becomes one "Relabel to <area>" button per area and
 the handoff carries the pick as an `area:` line.
 
+**The labels queue** lists the health report's `label_findings`, the same rows as the
+digest's Labels section: a new, firing event with no Govern `product:` tag, or any event
+whose product tags disagree. A missing tag is offered "Label it", a conflict "Fix the
+label", and both can be dismissed. Labelling and fixing go through `event-metadata`; a
+dismissal is a `dismissed:` row, the same list watchlist proposals use, so it hides the
+event from both.
+
 **A button label names the control; hovering it names the consequence.** "Fix in
 Govern" tells you which thing you are touching. The tooltip, and the review panel, say
 what it does to other people: *Write this to Amplitude Govern. A retirement here tells
@@ -82,7 +89,7 @@ looking and rule on the evidence in front of you.
 None of this text is a fact of its own. Every entry is a row in
 `books/analytics-governance-gotchas.md`, which is where one gets added when it is found
 and deleted when it is fixed. The caveats are the path from that file to the person
-ruling. Four of the five queues judge every row the same way, so their caveat prints
+ruling. Every queue but flags judges every row the same way, so its caveat prints
 once above the list; flags print theirs per row, because each cause rests on different
 evidence.
 
@@ -309,7 +316,7 @@ yaml, pandas and the Databricks SDK.
 
 ## Where each queue's decisions live
 
-The page shows a queue; these files own what you decide about it. All five are read back
+The page shows a queue; these files own what you decide about it. All six are read back
 by the twice-weekly run, which is why a decision recorded in one of them stops the
 digest raising the item again.
 
@@ -320,6 +327,7 @@ digest raising the item again.
 | Watchlist proposals | an `events:` row added or removed, a `dismissed:` row, or a `kept:` row in `monitored_events.yaml` |
 | Registry vs semantic layer | a `metric:` row in `monitored_events.yaml` |
 | Surface relabels | `instrumentation_data/surface_drift.json`, applied to Amplitude through `event-metadata` |
+| Product labels | the `product:` tag in Amplitude Govern through `event-metadata`, or a `dismissed:` row in `monitored_events.yaml` |
 
 Per-event "I looked at this one and it is fine" has no home yet. That file is phase 2
 and is the only genuinely new mechanism in the whole ticket.

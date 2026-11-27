@@ -2,13 +2,14 @@
 
 Joins, all in one pass:
   - the health report (gitignored, present in the workspace during the cron run):
-    status counts, the flagged set, watchlist proposals, alignment findings
+    status counts, the flagged set, watchlist proposals, alignment findings and
+    product-label findings
   - instrumentation_gaps.json (committed): the gap queue and its dispositions
   - the explorer snapshot (committed): the area rollup, so the two pages cannot disagree
   - amplitude_event_provenance.csv (committed): call-site counts and retirement dates,
     joined onto flagged evidence and event cards
   - surface_drift.json (committed, optional until the first detector run): open and
-    high-confidence relabel proposals, as the fifth queue
+    high-confidence relabel proposals, as the surface queue
 
 Runs in the analytics-governance workflow after the health step, which is what lets it
 read a report that is never committed, and by hand:
@@ -88,6 +89,15 @@ ALIGNMENT_VERBS = {
 
 SURFACE_VERBS = {"accept": "Relabel it", "dismiss": "Label is right", "defer": "Defer"}
 SURFACE_RANK = 45
+
+# Queue E. A missing label and a conflicting one are different repairs, so each row is
+# offered only its own: `label` for a missing tag, `fix` for a conflict. These are the
+# triage skill's Queue E verbs, so a handoff needs no translation on the way back in.
+# No `defer`: Queue E has no stored "open" state, and a row left unruled simply comes
+# back next run.
+LABEL_VERBS = {"label": "Label it", "fix": "Fix the label", "dismiss": "Dismiss"}
+LABEL_RANK = 48
+LABEL_KIND_VERB = {"no_product_label": "label", "product_label_conflict": "fix"}
 DRIFT = PY / "instrumentation_data" / "surface_drift.json"
 
 # What each verb actually DOES, in plain words, for the review panel and the button
@@ -189,6 +199,20 @@ VERB_EFFECTS = {
             "fires from change."
         ),
         "defer": "Leave it for a later run. It comes back next time.",
+    },
+    "labels": {
+        "label": (
+            "Write the event's product tag (Win, Serve or shared) to Amplitude Govern, so "
+            "every page and report files it under the right product."
+        ),
+        "fix": (
+            "Correct the event's product tag in Amplitude Govern, or its name if the tag "
+            "is the part that is right."
+        ),
+        "dismiss": (
+            "Record that this event's label is fine as it is. Permanent: it stops being "
+            "raised, and it also stops being proposed for the watchlist."
+        ),
     },
 }
 
@@ -527,6 +551,19 @@ QUEUE_CAVEATS = {
         "Open the removal commit and the page-path numbers in the evidence. A low "
         "coverage figure means most fires could not be placed on a page.",
         "event_reach.py, surface_drift.py, surface_drift.json",
+    ),
+    "labels": _caveat(
+        "We read the product tag each event carries in Amplitude, and compare it with the "
+        "product its name places it in. We list new, firing events that carry no tag "
+        "and that no naming rule places, and any event, of any age, whose tags disagree.",
+        "Either nobody said which product this event belongs to, so filtering by Win or "
+        "Serve misses it, or two signals name different products.",
+        "Only events first seen in the last 90 days are checked for a missing tag, so an "
+        "older event with no tag is not listed.",
+        "For a disagreement, check which product the screen that sends the event belongs "
+        "to before choosing which side to correct.",
+        "label_findings, govern_product, product_label_conflict (DATA-2685)",
+        reference=HEALTH_BOOK,
     ),
 }
 
@@ -868,7 +905,7 @@ def build_changes(report: Mapping, previous: Mapping | None) -> dict:
     return aeh.diff_flagged(list(report.get("flagged") or []), prior_flagged(previous))
 
 
-# --- the other three queues ---------------------------------------------------
+# --- the other queues ---------------------------------------------------
 
 
 def _gap_item(gap: Mapping) -> dict:
@@ -1017,6 +1054,45 @@ def build_surface_queue(drift: Mapping) -> list[dict]:
     return out
 
 
+def build_label_queue(report: Mapping) -> list[dict]:
+    """Queue E: events with a missing or conflicting product label.
+
+    Read from the health report's ``label_findings``, the same list the digest's Labels
+    section and the triage skill's Queue E print, so the three cannot disagree. The
+    monitor has already dropped dismissed events and put conflicts first.
+    """
+    out = []
+    for f in report.get("label_findings") or []:
+        verb = LABEL_KIND_VERB.get(f.get("kind"), "")
+        conflict = f.get("kind") == "product_label_conflict"
+        out.append({
+            "id": f["event_type"],
+            "queue": "labels",
+            "events": [f["event_type"]],
+            "verbs": {v: LABEL_VERBS[v] for v in (verb, "dismiss") if v},
+            "caveat": QUEUE_CAVEATS["labels"],
+            "recommended": verb,
+            "recommendation_reason": (
+                "Two signals name different products for this event. Correct whichever "
+                "one is wrong."
+                if conflict else
+                "A new event that is firing, and nothing says which product it belongs to."
+            ),
+            "label": f"{f['event_type']}: "
+                     + ("product labels disagree" if conflict else "no product label"),
+            "rank": LABEL_RANK,
+            "count": 1,
+            "dismissable": True,
+            "dismissed": None,
+            "evidence": [{
+                "finding": "labels disagree" if conflict else "no label",
+                "family": f.get("family"),
+                "first_seen_date": f.get("first_seen_date"),
+            }],
+        })
+    return out
+
+
 # --- the whole snapshot -------------------------------------------------------
 
 
@@ -1059,6 +1135,7 @@ def build_snapshot(
         {"queue": "proposals", "items": build_proposal_queue(report)},
         {"queue": "alignment", "items": build_alignment_queue(report)},
         {"queue": "surface", "items": build_surface_queue(drift or {})},
+        {"queue": "labels", "items": build_label_queue(report)},
     ]
     overview = build_overview(report, explorer)
     overview["totals"]["open_decisions"] = sum(len(q["items"]) for q in queues)

@@ -348,6 +348,7 @@ def test_every_verb_on_every_queue_says_what_it_does():
         "gaps": set(gcs.GAP_VERBS),
         "proposals": set(gcs.PROPOSAL_VERBS) | set(gcs.REMOVAL_VERBS),
         "alignment": set(gcs.ALIGNMENT_VERBS),
+        "labels": set(gcs.LABEL_VERBS),
     }
 
     for queue, expected in verbs.items():
@@ -836,7 +837,7 @@ def test_build_snapshot_stamps_its_own_prior_flagged_for_the_next_run():
     assert snapshot["prior_flagged"] == {"A": "dormant"}
     assert snapshot["run_date"] == "2026-09-28"
     assert [q["queue"] for q in snapshot["queues"]] == [
-        "flags", "gaps", "proposals", "alignment", "surface"]
+        "flags", "gaps", "proposals", "alignment", "surface", "labels"]
 
 
 def test_build_snapshot_counts_open_decisions_across_every_queue():
@@ -1104,3 +1105,67 @@ def test_every_removal_evidence_key_has_a_column_label():
     [item] = gcs.build_proposal_queue({"removal_proposals": [
         {"event_type": "Old", "reason": "retired", "retired_date": "2026-07-13"}]})
     assert set(item["evidence"][0]) <= labelled
+
+
+# --- the labels queue (Queue E) -------------------------------------------------
+
+LABEL_FINDINGS = [
+    {"event_type": "Poll - Shared", "kind": "product_label_conflict", "family": "serve",
+     "first_seen_date": "2026-03-02"},
+    {"event_type": "New - Thing Clicked", "kind": "no_product_label", "family": "other",
+     "first_seen_date": "2026-11-20"},
+]
+
+TEMPLATE = Path(__file__).resolve().parents[2] / "surfaces/governance-console/template.html"
+
+
+def test_label_queue_reads_the_same_findings_the_digest_prints_in_order():
+    items = gcs.build_label_queue({"label_findings": LABEL_FINDINGS})
+
+    assert [i["id"] for i in items] == ["Poll - Shared", "New - Thing Clicked"]
+    assert all(i["queue"] == "labels" and i["events"] == [i["id"]] for i in items)
+
+
+def test_a_missing_label_is_offered_label_and_a_conflict_fix_never_both():
+    conflict, missing = gcs.build_label_queue({"label_findings": LABEL_FINDINGS})
+
+    assert set(conflict["verbs"]) == {"fix", "dismiss"}
+    assert conflict["recommended"] == "fix"
+    assert set(missing["verbs"]) == {"label", "dismiss"}
+    assert missing["recommended"] == "label"
+
+
+def test_label_verbs_are_the_triage_skills_queue_e_verbs():
+    skill = (Path(__file__).resolve().parents[4]
+             / ".claude/skills/triage-instrumentation-gaps/SKILL.md").read_text()
+    queue_e = skill.split("## Queue E: product labels", 1)[1].split("\n## ", 1)[0]
+    for verb in gcs.LABEL_VERBS:
+        assert f"| `{verb}`" in queue_e, verb
+
+
+def test_label_rows_get_event_cards_and_their_evidence_has_column_labels():
+    import re
+
+    items = gcs.build_label_queue({"label_findings": LABEL_FINDINGS})
+    assert gcs.queue_event_types([{"queue": "labels", "items": items}]) == {
+        "Poll - Shared", "New - Thing Clicked"}
+
+    block = TEMPLATE.read_text().split("const EVIDENCE_LABELS = {", 1)[1].split("}", 1)[0]
+    labelled = set(re.findall(r"^\s*(\w+):", block, re.M))
+    assert set(items[0]["evidence"][0]) <= labelled
+
+
+def test_the_page_renders_and_hands_off_the_labels_queue():
+    template = TEMPLATE.read_text()
+    meta = template.split("const QUEUE_META = {", 1)[1].split("\n  }\n", 1)[0]
+    assert "\n    labels: {" in meta
+    handoff = template.split("const buildHandoff", 1)[1]
+    assert "'labels'" in handoff.split("const queues = [", 1)[1].split("]", 1)[0]
+
+
+def test_build_snapshot_counts_label_findings_as_open_decisions():
+    report = _min_report(label_findings=LABEL_FINDINGS)
+
+    snapshot = gcs.build_snapshot(report, {}, {}, None)
+
+    assert snapshot["overview"]["totals"]["open_decisions"] == 2
