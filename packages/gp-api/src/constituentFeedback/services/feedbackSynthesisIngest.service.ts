@@ -43,11 +43,17 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
   }
 
   async handle(event: FeedbackSynthesisCompleteEvent): Promise<void> {
-    const { sourceType, sourceId, issues, responsesLocation, promptSource } =
-      event.data
+    const {
+      sourceType,
+      sourceId,
+      issues,
+      responsesLocation,
+      promptSource,
+      promptFallbackReason,
+    } = event.data
     if (promptSource === 'fallback') {
       this.logger.warn(
-        { sourceType, sourceId },
+        { sourceType, sourceId, promptFallbackReason },
         'Synthesis run used the in-repo theme prompt',
       )
     }
