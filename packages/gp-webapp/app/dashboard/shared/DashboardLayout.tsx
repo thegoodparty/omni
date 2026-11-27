@@ -192,7 +192,7 @@ const DashboardLayout = ({
           <DashboardMenu pathname={currentPath} />
         </Sidebar>
       )}
-      <SidebarInset className="bg-[#f5f5f5]">
+      <SidebarInset className="bg-page">
         {!hideMenu && <MobileMenuTrigger />}
         <ImpersonationBanner />
         <ElectedOfficeTermDatesModalController />

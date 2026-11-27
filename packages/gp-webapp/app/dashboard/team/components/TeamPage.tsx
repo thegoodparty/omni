@@ -250,7 +250,7 @@ const TeamPage = (): React.JSX.Element => {
       pathname="/dashboard/team"
       navHeader={{ icon: 'users', label: NAV_LABELS.team }}
     >
-      <div className="w-full bg-muted px-4 py-6 pb-20 sm:px-8 md:px-16">
+      <div className="w-full px-4 py-6 pb-20 sm:px-8 md:px-16">
         <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4">
           <Card className="flex flex-row items-start gap-3 p-6">
             <CircleHelpIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />

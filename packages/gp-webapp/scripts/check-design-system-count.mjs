@@ -42,7 +42,7 @@ const BASELINES = {
   // +1: ImportedInFilter's View all pill copies PrecinctFilter's
   // (section 7, step 1).
   rawElements: 135,
-  hexClasses: 25,
+  hexClasses: 24,
   lucideImporters: 62,
   // 2026-11-11: initial baseline, measured on main.
   // +1: ImportedInFilter's Select all link copies VoterFileStep's group
@@ -52,6 +52,8 @@ const BASELINES = {
   // (section 7, step 1). Both draw the same gate, so the Dialog fix covers
   // both. ENG-11762 counted +2 against its base; on main it is three
   // components (DialogContent, DialogTitle, DialogDescription).
+  // SidebarInset's bg-page in DashboardLayout is the layout's page surface
+  // (docs/product-design.md section 9).
   restyledComponents: 477,
 }
 
@@ -70,7 +72,7 @@ const STYLEGUIDE_IMPORT_RE =
 // counted, and neither are icon and Skeleton sizes or a Card's padding, which
 // is how those components are meant to be used.
 const COLOR_WORDS =
-  'primary|secondary|tertiary|destructive|success|info|warning|error|muted|accent|foreground|background|card|popover|border|input|ring|white|black|transparent|current|brand|base|neutral|grayscale|slate|gray|zinc|blue|red|green|yellow|orange|purple|indigo|components|tw|link|disabled|inherit'
+  'primary|secondary|tertiary|destructive|success|info|warning|error|muted|accent|foreground|background|page|card|popover|border|input|ring|white|black|transparent|current|brand|base|neutral|grayscale|slate|gray|zinc|blue|red|green|yellow|orange|purple|indigo|components|tw|link|disabled|inherit'
 const RESTYLE_RES = [
   new RegExp(
     `^(?:bg|text|border|ring|fill|stroke|outline|divide|from|to|via|placeholder|decoration)-(?:\\[|(?:${COLOR_WORDS})(?:-|/|$))`,

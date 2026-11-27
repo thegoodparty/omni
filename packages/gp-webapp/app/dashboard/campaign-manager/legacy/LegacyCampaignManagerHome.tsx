@@ -32,7 +32,7 @@ export default function CampaignManagerHome(): React.JSX.Element {
   )
 
   return (
-    <div className="flex min-h-screen flex-col bg-muted">
+    <div className="flex min-h-screen flex-col">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
         <VoterContactsProvider>
           <CampaignUpdateHistoryProvider>

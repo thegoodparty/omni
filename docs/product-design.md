@@ -577,7 +577,7 @@ change in the styleguide reaches every screen at once.
   Color utilities are only for the elements you lay out yourself, like a line
   of text, a divider or a panel.
 - **Name the role, never the hue.** Use semantic tokens only: `foreground`,
-  `muted-foreground`, `background`, `card`, `muted`, `border`, `primary`,
+  `muted-foreground`, `background`, `page`, `card`, `muted`, `border`, `primary`,
   `tertiary`, `destructive`, `warning`, `success`, `info`. Never a Tailwind
   palette color (`blue-600`, `gray-300`), a scale step (`base-*`, `tw-*`,
   `grayscale-*`), a hex value or a bracketed variable. The tokens and their
@@ -585,8 +585,10 @@ change in the styleguide reaches every screen at once.
   `packages/styleguide/src/tailwind-theme.css`. CI counts hex classes.
 - **Neutral by default.** Content is `text-foreground`, secondary text is
   `text-muted-foreground` (on `bg-card` too), edges are `border-border`
-  (borders, not shadows: `design-memory/learned.md` #21). A quiet panel or
-  highlight is `bg-muted`. There is no yellow highlight.
+  (borders, not shadows: `design-memory/learned.md` #21). The page behind
+  the cards is `bg-page`, set once by the layout; a Win page never sets its
+  own. A quiet
+  panel or highlight is `bg-muted`. There is no yellow highlight.
 - **Blue means "you can act here."** `primary` is for the one primary action
   (section 5), links, focus, and a checked control (checkbox, switch,
   radio). Never decoration.
