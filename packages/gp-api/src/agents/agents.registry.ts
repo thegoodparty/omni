@@ -1,5 +1,6 @@
 import { opportunitiesAndChallengesAgent } from '@/campaignStrategy/opportunitiesAndChallengesAgent/opportunitiesAndChallenges.agent'
 import { oppositionResearchAgent } from '@/campaignStrategy/oppositionResearch/oppositionResearch.agent'
+import { campaignTrackerTasksAgent } from '@/campaigns/campaignTracker/campaignTrackerTasksAgent/campaignTrackerTasks.agent'
 import { topCommunityIssuesAgent } from '@/communityIssues/topCommunityIssuesAgent/topCommunityIssues.agent'
 import { trendingIssuesAgent } from '@/communityIssues/trendingIssuesAgent/trendingIssues.agent'
 import { meetingScheduleAgent } from '@/meetings/meetingScheduleAgent/meetingSchedule.agent'
@@ -13,6 +14,7 @@ import type { AgentDefinition } from './defineAgent'
 // reader of its runs keeps working. Start one with AgentsService.run(name,
 // input).
 export const AGENTS: Record<string, AgentDefinition> = {
+  campaign_tracker_tasks: campaignTrackerTasksAgent,
   meeting_schedule: meetingScheduleAgent,
   opportunities_and_challenges: opportunitiesAndChallengesAgent,
   opposition_research: oppositionResearchAgent,

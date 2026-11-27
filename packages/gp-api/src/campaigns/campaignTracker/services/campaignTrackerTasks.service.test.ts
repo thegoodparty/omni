@@ -62,8 +62,10 @@ const makeService = () => {
   const slack = { message: vi.fn().mockResolvedValue('ok') }
   // Default: story unfinished, which is the state that produces the row.
   const storyState = { read: vi.fn().mockResolvedValue({ complete: false }) }
+  const moduleRef = { get: vi.fn() }
   const service = new CampaignTrackerTasksService(
     experimentRuns as never,
+    moduleRef as never,
     s3 as never,
     slack as never,
     storyState as never,
@@ -72,7 +74,7 @@ const makeService = () => {
   Object.assign(service, {
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
   })
-  return { service, prisma, experimentRuns, s3, slack, storyState }
+  return { service, prisma, experimentRuns, s3, slack, storyState, moduleRef }
 }
 
 const campaign = (over: Record<string, unknown> = {}) =>

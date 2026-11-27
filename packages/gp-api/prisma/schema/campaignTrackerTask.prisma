@@ -29,6 +29,10 @@ model CampaignTrackerTask {
   skipReason          TrackerTaskSkipReason? @map("skip_reason")
   skippedAt           DateTime?              @map("skipped_at")
   snoozedUntil        DateTime?              @map("snoozed_until")
+  // The run that generated this row, on either engine. Null on the static and
+  // outreach rows, and on every generation written before this column existed.
+  // A run appends at most once, which is what makes a retry a no-op.
+  sourceRunId         String?                @map("source_run_id")
   campaign            Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   campaignId          Int                    @map("campaign_id")
   updateHistory       CampaignUpdateHistory? @relation(fields: [updateHistoryId], references: [id], onDelete: SetNull)
@@ -36,6 +40,7 @@ model CampaignTrackerTask {
 
   @@index([campaignId])
   @@index([campaignId, completed])
+  @@index([campaignId, sourceRunId])
   @@index([date])
   @@map("campaign_tracker_tasks")
 }

@@ -13,6 +13,7 @@ overview: `docs/features/campaign-tracker-v3.md`.
 | `services/campaignTrackerDispatch.service.ts` | `campaignTrackerWeekly` pg-boss schedule (Thursday 15:00 UTC, env-gated, active/non-demo cohort), one `campaignTrackerRegen` job per campaign; primary-loss gate (tears down outreach + skips).                |
 | `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap; owns the ballot-stage read (`needsBallotAccessTasks`). |
 | `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + skip/unskip + `POST generate` (non-prod manual override).                                                                          |
+| `campaignTrackerTasksAgent/`                  | `campaign_tracker_tasks` on gp-api's own agents: the agent definition, the prompt, the manifest's schemas, and `listCampaignTrackerTasks` (the MCP tool's successor).                                          |
 | `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                     |
 | `campaignTracker.consts.ts`                   | Experiment type, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                                   |
 
@@ -43,12 +44,30 @@ overview: `docs/features/campaign-tracker-v3.md`.
   that reads completion; only the webapp's next-task pick passes over a
   `notForMe` task (`isTrackerTaskSetAside`). `snoozedUntil` is no longer set.
 
-- **Append, never replace (the central rule).** `onExperimentRunCompleted`
-  stamps each run's rows with `week = max(existing dynamic week) + 1` and never
-  deletes prior generations. This preserves completion across weekly re-runs and
-  keeps history for the weekly agent's prior-task lookup. Consequence: every
-  reader must scope to the latest generation. The frontend (`buildTrackerStrategy`)
-  and the digest (`weeklyTasksDigestHandler`, a separate `latest_gen` CTE) both do.
+- **Append, never replace (the central rule).** `appendGeneration` (behind both
+  completion paths, below) stamps each run's rows with
+  `week = max(existing dynamic week) + 1` and never deletes prior generations.
+  This preserves completion across weekly re-runs and keeps history for the
+  weekly agent's prior-task lookup. Consequence: every reader must scope to the
+  latest generation. The frontend (`buildTrackerStrategy`) and the digest
+  (`weeklyTasksDigestHandler`, a separate `latest_gen` CTE) both do.
+- **One run appends once, and the append is atomic.** A generation completes on
+  either engine, and both deliveries are at-least-once: the PMF Engine's result
+  job is an SQS redelivery/retry, and `onArtifact` re-runs from the stored
+  artifact when an attempt dies after it. So the append takes a per-campaign
+  `pg_advisory_xact_lock` (`TRACKER_GENERATION_ADVISORY_LOCK_KEY`) and, inside
+  it, returns without inserting when any row already carries this run's
+  `sourceRunId`. The stamp is what makes the replay a no-op; the lock is what
+  makes a concurrent replay wait for the first append instead of reading the
+  same latest week. Neither alone is enough — a plain check-then-insert lets two
+  deliveries compute the same next index and insert twice. `sourceRunId` is null
+  on the static/outreach rows and on every generation written before the column,
+  so no backfill was needed. Both paths share `appendGeneration` and
+  `persistArtifact`, and Slack posts after the insert, only when one happened.
+- **Both engines complete the same way.** `onExperimentRunCompleted` (PMF
+  Engine: read the S3 artifact) and `onTrackerArtifact` (gp-api's engine: the
+  run's validated output) drop the same text/robocall rows and append through
+  `appendGeneration`. A change to one is a change to the other.
 - **Bootstrap is claimed atomically, and is not gated on the campaign story.**
   `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) proceeds
   as soon as both plan sections persist. The story is input that sharpens the
@@ -118,10 +137,19 @@ overview: `docs/features/campaign-tracker-v3.md`.
   tasks are `type: 'static'`, so they are absent from the dynamic CAP menu and
   the agent can never re-surface them.
 - **The model only selects/ranks/voices/finds-events.** Gates, caps, and the
-  generation/dating logic are deterministic here, not in the agent. Dateless
-  dynamic tasks are dated across the upcoming Mon-Sun week (counter skips dated
-  events; `nextMondayUtcMidnight`, shared with the digest, so dates land in the
-  digest window). Events keep their real date.
+  generation/dating logic are deterministic here, not in the agent. A task the
+  model leaves dateless is dated across the upcoming Mon-Sun week (counter skips
+  dated events; `nextMondayUtcMidnight`, shared with the digest, so dates land in
+  the digest window), and a date it does write is kept as-is — a real event date
+  is the event's, and a task date is whatever the prompt's week rule produced.
+  That is why the prompt spells the week out: nothing here corrects a task the
+  model dated into the past, or an event it dated after the election.
+- **`phase` and `channel` are copied, never inferred.** The catalog's labels on
+  a menu entry are the only source for those fields, which is why the prompt
+  spells out that the 30-day GOTV rule reorders the list and never relabels an
+  item (door knocking and phone banking are `active` all the way to Election
+  Day). The judge reads phase off the catalog label per item, so a relabelled
+  `gotv` item is both an instruction break and a wrong claim.
 - **Outreach (text/robocall) is deterministic, never agent-selected.** The 7
   sends are the catalog's `channel ∈ {text, robocall}` entries, materialized at
   bootstrap by `buildOutreachTrackerTaskRows` (`isDefaultTask: true`,
@@ -209,7 +237,40 @@ overview: `docs/features/campaign-tracker-v3.md`.
   prior tasks come back to the agent via the MCP tracker-tasks tool. The
   generator filters to `type === 'dynamic'` **and** excludes text/robocall (the
   outreach is deterministic). See `scripts/generate-tracker-catalog.ts` and the
-  runbooks experiment.
+  runbooks experiment. On gp-api's engine there is no attachment channel, so
+  the agent's prompt carries the same filtered menu inline
+  (`campaignTrackerTasksAgent/campaignTrackerTasks.prompt.ts`, built from
+  `CAMPAIGN_TASK_CATALOG` by the same filter). The agents registry holds it
+  under the experiment id (`campaignTrackerTasksAgent/campaignTrackerTasks.agent.ts`),
+  and `deploy/agentsOnGpApi.ts` names it in the preview, dev and prod lists.
+- **The dispatch resolves `AgentsService` loosely, and the input schema takes
+  any election date.** `CampaignTrackerTasksService` is provided in
+  `CampaignsModule`, which neither imports `AgentsModule` nor provides
+  `AgentsService`, so `moduleRef.get(AgentsService)` (strict) throws and the
+  gp-api branch needs `{ strict: false }`. And its input's `electionDate` is
+  `z.string().nullable()`, not `z.iso.date()`: `details.electionDate` is
+  free-form (a saved `toISOString()`, an empty string) and the PMF manifest
+  declares a bare string, so a date check refuses campaigns the PMF Engine
+  ran. `tests/dispatch-engine-switch.test.ts` drives the real app for both.
+- **The weekly coverage gate reads both engines.** `dispatchIfNeeded` asks
+  `hasRecentTrackerRun` (`services/campaignTrackerRun.ts`), which queries
+  `AgentRun` and `ExperimentRun` and ignores a FAILED run on either. A one-table
+  gate would make this migration's rollback unsafe: after a revert the run this
+  week lives in the other engine's table, so the gate finds nothing and
+  dispatches a duplicate paid run.
+  (docs/adr/2026-11-25-an-agent-migration-is-one-pr-judged-on-the-pr.md)
+- **The tracker read is one read, for two readers.** `readTrackerTasks` on the
+  service runs the three reconciles above (`completeCampaignStoryTaskIfDone`,
+  `completeTasksWithScheduledOutreach`, `alignTrackerTaskDates`, each
+  best-effort) and then lists the rows. `GET /campaigns/tracker-tasks` serves
+  it, and so does the weekly agent's `listCampaignTrackerTasks` tool — the
+  successor to the MCP tool the PMF Engine's instruction calls — so a run sees
+  the same rows the candidate does, completed and default ones included. The
+  tool takes no input: the campaign comes from the run's organization, and it
+  projects its result through the same `CampaignTrackerTaskResponseSchema` the
+  endpoint does, so both hand out one payload. `sourceRunId` is internal
+  bookkeeping for the idempotent append and is deliberately not published by
+  either.
 - **Completion / CTA / update-history reuse `CampaignTasksService` shape** (WET
   copies on purpose) against the new model.
 

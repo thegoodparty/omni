@@ -9,6 +9,7 @@ import {
   Param,
   Post,
   Put,
+  UseInterceptors,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -19,6 +20,7 @@ import { ReqCampaign } from '../decorators/ReqCampaign.decorator'
 import { UseCampaign } from '../decorators/UseCampaign.decorator'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import {
   completeTaskBodySchema,
@@ -47,41 +49,9 @@ export class CampaignTrackerController {
       'incomplete-but-important work and avoid repeating completed tasks.',
   })
   @ResponseSchema(z.array(CampaignTrackerTaskResponseSchema))
+  @UseInterceptors(ZodResponseInterceptor)
   async listCampaignTrackerTasks(@ReqCampaign() campaign: Campaign) {
-    // The story is finished on other surfaces (the story page, the manager
-    // chat), so tick its task here rather than leaving the list disagreeing
-    // with them until the next generation. Costs one indexed count once the
-    // task is already ticked, and is best-effort: a failure must not take the
-    // task list down with it.
-    await this.trackerTasksService
-      .completeCampaignStoryTaskIfDone(campaign)
-      .catch((err: unknown) =>
-        this.logger.error(
-          { err, campaignId: campaign.id },
-          'campaign story task sync failed, serving tasks as-is',
-        ),
-      )
-    // A task whose outreach has since been scheduled is done. Best-effort
-    // for the same reason.
-    await this.trackerTasksService
-      .completeTasksWithScheduledOutreach(campaign)
-      .catch((err: unknown) =>
-        this.logger.error(
-          { err, campaignId: campaign.id },
-          'scheduled outreach task sync failed, serving tasks as-is',
-        ),
-      )
-    // Rows dated before the plan became a timeline (or before the race
-    // changed) move onto it. Best-effort for the same reason.
-    await this.trackerTasksService
-      .alignTrackerTaskDates(campaign)
-      .catch((err: unknown) =>
-        this.logger.error(
-          { err, campaignId: campaign.id },
-          'tracker task date alignment failed, serving tasks as-is',
-        ),
-      )
-    return this.trackerTasksService.listCampaignTrackerTasks(campaign)
+    return this.trackerTasksService.readTrackerTasks(campaign)
   }
 
   // Manual generation override. In prod the weekly cron is the only trigger;

@@ -1,14 +1,13 @@
 import { Injectable } from '@nestjs/common'
 import { subDays } from 'date-fns'
-import { ExperimentRunStatus, Prisma } from '../../../generated/prisma'
+import { Prisma } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isDateTodayOrFuture } from 'src/shared/util/date.util'
-import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { CampaignTrackerTasksService } from './campaignTrackerTasks.service'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { JobsService } from '@/jobs/jobs.service'
 import type { JobRun } from '@/jobs/jobs.registry'
-import { CAMPAIGN_TRACKER_EXPERIMENT_TYPE } from '../campaignTracker.consts'
-import { CampaignTrackerTasksService } from './campaignTrackerTasks.service'
+import { hasRecentTrackerRun } from './campaignTrackerRun'
 
 // Global cron-automation guard (matches meeting_briefing). This is an env gate,
 // not a per-cohort flag: who gets generated for is decided by eligibility (a
@@ -30,7 +29,6 @@ export class CampaignTrackerDispatchService extends createPrismaBase(
   MODELS.Campaign,
 ) {
   constructor(
-    private readonly experimentRuns: ExperimentRunsService,
     private readonly trackerTasks: CampaignTrackerTasksService,
     private readonly jobs: JobsService,
   ) {
@@ -98,16 +96,18 @@ export class CampaignTrackerDispatchService extends createPrismaBase(
 
     // Coverage dedup: skip if a non-failed run already fired for this org this
     // week. A FAILED run is ignored so a stuck week still retries (it produced
-    // no tasks), instead of being blocked until the window expires.
-    const recent = await this.experimentRuns.findFirst({
-      where: {
-        organizationSlug: campaign.organizationSlug,
-        experimentType: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
-        status: { not: ExperimentRunStatus.FAILED },
-        createdAt: { gte: subDays(now, WEEKLY_COVERAGE_DAYS) },
-      },
-    })
-    if (recent) return
+    // no tasks), instead of being blocked until the window expires. Both
+    // engines answer, because the run may have been stored by the one this
+    // deploy no longer dispatches to (campaignTrackerRun.ts).
+    if (
+      await hasRecentTrackerRun(
+        this.client,
+        campaign.organizationSlug,
+        subDays(now, WEEKLY_COVERAGE_DAYS),
+      )
+    ) {
+      return
+    }
 
     await this.trackerTasks.dispatchGeneration(campaign, 'weekly')
   }
