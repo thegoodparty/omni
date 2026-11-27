@@ -6,6 +6,15 @@ description: >-
   self-test first, so a broken classifier fails the step instead of skipping
   CI. The caller must check out the PR merge commit with fetch-depth 2.
 
+inputs:
+  extra-skip-paths:
+    description: >-
+      Newline-separated `case` patterns for paths that are not app code for
+      this caller, in addition to the list in classify.sh. `*` matches `/`.
+      Leave empty to use the shared list alone.
+    required: false
+    default: ''
+
 outputs:
   app:
     description: '`true` unless every changed path is outside app code.'
@@ -24,6 +33,7 @@ runs:
       env:
         MERGE_SHA: ${{ github.sha }}
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        EXTRA_SKIP_PATHS: ${{ inputs.extra-skip-paths }}
       run: |
         set -euo pipefail
         list="$RUNNER_TEMP/changed-paths"
@@ -37,7 +47,13 @@ runs:
         echo "::group::Changed paths"
         tr '\0' '\n' <"$list"
         echo "::endgroup::"
-        app="$(bash "$GITHUB_ACTION_PATH/classify.sh" <"$list")"
+        extra=()
+        while IFS= read -r pattern; do
+          if [ -n "${pattern//[[:space:]]/}" ]; then
+            extra+=("$pattern")
+          fi
+        done <<<"$EXTRA_SKIP_PATHS"
+        app="$(bash "$GITHUB_ACTION_PATH/classify.sh" ${extra[@]+"${extra[@]}"} <"$list")"
         case "$app" in
           true | false) ;;
           *)
