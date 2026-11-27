@@ -47,6 +47,7 @@ details[open] > .fsum .caret{transform:rotate(90deg)}
   border:1px solid var(--rule);border-radius:4px;padding:1px 6px;white-space:nowrap}
 .fkind{font:600 9.5px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;padding:4px 7px;border-radius:3px;
   background:var(--surface-3);color:var(--ink-2);white-space:nowrap}
+.fkind.changed{background:var(--alert-bg);color:var(--alert)}
 .fmeta{font:400 12px/1.5 var(--mono);color:var(--ink-3);margin-top:5px;display:flex;flex-wrap:wrap;gap:3px 14px}
 .fstats{display:flex;gap:5px;flex:none;flex-wrap:wrap;justify-content:flex-end;max-width:180px}
 .stat{font:500 11px/1 var(--sans);padding:5px 8px;border-radius:4px;white-space:nowrap}
@@ -105,6 +106,8 @@ details[open] > .fsum .caret{transform:rotate(90deg)}
 .mnote{margin:10px 0 0;padding:9px 11px;border-radius:6px;font-size:12.5px;line-height:1.5;display:flex;gap:8px;align-items:flex-start}
 .mnote.warn{background:var(--warn-bg);color:var(--warn)}
 .mnote.drift{background:var(--drift-bg);color:var(--drift)}
+.mnote.alert{background:var(--alert-bg);color:var(--alert)}
+.mnote .acts{display:block;margin-top:8px}
 .mnote b{font-weight:600}
 .mnote .mk{font:600 11px/1.45 var(--mono);flex:none}
 

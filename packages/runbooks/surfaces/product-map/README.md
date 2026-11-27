@@ -7,7 +7,7 @@ product instead of by question. For the same audience: anyone who wants to know 
 we measure something, arriving from their own memory of using the site.
 
 Tickets: DATA-2547 (first version), DATA-2586 (the flows drawn since, and the drift
-guard still owed), under the DATA-2580 epic. Published page:
+guard), under the DATA-2580 epic. Published page:
 `https://claude.ai/artifact/1P4qyB56ZNPJ9VPaMjDLLZ` (republish to the same URL).
 
 ## One page with the explorer
@@ -62,14 +62,48 @@ counts the areas a second way and fails if the two disagree.
 
 The node model (`TREE`, the surface constants) lives in `map.js` as code, because
 it carries judgement per step: which events belong, which branch rejoins where, what a
-note should say. Nothing yet notices when a drawn flow's code changes: the drift guard
-in DATA-2586 records each surface's step ids and source files and flags one whose ids
-no longer appear.
+note should say. A step shown only behind a feature flag is drawn with `flag:` set, and
+the page labels it, rather than being left off.
+
+## The drift guard
+
+A drawing goes stale the moment its flow changes in code, so every build checks each
+drawn surface against its code (`drift.py`, run by `build.py`). `sources.json` holds one
+entry per drawn surface, keyed by its `name`: the files its steps were read from and,
+where the code declares the steps as a list, where that list is. The drawn step ids are
+read from `map.js` itself, so redrawing a flow updates the check with no other edit.
+
+| Level  | When                                                                                      | What it catches                         |
+| ------ | ----------------------------------------------------------------------------------------- | --------------------------------------- |
+| `list` | the code declares its steps (`lists`: a union, array or enum between two literal markers) | a step added in code and a step removed |
+| `ids`  | no declared list                                                                          | a drawn step whose id is gone           |
+| `none` | nothing in the code names the steps (`unchecked`, with the reason)                        | only a source file that is gone         |
+
+A surface that no longer matches is marked "Changed since drawn" on the page, with the
+steps that differ and a prompt for redrawing it; the "Still being built" panel lists the
+surfaces on the two weaker levels. Drift never fails the build or the runbooks tests:
+the person who changes a flow is not the person who keeps its drawing, so a red check
+would reach the wrong person. What does fail is the map's own bookkeeping: a drawn
+surface with no `sources.json` entry or an entry naming no drawing fails the runbooks
+tests (the build still publishes it, as unchecked), and an unknown key fails the build.
+
+Entry fields, beyond `files` and `lists` (`file`, `from`, `to`, optional `take` regex
+with one group, default every single-quoted string):
+
+- `aliases`: a drawn id standing for other code ids (`"office + term-dates": ["office",
+  "term-dates"]`), or for the token to look for at the `ids` level.
+- `not_drawn`: declared steps left off the drawing on purpose, each with its reason.
+- `not_declared`: drawn steps the code list does not hold (the gate's entry banner).
+
+To redraw a flagged flow, read its files, change its constant in `map.js` (and its
+`sources.json` entry if a file moved), and rebuild: the build prints which flows are
+still changed.
 
 ## Data
 
-Two inputs. The snapshot is refreshed by the governance run, so the map moves when the
-explorer does; the area list moves whenever `productMap.ts` changes on `main`.
+Three inputs. The snapshot is refreshed by the governance run, so the map moves when the
+explorer does; the area list and the drift marks move whenever the app's code changes on
+`main`.
 
 - The explorer snapshot, `surfaces/event-explorer/data/event-explorer.json`,
   whole. The page searches every event in it, and `map.js` builds each step's row

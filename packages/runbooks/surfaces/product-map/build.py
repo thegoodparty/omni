@@ -10,7 +10,9 @@ passed in as page parts (see shared/partials.py).
 
 One input, refreshed by the governance run: the explorer snapshot, whole. The map
 searches every event the explorer does, and each step's status, volume and route come
-from the same rows its cards render.
+from the same rows its cards render. The build also reads the app's own code, twice:
+the area list from productMap.ts, and each drawn flow's steps through the drift guard
+(drift.py, sources.json), so a drawing whose flow has changed is marked on the page.
 
 Deliberately dependency-free, like the other two builds: a bare interpreter, no
 credentials, no network.
@@ -22,9 +24,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "shared"))
+sys.path.insert(0, str(HERE))
 from partials import inline, inline_payload  # noqa: E402
 
+import drift  # noqa: E402
+
 EXPLORER = HERE.parent / "event-explorer"
+REPO = HERE.parents[3]
 # The app's own list of dashboard areas. CI fails a PR that adds a nav tab without
 # an entry here, so releases keep it current; the map takes its areas from it.
 PRODUCT_MAP_TS = (
@@ -70,6 +76,9 @@ def build() -> Path:
     doc = json.loads((EXPLORER / "data" / "event-explorer.json").read_text())
     doc["page"] = "map"
     doc["product_areas"] = product_areas(PRODUCT_MAP_TS.read_text())
+    doc["map_drift"] = drift.check_all(
+        REPO, json.loads((HERE / "sources.json").read_text()), (HERE / "map.js").read_text()
+    )
     html = inline(
         (EXPLORER / "template.html").read_text(),
         {
@@ -83,6 +92,8 @@ def build() -> Path:
     out.write_text(html)
     print(f"wrote {out}  ({out.stat().st_size / 1024:.0f} KB)")
     print(f"  snapshot {(doc.get('refreshed_at') or '')[:10]}: {len(doc['events'])} events")
+    changed = sorted(n for n, r in doc["map_drift"].items() if r["changed"])
+    print(f"  {len(changed)} drawn flows changed since drawn: {', '.join(changed) or 'none'}")
     return out
 
 
