@@ -198,6 +198,38 @@ own output is captured and neutralized (`self-test> ` prefix, every `::`
 broken up) so its canned `::warning::`/`::error::` scenarios never appear as
 real workflow-command annotations in a CI job log.
 
+## CI: a transient provider download is retried, a real error is not
+
+`terraform init` is cold on every CI run — no root commits its `.terraform`
+directory and nothing caches providers — so each of the 23 environment roots
+re-downloads its providers on every release train (12 in the dev job, 11 in the
+prod one). All 23 need `hashicorp/aws`, whose 6.71.0 package alone is 167 MiB:
+about 3.8 GB per train. Terraform retries the registry *discovery* call itself,
+but a provider *package* download gets one attempt, so one connection reset from
+`releases.hashicorp.com` fails init and, through `wait-all`, the whole dev deploy:
+run 44006719139 (ENG-11669) lost `dev/autopilot-agent-fargate` and
+`dev/autopilot-bot` to two resets 40s apart while the other nine roots in that job
+installed the same providers fine. Prod is not promoted until a human re-runs the
+train, because `release-retry.sh` correctly refuses to re-run a job that applies
+Terraform.
+
+`scripts/ci-tf-init.sh` (sourced by `ci-apply-root.sh` and `ci-plan-root.sh`) now
+retries init up to 3 times with backoff, and only on a network signature:
+`connection reset by peer`, `connection refused`, `i/o timeout`, `TLS handshake
+timeout`, a DNS failure, a registry/CDN `502`/`503`/`504`, or terraform's own
+`giving up after N attempt(s)`. Everything else — a provider source that does not
+exist, a version that does not exist, a checksum mismatch, a backend that answers
+with an error (`AccessDenied`, a missing bucket, an unparseable state), a missing
+variable — fails on the first attempt exactly as before, so a real failure still
+short-circuits `wait-all`. A *transport* failure while reading the S3 backend is
+retried like any other network error; init holds no lock, so there is nothing to
+half-apply. Bounded at three attempts and ~15s of backoff: a registry that is down
+for longer still fails the train rather than stalling it.
+
+Run `bash packages/gp-ai/infrastructure/scripts/ci-tf-init.sh --self-test` for the
+classification and attempt-count checks; the `terraform-plan` job runs it before
+touching AWS.
+
 ## Deployment Workflow
 
 ### Prerequisites
