@@ -21,7 +21,8 @@ import { friendlyError } from './chatHelpers'
 
 // How often send polls the smooth-reveal counter while draining the tail after
 // the network stream ends, plus a backstop tick cap so an unmount mid-drain can
-// never wedge the loop (250 * 40ms = 10s ceiling).
+// never wedge the loop (250 * 40ms = 10s ceiling; a fixed reading pace
+// extends it to fit the remaining text).
 const REVEAL_DRAIN_POLL_MS = 40
 const REVEAL_DRAIN_MAX_TICKS = 250
 
@@ -80,6 +81,9 @@ export interface StreamingTurnHandlers {
   // (e.g. a missing conversation) so the consumer can hide the Retry button.
   // Omit to swallow (the user can retry).
   onError?: (message: string, retryable: boolean) => void
+  // Type replies out at this fixed pace (chars/s) instead of tracking the
+  // network. Omit for the default backlog-scaled reveal.
+  revealCharsPerSecond?: number
 }
 
 export interface StreamingTurn {
@@ -131,6 +135,11 @@ export function useStreamingTurn(
   // persisted history. A new send supersedes a settling turn (aborts its
   // background poll and starts) rather than being dropped by the guard above.
   const settlingRef = useRef(false)
+  // The settling turn's reply, built from what streamed. A follow-up send that
+  // supersedes the turn before it commits keeps this in the transcript; without
+  // it the reply vanishes, since the superseded turn never swaps in history and
+  // the new send clears the live render.
+  const settlingTurnRef = useRef<ChatMessageDto | null>(null)
   // The in-flight turn's controller, so unmount can free the stream. Without
   // this a surface that unmounts mid-turn (a drawer closing, a step swapping)
   // leaves the fetch running until the server finishes; a hung stream leaks
@@ -158,6 +167,7 @@ export function useStreamingTurn(
   const { visibleSegments, revealedRef } = useSmoothReveal(
     liveSegments,
     liveSegments.length > 0,
+    { charsPerSecond: handlers.revealCharsPerSecond },
   )
 
   // Keep send stable while always calling the latest api/handlers (both are
@@ -187,7 +197,16 @@ export function useStreamingTurn(
       if (sendingRef.current) {
         if (!settlingRef.current) return
         abortRef.current?.abort()
+        const superseded = settlingTurnRef.current
+        if (superseded) {
+          setMessages((prev) =>
+            prev.some((m) => m.id === superseded.id)
+              ? prev
+              : [...prev, superseded],
+          )
+        }
       }
+      settlingTurnRef.current = null
       const chatApi = apiRef.current
       const scope = handlersRef.current
       sendingRef.current = true
@@ -415,15 +434,41 @@ export function useStreamingTurn(
           // blanks while we poll; `sendingRef` stays set until this turn settles.
           if (canReconcile()) setSending(false)
           settlingRef.current = true
+          const localTurn: ChatMessageDto = {
+            id: doneMessageId ?? `local-${crypto.randomUUID()}`,
+            conversationId,
+            role: 'assistant',
+            content: persisted.reduce(
+              (acc, s) => (s.kind === 'text' ? acc + (s.text ?? '') : acc),
+              '',
+            ),
+            createdAt: new Date().toISOString(),
+            segments: persisted,
+          }
+          if (persisted.length > 0) settlingTurnRef.current = localTurn
           // On a clean finish, let the smooth reveal type out the tail before
           // committing, so the last words don't snap in. A supersede/unmount
           // aborts it. On a stall there is nothing left to type out.
           if (!stalled) {
             const total = segmentsTextLength(segments)
+            // At a fixed reading pace the tail can take longer than the
+            // default ceiling, so size the cap to the remaining text (plus
+            // slack) instead of committing mid-sentence.
+            const pace = scope.revealCharsPerSecond
+            const maxTicks =
+              pace !== undefined
+                ? Math.max(
+                    REVEAL_DRAIN_MAX_TICKS,
+                    Math.ceil(
+                      ((total - revealedRef.current) / pace) *
+                        (1000 / REVEAL_DRAIN_POLL_MS),
+                    ) + 50,
+                  )
+                : REVEAL_DRAIN_MAX_TICKS
             let ticks = 0
             while (
               revealedRef.current < total &&
-              ticks < REVEAL_DRAIN_MAX_TICKS &&
+              ticks < maxTicks &&
               !abortController.signal.aborted
             ) {
               await new Promise((resolve) =>
@@ -501,22 +546,9 @@ export function useStreamingTurn(
                   scope.onTurnSuccess?.()
                 }
               } else {
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: doneMessageId ?? `local-${crypto.randomUUID()}`,
-                    conversationId,
-                    role: 'assistant',
-                    content: persisted.reduce(
-                      (acc, s) =>
-                        s.kind === 'text' ? acc + (s.text ?? '') : acc,
-                      '',
-                    ),
-                    createdAt: new Date().toISOString(),
-                    segments: persisted,
-                  },
-                ])
+                setMessages((prev) => [...prev, localTurn])
               }
+              settlingTurnRef.current = null
               setLiveSegments([])
             }
           }
@@ -538,6 +570,7 @@ export function useStreamingTurn(
         // us and already owns this state.
         if (mountedRef.current && abortRef.current === abortController) {
           abortRef.current = null
+          settlingTurnRef.current = null
           setLiveSegments([])
           scope.onTurnSettle?.()
           settlingRef.current = false

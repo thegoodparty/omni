@@ -136,12 +136,13 @@ test.describe('Chief of Staff', () => {
     const PROMPT = 'Summarize everything on my plate this week'
     const CONVERSATION_ID = 'e2e-cos-scroll'
     const ASSISTANT_MESSAGE_ID = 'e2e-cos-assistant-1'
-    // Long enough that the reveal (one step per 24ms frame) types for several
-    // seconds and overflows the transcript by many screens.
+    // Chief of Staff types at reading pace (28 chars/s), so the reply is many
+    // short paragraphs: each is a fresh line, so the transcript grows tall
+    // quickly per character and overflows within seconds, and at ~3,000
+    // characters it is still typing for the whole test.
     const REPLY = Array.from(
-      { length: 40 },
-      (_, i) =>
-        `Item ${i + 1}. This is a long enough paragraph of stubbed assistant text that the transcript overflows its container and keeps growing while the reader tries to scroll back up through it.`,
+      { length: 150 },
+      (_, i) => `Item ${i + 1}. Still typing.`,
     ).join('\n\n')
 
     const sseBody = [

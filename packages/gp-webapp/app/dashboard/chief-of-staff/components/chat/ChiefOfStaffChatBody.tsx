@@ -27,7 +27,11 @@ import {
   UserBubble,
 } from '../../../shared/agent-chat/chatUI'
 import MessageActionBar from '../../../shared/agent-chat/MessageActionBar'
-import { segmentsTextLength } from '../../../shared/agent-chat/streaming'
+import {
+  createReadingPacer,
+  READING_PACE_CHARS_PER_SEC,
+  segmentsTextLength,
+} from '../../../shared/agent-chat/streaming'
 import {
   TurnBlocks,
   liveTurnBlocks,
@@ -503,6 +507,7 @@ function ChiefOfStaffChatThread({
   const { messages, setMessages, visibleSegments, sending, send } =
     useStreamingTurn(chatApi, {
       toolLabel,
+      revealCharsPerSecond: READING_PACE_CHARS_PER_SEC,
       onTurnStart: () => {
         setStreamError(null)
         setLiveListMap(null)
@@ -705,8 +710,9 @@ function ChiefOfStaffChatThread({
     // otherwise read its own write and leave the intro half typed.
     if (!isOpener && introSeenAtMount) return
 
-    const step = Math.max(2, Math.ceil(introTotal / 120))
+    const pacer = createReadingPacer(READING_PACE_CHARS_PER_SEC, 28)
     const id = setInterval(() => {
+      const step = pacer.next()
       if (!isOpener) {
         try {
           window.localStorage.setItem(introSeenKey(scope), '1')
@@ -738,11 +744,12 @@ function ChiefOfStaffChatThread({
   const playbackActive = playback !== null
   useEffect(() => {
     if (!playbackActive) return
+    const pacer = createReadingPacer(READING_PACE_CHARS_PER_SEC, 28)
     const id = setInterval(() => {
+      const step = pacer.next()
       setPlayback((p) => {
         if (!p) return p
         const total = p.items.reduce((sum, it) => sum + it.content.length, 0)
-        const step = Math.max(2, Math.ceil(total / 120))
         const next = Math.min(p.progress + step, total)
         return next === p.progress ? p : { ...p, progress: next }
       })

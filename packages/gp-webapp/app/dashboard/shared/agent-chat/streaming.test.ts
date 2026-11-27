@@ -7,6 +7,8 @@ import {
   segmentsToLive,
   sliceRevealed,
   useSmoothReveal,
+  createReadingPacer,
+  READING_PACE_CHARS_PER_SEC,
 } from './streaming'
 import type { ChatMessageSegment } from './chatTypes'
 
@@ -148,6 +150,7 @@ const revealedAfter = (
   segments: LiveSegment[],
   wallMs: number,
   tickMs: number,
+  charsPerSecond?: number,
 ): number => {
   vi.useFakeTimers()
   const fakeSetInterval = globalThis.setInterval
@@ -156,7 +159,9 @@ const revealedAfter = (
     (fn: TimerHandler, _delay?: number, ...args: unknown[]) =>
       (fakeSetInterval as typeof setInterval)(fn, tickMs, ...args),
   )
-  const { result, unmount } = renderHook(() => useSmoothReveal(segments, true))
+  const { result, unmount } = renderHook(() =>
+    useSmoothReveal(segments, true, { charsPerSecond }),
+  )
   act(() => {
     vi.advanceTimersByTime(wallMs)
   })
@@ -187,5 +192,51 @@ describe('useSmoothReveal — paced by wall-clock, not tick count', () => {
     expect(
       revealedAfter(TURN, 5_000, HIDDEN_TAB_TICK_MS),
     ).toBeGreaterThanOrEqual(TOTAL * 0.9)
+  })
+})
+
+describe('useSmoothReveal — fixed reading pace', () => {
+  const PACE = READING_PACE_CHARS_PER_SEC
+
+  it('sits in a comfortable reading range (~230-320 wpm at ~5.7 chars/word)', () => {
+    expect(PACE).toBeGreaterThanOrEqual(22)
+    expect(PACE).toBeLessThanOrEqual(30)
+  })
+
+  it('reveals at the set pace, not the network pace', () => {
+    const revealed = revealedAfter(TURN, 10_000, FOREGROUND_TICK_MS, PACE)
+    expect(revealed).toBeGreaterThanOrEqual(PACE * 10 * 0.95)
+    expect(revealed).toBeLessThanOrEqual(PACE * 10 * 1.05)
+  })
+
+  it('keeps the same pace in a hidden/throttled tab', () => {
+    const foreground = revealedAfter(TURN, 10_000, FOREGROUND_TICK_MS, PACE)
+    const hidden = revealedAfter(TURN, 10_000, HIDDEN_TAB_TICK_MS, PACE)
+    expect(hidden).toBeGreaterThanOrEqual(foreground * 0.9)
+    expect(hidden).toBeLessThanOrEqual(foreground * 1.1)
+  })
+
+  it('still finishes the whole turn given enough time', () => {
+    const seconds = Math.ceil(TOTAL / PACE) + 1
+    expect(revealedAfter(TURN, seconds * 1000, FOREGROUND_TICK_MS, PACE)).toBe(
+      TOTAL,
+    )
+  })
+})
+
+describe('createReadingPacer', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('carries fractional characters so the long-run rate is exact', () => {
+    vi.useFakeTimers()
+    const pacer = createReadingPacer(28, 24)
+    let chars = pacer.next()
+    for (let i = 0; i < 1000; i++) {
+      vi.advanceTimersByTime(24)
+      chars += pacer.next()
+    }
+    // 1001 ticks * 24ms = 24.024s at 28 chars/s
+    expect(chars).toBeGreaterThanOrEqual(672)
+    expect(chars).toBeLessThanOrEqual(673)
   })
 })

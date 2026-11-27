@@ -588,8 +588,8 @@ describe('<ChiefOfStaffChatBody>', () => {
     // alone also matches the full string, so it can't tell them apart.
     await waitFor(() => expect(screen.getByText(/^word/)).toBeInTheDocument())
     expect(screen.queryByText(long)).not.toBeInTheDocument()
-    // ...and finishes revealing shortly after.
-    await act(() => vi.advanceTimersByTimeAsync(6000))
+    // ...and finishes at reading pace (~600 chars at 28 chars/s is ~21s).
+    await act(() => vi.advanceTimersByTimeAsync(25_000))
     await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument())
   })
 
@@ -1189,6 +1189,8 @@ describe('<ChiefOfStaffChatBody>', () => {
 
   it('renders a suggestion description as a secondary line, and label-only when absent', async () => {
     listConversationsMock.mockResolvedValue([])
+    // The chips wait for the first-chat intro, which types at reading pace.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     render(
       <ChiefOfStaffChatBody
@@ -1204,6 +1206,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       />,
     )
 
+    await act(() => vi.advanceTimersByTimeAsync(10_000))
     await screen.findByRole('button', { name: /Draft a fundraising email/ })
     expect(screen.getByText('Draft a fundraising email')).toBeInTheDocument()
     expect(

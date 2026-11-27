@@ -107,6 +107,43 @@ export function sliceRevealed(
   return out
 }
 
+const REVEAL_TICK_MS = 24
+
+// A comfortable reading pace for agent text, in characters per second.
+// Brysbaert (2019, Journal of Memory and Language), a meta-analysis of 190
+// studies, puts average adult silent reading of English at 238 wpm for
+// non-fiction (typical range 175-300). At ~5.7 characters per word including
+// the space, that is ~23 chars/s. We run slightly faster (~295 wpm) so the
+// text keeps a step ahead of the reader without outrunning them.
+export const READING_PACE_CHARS_PER_SEC = 28
+
+// Turns wall-clock into a whole number of characters at a fixed pace, carrying
+// the fractional remainder between ticks. Elapsed time (not tick count) drives
+// it, so a throttled background tab keeps the same pace. The first tick after
+// a reset counts as one nominal tick so the reveal starts immediately.
+export function createReadingPacer(
+  charsPerSecond: number,
+  tickMs = REVEAL_TICK_MS,
+): { next: () => number; reset: () => void } {
+  let last: number | null = null
+  let carry = 0
+  return {
+    next() {
+      const now = Date.now()
+      const elapsed = last === null ? tickMs : now - last
+      last = now
+      const budget = carry + (elapsed * charsPerSecond) / 1000
+      const chars = Math.floor(budget)
+      carry = budget - chars
+      return chars
+    },
+    reset() {
+      last = null
+      carry = 0
+    },
+  }
+}
+
 // Smooth playback for a streamed turn: a character counter ticks toward the
 // text that has actually arrived, with a backlog-scaled step so the reveal
 // trails the network by a bounded amount and drains quickly after `done`. This
@@ -117,6 +154,7 @@ export function sliceRevealed(
 export function useSmoothReveal(
   segments: LiveSegment[],
   active: boolean,
+  opts: { charsPerSecond?: number } = {},
 ): {
   visibleSegments: LiveSegment[]
   revealedRef: React.MutableRefObject<number>
@@ -125,6 +163,7 @@ export function useSmoothReveal(
   const revealedRef = useRef(0)
   const segmentsRef = useRef(segments)
   const lastTickRef = useRef<number | null>(null)
+  const { charsPerSecond } = opts
 
   useEffect(() => {
     segmentsRef.current = segments
@@ -137,12 +176,33 @@ export function useSmoothReveal(
       lastTickRef.current = null
       return
     }
+    // Fixed reading pace (opt-in per scope): advance a constant number of
+    // characters per second of wall-clock, with no backlog catch-up, so the
+    // text appears about as fast as a person reads it.
+    const pacer =
+      charsPerSecond !== undefined ? createReadingPacer(charsPerSecond) : null
     const id = setInterval(() => {
+      // Read the pacer outside the state updater: StrictMode runs updaters
+      // twice in dev, and the second run would see ~0ms elapsed. Reset it
+      // while caught up to the network so a pause doesn't bank a burst.
+      let paced = 0
+      if (pacer) {
+        if (revealedRef.current < segmentsTextLength(segmentsRef.current)) {
+          paced = pacer.next()
+        } else {
+          pacer.reset()
+        }
+      }
       setRevealed((r) => {
         const total = segmentsTextLength(segmentsRef.current)
         if (r >= total) {
           lastTickRef.current = null
           return r
+        }
+        if (pacer) {
+          const next = Math.min(total, r + paced)
+          revealedRef.current = next
+          return next
         }
         // Pace the reveal by elapsed wall-clock, not by how many times this
         // timer fires. Browsers throttle setInterval to ~1s in a hidden or
@@ -155,7 +215,10 @@ export function useSmoothReveal(
         const now = Date.now()
         const frames = Math.min(
           total,
-          Math.max(1, Math.round((now - (lastTickRef.current ?? now)) / 24)),
+          Math.max(
+            1,
+            Math.round((now - (lastTickRef.current ?? now)) / REVEAL_TICK_MS),
+          ),
         )
         lastTickRef.current = now
         let next = r
@@ -168,9 +231,9 @@ export function useSmoothReveal(
         revealedRef.current = next
         return next
       })
-    }, 24)
+    }, REVEAL_TICK_MS)
     return () => clearInterval(id)
-  }, [active])
+  }, [active, charsPerSecond])
 
   const visibleSegments = useMemo(
     () => sliceRevealed(segments, revealed),
