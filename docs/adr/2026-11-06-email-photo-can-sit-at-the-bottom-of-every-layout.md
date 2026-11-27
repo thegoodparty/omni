@@ -1,6 +1,6 @@
 ---
 title: Email layouts shape content but never refuse it, and a photo can sit at the bottom of any layout
-status: active
+status: superseded
 decided_by: [eugenebazdyriev]
 date: 2026-11-06
 code: ['#3646']
@@ -12,7 +12,7 @@ scope:
   - packages/gp-api/src/emailOutreach/templates/**
   - packages/gp-webapp/app/dashboard/outreach/v2/email/emailForm.util.ts
 supersedes: [2026-11-02-email-layouts-shape-content-but-never-refuse-it.md]
-superseded_by:
+superseded_by: 2026-11-25-email-photo-letter-is-a-fixed-structure.md
 ---
 
 # Email layouts shape content but never refuse it, and a photo can sit at the bottom of any layout

@@ -107,6 +107,7 @@ export const LongUpdateLayout = ({ colors, blocks, context }: LayoutProps) => {
                 />
               )
             case 'image':
+            case 'signature':
               return null
           }
         })}

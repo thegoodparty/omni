@@ -197,6 +197,13 @@ const EmailBlockViewSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('image'), url: z.string(), alt: z.string() }),
   z.object({ type: z.literal('button'), label: z.string(), url: z.string() }),
   z.object({ type: z.literal('divider') }),
+  z.object({
+    type: z.literal('signature'),
+    name: z.string(),
+    office: z.string(),
+    imageUrl: z.string(),
+    profileUrl: z.string(),
+  }),
 ])
 
 export const EmailContentViewSchema = z.object({
@@ -307,6 +314,15 @@ export const EmailAiDraftFieldsSchema = z.object({
   subject: z.string().trim().min(1).max(EMAIL_SUBJECT_MAX_LENGTH),
   headline: z.string().trim().min(1).max(EMAIL_HEADLINE_MAX_LENGTH).nullable(),
   body: z.string().trim().min(1).max(EMAIL_BODY_MAX_LENGTH),
+  // The second text of a photo_letter, written with `body` in one request.
+  // Left out for every other layout.
+  body2: z
+    .string()
+    .trim()
+    .min(1)
+    .max(EMAIL_BODY_MAX_LENGTH)
+    .nullable()
+    .optional(),
   buttonLabel: z
     .string()
     .trim()

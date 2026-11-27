@@ -29,6 +29,30 @@ export interface EmailThemeColors {
 
 const WHITE = '#FFFFFF'
 
+// The photo_letter themes: one color tints the button and the profile link,
+// text stays neutral, and the page around the card is the color at 9% on
+// white (CSS color-mix, precomputed since email clients can't mix). The band
+// is that tint too, so short_cta's button never sits on its own color.
+const letterTheme = (label: string, color: string, tint: string) => ({
+  label,
+  colors: {
+    bg: tint,
+    card: WHITE,
+    header: color,
+    headerText: WHITE,
+    rule: color,
+    band: tint,
+    headline: '#1E1F20',
+    body: '#3E4042',
+    meta: '#595C5F',
+    cta: color,
+    ctaText: WHITE,
+    accent: color,
+    accentText: WHITE,
+    divider: '#E4E4E7',
+  },
+})
+
 export const EMAIL_THEMES = {
   // The default: black text on white with blue links, for an email whose
   // author hasn't picked colors.
@@ -142,6 +166,14 @@ export const EMAIL_THEMES = {
       divider: '#E0E6EC',
     },
   },
+  slate: letterTheme('Slate', '#334155', '#EDEEF0'),
+  burgundy: letterTheme('Burgundy', '#70091B', '#F2E9EA'),
+  pink: letterTheme('Pink', '#9D174D', '#F6EAEF'),
+  orange: letterTheme('Orange', '#C2410C', '#FAEEE9'),
+  indigo: letterTheme('Indigo', '#312E81', '#ECECF4'),
+  halo_green: letterTheme('Halo green', '#257F68', '#EBF3F1'),
+  cyan: letterTheme('Cyan', '#0E7490', '#E9F2F5'),
+  lavender: letterTheme('Lavender', '#441E9F', '#EEEBF6'),
 } as const satisfies Record<string, { label: string; colors: EmailThemeColors }>
 
 export type EmailThemeKey = keyof typeof EMAIL_THEMES
@@ -153,7 +185,38 @@ export const EmailThemeKeySchema = z.enum([
   'warm_sunset',
   'bold_red',
   'cream_and_forest',
+  'slate',
+  'burgundy',
+  'pink',
+  'orange',
+  'indigo',
+  'halo_green',
+  'cyan',
+  'lavender',
 ]) satisfies z.ZodType<EmailThemeKey>
+
+// The themes the original three-preset editor offers. Saved emails may carry
+// any key; this only keeps the shipped picker as it was.
+export const EMAIL_CLASSIC_THEMES = [
+  'neutral',
+  'classic_blue',
+  'fresh_green',
+  'warm_sunset',
+  'bold_red',
+  'cream_and_forest',
+] as const satisfies readonly EmailThemeKey[]
+
+// The template colors of the fixed photo_letter email, in picker order.
+export const EMAIL_LETTER_THEMES = [
+  'slate',
+  'burgundy',
+  'pink',
+  'orange',
+  'indigo',
+  'halo_green',
+  'cyan',
+  'lavender',
+] as const satisfies readonly EmailThemeKey[]
 
 export const EMAIL_LAYOUTS = {
   newsletter: {

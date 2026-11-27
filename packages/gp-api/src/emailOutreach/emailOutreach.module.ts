@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContactUploadStuckModule } from '@/contactUploads/contactUploadStuck.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { VotersModule } from '@/voters/voters.module'
 import { OutreachCreditsModule } from '@/outreachCredits/outreachCredits.module'
 import { PaymentHoldsModule } from '@/paymentHolds/paymentHolds.module'
@@ -33,6 +34,7 @@ import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.ser
 import { OutreachEmailEventsService } from './services/outreachEmailEvents.service'
 import { OutreachEmailLifecycleService } from './services/outreachEmailLifecycle.service'
 import { OutreachEmailPrepareService } from './services/outreachEmailPrepare.service'
+import { OutreachEmailProfileService } from './services/outreachEmailProfile.service'
 import { OutreachEmailSendSweepService } from './services/outreachEmailSendSweep.service'
 import { OutreachEmailSettlementAdapter } from './services/outreachEmailSettlementAdapter.service'
 import { OutreachEmailService } from './services/outreachEmail.service'
@@ -57,6 +59,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     forwardRef(() => ContactsModule),
     forwardRef(() => VotersModule),
     PeopleQueryModule,
+    PersonProfilesModule,
   ],
   controllers: [
     OutreachEmailController,
@@ -76,6 +79,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachEmailGenerationService,
     OutreachEmailImageService,
     OutreachEmailPreviewService,
+    OutreachEmailProfileService,
     OutreachEmailTestService,
     SesService,
     OutreachEmailConfirmService,

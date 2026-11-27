@@ -242,6 +242,7 @@ const fieldOf = (block: EmailBlockDraft): ComposeField => {
       return 'button'
     case 'paragraph':
     case 'divider':
+    case 'signature':
       return 'message'
   }
 }
@@ -264,6 +265,7 @@ const tooLong = (block: EmailBlockDraft, key: unknown): string => {
         ? `Keep the button text under ${EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH} characters.`
         : 'Use a shorter link.'
     case 'divider':
+    case 'signature':
       return 'Shorten your message.'
   }
 }
@@ -274,6 +276,7 @@ const missing = (block: EmailBlockDraft, key: unknown): string => {
       return 'Write the subheading after ##, or remove that line.'
     case 'paragraph':
     case 'divider':
+    case 'signature':
       return 'Write your message.'
     case 'image':
       return 'Upload the photo again.'

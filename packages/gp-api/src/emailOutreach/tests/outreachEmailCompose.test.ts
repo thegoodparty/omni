@@ -1,15 +1,20 @@
+import { EmailContentDraftSchema } from '@goodparty_org/contracts'
+import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { subDays } from 'date-fns'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { PersonsService } from '@/electionDb/persons/persons.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { DRAFT_RETENTION_DAYS } from '@/outreach/services/outreachDraftExpiry.service'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
 import { useTestService } from '@/test-service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OutreachStatus } from '../../generated/prisma'
 import { SesService } from '../services/ses.service'
+import { OutreachEmailProfileService } from '../services/outreachEmailProfile.service'
 
 const service = useTestService({ jobs: true })
 
@@ -230,6 +235,75 @@ describe('POST /draft (AI draft)', () => {
     })
   })
 
+  it('writes both texts of a photo_letter in one request', async () => {
+    jsonCompletion.mockResolvedValue({
+      object: {
+        ...aiDraftReply,
+        body2: 'Bring a neighbor.',
+        buttonLabel: 'Save your spot',
+      },
+      tokens: 1,
+    })
+    const res = await post(
+      '/v1/outreach/email/draft',
+      draftRequest({ layout: 'photo_letter' }),
+      winHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(jsonCompletion).toHaveBeenCalledTimes(1)
+    const [call] = jsonCompletion.mock.calls[0] ?? []
+    expect(String(call.messages[1].content)).toContain('Also reply with body2')
+    expect(call.schema.safeParse(aiDraftReply).success).toBe(false)
+    expect(res.data).toEqual({
+      ...aiDraftReply,
+      body2: 'Bring a neighbor.',
+      buttonLabel: 'Save your spot',
+      content: {
+        layout: 'photo_letter',
+        theme: 'cyan',
+        subject: 'Join us Thursday',
+        blocks: [
+          { type: 'heading', text: 'Town hall', level: 1 },
+          {
+            type: 'paragraph',
+            text: 'Hello {{first_name}},\n\nCome say hello.',
+          },
+          { type: 'paragraph', text: 'Bring a neighbor.' },
+          { type: 'button', label: 'Save your spot', url: '' },
+        ],
+      },
+    })
+  })
+
+  it('polishes both texts of a photo_letter together', async () => {
+    jsonCompletion.mockResolvedValue({
+      object: { ...aiDraftReply, body2: 'Bring a friend.' },
+      tokens: 1,
+    })
+    const res = await post(
+      '/v1/outreach/email/draft',
+      draftRequest({
+        layout: 'photo_letter',
+        currentDraft: { ...aiDraftReply, body2: 'bring a frend' },
+      }),
+      winHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const prompts = promptsOf()
+    expect(prompts).toContain('bring a frend')
+    expect(prompts).toContain('keep it consistent with body')
+    expect(res.data.body2).toBe('Bring a friend.')
+  })
+
+  it('asks the original layouts for one body, as before', async () => {
+    await post('/v1/outreach/email/draft', draftRequest(), winHeaders())
+    const [call] = jsonCompletion.mock.calls[0] ?? []
+    expect(promptsOf()).not.toContain('body2')
+    expect(
+      call.schema.safeParse({ ...aiDraftReply, body2: 'x' }).data,
+    ).not.toHaveProperty('body2')
+  })
+
   it('answers 502 when the model fails, without tracking', async () => {
     jsonCompletion.mockRejectedValue(new Error('boom'))
     const res = await post(
@@ -331,6 +405,38 @@ describe('POST /images/presign', () => {
       winHeaders(),
     )
     expect(own.status).toBe(HttpStatus.CREATED)
+  })
+
+  it('holds a signature image to the same rule, in a draft and a preview', async () => {
+    const contentWith = (imageUrl: string) => ({
+      layout: 'photo_letter',
+      theme: 'cyan',
+      subject: 's',
+      blocks: [
+        { type: 'paragraph', text: 'Hello' },
+        { type: 'signature', name: 'Jane Doe', imageUrl },
+      ],
+    })
+    const own = `https://${ASSET_DOMAIN}/email-images/${winSlug}/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.png`
+    const elsewhere = 'https://example.com/signature.png'
+    const save = (imageUrl: string) =>
+      post(
+        '/v1/outreach/email',
+        { goal: 'g', content: contentWith(imageUrl) },
+        winHeaders(),
+      )
+    const preview = (imageUrl: string) =>
+      post(
+        '/v1/outreach/email/preview',
+        { content: contentWith(imageUrl) },
+        winHeaders(),
+      )
+    expect((await save(elsewhere)).status).toBe(HttpStatus.BAD_REQUEST)
+    expect((await preview(elsewhere)).status).toBe(HttpStatus.BAD_REQUEST)
+    expect((await save(own)).status).toBe(HttpStatus.CREATED)
+    const rendered = await preview(own)
+    expect(rendered.status).toBe(HttpStatus.CREATED)
+    expect(rendered.data.html).toContain(own)
   })
 })
 
@@ -442,5 +548,120 @@ describe('draft expiry', () => {
         where: { id: created.data.id },
       }),
     ).toBeNull()
+  })
+})
+
+describe('the signature profile link', () => {
+  const slug = 'jane-doe-1a2b3c4d'
+  const liveUrl = `https://dev.goodparty.org/people/${slug}`
+  const sentByClient = 'https://goodparty.org/people/someone-else-9f8e7d6c'
+
+  const letter = {
+    layout: 'photo_letter',
+    theme: 'cyan',
+    subject: 'Town hall',
+    blocks: [
+      { type: 'paragraph', text: 'Hello {{first_name}}' },
+      { type: 'signature', name: 'Jane Doe', profileUrl: sentByClient },
+    ],
+  }
+
+  const publishProfile = async () => {
+    const personId = randomUUID()
+    await service.prisma.personProfile.create({
+      data: { personId, userId: service.user.id, publishedAt: new Date() },
+    })
+    vi.spyOn(service.app.get(PersonsService), 'getPersons').mockResolvedValue([
+      { id: personId, slug },
+    ] as Awaited<ReturnType<PersonsService['getPersons']>>)
+  }
+
+  const signatureOf = (content: { blocks: { type: string }[] }) =>
+    content.blocks.find((block) => block.type === 'signature')
+
+  beforeEach(() => {
+    appEnvOverrides.WEBAPP_ROOT = 'https://dev.goodparty.org'
+  })
+
+  it.each([
+    ['Win', '/v1/outreach/email', winHeaders],
+    ['Serve', '/v1/outreach/serve/email', serveHeaders],
+  ])(
+    'links the %s sender’s public profile, whatever the client sent',
+    async (_mode, path, headers) => {
+      await publishProfile()
+      const saved = await post(path, { goal: 'g', content: letter }, headers())
+      expect(saved.status).toBe(HttpStatus.CREATED)
+      expect(signatureOf(saved.data.content)).toMatchObject({
+        profileUrl: liveUrl,
+      })
+      const preview = await post(
+        `${path}/preview`,
+        { content: letter },
+        headers(),
+      )
+      expect(preview.data.html).toContain(`href="${liveUrl}"`)
+      expect(preview.data.html).not.toContain(sentByClient)
+
+      const test = await post(`${path}/${saved.data.id}/test`, {}, headers())
+      expect(test.status).toBe(HttpStatus.CREATED)
+      expect(sendEmail.mock.calls[0]?.[0].html).toContain(`href="${liveUrl}"`)
+    },
+  )
+
+  it('leaves the link out when the sender has no public profile', async () => {
+    const saved = await post(
+      '/v1/outreach/email',
+      { goal: 'g', content: letter },
+      winHeaders(),
+    )
+    expect(saved.status).toBe(HttpStatus.CREATED)
+    expect(signatureOf(saved.data.content)).toMatchObject({ profileUrl: '' })
+    const preview = await post(
+      '/v1/outreach/email/preview',
+      { content: letter },
+      winHeaders(),
+    )
+    expect(preview.data.html).toContain('Jane Doe')
+    expect(preview.data.html).not.toContain('My public profile')
+    expect(preview.data.html).not.toContain(sentByClient)
+  })
+
+  it('fails prepare, not the preview, when the address cannot be resolved', async () => {
+    await service.prisma.personProfile.create({
+      data: {
+        personId: randomUUID(),
+        userId: service.user.id,
+        publishedAt: new Date(),
+      },
+    })
+    vi.spyOn(service.app.get(PersonsService), 'getPersons').mockResolvedValue(
+      [],
+    )
+    const preview = await post(
+      '/v1/outreach/email/preview',
+      { content: letter },
+      winHeaders(),
+    )
+    expect(preview.data.html).not.toContain('My public profile')
+
+    const profiles = service.app.get(OutreachEmailProfileService)
+    await expect(
+      profiles.withProfileUrl(winSlug, EmailContentDraftSchema.parse(letter), {
+        requireResolved: true,
+      }),
+    ).rejects.toThrow('could not be resolved')
+  })
+
+  it('leaves the link out while the profile is unpublished', async () => {
+    await service.prisma.personProfile.create({
+      data: { personId: randomUUID(), userId: service.user.id },
+    })
+    const preview = await post(
+      '/v1/outreach/serve/email/preview',
+      { content: letter },
+      serveHeaders(),
+    )
+    expect(preview.data.html).not.toContain('My public profile')
   })
 })

@@ -8,6 +8,7 @@ import { EMAIL_VARIABLES } from '../templates/emailTemplate.const'
 import { renderEmailTemplate } from '../templates/renderEmailTemplate'
 import { fieldsContent, previewableContentOf } from '../util/emailContent.util'
 import { assertEmailImageUrl } from './outreachEmailImage.service'
+import { OutreachEmailProfileService } from './outreachEmailProfile.service'
 import { OutreachEmailSenderService } from './outreachEmailSender.service'
 
 const SAMPLE_VALUES: Record<string, string> = {
@@ -18,7 +19,10 @@ const SAMPLE_VALUES: Record<string, string> = {
 
 @Injectable()
 export class OutreachEmailPreviewService {
-  constructor(private readonly senders: OutreachEmailSenderService) {}
+  constructor(
+    private readonly senders: OutreachEmailSenderService,
+    private readonly profiles: OutreachEmailProfileService,
+  ) {}
 
   // The same render a send uses, with the recipient variables filled in and
   // today as the send date. It writes nothing and sends nothing.
@@ -45,12 +49,18 @@ export class OutreachEmailPreviewService {
       if (block.type === 'image' && block.url) {
         assertEmailImageUrl(scope, block.url)
       }
+      if (block.type === 'signature' && block.imageUrl) {
+        assertEmailImageUrl(scope, block.imageUrl)
+      }
     }
-    const { html } = await renderEmailTemplate(content, {
-      senderName: await this.senders.displayNameFor(scope),
-      paidForBy: scope.paidForBy,
-      sendDate: new Date(),
-    })
+    const { html } = await renderEmailTemplate(
+      await this.profiles.withProfileUrl(scope.organizationSlug, content),
+      {
+        senderName: await this.senders.displayNameFor(scope),
+        paidForBy: scope.paidForBy,
+        sendDate: new Date(),
+      },
+    )
     return {
       html: html.replace(
         /\{\{(first_name|last_name|unsubscribe_url)\}\}/g,

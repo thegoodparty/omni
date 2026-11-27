@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EMAIL_CLASSIC_LAYOUT_PRESETS,
   EMAIL_CONTENT_EXAMPLES,
+  EMAIL_LETTER_THEMES,
   EMAIL_THEMES,
   EmailLayoutPresetKeySchema,
   type EmailContentDraft,
@@ -239,6 +241,135 @@ describe('renderEmailTemplate', () => {
     })
   })
 
+  describe('photo_letter', () => {
+    const example = EMAIL_CONTENT_EXAMPLES.photo_letter.win
+    const colors = EMAIL_THEMES.cyan.colors
+
+    it('renders the fixed letter', async () => {
+      expect(await renderEmailTemplate(example, WIN)).toMatchSnapshot()
+      expect(
+        await renderEmailTemplate(EMAIL_CONTENT_EXAMPLES.photo_letter.serve, {
+          ...WIN,
+          paidForBy: null,
+        }),
+      ).toMatchSnapshot()
+    })
+
+    it('draws the parts in their fixed order on the color tint', async () => {
+      const { html } = await renderEmailTemplate(example, WIN)
+      const order = [
+        'images/email-samples/street.jpg',
+        '<h1',
+        'I’m running for City Council',
+        'images/email-samples/hills.jpg',
+        'Reply and tell me',
+        'Volunteer with Dana',
+        'Dana Ortiz<',
+        'Candidate for City Council<',
+        'My public profile',
+        EMAIL_POSTAL_ADDRESS,
+      ].map((part) => html.indexOf(part))
+      expect(order).not.toContain(-1)
+      expect(order).toEqual([...order].sort((a, b) => a - b))
+      expect(html).toMatch(new RegExp(`<body[^>]*bgcolor="${colors.bg}"`))
+    })
+
+    it('fills the text column with both photos at 8px corners', async () => {
+      const { html } = await renderEmailTemplate(example, WIN)
+      const photos = html.match(/<img[^>]*email-samples\/[a-z]+\.jpg[^>]*>/g)
+      expect(photos).toHaveLength(2)
+      for (const photo of photos ?? []) {
+        expect(photo).toContain('width="504"')
+        expect(photo).toContain('width:100%')
+        expect(photo).toContain('border-radius:8px')
+      }
+    })
+
+    it('sets a semibold headline and 16/26 body text', async () => {
+      const { html } = await renderEmailTemplate(example, WIN)
+      expect(html).toMatch(/<h1[^>]*font-size:24px[^>]*font-weight:600/)
+      expect(html).toMatch(
+        /<p[^>]*class="em-body"[^>]*font-size:16px;line-height:26px/,
+      )
+    })
+
+    it('links the profile beside the logo, in the template color', async () => {
+      const { html } = await renderEmailTemplate(example, WIN)
+      expect(html).toContain('images/email-samples/goodparty-heart.png')
+      expect(html).toMatch(
+        new RegExp(
+          `<a[^>]*href="https://goodparty.org/people/dana-ortiz-1a2b3c4d"[^>]*color:${colors.cta};[^>]*font-size:12px[^>]*>My public profile</a>`,
+        ),
+      )
+    })
+
+    it('leaves out the profile link without a profile, and an empty signature', async () => {
+      const { html: serve } = await renderEmailTemplate(
+        EMAIL_CONTENT_EXAMPLES.photo_letter.serve,
+        SERVE,
+      )
+      expect(serve).toContain('City Council Member<br/>')
+      expect(serve).toContain('Maplewood, District 4<')
+      expect(serve).not.toContain('My public profile')
+      const { html: unsigned } = await renderEmailTemplate(
+        {
+          ...example,
+          blocks: [
+            { type: 'paragraph', text: 'Hello' },
+            {
+              type: 'signature',
+              name: '',
+              office: '',
+              imageUrl: '',
+              profileUrl: 'https://goodparty.org/people/dana-ortiz-1a2b3c4d',
+            },
+          ],
+        },
+        WIN,
+      )
+      expect(unsigned).not.toContain('My public profile')
+    })
+
+    it('draws a signature image above the name', async () => {
+      const { html } = await renderEmailTemplate(
+        {
+          ...example,
+          blocks: [
+            { type: 'paragraph', text: 'Hello' },
+            {
+              type: 'signature',
+              name: 'Dana Ortiz',
+              office: '',
+              imageUrl: 'https://cdn.example.com/signature.png',
+              profileUrl: '',
+            },
+          ],
+        },
+        WIN,
+      )
+      expect(html).toMatch(
+        /<img alt="Dana Ortiz’s signature"[^>]*height="48"[^>]*src="https:\/\/cdn.example.com\/signature.png"/,
+      )
+      expect(html.indexOf('signature.png')).toBeLessThan(
+        html.indexOf('Dana Ortiz<'),
+      )
+    })
+
+    it.each(EMAIL_LETTER_THEMES)(
+      'fills the button with %s and keeps its text white',
+      async (theme) => {
+        const { html } = await renderEmailTemplate({ ...example, theme }, WIN)
+        const themeColors = EMAIL_THEMES[theme].colors
+        expect(themeColors.ctaText).toBe('#FFFFFF')
+        expect(html).toMatch(
+          new RegExp(
+            `<td[^>]*bgcolor="${themeColors.cta}"[^>]*class="em-cta"[\\s\\S]*?<a[^>]*color:#FFFFFF;[^>]*font-size:16px;font-weight:600[^>]*>Volunteer with Dana</a>`,
+          ),
+        )
+      },
+    )
+  })
+
   it('renders an empty alt when a photo has no description', async () => {
     const { html } = await renderEmailTemplate(
       letter({
@@ -410,7 +541,7 @@ describe('renderEmailTemplate', () => {
     expect(html).toContain('Only this')
   })
 
-  it.each(LAYOUTS)(
+  it.each(EMAIL_CLASSIC_LAYOUT_PRESETS)(
     'renders every block in %s, in order, whatever the layout usually holds',
     async (layout) => {
       const { html } = await renderEmailTemplate(

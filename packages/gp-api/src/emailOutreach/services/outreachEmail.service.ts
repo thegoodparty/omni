@@ -34,6 +34,7 @@ import {
 } from '../util/emailPricing.util'
 import { OutreachEmailAudienceService } from './outreachEmailAudience.service'
 import { assertEmailImageUrl } from './outreachEmailImage.service'
+import { OutreachEmailProfileService } from './outreachEmailProfile.service'
 import { OutreachEmailSenderService } from './outreachEmailSender.service'
 
 type DraftRow = OutreachEmail & {
@@ -84,6 +85,7 @@ export class OutreachEmailService extends createPrismaBase(
     private readonly senders: OutreachEmailSenderService,
     private readonly audiences: OutreachEmailAudienceService,
     private readonly drafts: OutreachDraftService,
+    private readonly profiles: OutreachEmailProfileService,
   ) {
     super()
   }
@@ -258,7 +260,7 @@ export class OutreachEmailService extends createPrismaBase(
         voterFileFilterId,
       )
     }
-    const content = this.contentColumns(scope, input)
+    const content = await this.contentColumns(scope, input)
     const subject = 'content' in input ? input.content.subject : input.subject
 
     if (input.id === undefined) {
@@ -310,11 +312,14 @@ export class OutreachEmailService extends createPrismaBase(
   // A block draft keeps its blocks in `content` and leaves the fixed fields
   // empty; a fixed-field draft clears `content`, since a save is a full
   // replace.
-  private contentColumns(scope: EmailSendScope, input: EmailDraftSave) {
+  private async contentColumns(scope: EmailSendScope, input: EmailDraftSave) {
     if ('content' in input) {
       for (const block of input.content.blocks) {
         if (block.type === 'image' && block.url) {
           assertEmailImageUrl(scope, block.url)
+        }
+        if (block.type === 'signature' && block.imageUrl) {
+          assertEmailImageUrl(scope, block.imageUrl)
         }
       }
       return {
@@ -327,7 +332,10 @@ export class OutreachEmailService extends createPrismaBase(
         imageUrl: null,
         buttonLabel: null,
         buttonUrl: null,
-        content: input.content,
+        content: await this.profiles.withProfileUrl(
+          scope.organizationSlug,
+          input.content,
+        ),
         paidForBy: scope.paidForBy,
       }
     }

@@ -9,6 +9,18 @@ export const EMAIL_HEADING_MAX_LENGTH = 120
 export const EMAIL_PARAGRAPH_MAX_LENGTH = 2000
 export const EMAIL_IMAGE_ALT_MAX_LENGTH = 150
 export const EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH = 40
+export const EMAIL_SIGNATURE_NAME_MAX_LENGTH = 100
+export const EMAIL_SIGNATURE_OFFICE_MAX_LENGTH = 200
+// The signature's profile link sits beside the GoodParty.org logo, so it may
+// only open a page on GoodParty.org. gp-api fills it with the sender's public
+// profile, `${WEBAPP_ROOT_URL}/people/<slug>`, and WEBAPP_ROOT_URL is
+// https://goodparty.org in prod and https://dev.goodparty.org on dev and
+// previews (gp-api `deploy/index.ts`, `productDomain`).
+export const EMAIL_PROFILE_URL_HOSTS = [
+  'goodparty.org',
+  'www.goodparty.org',
+  'dev.goodparty.org',
+]
 export const EMAIL_MAX_BLOCKS = 30
 // Every text field summed, so thirty full blocks can't make a 60,000
 // character email. Room for a long update of about 2,500 words.
@@ -82,6 +94,21 @@ const url = (mode: Mode) =>
       'Links must start with https://',
     )
 
+// Optional in both modes: empty, or an https link.
+const optionalUrl = () => url('draft')
+
+export const isEmailProfileUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value)
+    return (
+      parsed.protocol === 'https:' &&
+      EMAIL_PROFILE_URL_HOSTS.includes(parsed.hostname)
+    )
+  } catch {
+    return false
+  }
+}
+
 const blockSchemas = (mode: Mode) => {
   const heading = z
     .object({
@@ -145,8 +172,46 @@ const blockSchemas = (mode: Mode) => {
     .strict()
     .describe('A thin line between parts of a long email.')
 
+  const signature = z
+    .object({
+      type: z.literal('signature'),
+      name: text(mode, EMAIL_SIGNATURE_NAME_MAX_LENGTH, false).describe(
+        'The sender’s name as they sign it.',
+      ),
+      office: text(mode, EMAIL_SIGNATURE_OFFICE_MAX_LENGTH, true, true)
+        .default('')
+        .describe(
+          'Optional. The office held or sought, one or two lines, as the sender wrote it.',
+        ),
+      imageUrl: optionalUrl()
+        .default('')
+        .describe(
+          'Optional. An https link to a signature image the sender uploaded. Never invent one.',
+        ),
+      profileUrl: optionalUrl()
+        .refine(
+          (value) => value === '' || isEmailProfileUrl(value),
+          'The profile link must open a page on goodparty.org',
+        )
+        .default('')
+        .describe(
+          'Optional. The sender’s public profile on goodparty.org, shown as "My public profile" beside the GoodParty.org logo. GoodParty sets it from the sender’s published profile, replacing any value given; leave it empty.',
+        ),
+    })
+    .strict()
+    .describe(
+      'The sign-off at the end of a photo_letter: an optional signature image, the name and the office. Only photo_letter takes it.',
+    )
+
   return z
-    .discriminatedUnion('type', [heading, paragraph, image, button, divider])
+    .discriminatedUnion('type', [
+      heading,
+      paragraph,
+      image,
+      button,
+      divider,
+      signature,
+    ])
     .describe('One block of the email. `type` decides which fields it takes.')
 }
 
@@ -165,6 +230,7 @@ export const EMAIL_BLOCK_TYPES = [
   'image',
   'button',
   'divider',
+  'signature',
 ] as const satisfies readonly EmailBlockType[]
 
 export const emailSubjectSchema = (mode: Mode) =>
@@ -190,5 +256,7 @@ export const emailBlockTextLength = (block: EmailBlockDraft): number => {
       return block.label.length
     case 'divider':
       return 0
+    case 'signature':
+      return block.name.length + block.office.length
   }
 }

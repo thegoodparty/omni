@@ -18,6 +18,7 @@ import {
   renderOutreachEmail,
 } from '../util/renderOutreachEmail.util'
 import { OutreachEmailService } from './outreachEmail.service'
+import { OutreachEmailProfileService } from './outreachEmailProfile.service'
 import { SesService } from './ses.service'
 
 const escapeHtml = (value: string): string =>
@@ -32,6 +33,7 @@ export class OutreachEmailTestService {
   constructor(
     private readonly emails: OutreachEmailService,
     private readonly ses: SesService,
+    private readonly profiles: OutreachEmailProfileService,
   ) {}
 
   // Goes only to the user's login address, is never billed or counted toward
@@ -55,6 +57,8 @@ export class OutreachEmailTestService {
       row,
       row.sender.displayName,
       row.outreach.date ?? new Date(),
+      this.profiles,
+      scope.organizationSlug,
     )
     const values: Record<string, string> = {
       [EMAIL_VARIABLES.firstName]: user.firstName ?? '',

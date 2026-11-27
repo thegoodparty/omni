@@ -12,10 +12,12 @@ import {
 import {
   EmailLayoutPresetKeySchema,
   checkEmailBlocks,
+  type EmailLayoutPresetKey,
 } from './EmailLayoutPreset.const'
 import { EmailThemeKeySchema } from './EmailTemplate.const'
 
 interface ContentShape {
+  layout: EmailLayoutPresetKey
   subject: string
   previewText?: string
   blocks: readonly EmailBlockDraft[]
@@ -34,13 +36,13 @@ const checkContent =
         message: `Keep the whole email under ${EMAIL_CONTENT_TEXT_MAX_LENGTH.toLocaleString('en-US')} characters`,
       })
     }
-    for (const issue of checkEmailBlocks(data.blocks)) {
+    for (const issue of checkEmailBlocks(data.blocks, data.layout)) {
       if (mode === 'draft' && issue.incomplete) continue
       ctx.addIssue({ code: 'custom', path: ['blocks'], message: issue.message })
     }
   }
 
-const blocksDescription = `The email body, top to bottom. 1 to ${EMAIL_MAX_BLOCKS} blocks, with at least one paragraph, at most one image and at most one button. Shape them the way the layout usually looks. Don't add a footer, unsubscribe link, address or "paid for by" line: the system adds those to every email.`
+const blocksDescription = `The email body, top to bottom. 1 to ${EMAIL_MAX_BLOCKS} blocks, with at least one paragraph, at most one image (two in photo_letter) and at most one button, and a signature block only in photo_letter. Shape them the way the layout usually looks. Don't add a footer, unsubscribe link, address or "paid for by" line: the system adds those to every email.`
 
 // What can be sent, and what an agent drafting an email must return. The
 // footer (paid-for-by, postal address, why they're getting it, unsubscribe)
@@ -68,7 +70,7 @@ export type EmailContent = z.infer<typeof EmailContentSchema>
 
 // The editor's save and live-preview shape: any text or link may still be
 // empty and a required block may still be missing, but nothing may be too
-// long and there may not be a second photo or button.
+// long and there may not be a photo or button too many.
 export const EmailContentDraftSchema = z
   .object({
     layout: EmailLayoutPresetKeySchema,

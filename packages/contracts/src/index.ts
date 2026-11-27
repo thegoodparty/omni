@@ -1212,7 +1212,9 @@ export * from './ordinances/redline'
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
 export * from './outreach/PanelRepliesUploaded.schema'
 export {
+  EMAIL_CLASSIC_THEMES,
   EMAIL_LAYOUTS,
+  EMAIL_LETTER_THEMES,
   EMAIL_THEMES,
   EmailLayoutKeySchema,
   EmailThemeKeySchema,
@@ -1232,6 +1234,10 @@ export {
   EMAIL_MERGE_TAGS,
   EMAIL_PARAGRAPH_MAX_LENGTH,
   EMAIL_PREVIEW_TEXT_MAX_LENGTH,
+  EMAIL_PROFILE_URL_HOSTS,
+  isEmailProfileUrl,
+  EMAIL_SIGNATURE_NAME_MAX_LENGTH,
+  EMAIL_SIGNATURE_OFFICE_MAX_LENGTH,
   EmailBlockDraftSchema,
   EmailBlockSchema,
   type EmailBlock,
@@ -1239,6 +1245,7 @@ export {
   type EmailBlockType,
 } from './outreach/EmailBlock.schema'
 export {
+  EMAIL_CLASSIC_LAYOUT_PRESETS,
   EMAIL_LAYOUT_PRESETS,
   EmailLayoutPresetKeySchema,
   checkEmailBlocks,

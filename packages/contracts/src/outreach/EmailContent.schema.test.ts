@@ -16,6 +16,7 @@ import {
   type EmailContent,
 } from './EmailContent.schema'
 import {
+  EMAIL_CLASSIC_LAYOUT_PRESETS,
   EMAIL_LAYOUT_PRESETS,
   EmailLayoutPresetKeySchema,
   type EmailLayoutPresetKey,
@@ -23,6 +24,7 @@ import {
 import { EMAIL_THEMES } from './EmailTemplate.const'
 
 const LAYOUTS = EmailLayoutPresetKeySchema.options
+const CLASSIC_LAYOUTS = EMAIL_CLASSIC_LAYOUT_PRESETS
 
 const messages = (result: { success: boolean; error?: z.ZodError }) =>
   result.error?.issues.map((issue) => issue.message) ?? []
@@ -151,6 +153,17 @@ const AGENT_DRAFTS: Record<EmailLayoutPresetKey, string> = {
       { "type": "paragraph", "text": "Thank you,\\nPriya Natarajan\\nTownship Trustee" }
     ]
   }`,
+  photo_letter: `{
+    "layout": "photo_letter",
+    "theme": "cyan",
+    "subject": "Come meet me on Saturday",
+    "blocks": [
+      { "type": "heading", "level": 1, "text": "Coffee on Elm Street" },
+      { "type": "paragraph", "text": "Hi {{first_name}}, I'm hosting a meet-and-greet at Elm Street Coffee on Saturday at 10." },
+      { "type": "paragraph", "text": "Bring a neighbor. I'll have the latest plans for our roads." },
+      { "type": "signature", "name": "Dana Ortiz", "office": "Candidate for City Council" }
+    ]
+  }`,
 }
 
 describe('agent drafts', () => {
@@ -221,21 +234,24 @@ describe('shared rules', () => {
   }
 
   it.each(
-    LAYOUTS.flatMap((layout) =>
+    CLASSIC_LAYOUTS.flatMap((layout) =>
       Object.keys(shapes).map((shape) => [layout, shape] as const),
     ),
   )('%s accepts %s', (layout, shape) => {
     expect(result(layout, shapes[shape]!)).toEqual([])
   })
 
-  it.each(LAYOUTS)('%s takes at most one photo and one button', (layout) => {
-    expect(result(layout, [photo, paragraph('A'), photo])).toContain(
-      'Use at most one photo',
-    )
-    expect(result(layout, [paragraph('A'), button, button])).toContain(
-      'Use at most one button',
-    )
-  })
+  it.each(CLASSIC_LAYOUTS)(
+    '%s takes at most one photo and one button',
+    (layout) => {
+      expect(result(layout, [photo, paragraph('A'), photo])).toContain(
+        'Use at most one photo',
+      )
+      expect(result(layout, [paragraph('A'), button, button])).toContain(
+        'Use at most one button',
+      )
+    },
+  )
 
   it.each(LAYOUTS)('%s needs a paragraph to send', (layout) => {
     expect(result(layout, [masthead, button])).toContain('Add a paragraph')
@@ -251,6 +267,113 @@ describe('shared rules', () => {
         ]),
       ).success,
     ).toBe(false)
+  })
+})
+
+describe('photo_letter', () => {
+  const result = (blocks: unknown[]) =>
+    messages(EmailContentSchema.safeParse(withBlocks('photo_letter', blocks)))
+  const signature = {
+    type: 'signature',
+    name: 'Dana Ortiz',
+    office: 'Candidate for City Council',
+  }
+  const ORDER =
+    'Keep the parts in order: photo, headline, text, photo, text, button, signature'
+
+  it('takes every part in its fixed order, two photos included', () => {
+    expect(
+      result([
+        photo,
+        masthead,
+        paragraph('A'),
+        photo,
+        paragraph('B'),
+        button,
+        signature,
+      ]),
+    ).toEqual([])
+    expect(result([paragraph('A')])).toEqual([])
+    expect(result([paragraph('A'), photo, paragraph('B')])).toEqual([])
+  })
+
+  it('rejects a third photo', () => {
+    expect(
+      result([photo, paragraph('A'), photo, paragraph('B'), photo]),
+    ).toContain('Use at most two photos')
+  })
+
+  it('rejects parts out of order or outside the structure', () => {
+    expect(result([masthead, photo, paragraph('A'), photo])).toContain(ORDER)
+    expect(result([paragraph('A'), signature, button])).toContain(ORDER)
+    expect(result([paragraph('A'), paragraph('B'), paragraph('C')])).toContain(
+      ORDER,
+    )
+    expect(result([paragraph('A'), subheading('B')])).toContain(ORDER)
+    expect(result([paragraph('A'), { type: 'divider' }])).toContain(ORDER)
+    expect(result([paragraph('A'), signature, signature])).toContain(ORDER)
+  })
+
+  it('needs the first text and at most one button to send', () => {
+    expect(result([masthead, signature])).toContain('Add a paragraph')
+    expect(result([paragraph('A'), button, button])).toContain(
+      'Use at most one button',
+    )
+  })
+
+  it('signs with a name, and an optional office, image and profile', () => {
+    expect(result([paragraph('A'), { ...signature, name: '' }])).toContain(
+      'This can’t be empty',
+    )
+    expect(
+      result([paragraph('A'), { type: 'signature', name: 'Dana Ortiz' }]),
+    ).toEqual([])
+    expect(
+      result([
+        paragraph('A'),
+        {
+          ...signature,
+          imageUrl: 'https://example.org/signature.png',
+          profileUrl: 'https://goodparty.org/people/dana-ortiz-1a2b3c4d',
+        },
+      ]),
+    ).toEqual([])
+  })
+
+  it('only links the profile to goodparty.org, over https', () => {
+    for (const profileUrl of [
+      'https://goodparty.org/people/dana-ortiz-1a2b3c4d',
+      'https://www.goodparty.org/people/dana-ortiz-1a2b3c4d',
+      'https://dev.goodparty.org/people/dana-ortiz-1a2b3c4d',
+    ]) {
+      expect(result([paragraph('A'), { ...signature, profileUrl }])).toEqual([])
+    }
+    for (const profileUrl of [
+      'https://example.org/dana',
+      'http://goodparty.org/people/dana-ortiz-1a2b3c4d',
+      'https://goodparty.org.example.org/dana',
+      'http://localhost:4000/people/dana-ortiz-1a2b3c4d',
+    ]) {
+      expect(result([paragraph('A'), { ...signature, profileUrl }])).toContain(
+        'The profile link must open a page on goodparty.org',
+      )
+    }
+    expect(
+      result([
+        paragraph('A'),
+        { ...signature, imageUrl: 'http://example.org/sig.png' },
+      ]),
+    ).toContain('Links must start with https://')
+  })
+
+  it.each(CLASSIC_LAYOUTS)('%s takes no signature', (layout) => {
+    expect(
+      messages(
+        EmailContentSchema.safeParse(
+          withBlocks(layout, [paragraph('A'), signature]),
+        ),
+      ),
+    ).toContain('Only a letter with photos takes a signature')
   })
 })
 
@@ -399,6 +522,21 @@ describe('draft rules', () => {
     expect(messages(draft('personal_letter', [masthead, button]))).toEqual([])
     expect(
       messages(draft('long_update', [masthead, subheading(''), paragraph('')])),
+    ).toEqual([])
+  })
+
+  it('saves an empty photo_letter with every slot in place', () => {
+    expect(
+      messages(
+        draft('photo_letter', [
+          ...EMAIL_LAYOUT_PRESETS.photo_letter.starterBlocks,
+        ]),
+      ),
+    ).toEqual([])
+    expect(
+      messages(
+        draft('photo_letter', [{ type: 'signature', name: '', office: '' }]),
+      ),
     ).toEqual([])
   })
 

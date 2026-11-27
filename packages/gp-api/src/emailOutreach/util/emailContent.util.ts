@@ -93,6 +93,13 @@ export const fieldsToBlocks = (
         ...paragraphs,
         ...button,
       ]
+    case 'photo_letter':
+      return [
+        ...image,
+        ...heading,
+        ...(body ? [{ type: 'paragraph' as const, text: body }] : []),
+        ...button,
+      ]
   }
 }
 
