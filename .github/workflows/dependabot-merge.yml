@@ -32,7 +32,7 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        uses: actions/create-github-app-token@v3.3.0
         with:
           app-id: ${{ vars.AUTOMATION_APP_ID }}
           private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
@@ -56,14 +56,17 @@ jobs:
           # Dependabot PR was silently treated as passing and the PR merged
           # without ever being validated. Instead, require the real, runnable
           # validation contexts (each package's "Validate (<package>)" gate —
-          # lint/typecheck/test/build — plus "Dependency Review", none of which
-          # need deploy secrets) to actually be present and to have every
-          # instance conclude SUCCESS. Deploy/E2E are
+          # lint/typecheck/test/build — plus "Dependency Review" and "verify",
+          # none of which need deploy secrets) to actually be present and to have
+          # every instance conclude SUCCESS. "verify" is the verify-lockfile.yml
+          # job, which catches a github-actions PR whose tag refs no longer match
+          # actions.lock; Dependabot bumps the tags but never the lockfile, so
+          # without it that PR auto-merges with a stale lock. Deploy/E2E are
           # deliberately NOT gated here: they depend on a full-stack deploy that
           # can't run for Dependabot PRs (no secrets), so they always skip/fail
           # and are not a meaningful signal for a dependency bump. See the PR
           # body for the branch-protection (ruleset) change this pairs with.
-          required_contexts='["Validate (gp-api)","Validate (gp-webapp)","Validate (gp-admin)","Validate (candidate-sites)","Validate (contracts)","Validate (styleguide)","Validate (gp-ai)","Dependency Review"]'
+          required_contexts='["Validate (gp-api)","Validate (gp-webapp)","Validate (gp-admin)","Validate (candidate-sites)","Validate (contracts)","Validate (styleguide)","Validate (gp-ai)","Dependency Review","verify"]'
           eligible="$(jq -r --arg cutoff "$cutoff" --argjson required "$required_contexts" '
             .[]
             | select(.headRefName | startswith("dependabot/"))
@@ -98,7 +101,7 @@ jobs:
 
       - name: Notify Slack on failure
         if: failure() && env.SLACK_WEBHOOK_URL != ''
-        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3
+        uses: 8398a7/action-slack@v3.19.0
         with:
           status: failure
           fields: repo,workflow,took
