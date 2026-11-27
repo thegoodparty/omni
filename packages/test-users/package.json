@@ -15,7 +15,7 @@
   "dependencies": {
     "@clerk/backend": "^3.7.1",
     "@goodparty_org/contracts": "*",
-    "axios": "^1.17.0",
+    "axios": "^1.21.1",
     "bottleneck": "^2.19.5"
   },
   "devDependencies": {
