@@ -25,6 +25,10 @@ export type AdminOrganization = {
   district: OrgDistrict | null
   electedOfficeId: string | null
   campaignId: number | null
+  // Self-service office/district changes the owner has spent, out of
+  // officeChangeLimit. Returned by `/organizations/admin/:slug` only.
+  officeChangeCount?: number
+  officeChangeLimit?: number
   // The org's daily door-knocking campaign allowance, or null when it is on
   // gp-api's default. Returned by `/organizations/admin/:slug` only, which is
   // also the only route that can set it.

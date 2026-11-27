@@ -185,9 +185,13 @@ describe('CampaignsController', () => {
 
     const organizationsServiceMock: Partial<OrganizationsService> = {
       resolveOverrideDistrictId: vi.fn().mockResolvedValue(null),
-      findUnique: vi
-        .fn()
-        .mockResolvedValue({ positionId: 'pos-1', customPositionName: null }),
+      findUnique: vi.fn().mockResolvedValue({
+        slug: 'campaign-1',
+        positionId: 'pos-1',
+        customPositionName: null,
+        overrideDistrictId: null,
+      }),
+      consumeOfficeChange: vi.fn().mockResolvedValue(undefined),
       resolveBallotReadyPositionId: vi.fn().mockResolvedValue('br-pos-1'),
       resolvePositionContext: vi.fn().mockResolvedValue({
         ballotReadyPositionId: 'br-pos-1',

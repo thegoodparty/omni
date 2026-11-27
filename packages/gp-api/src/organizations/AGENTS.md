@@ -370,6 +370,29 @@ path takes the id off a user session's request body:
 Adding a write path means resolving the id from something the caller is already
 entitled to, not accepting one.
 
+## Self-service office changes are capped
+
+The voter file a Pro user downloads is scoped to the org's position and
+district, so an owner who could re-pick their office freely could download
+any district. `Organization.officeChangeCount` counts self-service changes and
+`OrganizationsService.consumeOfficeChange` refuses the one past
+`OFFICE_CHANGE_LIMIT` (4) with 403 `{ code: 'OFFICE_CHANGE_LIMIT_REACHED' }`.
+The column started at 0 for every org on 2026-11-22; earlier changes are not
+counted.
+
+- `PATCH /v1/organizations/:slug` spends one when it moves `positionId` off a
+  value the org already had (unlinking counts; the first pick and re-saving
+  the same office do not).
+- `PUT /v1/campaigns/mine/district` spends one when it moves
+  `overrideDistrictId` while the org already had a district (an override or
+  a position). Staff editing another campaign through it are exempt.
+- Staff writes (`PATCH /v1/organizations/admin/:slug`, the M2M district
+  routes) never count.
+- `GET /v1/organizations/admin/:slug` returns `officeChangeCount` and
+  `officeChangeLimit`; `POST /v1/organizations/admin/:slug/office-changes/reset`
+  (`AdminOrM2MGuard`) sets the count back to 0. gp-admin's "Office Changes"
+  card on the campaign and elected office pages calls it.
+
 ## `positionId` is never the caller's BallotReady id, verbatim
 
 `Organization.positionId` is election-api's own id — every later read (campaign

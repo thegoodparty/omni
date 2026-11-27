@@ -10,6 +10,10 @@ import { ORGANIZATIONS_QUERY_KEY } from '@shared/organization-picker'
 import { reportClientError } from '@shared/observability/reportClientError'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
+import {
+  isOfficeChangeLimitReached,
+  OFFICE_CHANGE_LIMIT_MESSAGE,
+} from './officeChangeLimit'
 
 interface ElectedOfficeSelectionModalProps {
   show: boolean
@@ -69,6 +73,10 @@ export function ElectedOfficeSelectionModal({
       reset()
       onClose()
     } catch (err) {
+      if (isOfficeChangeLimitReached(err)) {
+        errorSnackbar(OFFICE_CHANGE_LIMIT_MESSAGE)
+        return
+      }
       reportClientError(err, {
         context: 'electedOfficeSelectionModal.save',
         organizationSlug,

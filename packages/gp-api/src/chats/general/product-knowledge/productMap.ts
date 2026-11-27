@@ -66,7 +66,7 @@ const SHARED_AREAS: ProductArea[] = [
     name: 'Profile',
     path: '/dashboard/profile',
     modes: ['win', 'serve'],
-    does: 'Edit your profile photo, party, bio, occupation, website, and campaign or office details.',
+    does: 'Edit your profile photo, party, bio, occupation, website, and campaign or office details. The office can be changed up to 4 times; after that, support has to reset it.',
     inside: ['In the account menu, at the bottom of the left-hand menu'],
   },
   {

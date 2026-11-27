@@ -28,4 +28,10 @@ export class OrganizationsResource extends BaseResource {
       `${this.resourceBasePath}/admin/${slug}`,
       input
     )
+
+  resetOfficeChanges = (slug: string): Promise<AdminOrganization> =>
+    this.postRequest<AdminOrganization>(
+      `${this.resourceBasePath}/admin/${slug}/office-changes/reset`,
+      {}
+    )
 }
