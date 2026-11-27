@@ -244,9 +244,17 @@ job, and its run, conclude `cancelled`, so the retry also looks at cancelled
 runs; a manual or superseding cancel is never retried. It never retries a real
 failure, never once a newer release run exists (that run ships the same
 changes, and re-running the old one could promote an older SHA over it), and
-never a Pulumi or Terraform job that lost its runner mid-run, because that can
-leave a state lock and a half-applied stack. Those still need a person: check
-the lock, then "Re-run failed jobs". The rules are in
+never a job that lost its runner after a step that mutates deploy state started
+(the Pulumi `Deploy (Pulumi)`, and gp-ai's `apply <env>/<stack>` and
+`reverify <env>/<stack>` steps), because that can leave a state lock and a
+half-applied stack. Those still need a person: check the lock, then "Re-run
+failed jobs". The decision is made on the steps that started, not on the job's
+name (ENG-11700): `Dev gp-api` is a ~7 minute Docker build followed by the
+Pulumi apply, and a lost runner during the build is safe to repeat, so the job
+is retried and GitHub re-runs the jobs that depend on it. The same rule is why
+`Dev gp-ai` retries after a lost runner during its lambda builds but not after
+an `apply`. **Name a new apply step to match those three patterns**, or a lost
+runner after it started is retried mid-apply. The rules are in
 `.github/scripts/release-retry.sh`.
 
 The stages:
