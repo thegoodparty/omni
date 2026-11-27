@@ -132,6 +132,20 @@ jobs:
             --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
             --exit-code
 
+      # Guards for the Databricks CDC publication (deploy/AGENTS.md, "Postgres
+      # objects"): every table in public has a primary key and is published,
+      # and no column named like a secret slips in unreviewed. Needs the
+      # migrations applied, so it deploys them to a scratch database first.
+      - name: Check Databricks CDC publication
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          DATABASE_URL: postgresql://prisma:prisma@localhost:5432/cdc_guard
+        run: |
+          PGPASSWORD=prisma psql -h localhost -U prisma -d shadow \
+            -c 'CREATE DATABASE cdc_guard'
+          npx prisma migrate deploy
+          npm run check:databricks-lakeflow
+
       # election-db migrations run fatally at boot (docker-entrypoint.sh), so a
       # schema that has drifted from its migrations would block every gp-api
       # deploy rather than just the election routes. Catch it here instead.
