@@ -60,6 +60,7 @@ vi.mock('next/navigation', async (importOriginal) => {
 
 vi.mock('helpers/getCurrentUserOrganizations', () => ({
   getCurrentUserOrganizations: () => mockGetCurrentUserOrganizations(),
+  getCurrentUserOrganizationsOrThrow: () => mockGetCurrentUserOrganizations(),
 }))
 
 const minimalOrg: Organization = {
@@ -226,6 +227,15 @@ describe('candidateAccess', () => {
 
     expect(mockGetCurrentUserOrganizations).toHaveBeenCalledOnce()
     expect(mockRedirect).toHaveBeenCalledWith('/onboarding/office-selection')
+  })
+
+  it('does not send the user to onboarding when the organizations fetch fails (ENG-11531)', async () => {
+    mockAuth.mockResolvedValue({ userId: 'user_1' })
+    mockHeadersGet.mockReturnValue('/dashboard')
+    mockGetCurrentUserOrganizations.mockRejectedValue(new Error('500'))
+
+    await expect(candidateAccess()).rejects.toThrow('500')
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 
   it('does not fetch organizations or redirect for orgless non-dashboard routes', async () => {
