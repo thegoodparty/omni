@@ -260,9 +260,10 @@ There is no warehouse-state API to ask instead -- `CAN MONITOR` is not granted
 to the service principal.
 
 Both cancel the statement, so a boot stall does not leave a queue behind it.
-A read that gives up this way logs at `warn` rather than `error`: it is a
-wait, and a cold-start storm of them is not a code fault, though it does show
-in the failed read line like every other failure.
+A read that gives up this way logs at `warn` and, unlike a 504 on `contacts`,
+reaches the route alerts: one boot fails every read on the route at once, so
+it is an operator's signal, where a 504 there is one oversized filter. See
+`VOTER_QUERY_TIMEOUTS_NOT_PAGED` in `deploy/components/alerts.ts`.
 The short ceiling is calibrated against wh-gp-api's own boots -- p50 2.4s, p99
 3.8s across 705 starts in the 30 days to 2026-11-23, against the six that
 stalled at 36s to 63.5 minutes. On 2026-11-17 an 18.9-minute boot held all 87

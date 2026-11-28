@@ -169,12 +169,12 @@ export const ROUTES_WITHOUT_ROUTE_ALERTS: string[] = [
 ]
 
 /*
- * Controllers whose 504 does not page. gp-api itself answers 504 in exactly one
- * place: a Databricks voter query that outran its ceiling, with the message
- * "Narrow the audience and try again" and errorCode VOTER_QUERY_TIMEOUT. On
- * `contacts` that is a user building an audience too broad to count or list
- * (POST /v1/contacts/count, GET /v1/contacts), and the response tells them what
- * to do. In the 7 days to 2026-10-18 prod answered 193 such 504s on
+ * Controllers whose 504 does not page. gp-api answers 504 for a Databricks
+ * voter query that outran its ceiling, with the message "Narrow the audience
+ * and try again" and errorCode VOTER_QUERY_TIMEOUT. On `contacts` that is a
+ * user building an audience too broad to count or list (POST
+ * /v1/contacts/count, GET /v1/contacts), and the response tells them what to
+ * do. In the 7 days to 2026-10-18 prod answered 193 such 504s on
  * GET /v1/contacts alone, so paging on each one trains people to ignore the
  * rule that also catches the faults on these routes.
  *
@@ -183,6 +183,16 @@ export const ROUTES_WITHOUT_ROUTE_ALERTS: string[] = [
  * gateway severs has no status at all; all three still page. door-knocking is
  * deliberately not listed: its pack-scan timeout is a fault there, not a
  * question the caller can answer by narrowing anything.
+ *
+ * The 503 VOTER_DATA_STARTING (ENG-11608) is NOT dropped here, on any route,
+ * and that asymmetry is deliberate rather than an omission. It means the
+ * warehouse had not begun executing the statement: it is booting, or every
+ * cluster is busy, so one boot fails every read on the route at once and the
+ * action is an operator's (warm the endpoint, look at what is queueing). The
+ * 504 exemption above exists because ONE user's oversized filter is
+ * self-inflicted and already told what to do, which is the opposite case. The
+ * one 503 on routes like `contacts` that is a fault in its own right --
+ * audience resolution's hard stop -- pages for that same reason.
  */
 export const VOTER_QUERY_TIMEOUTS_NOT_PAGED: ControllerName[] = ['contacts']
 

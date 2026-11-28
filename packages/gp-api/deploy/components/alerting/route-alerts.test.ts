@@ -741,6 +741,22 @@ describe('which statuses count as an error', () => {
     expect(expr).toContain('response_statusCode = ""')
   })
 
+  // 503 is NOT dropped anywhere, `contacts` included, so a warehouse that had
+  // not started a statement pages (VOTER_DATA_STARTING, ENG-11608). A boot
+  // fails every read on the route at once and the answer is an operator's,
+  // unlike the single oversized filter behind the 504 exemption. Written as its
+  // own assertion so a future edit cannot widen the 504 clause into a 5xx one
+  // without a test going red.
+  it('keeps 503 paging on every route, contacts included', () => {
+    for (const alert of [
+      alertFor('route-errors-server-errors'),
+      anyErrorAlert(),
+    ]) {
+      expect(alert.slug).toBeDefined()
+      expect(alert.expr).not.toContain('503')
+    }
+  })
+
   // The per-controller filter has to survive the collapse: a controller outside
   // SERVER_ERRORS_ONLY must still get the wider filter rather than inherit its
   // neighbour's. The subject is DERIVED rather than named, because naming one
