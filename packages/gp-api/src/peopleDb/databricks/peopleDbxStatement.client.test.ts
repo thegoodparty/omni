@@ -372,6 +372,66 @@ describe('PeopleDbxStatementClient', () => {
       expect((await pending).rows).toEqual([['1']])
       expect(callsMatching('/cancel')).toHaveLength(0)
     })
+
+    // A cold start is the usual shape: the submit is PENDING, the warehouse
+    // comes up mid-flight, and the read then runs past the short ceiling. Only
+    // the transition onto an executing state earns the rest of the budget, so
+    // deleting that flip would turn every cold-started read into a 503.
+    it('keeps going once a pending statement starts executing', async () => {
+      vi.useFakeTimers()
+      const startedAt = Date.now()
+      fetchMock.mockImplementation(() => {
+        const elapsed = Date.now() - startedAt
+        if (elapsed >= 20_000) {
+          return Promise.resolve(jsonResponse(succeeded([['1']])))
+        }
+        return Promise.resolve(
+          jsonResponse({
+            statement_id: 's1',
+            status: { state: elapsed >= 2_000 ? 'RUNNING' : 'PENDING' },
+          }),
+        )
+      })
+
+      const pending = client.query(stmt('SELECT 1'))
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      expect((await pending).rows).toEqual([['1']])
+      expect(callsMatching('/cancel')).toHaveLength(0)
+    })
+
+    // PENDING is not only a boot signal: on a warm warehouse it means queued
+    // behind a busy cluster, which ENG-11574 measured at up to a minute. That
+    // read used to succeed, so it keeps the full budget -- the evidence being
+    // that this same client just saw the warehouse execute something.
+    it('keeps the full budget for a queued statement while the warehouse serves', async () => {
+      vi.useFakeTimers()
+      const startedAt = Date.now()
+      let calls = 0
+      fetchMock.mockImplementation(() => {
+        calls += 1
+        // The first statement completes at once, which is what tells the
+        // client the warehouse is up rather than booting.
+        if (calls === 1) {
+          return Promise.resolve(jsonResponse(succeeded([['1']])))
+        }
+        return Promise.resolve(
+          Date.now() - startedAt >= 20_000
+            ? jsonResponse(succeeded([['2']]))
+            : jsonResponse({
+                statement_id: 's2',
+                status: { state: 'PENDING' },
+              }),
+        )
+      })
+
+      await client.query(stmt('SELECT 1'))
+      const queued = client.query(stmt('SELECT 2'))
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      expect((await queued).rows).toEqual([['2']])
+      expect(callsMatching('/cancel')).toHaveLength(0)
+    })
   })
 
   describe('startCsvExport', () => {

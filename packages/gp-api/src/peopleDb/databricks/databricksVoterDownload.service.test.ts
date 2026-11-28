@@ -77,6 +77,10 @@ describe('DatabricksVoterDownloadService', () => {
   let fetchCsvChunk: ReturnType<typeof vi.fn>
   let service: DatabricksVoterDownloadService
   let fetchMock: ReturnType<typeof vi.fn>
+  let logger: {
+    warn: ReturnType<typeof vi.fn>
+    error: ReturnType<typeof vi.fn>
+  }
 
   const dto = downloadPeopleSchema.parse({ districtId: DISTRICT_ID })
 
@@ -86,13 +90,13 @@ describe('DatabricksVoterDownloadService', () => {
     fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
+    logger = { warn: vi.fn(), error: vi.fn() }
     service = new DatabricksVoterDownloadService(
       {
         setContext: vi.fn(),
         info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
         debug: vi.fn(),
+        ...logger,
       } as never,
       { startCsvExport, fetchCsvChunk } as unknown as PeopleDbxStatementClient,
       {
@@ -237,7 +241,8 @@ describe('DatabricksVoterDownloadService', () => {
   })
 
   // The export was never started, so nothing was slow: answering 503 tells the
-  // caller to repeat the download, which is exactly what works.
+  // caller to repeat the download, which is exactly what works. It carries the
+  // same code the other read paths use, and logs as a wait rather than a fault.
   it('answers 503 when the warehouse never started the export', async () => {
     startCsvExport.mockRejectedValue(
       new PeopleDbxWarehouseNotReadyError('PENDING', 10_500),
@@ -246,8 +251,13 @@ describe('DatabricksVoterDownloadService', () => {
 
     await expect(
       service.streamPeopleCsv(dto, { base: 'voters' }, sink.reply),
-    ).rejects.toMatchObject({ status: 503 })
+    ).rejects.toMatchObject({
+      response: { errorCode: 'VOTER_DATA_STARTING' },
+      status: 503,
+    })
     expect(sink.headers).toEqual({})
+    expect(logger.warn).toHaveBeenCalled()
+    expect(logger.error).not.toHaveBeenCalled()
   })
 
   it('tears the response down when a chunk fetch fails mid-stream', async () => {

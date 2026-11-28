@@ -238,15 +238,26 @@ degrading to a second answer.
 one fires is what the caller is told:
 
 - **10s (`EXECUTION_START_CEILING_MS`) while the API still reports `PENDING` or
-  `QUEUED`.** That state means the warehouse has not begun executing the
-  statement: it is starting from a cold stop, or every cluster is busy.
-  `PeopleDbxWarehouseNotReadyError`, and the caller answers 503 with
-  `VOTER_DATA_STARTING` so the advice is "try again in a moment". The submit's
-  `wait_timeout` is 5s for the same reason -- the long poll is not where this
-  wait is bounded.
+  `QUEUED` and the warehouse is not serving.** That state means the warehouse
+  has not begun executing the statement: it is starting from a cold stop, or
+  every cluster is busy. `PeopleDbxWarehouseNotReadyError`, and the caller
+  answers 503 with `VOTER_DATA_STARTING` so the advice is "try again in a
+  moment". The submit's `wait_timeout` is 5s for the same reason -- the long
+  poll is not where this wait is bounded.
 - **60s (`STATEMENT_TIMEOUT_MS`) once the state is `RUNNING`**, which is a
   genuinely slow read. `PeopleDbxTimeoutError`, and the caller answers 504 with
   `VOTER_QUERY_TIMEOUT`: narrow the audience.
+
+The two states are indistinguishable in the statement status and need opposite
+answers: a boot has no compute to give, while a queued statement on a busy
+warehouse is about to run and has historically waited up to a minute for it
+(ENG-11574). The client separates them by evidence it already has: it records
+when this process last saw a statement execute, and a pending statement only
+takes the short ceiling when nothing has executed in the last
+`WAREHOUSE_SERVING_WINDOW_MS` (60s). A booting warehouse cannot fake that
+evidence, because nothing runs while it starts; a serving one keeps it fresh.
+There is no warehouse-state API to ask instead -- `CAN MONITOR` is not granted
+to the service principal.
 
 Both cancel the statement, so a boot stall does not leave a queue behind it.
 A read that gives up this way logs at `warn` rather than `error`: it is a

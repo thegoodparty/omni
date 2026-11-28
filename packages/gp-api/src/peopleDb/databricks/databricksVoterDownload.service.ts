@@ -23,6 +23,10 @@ import {
   PeopleDbxWarehouseNotReadyError,
   type PeopleDbxCsvChunk,
 } from './peopleDbxStatement.client'
+import { VOTER_DATA_STARTING_ERROR_CODE } from '@/shared/constants/voterData.consts'
+
+const WARMING_UP_MESSAGE =
+  'The voter database is warming up right now. Try again in a moment.'
 
 @Injectable()
 export class DatabricksVoterDownloadService {
@@ -60,6 +64,18 @@ export class DatabricksVoterDownloadService {
     try {
       firstChunk = (await this.client.startCsvExport(sql)).firstChunk
     } catch (err) {
+      // Checked before the blanket error line: this one is a wait, not a fault,
+      // and the other two read paths log it at warn for the same reason.
+      if (err instanceof PeopleDbxWarehouseNotReadyError) {
+        this.logger.warn(
+          { err },
+          'databricks warehouse had not started the export',
+        )
+        throw new ServiceUnavailableException({
+          message: WARMING_UP_MESSAGE,
+          errorCode: VOTER_DATA_STARTING_ERROR_CODE,
+        })
+      }
       this.logger.error({ err }, 'Failed to start Databricks CSV export')
       // Caused by how many people the caller listed individually, so it earns a
       // 400 rather than being flattened into the generic start failure.
@@ -82,13 +98,6 @@ export class DatabricksVoterDownloadService {
         throw new GatewayTimeoutException(
           'Voter data export timed out before it could start. Try again ' +
             'shortly.',
-        )
-      }
-      // No timeout was reached here: the warehouse had not begun executing the
-      // export at all, and it clears by itself, so the retry is the fix.
-      if (err instanceof PeopleDbxWarehouseNotReadyError) {
-        throw new ServiceUnavailableException(
-          'The voter database is warming up right now. Try again in a moment.',
         )
       }
       throw new InternalServerErrorException('Failed to start download')

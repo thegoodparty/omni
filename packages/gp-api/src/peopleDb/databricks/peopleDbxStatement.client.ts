@@ -45,6 +45,19 @@ const EXECUTION_START_CEILING_MS = 10_000
 // full budget above applies from then on.
 const NOT_EXECUTING_STATES = new Set(['PENDING', 'QUEUED'])
 
+// How recently this process must have seen the warehouse execute a statement
+// for a pending one to count as QUEUED rather than cold.
+//
+// The two look identical in the statement status, and they need opposite
+// answers: a boot has no compute to give, while a busy warehouse is about to
+// run the statement and has historically taken up to a minute to get to it
+// (ENG-11574 measured exactly that under the release train's burst). A cold
+// warehouse cannot supply recent execution evidence -- nothing runs while it
+// starts -- so this marker is what separates them without a warehouse API the
+// service principal is not granted (CAN MONITOR is denied: the analysis could
+// not read the endpoint's own state either).
+const WAREHOUSE_SERVING_WINDOW_MS = 60_000
+
 // The API's hard ceiling on the statement field, measured against it directly:
 // a 20MB statement is rejected with "must not exceed a length of 16777216
 // bytes". Reachable because id sets are inlined rather than bound — the
@@ -233,6 +246,11 @@ export class PeopleDbxStatementClient {
   }
 
   private token: { value: string; expiresAt: number } | null = null
+
+  // When this process last saw the warehouse execute a statement. Refreshed by
+  // any statement that reaches RUNNING or SUCCEEDED, so a warehouse that is
+  // serving keeps it current and a booting one lets it go stale.
+  private lastExecutionAt = 0
 
   // The token fetch in flight, if any. Without this, concurrent callers that
   // all observe an absent or expired token each issue their own OIDC request:
@@ -439,6 +457,7 @@ export class PeopleDbxStatementClient {
     // the short ceiling below applies only to a statement still waiting for
     // compute, which is the state a cold start holds it in.
     let executing = !NOT_EXECUTING_STATES.has(initial.status.state)
+    this.markExecution(initial.status.state)
     while (current.status.state !== SUCCEEDED) {
       if (TERMINAL_FAILURE_STATES.has(current.status.state)) {
         throw new Error(
@@ -451,7 +470,11 @@ export class PeopleDbxStatementClient {
         throw new PeopleDbxClientAbortedError()
       }
       const elapsed = Date.now() - startedAt
-      if (!executing && elapsed > EXECUTION_START_CEILING_MS) {
+      if (
+        !executing &&
+        elapsed > EXECUTION_START_CEILING_MS &&
+        !this.servedSince(startedAt)
+      ) {
         this.cancel(config, current.statement_id)
         throw new PeopleDbxWarehouseNotReadyError(current.status.state, elapsed)
       }
@@ -469,8 +492,21 @@ export class PeopleDbxStatementClient {
         statementResponseSchema,
       )
       if (!NOT_EXECUTING_STATES.has(current.status.state)) executing = true
+      this.markExecution(current.status.state)
     }
     return current
+  }
+
+  // Records that the warehouse is serving. Called on every state observed, so
+  // the marker ages out on its own: a warehouse that stops serving for longer
+  // than WAREHOUSE_SERVING_WINDOW_MS cannot keep a pending statement's budget
+  // alive, which is exactly what a boot looks like from here.
+  private markExecution(state: string): void {
+    if (!NOT_EXECUTING_STATES.has(state)) this.lastExecutionAt = Date.now()
+  }
+
+  private servedSince(when: number): boolean {
+    return this.lastExecutionAt >= when - WAREHOUSE_SERVING_WINDOW_MS
   }
 
   // Fire-and-forget: an abandoned statement keeps the warehouse busy, but a
