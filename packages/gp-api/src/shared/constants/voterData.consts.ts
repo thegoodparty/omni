@@ -22,3 +22,11 @@ export const VOTER_DATA_UNAVAILABLE_ERROR_CODE = 'VOTER_DATA_UNAVAILABLE'
 // read as a generic "try again in a moment".
 export const VOTER_QUERY_TIMEOUT_ERROR_CODE = 'VOTER_QUERY_TIMEOUT'
 export const VOTER_DATA_UNREACHABLE_ERROR_CODE = 'VOTER_DATA_UNREACHABLE'
+
+// A third read failure, and the only one that is a wait rather than a fault:
+// the Databricks warehouse had not started executing the statement yet, so the
+// read gave up in seconds instead of spending the full minute on it. It is a
+// 503 rather than a 504 because the same request works once the warehouse is
+// up, and a code of its own so "the warehouse is booting" does not read as
+// "this query is too expensive" in a log or in the product.
+export const VOTER_DATA_STARTING_ERROR_CODE = 'VOTER_DATA_STARTING'

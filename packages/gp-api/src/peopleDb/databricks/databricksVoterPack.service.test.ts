@@ -9,6 +9,7 @@ import {
 import {
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
+  PeopleDbxWarehouseNotReadyError,
 } from './peopleDbxStatement.client'
 import { PACK_CSV_COLUMNS } from './databricksVoterSql.util'
 
@@ -187,6 +188,23 @@ describe('DatabricksVoterPackService', () => {
     await expect(
       service.build(request as never, { base: 'voters' }),
     ).rejects.toThrow(GatewayTimeoutException)
+  })
+
+  // A map whose scan never started is retryable, not broken: 503 so the caller
+  // repeats the request once the warehouse is up, with a message saying so.
+  it('surfaces a warehouse that never started the scan as a 503', async () => {
+    client.startCsvExport.mockRejectedValue(
+      new PeopleDbxWarehouseNotReadyError('PENDING', 10_500),
+    )
+    await expect(
+      service.build(request as never, { base: 'voters' }),
+    ).rejects.toMatchObject({
+      response: {
+        errorCode: 'VOTER_DATA_STARTING',
+        message: expect.stringContaining('Try again in a moment'),
+      },
+      status: 503,
+    })
   })
 
   it('surfaces an unreachable warehouse rather than an empty district', async () => {

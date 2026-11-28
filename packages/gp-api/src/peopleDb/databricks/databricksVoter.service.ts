@@ -5,6 +5,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { ElectionDistrictService } from '../services/electionDistrict.service'
@@ -28,6 +29,7 @@ import {
 } from '../schemas/people.schema'
 import { filtersSchema } from '../schemas/filters.schema'
 import {
+  VOTER_DATA_STARTING_ERROR_CODE,
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
   VOTER_DATA_UNREACHABLE_ERROR_CODE,
   VOTER_QUERY_TIMEOUT_ERROR_CODE,
@@ -120,6 +122,7 @@ import {
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
+  PeopleDbxWarehouseNotReadyError,
 } from './peopleDbxStatement.client'
 
 const STATE_DISTRICT_TYPE = 'State'
@@ -154,6 +157,9 @@ const UNAVAILABLE_MESSAGE =
 const TOO_LARGE_MESSAGE =
   'This selection carries too many individually listed people to query. ' +
   'Narrow it and try again.'
+
+const STARTING_MESSAGE =
+  'Voter data is warming up right now. Try again in a moment.'
 
 // Only these two columns of the list projection are integers; everything else
 // in the L2 uniform is text, and JSON_ARRAY hands every value back as a string
@@ -1005,6 +1011,20 @@ export class DatabricksVoterService {
         throw new BadGatewayException({
           message: UNAVAILABLE_MESSAGE,
           errorCode: VOTER_DATA_UNREACHABLE_ERROR_CODE,
+        })
+      }
+      // 503, not 504: nothing was slow, the warehouse had simply not begun
+      // executing the statement yet, so the same request works once it has.
+      // Waiting the full minute would prove the same thing after the reader
+      // had already lost the page.
+      if (err instanceof PeopleDbxWarehouseNotReadyError) {
+        this.logger.warn(
+          { err },
+          'databricks warehouse had not started the statement',
+        )
+        throw new ServiceUnavailableException({
+          message: STARTING_MESSAGE,
+          errorCode: VOTER_DATA_STARTING_ERROR_CODE,
         })
       }
       if (!(err instanceof PeopleDbxTimeoutError)) throw err

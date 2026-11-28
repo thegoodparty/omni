@@ -15,20 +15,26 @@ const ALL_SEGMENTS = 'all'
 // VOTER_DATA_UNAVAILABLE_ERROR_CODE in gp-api's contacts.types.ts.
 const VOTER_DATA_UNAVAILABLE_ERROR_CODE = 'VOTER_DATA_UNAVAILABLE'
 
-// The two ways a voter READ fails, as opposed to the eligibility state above.
-// Both are 5xx and both carry a message gp-api wrote for the candidate, which
-// is the whole reason they are coded: a client cannot tell from the status
-// alone that a people-db 502 explains itself and a Geoapify 502 does not.
-// Mirrors VOTER_QUERY_TIMEOUT_ERROR_CODE / VOTER_DATA_UNREACHABLE_ERROR_CODE
-// in gp-api's shared/constants/voterData.consts.ts.
+// The ways a voter READ fails, as opposed to the eligibility state above.
+// All are 5xx and all carry a message gp-api wrote for the candidate, which is
+// the whole reason they are coded: a client cannot tell from the status alone
+// that a people-db 502 explains itself and a Geoapify 502 does not.
+// Mirrors VOTER_QUERY_TIMEOUT_ERROR_CODE / VOTER_DATA_UNREACHABLE_ERROR_CODE /
+// VOTER_DATA_STARTING_ERROR_CODE in gp-api's
+// shared/constants/voterData.consts.ts.
 const VOTER_QUERY_TIMEOUT_ERROR_CODE = 'VOTER_QUERY_TIMEOUT'
 const VOTER_DATA_UNREACHABLE_ERROR_CODE = 'VOTER_DATA_UNREACHABLE'
+// The Databricks warehouse had not started the read yet, so gp-api gave up in
+// seconds instead of waiting a minute. The 503 clears by itself, so its message
+// is the one to show.
+const VOTER_DATA_STARTING_ERROR_CODE = 'VOTER_DATA_STARTING'
 
 // Codes whose message is safe — and better than anything this client could
 // write — to show verbatim, whatever the status.
 export const VOTER_READ_FAILURE_ERROR_CODES: readonly string[] = [
   VOTER_QUERY_TIMEOUT_ERROR_CODE,
   VOTER_DATA_UNREACHABLE_ERROR_CODE,
+  VOTER_DATA_STARTING_ERROR_CODE,
 ]
 
 // Shown when a list's edit/delete 409s because it was used for outreach

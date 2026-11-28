@@ -232,6 +232,48 @@ and dropping it would bias the measurement toward reads that were already
 fast. Voter data has one store, so a warehouse failure propagates rather than
 degrading to a second answer.
 
+## Two ceilings, because "not started" is not "slow"
+
+`databricks/peopleDbxStatement.client.ts` bounds a statement twice, and which
+one fires is what the caller is told:
+
+- **10s (`EXECUTION_START_CEILING_MS`) while the API still reports `PENDING` or
+  `QUEUED` and the warehouse is not serving.** That state means the warehouse
+  has not begun executing the statement: it is starting from a cold stop, or
+  every cluster is busy. `PeopleDbxWarehouseNotReadyError`, and the caller
+  answers 503 with `VOTER_DATA_STARTING` so the advice is "try again in a
+  moment". The submit's `wait_timeout` is 5s for the same reason -- the long
+  poll is not where this wait is bounded.
+- **60s (`STATEMENT_TIMEOUT_MS`) once the state is `RUNNING`**, which is a
+  genuinely slow read. `PeopleDbxTimeoutError`, and the caller answers 504 with
+  `VOTER_QUERY_TIMEOUT`: narrow the audience.
+
+The two states are indistinguishable in the statement status and need opposite
+answers: a boot has no compute to give, while a queued statement on a busy
+warehouse is about to run and has historically waited up to a minute for it
+(ENG-11574). The client separates them by evidence it already has: it records
+when this process last saw a statement execute, and a pending statement only
+takes the short ceiling when nothing has executed in the last
+`WAREHOUSE_SERVING_WINDOW_MS` (60s). A booting warehouse cannot fake that
+evidence, because nothing runs while it starts; a serving one keeps it fresh.
+There is no warehouse-state API to ask instead -- `CAN MONITOR` is not granted
+to the service principal.
+
+Both cancel the statement, so a boot stall does not leave a queue behind it.
+A read that gives up this way logs at `warn` and, unlike a 504 on `contacts`,
+reaches the route alerts: one boot fails every read on the route at once, so
+it is an operator's signal, where a 504 there is one oversized filter. See
+`VOTER_QUERY_TIMEOUTS_NOT_PAGED` in `deploy/components/alerts.ts`.
+The short ceiling is calibrated against wh-gp-api's own boots -- p50 2.4s, p99
+3.8s across 705 starts in the 30 days to 2026-11-23, against the six that
+stalled at 36s to 63.5 minutes. On 2026-11-17 an 18.9-minute boot held all 87
+statements submitted inside it at `PENDING` until the 60s ceiling cancelled
+each one without it ever executing, and the route 504'd after 62 seconds
+(ENG-11608). Shortening those queries would not have helped; they never ran.
+
+Stopping the cold start itself (an always-on `wh-gp-api`, `auto_stop_minutes =
+0`) is the infra half of that ticket and is not in this package.
+
 ## District stats is aggregated on demand, not read from a table
 
 `stats` computes all five dimensions from the voter rows rather than reading a
