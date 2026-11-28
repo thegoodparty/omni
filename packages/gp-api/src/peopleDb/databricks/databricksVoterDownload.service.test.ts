@@ -7,6 +7,7 @@ import { downloadPeopleSchema } from '../schemas/people.schema'
 import { DatabricksVoterDownloadService } from './databricksVoterDownload.service'
 import type { DatabricksVoterService } from './databricksVoter.service'
 import type { PeopleDbxStatementClient } from './peopleDbxStatement.client'
+import { PeopleDbxWarehouseNotReadyError } from './peopleDbxStatement.client'
 import type { DbxDistrict } from './databricksVoterSql.util'
 
 const DISTRICT_ID = '635757db-1111-4111-8111-111111111111'
@@ -232,6 +233,20 @@ describe('DatabricksVoterDownloadService', () => {
     await expect(
       service.streamPeopleCsv(dto, { base: 'voters' }, sink.reply),
     ).rejects.toThrow(InternalServerErrorException)
+    expect(sink.headers).toEqual({})
+  })
+
+  // The export was never started, so nothing was slow: answering 503 tells the
+  // caller to repeat the download, which is exactly what works.
+  it('answers 503 when the warehouse never started the export', async () => {
+    startCsvExport.mockRejectedValue(
+      new PeopleDbxWarehouseNotReadyError('PENDING', 10_500),
+    )
+    const sink = createSink()
+
+    await expect(
+      service.streamPeopleCsv(dto, { base: 'voters' }, sink.reply),
+    ).rejects.toMatchObject({ status: 503 })
     expect(sink.headers).toEqual({})
   })
 

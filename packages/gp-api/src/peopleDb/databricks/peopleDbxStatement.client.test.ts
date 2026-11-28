@@ -14,6 +14,7 @@ import {
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
+  PeopleDbxWarehouseNotReadyError,
   statementIdCollector,
 } from './peopleDbxStatement.client'
 import type { DbxStatement } from './databricksVoterSql.util'
@@ -79,6 +80,7 @@ describe('PeopleDbxStatementClient', () => {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
     }
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -99,6 +101,9 @@ describe('PeopleDbxStatementClient', () => {
         format: 'JSON_ARRAY',
         disposition: 'INLINE',
         warehouse_id: 'wh1',
+        // Short on purpose: the long poll is not where the warehouse wait is
+        // bounded (see the cold-start tests below).
+        wait_timeout: '5s',
       })
     })
 
@@ -306,7 +311,84 @@ describe('PeopleDbxStatementClient', () => {
     })
   })
 
+  // A cold-starting warehouse accepts the submit and holds the statement in
+  // PENDING without ever executing it: on 2026-11-17 all 87 statements
+  // submitted during an 18.9-minute boot were cancelled at the 60s ceiling
+  // after running for zero milliseconds. The waiting side is what these pin:
+  // it gets seconds, and only until the warehouse picks the statement up.
+  describe('a statement the warehouse has not started', () => {
+    // Each fetch is a round trip, and the poll loop sleeps 500ms between them;
+    // fake timers drive both so the two sides of the ceiling are exact.
+    const startPending = (state: string) => {
+      vi.useFakeTimers()
+      fetchMock.mockResolvedValue(
+        jsonResponse({ statement_id: 's1', status: { state } }),
+      )
+      return client.query(stmt('SELECT 1'))
+    }
+
+    it.each(['PENDING', 'QUEUED'])(
+      'gives up in seconds while the state is still %s',
+      async (state) => {
+        const failure = startPending(state).then(
+          () => null,
+          (e: PeopleDbxWarehouseNotReadyError) => e,
+        )
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        const err = await failure
+        expect(err).toBeInstanceOf(PeopleDbxWarehouseNotReadyError)
+        expect(err?.state).toBe(state)
+        // Seconds, not the whole budget: the caller answers 503 and the reader
+        // retries instead of watching a minute-long spinner.
+        expect(err?.elapsedMs).toBeLessThan(15_000)
+        // Cancelling frees the queue behind a boot, so the next retry is not
+        // waiting behind this statement too.
+        expect(callsMatching('/cancel')).toHaveLength(1)
+      },
+    )
+
+    // The other side of the change, and the one a wrong fix breaks: a query
+    // that IS executing keeps the full 60s budget. The measured reads on this
+    // path take 2.4-20.1s, so a 20s RUNNING statement has to keep succeeding
+    // long after the cold-start ceiling has passed.
+    it('still gives an executing statement the full budget', async () => {
+      vi.useFakeTimers()
+      const startedAt = Date.now()
+      fetchMock.mockImplementation(() =>
+        Promise.resolve(
+          Date.now() - startedAt >= 20_000
+            ? jsonResponse(succeeded([['1']]))
+            : jsonResponse({
+                statement_id: 's1',
+                status: { state: 'RUNNING' },
+              }),
+        ),
+      )
+
+      const pending = client.query(stmt('SELECT 1'))
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      expect((await pending).rows).toEqual([['1']])
+      expect(callsMatching('/cancel')).toHaveLength(0)
+    })
+  })
+
   describe('startCsvExport', () => {
+    it('reports an export the warehouse never started as not ready', async () => {
+      vi.useFakeTimers()
+      fetchMock.mockResolvedValue(
+        jsonResponse({ statement_id: 's1', status: { state: 'PENDING' } }),
+      )
+
+      const failure = client
+        .startCsvExport(stmt('SELECT 1'))
+        .catch((err: PeopleDbxWarehouseNotReadyError) => err)
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(await failure).toBeInstanceOf(PeopleDbxWarehouseNotReadyError)
+    })
+
     it('requests external CSV links and returns chunk zero', async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({

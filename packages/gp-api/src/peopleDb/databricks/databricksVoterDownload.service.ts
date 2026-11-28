@@ -4,6 +4,7 @@ import {
   GatewayTimeoutException,
   Injectable,
   InternalServerErrorException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { FastifyReply } from 'fastify'
@@ -19,6 +20,7 @@ import {
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
+  PeopleDbxWarehouseNotReadyError,
   type PeopleDbxCsvChunk,
 } from './peopleDbxStatement.client'
 
@@ -80,6 +82,13 @@ export class DatabricksVoterDownloadService {
         throw new GatewayTimeoutException(
           'Voter data export timed out before it could start. Try again ' +
             'shortly.',
+        )
+      }
+      // No timeout was reached here: the warehouse had not begun executing the
+      // export at all, and it clears by itself, so the retry is the fix.
+      if (err instanceof PeopleDbxWarehouseNotReadyError) {
+        throw new ServiceUnavailableException(
+          'The voter database is warming up right now. Try again in a moment.',
         )
       }
       throw new InternalServerErrorException('Failed to start download')

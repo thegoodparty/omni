@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   GatewayTimeoutException,
   Injectable,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { Readable } from 'node:stream'
@@ -19,6 +20,7 @@ import type { PeopleDataset } from '../services/peopleDataset.service'
 import { DatabricksVoterService } from './databricksVoter.service'
 import { readCsvChunkBody } from './csvChunkBody.util'
 import {
+  VOTER_DATA_STARTING_ERROR_CODE,
   VOTER_DATA_UNREACHABLE_ERROR_CODE,
   VOTER_QUERY_TIMEOUT_ERROR_CODE,
 } from '@/shared/constants/voterData.consts'
@@ -26,11 +28,15 @@ import {
   PeopleDbxStatementClient,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
+  PeopleDbxWarehouseNotReadyError,
   type PeopleDbxCsvChunk,
 } from './peopleDbxStatement.client'
 
 const SCAN_TIMEOUT_MESSAGE =
   'The voter map took too long to build. Please try again.'
+
+const SCAN_STARTING_MESSAGE =
+  'The voter database is warming up right now. Try again in a moment.'
 
 const UNAVAILABLE_MESSAGE =
   'Voter data is temporarily unavailable, so the voter map could not be ' +
@@ -162,6 +168,18 @@ export class DatabricksVoterPackService {
         throw new GatewayTimeoutException({
           message: SCAN_TIMEOUT_MESSAGE,
           errorCode: VOTER_QUERY_TIMEOUT_ERROR_CODE,
+        })
+      }
+      // The scan never began, so this is a wait rather than a failure: the
+      // warehouse was still starting, and the same request works once it has.
+      if (err instanceof PeopleDbxWarehouseNotReadyError) {
+        this.logger.warn(
+          { err },
+          'databricks warehouse had not started the pack scan',
+        )
+        throw new ServiceUnavailableException({
+          message: SCAN_STARTING_MESSAGE,
+          errorCode: VOTER_DATA_STARTING_ERROR_CODE,
         })
       }
       if (err instanceof PeopleDbxUnavailableError) {

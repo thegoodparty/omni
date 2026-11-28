@@ -4,6 +4,7 @@ import {
   GatewayTimeoutException,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -21,6 +22,7 @@ import {
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
+  PeopleDbxWarehouseNotReadyError,
 } from './peopleDbxStatement.client'
 
 const DISTRICT_ID = '635757db-1111-4111-8111-111111111111'
@@ -236,6 +238,26 @@ describe('DatabricksVoterService', () => {
           { base: 'voters' },
         ),
       ).rejects.toThrow(GatewayTimeoutException)
+    })
+
+    // The warehouse holding a statement it never started is a wait, not a
+    // fault: it clears by itself, so the answer is a retryable 503 with a
+    // message that says so, in seconds rather than after the 60s budget.
+    it('translates a warehouse that never started into a retryable 503', async () => {
+      query.mockRejectedValueOnce(
+        new PeopleDbxWarehouseNotReadyError('PENDING', 10_500),
+      )
+
+      const response = await service
+        .getAggregates(aggregatesSchema.parse({ districtId: DISTRICT_ID }), {
+          base: 'voters',
+        })
+        .catch((err: ServiceUnavailableException) => err.getResponse())
+
+      expect(response).toMatchObject({
+        errorCode: 'VOTER_DATA_STARTING',
+        message: expect.stringContaining('Try again in a moment'),
+      })
     })
 
     // There is no fallback store, so an unreachable warehouse has to surface as
